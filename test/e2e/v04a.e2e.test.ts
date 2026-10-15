@@ -94,7 +94,7 @@ function inputOf(deps: Record<string, unknown>, id: string, location: string, na
 /** Wall time of `analyze deps` over a bundle, in ms (logged for docs/03 §8: native analyze trigger). */
 async function timedDeps(bundle: string): Promise<{ data: Record<string, unknown>; ms: number }> {
   const t0 = performance.now();
-  const data = await ok("analyze", "deps", bundle, "--json");
+  const data = await ok("analyze", "deps", bundle);
   return { data, ms: Math.round(performance.now() - t0) };
 }
 
@@ -177,7 +177,7 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     expect(SEARCH_BUILD).toBe("2026.10");
 
     const target = searches[1]?.id ?? "";
-    const chain = await ok("analyze", "chain", bundle, "--json");
+    const chain = await ok("analyze", "chain", bundle);
     expect(chain["target"]).toBe(target);
     const steps = recs(chain["steps"]).map((x) => x["request"]);
     expect(steps[0]).toBe(doc?.id);
@@ -219,7 +219,7 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     expect(pw.hints).toContain("sensitive-name");
     for (const sp of SPELLINGS) expect(JSON.stringify(deps).includes(sp)).toBe(false);
 
-    const chain = await ok("analyze", "chain", bundle, "--json");
+    const chain = await ok("analyze", "chain", bundle);
     expect(chain["target"]).toBe(data.id);
     expect(recs(chain["steps"]).map((x) => x["request"])).toEqual([login.id, data.id]);
 

@@ -132,7 +132,7 @@ function cmdDeps(argv: readonly string[]): Outcome {
   let saved: SavedFindings | null = null;
   if (a["writeFindings"] === true) saved = appendFindings(bundle, depsFindings(graph, result));
   const data = { ...result, saved };
-  if (a["json"] === true) return { code: 0, envelope: ok(data) };
+  if (a["text"] !== true) return { code: 0, envelope: ok(data) };
   const t = renderDepsText(result) + (saved === null ? "" : `\nwrote ${saved.seqs.length} finding event(s) to ${saved.bundle}`);
   return { code: 0, envelope: ok(data), text: t };
 }
@@ -146,7 +146,7 @@ function cmdChain(argv: readonly string[]): Outcome {
   const a = parsed.args;
   const bundle = optStr(a["bundle"]) ?? "";
   const result = chainOf(DepsGraph.open(bundle), bundle, { request: optStr(a["request"]), session: optStr(a["bundleSession"]) });
-  if (a["json"] === true) return { code: 0, envelope: ok(result) };
+  if (a["text"] !== true) return { code: 0, envelope: ok(result) };
   return { code: 0, envelope: ok(result), text: renderChainText(result) };
 }
 

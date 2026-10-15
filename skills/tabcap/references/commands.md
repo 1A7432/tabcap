@@ -788,7 +788,7 @@ Example: `tabcap analyze diff ./b1 ./b2`
 value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else computed-in-page / unrecorded; exact matches only, never guessed
 
 ```
-tabcap analyze deps <bundle> [--session name] [--request r-N] [--json] [--write-findings]
+tabcap analyze deps <bundle> [--session name] [--request r-N] [--text] [--write-findings]
 ```
 
 Example: `tabcap analyze deps ./b --request r-12`
@@ -797,7 +797,7 @@ Example: `tabcap analyze deps ./b --request r-12`
 |---|---|---|
 | `--session <name>` |  | only requests recorded under this session name |
 | `--request <r-N>` |  | only this request (sources are still searched in the whole bundle) |
-| `--json` |  | print one JSON envelope (schema tabcap-deps/0) instead of the text report |
+| `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-deps/0) |
 | `--write-findings` |  | append finding events (tool deps) to the bundle (finished bundles only); default: the bundle is only read |
 
 ### `tabcap analyze chain`
@@ -805,7 +805,7 @@ Example: `tabcap analyze deps ./b --request r-12`
 the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input)
 
 ```
-tabcap analyze chain <bundle> [--request r-N] [--session name] [--json]
+tabcap analyze chain <bundle> [--request r-N] [--session name] [--text]
 ```
 
 Example: `tabcap analyze chain ./b --request r-12`
@@ -814,7 +814,7 @@ Example: `tabcap analyze chain ./b --request r-12`
 |---|---|---|
 | `--request <r-N>` |  | target request (default: the last data-bearing xhr / fetch / document request) |
 | `--session <name>` |  | pick the default target among requests of this session name |
-| `--json` |  | print one JSON envelope (schema tabcap-chain/0) instead of the text report |
+| `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-chain/0) |
 
 ### `tabcap replay serve`
 

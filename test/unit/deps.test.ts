@@ -220,22 +220,25 @@ describe("chain", () => {
 });
 
 describe("CLI", () => {
-  test("analyze deps: text by default, one envelope with --json; usage and not-found errors", async () => {
-    const text = await run(["analyze", "deps", flows]);
+  test("analyze deps / chain: one JSON envelope by default, a text report with --text; usage and not-found errors", async () => {
+    const text = await run(["analyze", "deps", flows, "--text"]);
     expect(text.code).toBe(0);
     expect(text.text).toContain(`${id["data"]} POST ${"http://127.0.0.1:4310/api/data"}`);
     expect(text.text).toMatch(/x-csrf\s+response\s+r-\d+ response \$\.csrf/);
-    const j = await run(["analyze", "deps", flows, "--json", "--request", id["data"] ?? ""]);
+    const j = await run(["analyze", "deps", flows, "--request", id["data"] ?? ""]);
+    expect(j.text).toBeUndefined();
     expect(j.code).toBe(0);
     const data = j.envelope.ok ? j.envelope.data : null;
     expect(isRecord(data) && data["schema"]).toBe("tabcap-deps/0");
     expect(isRecord(data) && data["saved"]).toBeNull();
     expect((await run(["analyze", "deps", flows, "--bogus"])).code).toBe(2);
     expect((await run(["analyze", "deps", flows, "--request", "r-424242"])).code).toBe(1);
-    const c = await run(["analyze", "chain", flows, "--request", id["data"] ?? ""]);
+    const c = await run(["analyze", "chain", flows, "--request", id["data"] ?? "", "--text"]);
     expect(c.text).toContain(`chain to ${id["data"]}`);
     expect(c.text).toContain("needs    body user: action");
-    const cj = await run(["analyze", "chain", flows, "--json"]);
+    const cj = await run(["analyze", "chain", flows]);
+    expect(cj.text).toBeUndefined();
+    expect((await run(["analyze", "chain", flows, "--json"])).code).toBe(2);
     const cd = cj.envelope.ok ? cj.envelope.data : null;
     expect(isRecord(cd) && cd["schema"]).toBe("tabcap-chain/0");
   });
@@ -244,11 +247,11 @@ describe("CLI", () => {
     const copy = join(root, "findings");
     cpSync(flows, copy, { recursive: true });
     const before = readFileSync(join(copy, "events.jsonl"), "utf8");
-    await run(["analyze", "deps", copy, "--json"]);
-    await run(["analyze", "chain", copy]);
+    await run(["analyze", "deps", copy]);
+    await run(["analyze", "chain", copy, "--text"]);
     expect(readFileSync(join(copy, "events.jsonl"), "utf8")).toBe(before);
 
-    const w = await run(["analyze", "deps", copy, "--write-findings", "--json"]);
+    const w = await run(["analyze", "deps", copy, "--write-findings"]);
     expect(w.code).toBe(0);
     const saved = w.envelope.ok && isRecord(w.envelope.data) ? w.envelope.data["saved"] : null;
     expect(isRecord(saved) && Array.isArray(saved["seqs"]) ? saved["seqs"].length : 0).toBeGreaterThan(5);

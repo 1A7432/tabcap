@@ -541,7 +541,7 @@ export const COMMANDS: CommandSpec[] = [
     flags: [
       { flag: "--session", key: "bundleSession", kind: "string", help: "only requests recorded under this session name", metavar: "name" },
       { flag: "--request", key: "request", kind: "string", help: "only this request (sources are still searched in the whole bundle)", metavar: "r-N" },
-      { flag: "--json", key: "json", kind: "bool", help: "print one JSON envelope (schema tabcap-deps/0) instead of the text report" },
+      { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON (the envelope's data is schema tabcap-deps/0)" },
       { flag: "--write-findings", key: "writeFindings", kind: "bool", help: "append finding events (tool deps) to the bundle (finished bundles only); default: the bundle is only read" },
     ],
     summary:
@@ -554,7 +554,7 @@ export const COMMANDS: CommandSpec[] = [
     flags: [
       { flag: "--request", key: "request", kind: "string", help: "target request (default: the last data-bearing xhr / fetch / document request)", metavar: "r-N" },
       { flag: "--session", key: "bundleSession", kind: "string", help: "pick the default target among requests of this session name", metavar: "name" },
-      { flag: "--json", key: "json", kind: "bool", help: "print one JSON envelope (schema tabcap-chain/0) instead of the text report" },
+      { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON (the envelope's data is schema tabcap-chain/0)" },
     ],
     summary: "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input)",
     example: "tabcap analyze chain ./b --request r-12",
