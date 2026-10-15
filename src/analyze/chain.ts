@@ -1,0 +1,155 @@
+// `tabcap analyze chain <bundle> --request r-N`: the action chain behind one
+// request (docs/03 §8: `analyze chain` gives the chain that `export-python`
+// turns into a scaffold). From the deps graph: the target, then every request
+// whose response produced a value the chain sends (set-cookie or response body,
+// the `primary` source, followed through carried-forward inputs), de-duplicated,
+// in recording order. Each step lists what it provides to later steps and what
+// it still needs from the caller: `computed-in-page` and `unrecorded` inputs
+// (also listed in `todo`), and recorded user input (`action`).
+// Default target: the last data-bearing xhr / fetch / document request (2xx
+// with a recorded body) of the bundle, or of `--session`.
+// Oracle: test/unit/deps.test.ts (chain cases on planted flows) and
+// test/e2e/v04a.e2e.test.ts (docs/05 s07: login → data).
+// Reproduce: bun test test/unit/deps.test.ts
+
+import { TabcapError } from "../shared/envelope.ts";
+import type { RequestEvent } from "../bundle/types.ts";
+import { DepsGraph, type DepsClass, type InputLocation } from "./deps.ts";
+import type { StepName } from "./decoders.ts";
+
+export const CHAIN_SCHEMA = "tabcap-chain/0";
+const DATA_TYPES = new Set(["xhr", "fetch", "document"]);
+
+export type ChainTo = { request: string; location: InputLocation; name: string; path?: string };
+
+export type ChainProvide = {
+  kind: "set-cookie" | "response";
+  to: ChainTo;
+  /** set-cookie: the cookie name. */
+  cookie?: string;
+  /** response: JSON path in this step's response body (absent for a text match). */
+  path?: string;
+  decode?: StepName[];
+  match?: "exact" | "embedded";
+};
+
+export type ChainNeed = {
+  location: InputLocation;
+  name: string;
+  path?: string;
+  class: Extract<DepsClass, "computed-in-page" | "unrecorded" | "action">;
+  hints: string[];
+  covaries: string[];
+  /** The value was carried forward from this earlier request, where it has no source either. */
+  via?: string;
+  /** action: event seq of the fill / type. */
+  action?: number;
+  secret?: string;
+};
+
+export type ChainStep = { request: string; method: string; url: string; provides: ChainProvide[]; needs: ChainNeed[] };
+
+export type ChainTodo = Omit<ChainNeed, "class" | "action" | "secret"> & { request: string; class: "computed-in-page" | "unrecorded" };
+
+export type ChainResult = { schema: typeof CHAIN_SCHEMA; bundle: string; target: string; steps: ChainStep[]; todo: ChainTodo[]; warnings: string[] };
+
+export type ChainOptions = { request?: string | undefined; session?: string | undefined };
+
+/** 2xx xhr / fetch / document with a recorded, non-empty response body. */
+export const dataBearing = (r: RequestEvent): boolean => {
+  const st = r.response?.status ?? null;
+  return DATA_TYPES.has(r.type) && st !== null && st >= 200 && st < 300 && (r.response?.body?.size ?? 0) > 0;
+};
+
+/** The default target: last data-bearing xhr / fetch / document request (else the last of those types with a response). */
+export function defaultTarget(g: DepsGraph, session?: string): RequestEvent {
+  const list = g.select({ session });
+  const last = [...list].reverse();
+  const hit = last.find(dataBearing) ?? last.find((r) => DATA_TYPES.has(r.type) && r.response !== null);
+  if (hit === undefined) throw new TabcapError("not-found", "no xhr / fetch / document request with a response to build a chain for", "Pass the target explicitly: --request r-N.");
+  return hit;
+}
+
+export function chainOf(g: DepsGraph, bundle: string, opts: ChainOptions = {}): ChainResult {
+  const target = opts.request !== undefined ? (g.select({ session: opts.session, request: opts.request })[0] ?? defaultTarget(g, opts.session)) : defaultTarget(g, opts.session);
+  const inChain = new Set<string>([target.id]);
+  const queue = [target.id];
+  const provides = new Map<string, ChainProvide[]>();
+  const needs = new Map<string, ChainNeed[]>();
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (id === undefined) break;
+    for (const input of g.inputs(id)) {
+      const root = g.root(id, input);
+      const rp = root.input.primary;
+      const to: ChainTo = { request: id, location: input.location, name: input.name, ...(input.path === undefined ? {} : { path: input.path }) };
+      if (rp !== null && rp.request !== undefined && (rp.kind === "set-cookie" || rp.kind === "response")) {
+        const list = provides.get(rp.request) ?? [];
+        list.push({
+          kind: rp.kind,
+          to,
+          ...(rp.cookie === undefined ? {} : { cookie: rp.cookie }),
+          ...(rp.path === undefined ? {} : { path: rp.path }),
+          ...(rp.decode === undefined ? {} : { decode: rp.decode }),
+          ...(rp.match === undefined ? {} : { match: rp.match }),
+        });
+        provides.set(rp.request, list);
+        if (!inChain.has(rp.request)) {
+          inChain.add(rp.request);
+          queue.push(rp.request);
+        }
+        continue;
+      }
+      const cls = root.input.class;
+      if (cls !== "computed-in-page" && cls !== "unrecorded" && cls !== "action") continue;
+      const list = needs.get(id) ?? [];
+      list.push({
+        location: input.location,
+        name: input.name,
+        ...(input.path === undefined ? {} : { path: input.path }),
+        class: cls,
+        hints: root.input.hints,
+        covaries: root.input.covaries,
+        ...(root.request === id ? {} : { via: root.request }),
+        ...(rp?.kind === "action" && rp.action !== undefined ? { action: rp.action } : {}),
+        ...(rp?.kind === "action" && rp.secret !== undefined ? { secret: rp.secret } : {}),
+      });
+      needs.set(id, list);
+    }
+  }
+  const steps: ChainStep[] = [...inChain]
+    .map((id) => g.byId.get(id))
+    .filter((r): r is RequestEvent => r !== undefined)
+    .sort((a, b) => a.seq - b.seq)
+    .map((r) => ({ request: r.id, method: r.method, url: r.url, provides: provides.get(r.id) ?? [], needs: needs.get(r.id) ?? [] }));
+  const todo: ChainTodo[] = [];
+  for (const s of steps) {
+    for (const n of s.needs) {
+      if (n.class === "action") continue;
+      todo.push({ request: s.request, location: n.location, name: n.name, ...(n.path === undefined ? {} : { path: n.path }), class: n.class, hints: n.hints, covaries: n.covaries, ...(n.via === undefined ? {} : { via: n.via }) });
+    }
+  }
+  return { schema: CHAIN_SCHEMA, bundle, target: target.id, steps, todo, warnings: [...g.warnings] };
+}
+
+export function chain(bundleDir: string, opts: ChainOptions = {}): ChainResult {
+  return chainOf(DepsGraph.open(bundleDir), bundleDir, opts);
+}
+
+// ------------------------------------------------------------ text rendering
+
+const label = (t: { location: string; name: string; path?: string }) => `${t.location} ${t.path ?? t.name}`;
+
+export function renderChainText(r: ChainResult): string {
+  const lines = [`chain to ${r.target} in ${r.bundle}: ${r.steps.length} step(s), ${r.todo.length} TODO`];
+  r.steps.forEach((s, i) => {
+    lines.push("", `${i + 1}. ${s.request} ${s.method} ${s.url.length > 100 ? s.url.slice(0, 99) + "…" : s.url}`);
+    for (const p of s.provides) lines.push(`   provides ${p.kind === "set-cookie" ? `set-cookie ${p.cookie ?? ""}` : `response ${p.path ?? "(text)"}`} → ${p.to.request} ${label(p.to)}`);
+    for (const n of s.needs) {
+      const extra = [n.hints.length > 0 ? `[${n.hints.join(",")}]` : "", n.covaries.length > 0 ? `varies with ${n.covaries.join(", ")}` : "", n.via === undefined ? "" : `via ${n.via}`].filter((x) => x !== "").join(" ");
+      lines.push(`   needs    ${label(n)}: ${n.class}${n.secret === undefined ? "" : ` <secret:${n.secret}>`}${extra === "" ? "" : `  ${extra}`}`);
+    }
+  });
+  for (const w of r.warnings) lines.push(`warning: ${w}`);
+  return lines.join("\n");
+}

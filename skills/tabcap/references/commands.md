@@ -783,6 +783,39 @@ Example: `tabcap analyze diff ./b1 ./b2`
 | `--text` |  | print a text report instead of JSON |
 | `--save` |  | append the result as a finding event to the first bundle |
 
+### `tabcap analyze deps`
+
+value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else computed-in-page / unrecorded; exact matches only, never guessed
+
+```
+tabcap analyze deps <bundle> [--session name] [--request r-N] [--json] [--write-findings]
+```
+
+Example: `tabcap analyze deps ./b --request r-12`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--session <name>` |  | only requests recorded under this session name |
+| `--request <r-N>` |  | only this request (sources are still searched in the whole bundle) |
+| `--json` |  | print one JSON envelope (schema tabcap-deps/0) instead of the text report |
+| `--write-findings` |  | append finding events (tool deps) to the bundle (finished bundles only); default: the bundle is only read |
+
+### `tabcap analyze chain`
+
+the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input)
+
+```
+tabcap analyze chain <bundle> [--request r-N] [--session name] [--json]
+```
+
+Example: `tabcap analyze chain ./b --request r-12`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--request <r-N>` |  | target request (default: the last data-bearing xhr / fetch / document request) |
+| `--session <name>` |  | pick the default target among requests of this session name |
+| `--json` |  | print one JSON envelope (schema tabcap-chain/0) instead of the text report |
+
 ### `tabcap replay serve`
 
 serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256; repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k); no match → 404 with the nearest recordings and what differs

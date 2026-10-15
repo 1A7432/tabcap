@@ -3,13 +3,17 @@
 
 import { TabcapError, fail, ok, toFail, type Envelope } from "../shared/envelope.ts";
 import { find, renderFindText, type FindResult } from "../analyze/find.ts";
-import { appendFinding, type SavedFinding } from "../analyze/finding.ts";
+import { appendFinding, appendFindings, type SavedFinding, type SavedFindings } from "../analyze/finding.ts";
 import { diff, renderDiffText, type DiffResult } from "../analyze/diff.ts";
-import { flagNames, specOf, usageOf } from "./commands.ts";
+import { DepsGraph, depsFindings, depsOf, renderDepsText } from "../analyze/deps.ts";
+import { chainOf, renderChainText } from "../analyze/chain.ts";
+import { flagNames, helpFor, parseCommand, specOf, usageOf } from "./commands.ts";
 
 const FIND = specOf("analyze find");
 const DIFF = specOf("analyze diff");
-export const ANALYZE_USAGE = [usageOf(FIND), usageOf(DIFF)];
+const DEPS = specOf("analyze deps");
+const CHAIN = specOf("analyze chain");
+export const ANALYZE_USAGE = [usageOf(FIND), usageOf(DIFF), usageOf(DEPS), usageOf(CHAIN)];
 
 type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
 
@@ -113,6 +117,39 @@ function cmdDiff(argv: readonly string[]): Outcome {
   return { code: 0, envelope: ok(data) };
 }
 
+const optStr = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+
+function cmdDeps(argv: readonly string[]): Outcome {
+  const parsed = parseCommand(DEPS, argv);
+  if (parsed.help) {
+    const text = helpFor(DEPS);
+    return { code: 0, envelope: ok({ help: text }), text };
+  }
+  const a = parsed.args;
+  const bundle = optStr(a["bundle"]) ?? "";
+  const graph = DepsGraph.open(bundle);
+  const result = depsOf(graph, bundle, { session: optStr(a["bundleSession"]), request: optStr(a["request"]) });
+  let saved: SavedFindings | null = null;
+  if (a["writeFindings"] === true) saved = appendFindings(bundle, depsFindings(graph, result));
+  const data = { ...result, saved };
+  if (a["json"] === true) return { code: 0, envelope: ok(data) };
+  const t = renderDepsText(result) + (saved === null ? "" : `\nwrote ${saved.seqs.length} finding event(s) to ${saved.bundle}`);
+  return { code: 0, envelope: ok(data), text: t };
+}
+
+function cmdChain(argv: readonly string[]): Outcome {
+  const parsed = parseCommand(CHAIN, argv);
+  if (parsed.help) {
+    const text = helpFor(CHAIN);
+    return { code: 0, envelope: ok({ help: text }), text };
+  }
+  const a = parsed.args;
+  const bundle = optStr(a["bundle"]) ?? "";
+  const result = chainOf(DepsGraph.open(bundle), bundle, { request: optStr(a["request"]), session: optStr(a["bundleSession"]) });
+  if (a["json"] === true) return { code: 0, envelope: ok(result) };
+  return { code: 0, envelope: ok(result), text: renderChainText(result) };
+}
+
 export async function runAnalyze(argv: readonly string[]): Promise<Outcome> {
   try {
     const [, sub, ...rest] = argv;
@@ -122,6 +159,8 @@ export async function runAnalyze(argv: readonly string[]): Promise<Outcome> {
     }
     if (sub === "find") return cmdFind(rest);
     if (sub === "diff") return cmdDiff(rest);
+    if (sub === "deps") return cmdDeps(rest);
+    if (sub === "chain") return cmdChain(rest);
     return { code: 2, envelope: fail("usage", `unknown command: analyze ${sub}`, `Available: ${ANALYZE_USAGE.join(" | ")}`) };
   } catch (e) {
     const env = toFail(e);

@@ -7,7 +7,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { ALIASES_REMOVED_IN, COMMANDS, COMMON_FLAGS, currentCommands, deprecatedAliases, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
+import { ALIASES_REMOVED_IN, COMMANDS, COMMON_FLAGS, currentCommands, deprecatedAliases, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export const SKILL_DIR = "skills/tabcap";
@@ -43,7 +43,7 @@ function flagRow(f: FlagSpec): string {
 }
 
 function commandSection(c: CommandSpec): string {
-  const flags = c.flags.filter((f) => !COMMON_FLAGS.includes(f.flag));
+  const flags = c.flags.filter((f) => !isCommonFlag(f));
   return [
     `### \`tabcap ${c.path.join(" ")}\``,
     "",

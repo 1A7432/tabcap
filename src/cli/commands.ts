@@ -74,6 +74,9 @@ const TT = [SESSION, TIMEOUT, TAB];
 const WAIT_TIMEOUT: FlagSpec = { flag: "--timeout", key: "timeoutMs", kind: "number", help: "give up after this many ms (max 120000)", default: 10000, metavar: "ms" };
 /** Flags most browser commands share; the generated docs mention them once instead of per row. */
 export const COMMON_FLAGS: readonly string[] = ["--session", "--timeout"];
+const COMMON_KEYS: ReadonlySet<string> = new Set(["session", "timeoutMs"]);
+/** A shared --session / --timeout (not an offline command's own flag that happens to share the spelling, e.g. analyze deps --session). */
+export const isCommonFlag = (f: FlagSpec, skip: readonly string[] = COMMON_FLAGS): boolean => skip.includes(f.flag) && COMMON_KEYS.has(f.key);
 const NO_WAIT: FlagSpec = {
   flag: "--no-wait",
   key: "noWait",
@@ -533,6 +536,30 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap analyze diff ./b1 ./b2",
   },
   {
+    path: ["analyze", "deps"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--session", key: "bundleSession", kind: "string", help: "only requests recorded under this session name", metavar: "name" },
+      { flag: "--request", key: "request", kind: "string", help: "only this request (sources are still searched in the whole bundle)", metavar: "r-N" },
+      { flag: "--json", key: "json", kind: "bool", help: "print one JSON envelope (schema tabcap-deps/0) instead of the text report" },
+      { flag: "--write-findings", key: "writeFindings", kind: "bool", help: "append finding events (tool deps) to the bundle (finished bundles only); default: the bundle is only read" },
+    ],
+    summary:
+      "value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else computed-in-page / unrecorded; exact matches only, never guessed",
+    example: "tabcap analyze deps ./b --request r-12",
+  },
+  {
+    path: ["analyze", "chain"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--request", key: "request", kind: "string", help: "target request (default: the last data-bearing xhr / fetch / document request)", metavar: "r-N" },
+      { flag: "--session", key: "bundleSession", kind: "string", help: "pick the default target among requests of this session name", metavar: "name" },
+      { flag: "--json", key: "json", kind: "bool", help: "print one JSON envelope (schema tabcap-chain/0) instead of the text report" },
+    ],
+    summary: "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input)",
+    example: "tabcap analyze chain ./b --request r-12",
+  },
+  {
     path: ["replay", "serve"],
     pos: ["bundle"],
     flags: [
@@ -646,7 +673,7 @@ export function usageOf(c: CommandSpec, skip: readonly string[] = []): string {
     const name = c.restList === true && i === c.pos.length - 1 ? `${posName(c, p)}...` : posName(c, p);
     return c.optional !== undefined && i >= c.pos.length - c.optional ? `[${name}]` : name;
   });
-  const flags = c.flags.filter((f) => !skip.includes(f.flag) && f.deprecatedNote === undefined).map(flagUsage);
+  const flags = c.flags.filter((f) => !isCommonFlag(f, skip) && f.deprecatedNote === undefined).map(flagUsage);
   return [TOOL_NAME, ...c.path, ...pos, ...flags].join(" ");
 }
 
