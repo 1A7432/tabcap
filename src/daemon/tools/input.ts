@@ -12,7 +12,7 @@
 // (`--snapshot`).
 
 import { TabcapError } from "../../shared/envelope.ts";
-import { isRecord, str } from "../../shared/json.ts";
+import { isRecord, num, str } from "../../shared/json.ts";
 import { withFocusEmulation } from "../browser/focus.ts";
 import type { Tab } from "../browser/targets.ts";
 import { LOGIN_LIMIT } from "../guard.ts";
@@ -173,30 +173,96 @@ export const PAINT_TIMEOUT_MS = 1000;
 export const MOVE_TIMEOUT_MS = 1000;
 const PRESS_TIMEOUT_MS = 5000;
 
+/** Animation frames further apart than this: the tab's frames are throttled. */
+export const SLOW_FRAME_MS = 100;
+/** Frame gaps the paint check measures after the first frame. */
+export const FRAME_GAPS = 3;
+
 /**
  * rAF paint check (docs/10 §3.4): only a page that runs an animation frame
  * within 1 s and says `visible` counts as painted. The in-page timer settles
  * the promise when rAF never fires; the CDP timeout is the backstop.
+ * `frameMs`: the largest gap over the next FRAME_GAPS animation frames, null
+ * when one of them does not come within SLOW_FRAME_MS (see holdFrames; a
+ * throttled tab can show two frames close together, then none for ~1 s).
  */
 export const PAINT_EXPR = `new Promise((resolve) => {
-  let done = false;
-  const fin = (raf) => { if (!done) { done = true; resolve({ raf, visibility: document.visibilityState }); } };
-  requestAnimationFrame(() => fin(true));
-  setTimeout(() => fin(false), ${PAINT_TIMEOUT_MS});
+  let done = false, last = null, max = 0, gaps = 0, timer = null;
+  const fin = (raf, frameMs) => { if (!done) { done = true; clearTimeout(timer); resolve({ raf, frameMs, visibility: document.visibilityState }); } };
+  const tick = () => {
+    const now = performance.now();
+    if (last !== null) { max = Math.max(max, now - last); gaps++; }
+    last = now;
+    if (gaps >= ${FRAME_GAPS}) { fin(true, Math.round(max)); return; }
+    clearTimeout(timer);
+    timer = setTimeout(() => fin(true, null), ${SLOW_FRAME_MS});
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  setTimeout(() => { if (last === null) fin(false, null); }, ${PAINT_TIMEOUT_MS});
 })`;
 
-export type Paint = { painted: boolean; raf: boolean; visibility: string | null; error: string | null };
+export type Paint = { painted: boolean; raf: boolean; visibility: string | null; frameMs: number | null; error: string | null };
 
 export async function paintCheck(t: Transport, sessionId: string): Promise<Paint> {
   try {
-    const r = await t.send("Runtime.evaluate", { expression: PAINT_EXPR, awaitPromise: true, returnByValue: true }, sessionId, PAINT_TIMEOUT_MS + 1000);
+    const r = await t.send("Runtime.evaluate", { expression: PAINT_EXPR, awaitPromise: true, returnByValue: true }, sessionId, PAINT_TIMEOUT_MS + FRAME_GAPS * SLOW_FRAME_MS + 1000);
     const v = rec(callResult(r));
     const raf = v["raf"] === true;
     const visibility = str(v, "visibility");
-    return { painted: raf && visibility === "visible", raf, visibility, error: null };
+    return { painted: raf && visibility === "visible", raf, visibility, frameMs: num(v, "frameMs"), error: null };
   } catch (e) {
-    return { painted: false, raf: false, visibility: null, error: e instanceof Error ? e.message : String(e) };
+    return { painted: false, raf: false, visibility: null, frameMs: null, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** Painted at full rate: a frame within 1 s, `visible`, the next FRAME_GAPS frames each within SLOW_FRAME_MS. */
+const fullRate = (p: Paint): boolean => p.painted && p.frameMs !== null && p.frameMs <= SLOW_FRAME_MS;
+
+/** A tiny screencast: its only job is to make the compositor draw the tab's frames. */
+const HOLD_SCREENCAST = { format: "jpeg", quality: 1, maxWidth: 32, maxHeight: 32, everyNthFrame: 1 };
+
+/** The first paint check when a screencast had to hold the frames (reported as `paint` in the output). */
+export type FramesHeld = { raf: boolean; frameMs: number | null; visibility: string | null; held: "screencast" };
+
+export type PaintForInput = { paint: Paint; held: FramesHeld | null; release: () => Promise<void> };
+
+/**
+ * Paint check for the trusted mouse path. Chrome acknowledges a mouseMoved only
+ * after the page's next animation frame. On Linux (Xvfb, CfT / Chromium 155) a
+ * background tab that focus emulation made `visible` is drawn by nobody; once it
+ * has put out a few frames with changes (typing, a caret, an animation) its
+ * frames drop to 1 per second, so every move waits up to ~1 s and the path ends
+ * in `move-timeout`. Measured: rAF 17 ms -> 1017 ms after focusing an input or
+ * typing; a Page.startScreencast brings it back to 17 ms for as long as it runs,
+ * also under a running animation (a screenshot only until the next few changes).
+ * So a `visible` tab whose frames are slow (or missing) gets one tiny screencast
+ * that runs until `release`, and a second paint check; the caller reports it
+ * (`paint.held: "screencast"`). macOS draws such tabs at full rate (81/81 e2e
+ * without a screencast) and does not take this branch. A hidden tab is left
+ * alone (degraded as before), and so is one the screencast does not bring to
+ * full rate: the screencast is stopped and the second check decides.
+ */
+export async function holdFrames(t: Transport, sessionId: string): Promise<PaintForInput> {
+  const none = async () => undefined;
+  const first = await paintCheck(t, sessionId);
+  if (first.visibility !== "visible" || fullRate(first)) return { paint: first, held: null, release: none };
+  try {
+    await t.send("Page.startScreencast", HOLD_SCREENCAST, sessionId, 3000);
+  } catch (e) {
+    log.info("trusted input: frames are slow and a screencast could not start", { raf: first.raf, frameMs: first.frameMs, error: String(e) });
+    return { paint: first, held: null, release: none };
+  }
+  const release = async () => {
+    await t.send("Page.stopScreencast", {}, sessionId, 1000).catch((e: unknown) => {
+      log.warn("trusted input: screencast did not stop", { error: String(e) });
+    });
+  };
+  const second = await paintCheck(t, sessionId);
+  log.info("trusted input: slow frames, screencast held", { raf: first.raf, frameMs: first.frameMs, after: second.frameMs, painted: second.painted });
+  if (fullRate(second)) return { paint: second, held: { raf: first.raf, frameMs: first.frameMs, visibility: first.visibility, held: "screencast" }, release };
+  await release();
+  return { paint: second, held: null, release: none };
 }
 
 export type PointerDeps = { rng: Rng; sleep: (ms: number) => Promise<unknown>; now: () => number; moveTimeoutMs: number };
@@ -287,43 +353,48 @@ export async function pointerClick(
 
 export type TrustedClick =
   | { kind: "degraded"; paint: Paint; tag: string | null }
-  | { kind: "clicked"; from: Point; to: Point; result: PointerResult };
+  | { kind: "clicked"; from: Point; to: Point; result: PointerResult; held: FramesHeld | null };
 
 /**
  * Level 2 of the ladder for one click (docs/07 §1.1, docs/10 §3.4): focus
- * emulation on → scroll → paint check → (not painted: DOM click, never a mouse
- * move) → target centre → occlusion check at the end point → pointerClick.
- * Emulation is switched off again in every case.
+ * emulation on → scroll → paint check (holdFrames: slow frames get a held
+ * screencast) → (not painted: DOM click, never a mouse move) → target centre →
+ * occlusion check at the end point → pointerClick. The screencast and the
+ * emulation are switched off again in every case.
  */
 export async function trustedClickOn(t: Transport, tab: Tab, node: { objectId: string; backendNodeId: number }, ref: string, deps: PointerDeps = DEFAULT_DEPS, clicks: 1 | 2 = 1): Promise<TrustedClick> {
   return withFocusEmulation(t, tab.sessionId, async () => {
     liveOrStale(rec(callResult(await call(t, tab, node.objectId, SCROLL_FN))), ref);
-    const paint = await paintCheck(t, tab.sessionId);
-    if (!paint.painted) {
-      log.info("click --trusted: tab not confirmed painted, DOM click instead", { tab: tab.id, ref, raf: paint.raf, visibility: paint.visibility, error: paint.error });
-      const v = liveOrStale(rec(callResult(await call(t, tab, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
-      return { kind: "degraded", paint, tag: str(v, "tag") };
+    const { paint, held, release } = await holdFrames(t, tab.sessionId);
+    try {
+      if (!paint.painted) {
+        log.info("click --trusted: tab not confirmed painted, DOM click instead", { tab: tab.id, ref, raf: paint.raf, visibility: paint.visibility, error: paint.error });
+        const v = liveOrStale(rec(callResult(await call(t, tab, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
+        return { kind: "degraded", paint, tag: str(v, "tag") };
+      }
+      const to = await centre(t, tab, node.backendNodeId, ref);
+      const occ = rec(callResult(await call(t, tab, node.objectId, OCCLUSION_FN, [to.x, to.y])));
+      if (occ["ok"] !== true) {
+        throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(to.x)}, ${Math.round(to.y)}) by ${str(occ, "hit") ?? "nothing"}`, "Close the overlay first (snapshot to find it), or use plain `tabcap click <ref>` (DOM click).");
+      }
+      const from = tab.pointer ?? { x: 0, y: 0 };
+      const result = await pointerClick(
+        t,
+        tab.sessionId,
+        node.objectId,
+        ref,
+        from,
+        to,
+        deps,
+        (p) => {
+          tab.pointer = p;
+        },
+        clicks,
+      );
+      return { kind: "clicked", from, to, result, held };
+    } finally {
+      await release();
     }
-    const to = await centre(t, tab, node.backendNodeId, ref);
-    const occ = rec(callResult(await call(t, tab, node.objectId, OCCLUSION_FN, [to.x, to.y])));
-    if (occ["ok"] !== true) {
-      throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(to.x)}, ${Math.round(to.y)}) by ${str(occ, "hit") ?? "nothing"}`, "Close the overlay first (snapshot to find it), or use plain `tabcap click <ref>` (DOM click).");
-    }
-    const from = tab.pointer ?? { x: 0, y: 0 };
-    const result = await pointerClick(
-      t,
-      tab.sessionId,
-      node.objectId,
-      ref,
-      from,
-      to,
-      deps,
-      (p) => {
-        tab.pointer = p;
-      },
-      clicks,
-    );
-    return { kind: "clicked", from, to, result };
   });
 }
 
@@ -371,6 +442,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
           trajectory: { from: xy(r.from), to: xy(r.to), points: r.result.plan.points.length, ms: r.result.plan.durationMs, actualMs: r.result.actualMs },
           pressGapMs: r.result.plan.pressGapMs,
           delivered: r.result.delivered,
+          ...(r.held === null ? {} : { paint: r.held }),
           ...dbl,
           overlayCheck,
         };
@@ -384,8 +456,9 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
 
 /**
  * `hover <ref>`: the trusted mouse path of `click --trusted` without the press
- * (focus emulation, paint check, occlusion check at the end point). A tab that
- * does not paint gets no mouse move at all: `not-painted`, nothing moved.
+ * (focus emulation, paint check with holdFrames, occlusion check at the end
+ * point). A tab that does not paint gets no mouse move at all: `not-painted`,
+ * nothing moved.
  */
 export async function hover(d: Daemon, a: Args, session: string): Promise<unknown> {
   const ref = reqStr(a, "ref", "tabcap hover <ref>");
@@ -399,34 +472,39 @@ export async function hover(d: Daemon, a: Args, session: string): Promise<unknow
         const overlayCheck = await overlayGate(t, tab, node, ref);
         return withFocusEmulation(t, tab.sessionId, async () => {
           liveOrStale(rec(callResult(await call(t, tab, node.objectId, SCROLL_FN))), ref);
-          const paint = await paintCheck(t, tab.sessionId);
-          if (!paint.painted) {
-            throw new TabcapError(
-              "not-painted",
-              `tab ${tab.id} is not confirmed painted (requestAnimationFrame ${paint.raf ? "ran" : "did not run"}, visibility ${paint.visibility ?? "unknown"}); no mouse move was sent`,
-              "Nothing was hovered. Check the tab with `tabcap screenshot`, then run hover again; tabcap did not retry.",
-            );
+          const { paint, held, release } = await holdFrames(t, tab.sessionId);
+          try {
+            if (!paint.painted) {
+              throw new TabcapError(
+                "not-painted",
+                `tab ${tab.id} is not confirmed painted (requestAnimationFrame ${paint.raf ? "ran" : "did not run"}, visibility ${paint.visibility ?? "unknown"}); no mouse move was sent`,
+                "Nothing was hovered. Check the tab with `tabcap screenshot`, then run hover again; tabcap did not retry.",
+              );
+            }
+            const to = await centre(t, tab, node.backendNodeId, ref);
+            const occ = rec(callResult(await call(t, tab, node.objectId, OCCLUSION_FN, [to.x, to.y])));
+            if (occ["ok"] !== true) {
+              throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(to.x)}, ${Math.round(to.y)}) by ${str(occ, "hit") ?? "nothing"}`, "Close the overlay first (snapshot to find it), then hover again.");
+            }
+            const from = tab.pointer ?? { x: 0, y: 0 };
+            const plan = planClick(from, to, DEFAULT_DEPS.rng);
+            const actualMs = await movePath(t, tab.sessionId, ref, plan, DEFAULT_DEPS, (p) => {
+              tab.pointer = p;
+            }, "the pointer stopped short of the element");
+            const xy = (p: Point) => ({ x: Math.round(p.x), y: Math.round(p.y) });
+            return {
+              tab: tab.id,
+              ref,
+              level: 2,
+              trusted: true,
+              at: xy(to),
+              trajectory: { from: xy(from), to: xy(to), points: plan.points.length, ms: plan.durationMs, actualMs },
+              ...(held === null ? {} : { paint: held }),
+              overlayCheck,
+            };
+          } finally {
+            await release();
           }
-          const to = await centre(t, tab, node.backendNodeId, ref);
-          const occ = rec(callResult(await call(t, tab, node.objectId, OCCLUSION_FN, [to.x, to.y])));
-          if (occ["ok"] !== true) {
-            throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(to.x)}, ${Math.round(to.y)}) by ${str(occ, "hit") ?? "nothing"}`, "Close the overlay first (snapshot to find it), then hover again.");
-          }
-          const from = tab.pointer ?? { x: 0, y: 0 };
-          const plan = planClick(from, to, DEFAULT_DEPS.rng);
-          const actualMs = await movePath(t, tab.sessionId, ref, plan, DEFAULT_DEPS, (p) => {
-            tab.pointer = p;
-          }, "the pointer stopped short of the element");
-          const xy = (p: Point) => ({ x: Math.round(p.x), y: Math.round(p.y) });
-          return {
-            tab: tab.id,
-            ref,
-            level: 2,
-            trusted: true,
-            at: xy(to),
-            trajectory: { from: xy(from), to: xy(to), points: plan.points.length, ms: plan.durationMs, actualMs },
-            overlayCheck,
-          };
         });
       });
       return { ...result, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };

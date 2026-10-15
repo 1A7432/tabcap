@@ -3,7 +3,8 @@
 // untrusted, so only what the spec needs is checked; the array is otherwise
 // kept as CDP returned it ("cookies 用 CDP Network.getCookies 的原样数组").
 // Oracle: CDP Network.getCookies (`{cookies: Cookie[]}`; with no `urls` it
-// answers for the target's current URL and its frames). Reproduce:
+// answers for the target's current URL and its frames; the `nav` snapshot
+// passes the committed URL, see navCookieParams). Reproduce:
 // bun test test/unit/state.test.ts; the e2e in test/e2e/v03c.e2e.test.ts reads
 // the cookies the local site set.
 
@@ -36,6 +37,21 @@ export function stateOrigin(url: string): string | null {
  */
 export function navWantsCookies(type: NavType, initial: boolean): boolean {
   return type === "navigation" && !initial;
+}
+
+/**
+ * Network.getCookies params for the `nav` snapshot: the committed URL itself.
+ * Without `urls` Chrome answers for the URLs of the target's frame tree as the
+ * browser process knows them, and Page.frameNavigated (sent by the renderer)
+ * can arrive before the browser has recorded the commit: the answer is then
+ * empty although the jar holds the site's cookies (measured on Linux, CfT /
+ * Chromium 155: 2 of 10 runs `[]` while `{urls: [committed]}` at the same
+ * moment and the no-urls call 300 ms later both returned the cookie). At a root
+ * commit the new document has no subframes yet, so the committed URL is the
+ * whole frame tree. Non-http(s) URLs (about:blank, data:) keep the no-urls call.
+ */
+export function navCookieParams(committed: string): { urls?: string[] } {
+  return stateOrigin(committed) === null ? {} : { urls: [committed] };
 }
 
 /** The fields of a `state` cookies event (envelope fields are the writer's). */
