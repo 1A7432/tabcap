@@ -1,0 +1,20 @@
+{
+  "name": "@tabcap/linux-arm64",
+  "version": "0.2.0",
+  "description": "The tabcap binary for Linux arm64. Installed by the tabcap package; not meant to be used directly.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1A7432/tabcap.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "preferUnplugged": true
+}
