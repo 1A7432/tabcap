@@ -4,11 +4,11 @@
 
 人机共驾的采集工作台（自用、准备开源）：程序员和 AI 共用同一个已登录的真实浏览器，AI 探路、放大，卡住或拿不准就交还给人，人给凭据、过验证、核结论；全程录下证据，每个结论都能回放验证。起点是把扩展式浏览器桥（挂 debugger、不弹框、不抢焦点）和 agent-browser（完整 CLI、抓包、HAR）的长处合起来。
 
-状态（2026-10-16）：0.3.0 开发中（alpha），只测过 macOS arm64；Bun + TypeScript、Apache-2.0、守护进程直连自管的 Chrome for Testing（扩展通道阶段 2）。规范在 `docs/04`–`10`。
+状态（2026-10-16）：0.3.0（alpha）。macOS arm64 日常使用、测试全过；Linux x64 与 Windows x64 在 CI 上跑，有已知缺口（见下方「平台」）；Linux arm64 只编译、未运行；Bun + TypeScript、Apache-2.0、守护进程直连自管的 Chrome for Testing（扩展通道阶段 2）。规范在 `docs/04`–`10`。
 
 ## 快速开始
 
-`tabcap` 是给 AI agent 用的专属浏览器：守护进程自己管一份 Chrome for Testing（独立 profile），后台标签操作、不抢前台，页面读成带 ref 的无障碍树，网络请求连正文录进证据包。目前只有 macOS arm64 测过。0.1.0 曾以 `bbl` 为名发布；环境变量只认 `TABCAP_*`（0.2.x 对旧 `BBL_*` 的回退已在 0.3 删除）。
+`tabcap` 是给 AI agent 用的专属浏览器：守护进程自己管一份 Chrome for Testing（独立 profile），后台标签操作、不抢前台，页面读成带 ref 的无障碍树，网络请求连正文录进证据包。各平台测到什么程度见下方「平台」。0.1.0 曾以 `bbl` 为名发布；环境变量只认 `TABCAP_*`（0.2.x 对旧 `BBL_*` 的回退已在 0.3 删除）。
 
 1. **拿二进制**：从 release 下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，可用 `SHA256SUMS` 核对），解开后把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`（macOS 上浏览器下载的要先 `xattr -d com.apple.quarantine tabcap`）；或者在本仓库 `bun install && bun run build` 自己编。
 2. **装浏览器**：`tabcap setup`。从 Chrome for Testing 官方 JSON 下载 Stable 到 `~/.cache/tabcap/chrome/<版本>/`，写 `~/.config/tabcap/config.json`；不交互，可重复跑。已有 Chrome for Testing 的话用 `tabcap setup --executable-path <二进制路径>`。
@@ -97,11 +97,22 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 旧名别名（0.4 删除）: `tabs` → `tab list`, `tab use` → `tab select`, `press` → `press-key`, `console` → `console list`
 <!-- END GENERATED: commands -->
 
-**站点与账号库**：`tabcap site add <名> --url <入口> --user <账号>` 在提示符下输入密码（或 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。这是**明文**库，保护程度和 `~/.netrc` 一样（文件 0600、目录 0700，权限更宽时守护进程拒绝启动），能用测试账号就别用主账号。AI 只看得到站点名、入口、账号名，命令里只写引用 `tabcap fill <ref> --secret <名>.password`；守护进程把所有输出、日志、证据包事件里的已知密码替换成 `<secret:<名>.password>`，只有登录请求本身的正文原样进包，导出 HAR 时会被打码。同一会话第二次用密码登录会被拦下（`guard.login-limit`），撞上验证页时会话进入 `waiting`、交给人处理。tabcap 不带任何验证码 / 挑战的解法；`~/.config/tabcap/plugins/` 只提供给你自己的处理程序用的接口（见 `skills/tabcap/SKILL.md`）。
+**站点与账号库**：`tabcap site add <名> --url <入口> --user <账号>` 在提示符下输入密码（或 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。这是**明文**库，保护程度和 `~/.netrc` 一样（macOS / Linux 上文件 0600、目录 0700，权限更宽时守护进程拒绝启动；Windows 上沿用 `%LOCALAPPDATA%` 的用户默认 ACL），能用测试账号就别用主账号。AI 只看得到站点名、入口、账号名，命令里只写引用 `tabcap fill <ref> --secret <名>.password`；守护进程把所有输出、日志、证据包事件里的已知密码替换成 `<secret:<名>.password>`，只有登录请求本身的正文原样进包，导出 HAR 时会被打码。同一会话第二次用密码登录会被拦下（`guard.login-limit`），撞上验证页时会话进入 `waiting`、交给人处理。tabcap 不带任何验证码 / 挑战的解法；`~/.config/tabcap/plugins/` 只提供给你自己的处理程序用的接口（见 `skills/tabcap/SKILL.md`）。
+
+**平台**（GitHub Actions runner，2026-10-16，Chrome for Testing 155）：
+
+| 平台 | 包 | 单元测试、类型检查 | 端到端 | 已知缺口 |
+|---|---|---|---|---|
+| macOS arm64 | `.tar.gz` | 通过（CI，macOS 14） | 81 / 81（本机；CI 不跑） | 无已知 |
+| Linux x64 | `.tar.gz` | 通过（CI，Ubuntu） | 80 / 81（CI，Ubuntu + Xvfb） | s07 登录页上 `click --trusted` 超时（`move-timeout`）；一个 cookie 快照用例三次里失败一次 |
+| Windows x64 | `.zip` | 通过（CI） | 63 / 81（CI，非必过项） | 12 个用例没真正跑到（所在套件第一条就检查 Unix socket）；POSIX 权限检查不适用；`resize 900 700` 得到 693 px 高的页面 |
+| Linux arm64 | `.tar.gz` | — | — | 交叉编译，从未运行 |
+
+Windows：守护进程监听 127.0.0.1 的随机端口，每次启动换新令牌（写在 `daemon.json`）；浏览器走 `--remote-debugging-pipe`；开第一个标签前没有窗口，之后出现一个普通的 Chrome 窗口（Windows 上没有前台归还）。Linux：Ubuntu 23.10 起 Chrome 沙箱需要非特权 user namespace，CI 用 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` 打开（桌面环境没测过）。
 
 **即将提供**：Homebrew、npm（`tabcap` 包，每个平台一个可选依赖）、Scoop。模板在 `packaging/`，还没有发布到任何仓库。从源码：Bun 1.4+，`bun install` 后 `bun run build`（本机）或 `bun run build:<平台>`（`darwin-arm64`、`linux-x64`、`linux-arm64`、`windows-x64`），`bun run release` 一次构建并打包四个平台。
 
-文件位置：`~/.config/tabcap/`（socket、日志、profile、配置、`state.db`、`plugins/`）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）；设 `TABCAP_HOME` 可整体搬到一个目录。
+文件位置：`~/.config/tabcap/`（socket、日志、profile、配置、`state.db`、`plugins/`）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）；Linux 认 `XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_DATA_HOME`；Windows 上三者是 `%LOCALAPPDATA%\tabcap\config`、`\cache`、`\data`，文件沿用用户目录的默认 ACL（tabcap 不另设 ACL；没有 socket，`config\daemon.json` 里是端口和令牌）。设 `TABCAP_HOME` 可整体搬到一个目录。
 
 ## 从哪开始
 

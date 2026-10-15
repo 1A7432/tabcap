@@ -4,7 +4,7 @@ English | [中文](README.zh-CN.md)
 
 A browser for AI agents that works next to you instead of taking over your screen: background tabs in a dedicated Chrome, pages read as accessibility trees with refs, every request recorded with its body, and a hand-off to the human whenever a login, a captcha or a judgement call needs one. Built for capturing and analysing web traffic, not for unattended automation.
 
-Status: 0.3.0 in development (alpha). Tested on macOS arm64 only. Apache-2.0.
+Status: 0.3.0 (alpha). Used and fully tested on macOS arm64; Linux x64 and Windows x64 run in CI with known gaps (see [Install](#install)); Linux arm64 is built but untested. Apache-2.0.
 
 ## Quick start
 
@@ -119,14 +119,23 @@ Most agent browsers start from "give the agent a clean, isolated browser and let
 
 ## Install
 
-- **Binary**: see Quick start. Only `darwin-arm64` is built and tested today; Linux x64 and Windows x64 are planned.
+- **Binary**: see Quick start. What each platform has been shown to do (GitHub Actions runners, 2026-10-16, Chrome for Testing 155):
+
+  | Platform | Package | Unit tests, typecheck | End-to-end tests | Known gaps |
+  |---|---|---|---|---|
+  | macOS arm64 | `.tar.gz` | pass (CI, macOS 14) | 81 / 81 (local machine; not run in CI) | none known |
+  | Linux x64 | `.tar.gz` | pass (CI, Ubuntu) | 80 / 81 (CI, Ubuntu under Xvfb) | `click --trusted` on the s07 login form times out (`move-timeout`); one cookie-snapshot test failed once in three runs |
+  | Windows x64 | `.zip` | pass (CI) | 63 / 81 (CI); not a required check | 12 tests not exercised (their suite starts by checking the Unix socket); POSIX permission checks do not apply; `resize 900 700` gives a 693 px high page |
+  | Linux arm64 | `.tar.gz` | — | — | cross-compiled, never run |
+
+  Windows specifics: the daemon listens on 127.0.0.1 with a random port and a per-start token (`daemon.json`); the browser connects over `--remote-debugging-pipe`; no window appears until the first tab opens, and then a normal Chrome window does (there is no foreground hand-back on Windows). Linux specifics: on Ubuntu 23.10 and later Chrome's sandbox needs unprivileged user namespaces; CI enables them with `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` (desktop setups not tested).
 - **Coming**: Homebrew, npm (a `tabcap` package with one optional dependency per platform) and Scoop. The templates are in `packaging/`; nothing is published to a registry yet.
 - **From source**: Bun 1.4 or newer, `bun install`, then `bun run build` (this machine) or `bun run build:<platform>` (`darwin-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`); `bun run release` builds and packs all four; `bun test test/unit` runs the offline tests.
-- **Files**: `~/.config/tabcap/` (socket, log, profile, config, `state.db`, `plugins/`), `~/.cache/tabcap/` (the browser), `~/.local/share/tabcap/` (screenshots, bundles). `TABCAP_HOME` moves all of them into one directory.
+- **Files**: `~/.config/tabcap/` (socket, log, profile, config, `state.db`, `plugins/`), `~/.cache/tabcap/` (the browser), `~/.local/share/tabcap/` (screenshots, bundles). On Linux `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME` are honoured. On Windows all three are `%LOCALAPPDATA%\tabcap\config`, `\cache` and `\data`; the files there keep the user-default ACL of your profile (tabcap sets no ACLs of its own, and there is no socket: `config\daemon.json` holds the port and the token). `TABCAP_HOME` moves all of them into one directory.
 
 ## Credentials store
 
-`tabcap site add <name> --url <entry> --user <account>` asks for the password at a prompt (or reads it from a pipe with `--password-stdin`) and keeps it in `~/.config/tabcap/state.db`. The daemon refuses to start when the file or directory permissions are wider than 0600 / 0700. The agent sees site names, entry URLs and account names only. Only the login request itself keeps the real value in the bundle, and HAR export redacts it.
+`tabcap site add <name> --url <entry> --user <account>` asks for the password at a prompt (or reads it from a pipe with `--password-stdin`) and keeps it in `~/.config/tabcap/state.db`. The daemon refuses to start when the file or directory permissions are wider than 0600 / 0700 (macOS and Linux; on Windows the file keeps the user-default ACL of `%LOCALAPPDATA%`). The agent sees site names, entry URLs and account names only. Only the login request itself keeps the real value in the bundle, and HAR export redacts it.
 
 ## Documentation
 
