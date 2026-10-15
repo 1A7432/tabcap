@@ -1,0 +1,5 @@
+# Check out LF everywhere (Windows CI included): fixtures, docs and generated
+# tables are compared byte for byte, and bundle files are hashed.
+* text=auto eol=lf
+# Bundle blobs are content-addressed bytes: never convert them.
+fixtures/bundles/**/blobs/** -text

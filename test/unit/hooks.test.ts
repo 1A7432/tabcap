@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
 import { Guard, type GuardRecorder } from "../../src/daemon/guard.ts";
 import { HOOK_PROTOCOL, listPlugins, parseChallengeOutput, parseManifest, pluginsFor, readEnabled, resolveCommand, runHook, setEnabled, type PluginManifest } from "../../src/daemon/hooks/plugins.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
+import { POSIX_MODES } from "./_platform.ts";
 
 const FAKE = join(import.meta.dir, "..", "fixtures", "plugins", "fake-verify");
 const PW = "guard-test-Pa55word";
@@ -111,14 +112,14 @@ describe("plugin manifests and discovery", () => {
     expect(pluginsFor(config, "challenge")).toEqual([]);
   });
 
-  test("a plugin directory writable by others is refused", () => {
+  test.skipIf(!POSIX_MODES)("a plugin directory writable by others is refused", () => {
     const dir = install("loose", { name: "loose", hooks: ["challenge"], command: ["bun"] });
     chmodSync(dir, 0o777);
     expect(listPlugins(config)[0]?.error).toContain("writable by group or others");
   });
 
   test("commands stay inside the plugin directory", () => {
-    expect(resolveCommand("/p/x", ["./run.sh", "a"])).toEqual(["/p/x/run.sh", "a"]);
+    expect(resolveCommand("/p/x", ["./run.sh", "a"])).toEqual([resolve("/p/x/run.sh"), "a"]);
     expect(resolveCommand("/p/x", ["bun", "./h.ts"])).toEqual(["bun", "./h.ts"]);
     expect(() => resolveCommand("/p/x", ["../y/run"])).toThrow("outside");
     expect(() => resolveCommand("/p/x", ["sub/run"])).toThrow("relative");

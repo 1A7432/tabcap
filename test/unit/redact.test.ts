@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { exportHar } from "../../src/bundle/har.ts";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { redactBundle } from "../../src/bundle/redact.ts";
@@ -19,7 +19,7 @@ function snapshotTree(dir: string): Record<string, string> {
     for (const f of readdirSync(d)) {
       const p = join(d, f);
       if (statSync(p).isDirectory()) walk(p);
-      else out[relative(dir, p)] = new Bun.CryptoHasher("sha256").update(readFileSync(p)).digest("hex");
+      else out[relative(dir, p).split(sep).join("/")] = new Bun.CryptoHasher("sha256").update(readFileSync(p)).digest("hex");
     }
   };
   walk(dir);

@@ -21,7 +21,7 @@ Example: `tabcap setup`
 | Option | Default | Meaning |
 |---|---|---|
 | `--executable-path <path>` |  | use this Chrome for Testing binary instead of downloading |
-| `--platform <platform>` |  | mac-arm64 \| mac-x64 \| linux64 (default: this machine) |
+| `--platform <platform>` |  | mac-arm64 \| mac-x64 \| linux64 \| win64 (default: this machine) |
 
 ### `tabcap daemon start`
 

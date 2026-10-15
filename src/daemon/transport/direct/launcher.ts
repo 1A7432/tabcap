@@ -113,17 +113,20 @@ export function buildArgs(o: ArgsOptions): string[] {
 
 // ------------------------------------------------------------ executable
 
-export type CftPlatform = "mac-arm64" | "mac-x64" | "linux64";
+export type CftPlatform = "mac-arm64" | "mac-x64" | "linux64" | "win64";
 
-export function hostPlatform(): CftPlatform | null {
-  if (process.platform === "darwin") return process.arch === "arm64" ? "mac-arm64" : "mac-x64";
-  if (process.platform === "linux" && process.arch === "x64") return "linux64";
+/** Chrome for Testing build for this OS / CPU; null where Google publishes none (Linux arm64, Windows arm64). */
+export function hostPlatform(platform: NodeJS.Platform = process.platform, arch: string = process.arch): CftPlatform | null {
+  if (platform === "darwin") return arch === "arm64" ? "mac-arm64" : "mac-x64";
+  if (platform === "linux" && arch === "x64") return "linux64";
+  if (platform === "win32" && arch === "x64") return "win64";
   return null;
 }
 
 /** Binary path inside an unzipped Chrome for Testing archive directory. */
 export function binaryIn(versionDir: string, platform: CftPlatform): string {
   if (platform === "linux64") return join(versionDir, "chrome-linux64", "chrome");
+  if (platform === "win64") return join(versionDir, "chrome-win64", "chrome.exe");
   return join(versionDir, `chrome-${platform}`, "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing");
 }
 

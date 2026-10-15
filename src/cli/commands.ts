@@ -89,7 +89,7 @@ export const COMMANDS: CommandSpec[] = [
     pos: [],
     flags: [
       { flag: "--executable-path", key: "executablePath", kind: "string", help: "use this Chrome for Testing binary instead of downloading", metavar: "path" },
-      { flag: "--platform", key: "platform", kind: "string", help: "mac-arm64 | mac-x64 | linux64 (default: this machine)", metavar: "platform" },
+      { flag: "--platform", key: "platform", kind: "string", help: "mac-arm64 | mac-x64 | linux64 | win64 (default: this machine)", metavar: "platform" },
     ],
     summary: "download Chrome for Testing (Stable) into the cache and record it in config.json",
     example: "tabcap setup",

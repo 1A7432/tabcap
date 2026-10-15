@@ -7,6 +7,7 @@ import { initiatorOf } from "../../src/daemon/capture/recorder.ts";
 import { lookBack, parseListQuery, parseStatus, selectNet } from "../../src/daemon/tools/netquery.ts";
 import { findRequestEvent, initiatorAt, materialize, requestDetail, summariseHeaders } from "../../src/daemon/tools/netshow.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
+import { expectMode } from "./_platform.ts";
 
 let seq = 0;
 const entry = (o: Partial<NetEntry>): NetEntry => ({
@@ -149,7 +150,7 @@ describe("net show", () => {
     expect(String(req["postData"]?.["head"])).toHaveLength(2048);
     const path = String(req["postData"]?.["path"]);
     expect(readFileSync(path, "utf8")).toBe(long);
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expectMode(path, 0o600);
     expect(d["response"]).toMatchObject({ headers: { "set-cookie": ["a=1", "b=2"] }, mime: "application/json", body: { size: 12, path: `/blobs/ab/${"ab".repeat(32)}` } });
     expect(d["timing"]).toEqual({ start: 1000.5, responseStart: 1003, end: 1004.25, total: 3.75 });
     expect(d["initiator"]).toEqual({ type: "script", at: "http://127.0.0.1:8080/post:3:1" });

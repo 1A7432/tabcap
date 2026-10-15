@@ -88,8 +88,13 @@ function writeEnabled(configDir: string, names: string[]): void {
   writeFileAtomic(join(dir, ENABLED_FILE), JSON.stringify([...new Set(names)].sort()) + "\n");
 }
 
-/** A directory others can write to could swap the handler under us. */
+/**
+ * A directory others can write to could swap the handler under us. Not
+ * checked on Windows, which has no POSIX modes: the plugins directory keeps the
+ * user-default ACL of %LOCALAPPDATA%\tabcap.
+ */
 function writableByOthers(p: string): boolean {
+  if (process.platform === "win32") return false;
   try {
     return (statSync(p).mode & 0o022) !== 0;
   } catch {

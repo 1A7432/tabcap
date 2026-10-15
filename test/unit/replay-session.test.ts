@@ -11,6 +11,7 @@ import { exportSession, toStorageCookie } from "../../src/replay/session.ts";
 import { run } from "../../src/cli/main.ts";
 import { tmp, buildBundle } from "./_analyze.ts";
 import { COOKIES, LOCAL_STORAGE, SID, buildReplayBundle } from "./_replay.ts";
+import { expectMode } from "./_platform.ts";
 
 let root = "";
 let bundle = "";
@@ -30,7 +31,7 @@ describe("storageState export", () => {
   test("cookies of the latest snapshot in Playwright shape; localStorage per origin; file 0600", () => {
     const out = join(root, "out", "state.json");
     const r = exportSession({ bundle, out, configDir: join(root, "cfg-unused") });
-    expect(statSync(out).mode & 0o777).toBe(0o600);
+    expectMode(out, 0o600);
     const state: unknown = JSON.parse(readFileSync(out, "utf8"));
     expect(state).toEqual({
       cookies: [
@@ -51,7 +52,7 @@ describe("storageState export", () => {
     const out = join(root, "wide.json");
     writeFileSync(out, "{}", { mode: 0o644 });
     exportSession({ bundle, out, configDir: join(root, "cfg-unused") });
-    expect(statSync(out).mode & 0o777).toBe(0o600);
+    expectMode(out, 0o600);
   });
 
   test("no snapshot in the bundle: --site falls back to the store's saved session; none at all is an error", () => {

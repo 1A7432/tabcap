@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run } from "../../src/cli/main.ts";
 import { SAMPLE_FIXTURE_DIR, buildRichBundle, buildSampleBundle } from "./_fixtures.ts";
+import { expectMode } from "./_platform.ts";
 
 const tmp = (p = "tabcap-cli-") => mkdtempSync(join(tmpdir(), p));
 
@@ -40,12 +41,12 @@ describe("tabcap bundle (JSON envelope)", () => {
     expect(existsSync(join(dir, "exports", "x.salt"))).toBe(true);
     expect(readFileSync(out, "utf8")).not.toContain("hunter2secret");
     // docs/04 §17: the HAR (and its salt) are owner-only, also when replacing a wider file
-    expect(statSync(out).mode & 0o777).toBe(0o600);
-    expect(statSync(join(dir, "exports", "x.salt")).mode & 0o777).toBe(0o600);
+    expectMode(out, 0o600);
+    expectMode(join(dir, "exports", "x.salt"), 0o600);
     const wide = join(tmp(), "wide.har");
     writeFileSync(wide, "{}", { mode: 0o644 });
     expect((await run(["bundle", "export", "har", dir, "--out", wide, "--no-redact"])).code).toBe(0);
-    expect(statSync(wide).mode & 0o777).toBe(0o600);
+    expectMode(wide, 0o600);
   });
 
   test("export --no-redact, import har, redact, info: end to end on files", async () => {

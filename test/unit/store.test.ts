@@ -7,6 +7,7 @@ import { SCHEMA_VERSION, Store, checkSiteName, storePath } from "../../src/daemo
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { siteAdd, siteList, siteRemove, stripNewline } from "../../src/cli/site.ts";
 import { paths } from "../../src/shared/paths.ts";
+import { expectMode, POSIX_MODES } from "./_platform.ts";
 
 const PW = "s3cret-Pa55!word";
 let root = "";
@@ -30,14 +31,14 @@ function codeOf(f: () => unknown): string | null {
 describe("store: file and permissions (docs/04 §8.1)", () => {
   test("creates config/ 0700 and state.db 0600 with every table", () => {
     const s = Store.open(config);
-    expect(statSync(config).mode & 0o777).toBe(0o700);
-    expect(statSync(storePath(config)).mode & 0o777).toBe(0o600);
+    expectMode(config, 0o700);
+    expectMode(storePath(config), 0o600);
     expect(s.tables()).toEqual(["accounts", "bundles", "guard_counters", "login_recipes", "meta", "sessions", "sites"]);
     expect(s.schemaVersion).toBe(SCHEMA_VERSION);
     s.close();
   });
 
-  test("refuses a store file readable by others, and does not fix it silently", () => {
+  test.skipIf(!POSIX_MODES)("refuses a store file readable by others, and does not fix it silently", () => {
     Store.open(config).close();
     chmodSync(storePath(config), 0o644);
     expect(codeOf(() => Store.open(config))).toBe("conflict");
@@ -46,7 +47,7 @@ describe("store: file and permissions (docs/04 §8.1)", () => {
     expect(codeOf(() => Store.open(config).close())).toBeNull();
   });
 
-  test("refuses a config directory wider than 0700", () => {
+  test.skipIf(!POSIX_MODES)("refuses a config directory wider than 0700", () => {
     mkdirSync(config, { mode: 0o755 });
     chmodSync(config, 0o755);
     expect(codeOf(() => Store.open(config))).toBe("conflict");

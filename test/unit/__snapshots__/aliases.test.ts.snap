@@ -27,7 +27,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "deprecated": null,
           "deprecatedAliases": [],
           "flag": "--platform",
-          "help": "mac-arm64 | mac-x64 | linux64 (default: this machine)",
+          "help": "mac-arm64 | mac-x64 | linux64 | win64 (default: this machine)",
           "key": "platform",
           "repeatable": false,
           "required": false,

@@ -4,13 +4,14 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { BundleWriter } from "../../src/bundle/writer.ts";
 import { Tabs } from "../../src/daemon/browser/targets.ts";
 import { Recorder } from "../../src/daemon/capture/recorder.ts";
 import { cleanStaleTmp, downloadCft } from "../../src/daemon/transport/direct/cft.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../../src/daemon/transport/types.ts";
 import { isRecord } from "../../src/shared/json.ts";
+import { expectMode } from "./_platform.ts";
 
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 const mode = (p: string) => statSync(p).mode & 0o777;
@@ -32,9 +33,9 @@ describe("bundle permissions (docs/04 §16)", () => {
     w.append({ ts: 1, mono: null, kind: "session", actor: "system", tab: null, cmd: null, phase: "start", name: "p" });
     await w.putBlob("secret body");
     await w.close();
-    expect(mode(dir)).toBe(0o700);
-    for (const p of walk(dir)) expect([p.slice(dir.length), mode(p)]).toEqual([p.slice(dir.length), statSync(p).isDirectory() ? 0o700 : 0o600]);
-    expect(walk(dir).some((p) => p.includes("/blobs/sha256/"))).toBe(true);
+    expectMode(dir, 0o700);
+    for (const p of walk(dir)) expectMode(p, statSync(p).isDirectory() ? 0o700 : 0o600);
+    expect(walk(dir).some((p) => p.includes(`${sep}blobs${sep}sha256${sep}`))).toBe(true);
   });
 });
 

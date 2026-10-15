@@ -1,6 +1,7 @@
 // `tabcap setup`: download Chrome for Testing (Stable) via the official JSON API
-// into <cache>/chrome/<version>/, unzip with the system `unzip`, verify the
-// binary runs, record it in config.json. Idempotent and non-interactive;
+// into <cache>/chrome/<version>/, unpack it with a system tool (`unzip` on
+// macOS; `unzip` or `bsdtar` on Linux; PowerShell `Expand-Archive` on Windows),
+// verify the binary, record it in config.json. Idempotent and non-interactive;
 // progress goes to stderr. Only the Chrome for Testing hosts are contacted.
 // The download lands in <cache>/chrome/.tmp-<version>-<pid>/ and is renamed onto
 // <version>/ only when complete; a failed run removes its temp directory, and
@@ -47,11 +48,56 @@ function checkHost(url: string): void {
 
 const progress = (msg: string) => process.stderr.write(`[tabcap setup] ${msg}\n`);
 
-/** Run `<bin> --version`; returns the version line or null. */
-export function binaryVersion(bin: string): string | null {
+/** PowerShell, non-interactive, without the user's profile scripts. */
+const POWERSHELL = ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command"];
+
+/**
+ * The binary's version line, or null. `chrome.exe --version` prints nothing on
+ * Windows (a GUI-subsystem program), so there the file's version resource is
+ * read instead; that shows the file is a Chrome build, not that it starts.
+ */
+export function binaryVersion(bin: string, platform: NodeJS.Platform = process.platform): string | null {
+  try {
+    return readVersion(bin, platform);
+  } catch {
+    return null; // the program (or PowerShell) could not be started
+  }
+}
+
+function readVersion(bin: string, platform: NodeJS.Platform): string | null {
+  if (platform === "win32") {
+    // The path goes through the environment, never into the script text.
+    const p = Bun.spawnSync([...POWERSHELL, "(Get-Item -LiteralPath $env:TABCAP_SETUP_BIN).VersionInfo.ProductVersion"], {
+      timeout: 30_000,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, TABCAP_SETUP_BIN: bin },
+    });
+    const v = p.stdout.toString().trim();
+    return p.exitCode === 0 && /^\d+(\.\d+)+$/.test(v) ? `Google Chrome for Testing ${v}` : null;
+  }
   const p = Bun.spawnSync([bin, "--version"], { timeout: 30_000, stdout: "pipe", stderr: "pipe" });
   const out = p.stdout.toString().trim();
   return p.exitCode === 0 && out !== "" ? out : null;
+}
+
+export type UnpackCommand = { cmd: string[]; env: Record<string, string> };
+
+/**
+ * Pure: how to unpack `zip` into `dest` on `platform`. `which` finds tools on
+ * PATH. Windows uses PowerShell's Expand-Archive with the paths passed through
+ * the environment; Linux prefers `unzip` and falls back to `bsdtar`.
+ */
+export function unpackCommand(platform: NodeJS.Platform, zip: string, dest: string, which: (tool: string) => string | null = (t) => Bun.which(t)): UnpackCommand | null {
+  if (platform === "win32") {
+    return {
+      cmd: [...POWERSHELL, "$ProgressPreference = 'SilentlyContinue'; Expand-Archive -LiteralPath $env:TABCAP_SETUP_ZIP -DestinationPath $env:TABCAP_SETUP_DEST -Force"],
+      env: { TABCAP_SETUP_ZIP: zip, TABCAP_SETUP_DEST: dest },
+    };
+  }
+  if (which("unzip") !== null) return { cmd: ["unzip", "-q", "-o", zip, "-d", dest], env: {} };
+  if (platform === "linux" && which("bsdtar") !== null) return { cmd: ["bsdtar", "-xf", zip, "-C", dest], env: {} };
+  return null;
 }
 
 function pidAlive(pid: number): boolean {
@@ -131,9 +177,11 @@ async function fetchAndUnpack(url: string, tmp: string, dir: string, platform: C
     }
   }
   await sink.end();
-  progress("unzipping");
-  const unzip = Bun.spawnSync(["unzip", "-q", "-o", zip, "-d", tmp], { stdout: "pipe", stderr: "pipe" });
-  if (unzip.exitCode !== 0) throw new TabcapError("io", `unzip failed: ${unzip.stderr.toString().slice(0, 300)}`, "Make sure `unzip` is installed, then run `tabcap setup` again.");
+  const how = unpackCommand(process.platform, zip, tmp);
+  if (how === null) throw new TabcapError("io", "no unzip tool found", "Install `unzip` (or `bsdtar` on Linux), then run `tabcap setup` again.");
+  progress(`unpacking with ${how.cmd[0] ?? "?"}`);
+  const unzip = Bun.spawnSync(how.cmd, { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...how.env } });
+  if (unzip.exitCode !== 0) throw new TabcapError("io", `unpacking failed: ${unzip.stderr.toString().slice(0, 300)}`, `Make sure \`${how.cmd[0] ?? "unzip"}\` works, then run \`tabcap setup\` again.`);
   rmSync(zip, { force: true });
   const tmpBin = binaryIn(tmp, platform);
   if (!existsSync(tmpBin)) throw new TabcapError("io", `archive did not contain ${tmpBin}`, "Report this; the archive layout may have changed. Use --executable-path meanwhile.");

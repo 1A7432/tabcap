@@ -1,4 +1,5 @@
-// The daemon: one process, HTTP over a Unix socket (0600, in a 0700 dir).
+// The daemon: one process, HTTP over a Unix socket (0600, in a 0700 dir), or
+// on Windows over loopback TCP with a per-start bearer token (listener.ts).
 //   POST /command {action, args, session, argv?} -> JSON envelope
 //   GET  /status                                  -> JSON envelope
 // Every response is passed through known-secret replacement. The log records
@@ -19,6 +20,7 @@ import { setLogScrubber } from "../shared/log.ts";
 import { browserStatus, browserStop } from "./tools/browser.ts";
 import { TOOLS } from "./tools/index.ts";
 import { scrubValue } from "./secrets.ts";
+import { listen, newToken, type Listening } from "./listener.ts";
 import { CdpClosedError, CdpError, CdpTimeoutError } from "./transport/direct/cdp.ts";
 
 function toEnvelope(e: unknown): FailEnvelope {
@@ -122,13 +124,17 @@ export function scrubbedBody(d: Daemon, env: Envelope<unknown>): string {
   return d.secrets.scrub(JSON.stringify(env));
 }
 
+let listening: Listening["describe"] | null = null;
+
 function statusData(d: Daemon): unknown {
   return {
     running: true,
     pid: process.pid,
     version: TOOL_VERSION,
-    socket: d.paths.socket,
+    listener: d.paths.listener,
+    socket: d.paths.listener === "unix" ? d.paths.socket : null,
     socketFallback: d.paths.socketFallback,
+    ...(listening !== null && listening.listener === "tcp" ? { port: listening.port } : {}),
     startedAt: d.startedAt,
     store: d.store?.path ?? null,
     handoffs: d.guard.all().map((h) => ({ session: h.session, state: h.state, reason: h.reason })),
@@ -148,16 +154,18 @@ function pidAlive(pid: number): boolean {
 
 export async function runDaemon(paths: Paths): Promise<void> {
   mkdirSync(paths.config, { recursive: true, mode: 0o700 });
+  const unix = paths.listener === "unix";
   const socket = paths.newSocket;
-  if (dirname(socket).startsWith("/tmp/tabcap-")) ensurePrivateDir(dirname(socket));
+  if (unix && dirname(socket).startsWith("/tmp/tabcap-")) ensurePrivateDir(dirname(socket));
   chmodSync(paths.config, 0o700);
   if (existsSync(paths.pidFile)) {
     const old = Number(readFileSync(paths.pidFile, "utf8").trim());
-    if (Number.isSafeInteger(old) && old > 0 && old !== process.pid && pidAlive(old) && existsSync(paths.socket)) {
+    const bound = unix ? existsSync(paths.socket) : existsSync(paths.daemonInfo);
+    if (Number.isSafeInteger(old) && old > 0 && old !== process.pid && pidAlive(old) && bound) {
       throw new TabcapError("conflict", `a daemon is already running (pid ${old})`, "Use it, or run `tabcap daemon stop` first.");
     }
   }
-  if (existsSync(socket)) unlinkSync(socket);
+  if (unix && existsSync(socket)) unlinkSync(socket);
   // docs/04 §8.1: the store must be 0600 in a 0700 directory, or the daemon does not start.
   const store = Store.open(paths.config);
   const d = new Daemon({ ...paths, socket, socketFallback: paths.newSocket !== paths.socket || paths.socketFallback }, { screenshot: guardShot, pageInfo });
@@ -172,7 +180,7 @@ export async function runDaemon(paths: Paths): Promise<void> {
     await browserStop(d).catch((e: unknown) => log.error("browser stop failed", { error: String(e) }));
     server.stop(true);
     store.close();
-    for (const f of [socket, paths.pidFile, paths.daemonInfo]) {
+    for (const f of unix ? [socket, paths.pidFile, paths.daemonInfo] : [paths.pidFile, paths.daemonInfo]) {
       try {
         unlinkSync(f);
       } catch {
@@ -181,9 +189,7 @@ export async function runDaemon(paths: Paths): Promise<void> {
     }
     process.exit(0);
   };
-  const server = Bun.serve({
-    unix: socket,
-    async fetch(req, srv) {
+  const bound = listen(unix ? { kind: "unix", socket } : { kind: "tcp", token: newToken() }, async (req, srv) => {
       srv.timeout(req, 0); // commands may legitimately run for minutes (--timeout)
       const url = new URL(req.url);
       d.refreshSecrets();
@@ -199,15 +205,18 @@ export async function runDaemon(paths: Paths): Promise<void> {
         env = await handleCommand(d, body, () => void shutdown());
       } else env = fail("not-found", `no route ${req.method} ${url.pathname}`, "Use POST /command or GET /status.");
       return new Response(scrubbedBody(d, env), { headers: { "content-type": "application/json" } });
-    },
   });
-  chmodSync(socket, 0o600);
+  const server = bound.server;
+  listening = bound.describe;
+  if (unix) chmodSync(socket, 0o600);
   writeFileSync(paths.pidFile, `${process.pid}\n`, { mode: 0o600 });
-  // Clients read the bound socket from here (it may live outside config/, see paths.ts).
-  writeFileSync(paths.daemonInfo, JSON.stringify({ pid: process.pid, socket, startedAt: d.startedAt }) + "\n", { mode: 0o600 });
+  // Clients read where to connect from here (the socket may live outside
+  // config/, see paths.ts; on Windows the port and the token).
+  const info = unix ? { pid: process.pid, socket, startedAt: d.startedAt } : { pid: process.pid, ...bound.record, startedAt: d.startedAt };
+  writeFileSync(paths.daemonInfo, JSON.stringify(info) + "\n", { mode: 0o600 });
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
-  log.info("daemon listening", { socket, pid: process.pid });
+  log.info("daemon listening", { ...bound.describe, pid: process.pid });
 }
 
 /** Guard screenshot of a tab at the moment it was handed to the human. */

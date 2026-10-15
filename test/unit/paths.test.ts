@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { chooseSocketPath, maxSocketBytes, type SocketEnv } from "../../src/shared/paths.ts";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 const LONG = "/tmp/tabcap-test/a-deliberately-long-home-directory-that-pushes-the-daemon-socket-path-past-the-unix-limit/home/config";
@@ -56,14 +55,12 @@ describe("environment names (0.3: TABCAP_* only)", () => {
     expect(envVar("HOME", { BBL_HOME: "/b" })).toBeUndefined();
     expect(envVar("HOME", {})).toBeUndefined();
     const { paths } = await import("../../src/shared/paths.ts");
-    expect(paths({ BBL_HOME: "/tmp/legacy-home" }).config).toBe(join(homedir(), ".config", "tabcap"));
-    expect(paths({ TABCAP_HOME: "/tmp/new-home", BBL_HOME: "/tmp/legacy-home" }).config).toBe("/tmp/new-home/config");
+    expect(paths({ BBL_HOME: "/tmp/legacy-home" }).config).toBe(paths({}).config);
+    expect(paths({ TABCAP_HOME: "/tmp/new-home", BBL_HOME: "/tmp/legacy-home" }).config).toBe(join("/tmp/new-home", "config"));
   });
   test("default directories use the tabcap name", async () => {
-    const { paths } = await import("../../src/shared/paths.ts");
-    const p = paths({});
-    expect(p.config.endsWith("/.config/tabcap")).toBe(true);
-    expect(p.cache.endsWith("/.cache/tabcap")).toBe(true);
-    expect(p.data.endsWith("/.local/share/tabcap")).toBe(true);
+    const { baseDirs } = await import("../../src/shared/paths.ts");
+    const p = baseDirs({ platform: "darwin", env: {}, homedir: "/Users/me" });
+    expect(p).toEqual({ config: "/Users/me/.config/tabcap", cache: "/Users/me/.cache/tabcap", data: "/Users/me/.local/share/tabcap" });
   });
 });

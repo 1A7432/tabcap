@@ -105,10 +105,16 @@ function tooOpen(path: string, mode: number, want: number): TabcapError {
   );
 }
 
-/** Refuse a store (or its directory) that is a symlink, not ours, or readable by others. */
+/**
+ * Refuse a store (or its directory) that is a symlink, not ours, or readable by
+ * others. Windows has no POSIX modes or uids (Node reports 0666 / 0777 there):
+ * the store lives under %LOCALAPPDATA%\tabcap and keeps that directory's
+ * user-default ACL, so only the plain-file / not-a-link check applies.
+ */
 function checkPrivate(path: string, want: number, dir: boolean): void {
   const st = lstatSync(path);
   if (st.isSymbolicLink() || (dir ? !st.isDirectory() : !st.isFile())) throw new TabcapError("conflict", `${path} is not a plain ${dir ? "directory" : "file"}`, `Remove or fix ${path}.`);
+  if (process.platform === "win32") return;
   const uid = process.getuid?.() ?? -1;
   if (uid >= 0 && st.uid !== uid) throw new TabcapError("conflict", `${path} is owned by uid ${st.uid}, not this user`, `Remove or fix ${path}.`);
   if ((st.mode & 0o077) !== 0) throw tooOpen(path, st.mode, want);

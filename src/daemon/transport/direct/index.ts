@@ -135,6 +135,8 @@ export class DirectTransport implements Transport {
         }
       }
     }
+    // Handing the foreground back uses osascript, which only exists on macOS.
+    if (process.platform !== "darwin" && o.restoreFront) log.info("foreground hand-back is macOS-only; skipped", { platform: process.platform });
     const front: FrontReport = { before, afterLaunch, restored, after: frontmostApp(), noStartupWindow: o.noStartupWindow };
     const guard = new FrontGuard(
       isChromeApp(before) ? null : before,

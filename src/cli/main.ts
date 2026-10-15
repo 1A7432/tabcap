@@ -186,7 +186,7 @@ function cmdInfo(p: Parsed): unknown {
   };
 }
 
-const PLATFORMS: readonly CftPlatform[] = ["mac-arm64", "mac-x64", "linux64"];
+const PLATFORMS: readonly CftPlatform[] = ["mac-arm64", "mac-x64", "linux64", "win64"];
 
 async function cmdSetup(args: Record<string, unknown>): Promise<unknown> {
   const p = paths();
@@ -202,7 +202,7 @@ async function cmdSetup(args: Record<string, unknown>): Promise<unknown> {
     return { executablePath: exe, version, downloaded: false, config: p.configFile };
   }
   const plat = platArg ?? hostPlatform();
-  if (!oneOf(PLATFORMS, plat)) throw new TabcapError("unsupported", `no Chrome for Testing build for ${plat ?? process.platform + "-" + process.arch}`, "Use --platform mac-arm64|mac-x64|linux64, or --executable-path.");
+  if (!oneOf(PLATFORMS, plat)) throw new TabcapError("unsupported", `no Chrome for Testing build for ${plat ?? process.platform + "-" + process.arch}`, "Use --platform mac-arm64|mac-x64|linux64|win64, or --executable-path.");
   const r = await downloadCft(p.chromeCache, plat);
   writeConfig(p.configFile, { ...cfg, chrome: { executablePath: r.executablePath, version: r.version, platform: plat } });
   return { ...r, platform: plat, config: p.configFile };

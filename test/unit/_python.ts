@@ -8,7 +8,21 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export const PYTHON3 = Bun.which("python3");
+/**
+ * A Python 3 that actually runs. On Windows `python3` is often the Store alias
+ * stub (it exits with an error or opens the Store), and `python` is the real one.
+ */
+function findPython3(): string | null {
+  for (const name of ["python3", "python"]) {
+    const p = Bun.which(name);
+    if (p === null) continue;
+    const r = Bun.spawnSync([p, "-I", "-c", "import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)"], { stdout: "ignore", stderr: "ignore", timeout: 10_000 });
+    if (r.exitCode === 0) return p;
+  }
+  return null;
+}
+
+export const PYTHON3 = findPython3();
 
 function works(python: string): boolean {
   const r = Bun.spawnSync([python, "-I", "-c", "import httpx, pytest"], { stdout: "ignore", stderr: "ignore" });
@@ -22,7 +36,7 @@ export function pytestPython(): { python: string } | { reason: string } {
   const uv = Bun.which("uv");
   if (uv === null) return { reason: "uv is not installed and TABCAP_TEST_PYTHON is not set" };
   const venv = join(tmpdir(), "tabcap-replay-test-venv");
-  const py = join(venv, "bin", "python");
+  const py = process.platform === "win32" ? join(venv, "Scripts", "python.exe") : join(venv, "bin", "python");
   if (existsSync(py) && works(py)) return { python: py };
   const env2 = { ...process.env, UV_OFFLINE: "1", UV_NO_PROGRESS: "1" };
   const mk = Bun.spawnSync([uv, "venv", "-q", "--allow-existing", venv], { env: env2, stdout: "pipe", stderr: "pipe" });

@@ -1,5 +1,6 @@
-// CLI side of the daemon API: fetch over the Unix socket, start / stop the
-// daemon (the same binary re-runs itself as `tabcap daemon run`, detached).
+// CLI side of the daemon API: fetch over the Unix socket (or, on Windows, the
+// loopback port with the bearer token from config/daemon.json), start / stop
+// the daemon (the same binary re-runs itself as `tabcap daemon run`, detached).
 
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
@@ -8,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { TabcapError, fail, type Envelope } from "../shared/envelope.ts";
 import { envVar } from "../shared/env.ts";
 import { isRecord } from "../shared/json.ts";
-import { paths as currentPaths, type Paths } from "../shared/paths.ts";
+import { daemonEndpoint, paths as currentPaths, type Endpoint, type Paths } from "../shared/paths.ts";
 
 const NOT_RUNNING = () => fail("not-running", "the tabcap daemon is not running", "Run `tabcap daemon start` (then `tabcap browser start`).");
 
@@ -16,11 +17,21 @@ function isEnvelope(v: unknown): v is Envelope<unknown> {
   return isRecord(v) && typeof v["ok"] === "boolean";
 }
 
+/** Pure: URL and fetch options for one request to the daemon at `ep`. */
+export function requestFor(ep: Endpoint, path: string, init: RequestInit): { url: string; init: BunFetchRequestInit } {
+  if (ep.kind === "unix") return { url: `http://localhost${path}`, init: { ...init, unix: ep.socket } };
+  const headers = new Headers(init.headers);
+  headers.set("authorization", `Bearer ${ep.token}`);
+  return { url: `http://${ep.host}:${ep.port}${path}`, init: { ...init, headers } };
+}
+
 async function request(paths: Paths, path: string, init: RequestInit, timeoutMs: number): Promise<Envelope<unknown>> {
-  if (!existsSync(paths.socket)) return NOT_RUNNING();
+  const ep = daemonEndpoint(paths);
+  if (ep === null) return NOT_RUNNING();
   let res: Response;
   try {
-    res = await fetch(`http://localhost${path}`, { ...init, unix: paths.socket, signal: AbortSignal.timeout(timeoutMs) });
+    const r = requestFor(ep, path, init);
+    res = await fetch(r.url, { ...r.init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     if (e instanceof Error && e.name === "TimeoutError") {
       return fail("timeout", `the daemon did not answer within ${timeoutMs} ms`, "Check `tabcap daemon status`; raise --timeout for slow pages.");
@@ -70,6 +81,7 @@ export async function startDaemon(paths: Paths): Promise<unknown> {
   if (cmd === undefined) throw new TabcapError("internal", "cannot find own executable", "Run `tabcap daemon run` in a terminal instead.");
   const child = spawn(cmd, [...rest, "daemon", "run"], {
     detached: true,
+    windowsHide: true,
     stdio: ["ignore", fd, fd],
     env: { ...process.env, TABCAP_LOG: envVar("LOG") ?? "info" },
   });
@@ -103,5 +115,6 @@ export async function stopDaemon(paths: Paths): Promise<unknown> {
 export async function daemonStatus(paths: Paths): Promise<unknown> {
   const st = await status(paths);
   if (st.ok) return { ...(isRecord(st.data) ? st.data : {}), log: paths.logFile };
-  return { running: false, socket: paths.newSocket, socketFallback: paths.newSocket !== `${paths.config}/daemon.sock`, log: paths.logFile };
+  if (paths.listener === "tcp") return { running: false, listener: "tcp", socket: null, log: paths.logFile };
+  return { running: false, listener: "unix", socket: paths.newSocket, socketFallback: paths.newSocket !== `${paths.config}/daemon.sock`, log: paths.logFile };
 }
