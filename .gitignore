@@ -17,3 +17,6 @@ dist/
 # Export products and browser profiles never go into the repo
 fixtures/**/exports/
 **/profile*/
+
+# Claude Code agent worktrees
+.claude/worktrees/
