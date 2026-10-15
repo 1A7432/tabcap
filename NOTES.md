@@ -169,3 +169,8 @@
 - 做了什么：Linux 两条不稳定修复合入后 main `31c85c1` 的 CI 整体绿（三平台单测、Linux 端到端全过；Windows 端到端按约定不阻塞），打 `v0.3.0` 指向该提交并推送。release.yml 第一次 windows-x64 在单测步骤偶发两条 5 s 超时，重跑失败 job 后四个构建全过，草稿 Release（draft + prerelease，未发布）含 darwin-arm64 / linux-x64 / linux-arm64 的 tar.gz、windows-x64 的 zip、各自 .sha256 与 SHA256SUMS。【实测】下载 darwin-arm64 包：.sha256 与 SHA256SUMS 都校验 OK；包内 tabcap / LICENSE / NOTICE / README 两语 / skills/tabcap；`--version` 0.3.0，`--help` 24 ms。
 - 卡在哪：Windows runner 上单测偶发 5 s 超时（不同轮挂不同测试，整轮 49 s 对比 macOS 5 s），另开分支查共同原因；linux-arm64 与 windows-x64 的包从未在真机运行；草稿 Release 是否发布由作者定。
 - 下一格从哪开始：Windows 单测超时修复过 CI 两次连绿后合入；0.4-B `where` 等作者批 s40 进 docs/05；账号池 / 追踪与指纹分析的提案等作者拍板。
+
+## 2026-10-16 · Windows 单测超时（分支 fix/windows-unit，草稿 PR #2，未合并）
+- 做了什么：比对 9 次 windows-latest 单测日志（同一镜像 20261002.596）【实测】：每次超时的用例不同，共同点是建文件或起进程；一台慢 VM（release run 38790268901 第 1 次）全量 49 s（常态 ~19 s），读写包的用例慢 10–50 倍、建包的 beforeAll 被 5 s 杀掉、20 ms 后录制计数还是 1。修：`binaryVersion` 在 Windows 上文件不存在时直接返回 null，不再起 PowerShell（原 2.6–3.5 s、两次 >5 s，修后 0.3 ms，产品同时受益）；`_platform.ts` 加 `SLOW_IO_MS`（30 s）给所有建 / 删包的 beforeAll / afterAll 和 `ruby -c`，加 `until()` 在固定 sleep 后轮询录制器的后台写入（state、rule 9 两条）；断言不变。CI【实测】：ci run 38791775699 第 1、2 次 Windows 单测连绿（16.6 s / 15.5 s），release 试跑 38791769990、38792370197 Windows 构建连绿。
+- 卡在哪：【待验】慢的根因是 Defender 实时扫描新文件还是 VM 磁盘抖动——没在 runner 上查 `Get-MpComputerStatus`；`ruby -c` 在 050bfa6 时 0.5 s、之后稳定 2–3.7 s，`--disable-gems` 不改善，原因未明；main 上 input-fidelity / state 的固定 sleep 只修了出过错的三处。
+- 下一格从哪开始：作者审 PR #2（`SLOW_IO_MS` 取值与放在测试侧而非 CI `--timeout` 的选择）后合并；若再出新的 5 s 超时，先看是否是建文件 / 起进程，用 `SLOW_IO_MS` 或 `until()` 而不是加 sleep。
