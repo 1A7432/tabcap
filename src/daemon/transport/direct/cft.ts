@@ -8,6 +8,7 @@
 // every run first removes temp directories left by runs that are gone.
 
 import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { TabcapError } from "../../../shared/envelope.ts";
 import { isRecord, str } from "../../../shared/json.ts";
@@ -164,19 +165,24 @@ async function fetchAndUnpack(url: string, tmp: string, dir: string, platform: C
   const res = await fetchFn(url);
   if (!res.ok || res.body === null) throw new TabcapError("io", `download returned HTTP ${res.status}`, "Retry later or pass --executable-path.");
   const total = Number(res.headers.get("content-length") ?? "0");
-  const sink = Bun.file(zip).writer();
+  // node:fs handle, closed explicitly: on Windows a Bun FileSink still held the
+  // file after end(), and Expand-Archive could not open the zip (CI 10-16).
+  const sink = await open(zip, "w");
   let got = 0;
   let lastPct = -10;
-  for await (const chunk of res.body) {
-    sink.write(chunk);
-    got += chunk.length;
-    const pct = total > 0 ? Math.floor((got / total) * 100) : 0;
-    if (pct >= lastPct + 10) {
-      progress(`${pct}% (${Math.round(got / 1048576)} MB)`);
-      lastPct = pct;
+  try {
+    for await (const chunk of res.body) {
+      await sink.write(chunk);
+      got += chunk.length;
+      const pct = total > 0 ? Math.floor((got / total) * 100) : 0;
+      if (pct >= lastPct + 10) {
+        progress(`${pct}% (${Math.round(got / 1048576)} MB)`);
+        lastPct = pct;
+      }
     }
+  } finally {
+    await sink.close();
   }
-  await sink.end();
   const how = unpackCommand(process.platform, zip, tmp);
   if (how === null) throw new TabcapError("io", "no unzip tool found", "Install `unzip` (or `bsdtar` on Linux), then run `tabcap setup` again.");
   progress(`unpacking with ${how.cmd[0] ?? "?"}`);
