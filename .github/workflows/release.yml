@@ -1,0 +1,110 @@
+# Tag v* → build the four binaries on matching runners (linux-arm64 is
+# cross-compiled on Linux x64), package them, and create a DRAFT release with
+# the packages, their .sha256 files and SHA256SUMS. Never publishes: the owner
+# reviews the draft and publishes it by hand.
+# workflow_dispatch is the dry run: build and package only, artefacts kept for
+# 3 days, no release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: darwin-arm64
+            os: macos-14
+            native: true
+          - target: linux-x64
+            os: ubuntu-latest
+            native: true
+          - target: linux-arm64
+            os: ubuntu-latest
+            native: false
+          - target: windows-x64
+            os: windows-latest
+            native: true
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          want="v$(bun -e 'Bun.file("package.json").json().then((p) => console.log(p.version))')"
+          [ "$want" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME does not match package.json ($want)"; exit 1; }
+      - name: L0 unit tests
+        run: bun test test/unit
+      - name: build and package
+        run: bun scripts/release.ts --targets ${{ matrix.target }}
+      - name: smoke (--version)
+        if: matrix.native
+        run: |
+          bin=dist/tabcap-${{ matrix.target }}
+          [ "${{ runner.os }}" = "Windows" ] && bin="$bin.exe"
+          "$bin" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.target }}
+          path: |
+            dist/release/tabcap-v*-${{ matrix.target }}.tar.gz
+            dist/release/tabcap-v*-${{ matrix.target }}.tar.gz.sha256
+            dist/release/tabcap-v*-${{ matrix.target }}.zip
+            dist/release/tabcap-v*-${{ matrix.target }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+  draft:
+    name: draft release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: collect packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/release
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'package-*' --dir dist/artifacts
+          find dist/artifacts -type f -exec mv {} dist/release/ \;
+          bun scripts/release.ts --sums-only
+          ls -l dist/release
+          cat dist/release/SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: true
+          tag_name: ${{ github.ref_name }}
+          name: tabcap ${{ github.ref_name }}
+          body: Draft created by the release workflow. Review the packages and CHANGELOG.md, then publish by hand.
+          fail_on_unmatched_files: true
+          files: |
+            dist/release/*.tar.gz
+            dist/release/*.zip
+            dist/release/*.sha256
+            dist/release/SHA256SUMS
