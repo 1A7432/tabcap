@@ -10,7 +10,7 @@
 
 `tabcap` 是给 AI agent 用的专属浏览器：守护进程自己管一份 Chrome for Testing（独立 profile），后台标签操作、不抢前台，页面读成带 ref 的无障碍树，网络请求连正文录进证据包。目前只有 macOS arm64 测过。0.1.0 曾以 `bbl` 为名发布；环境变量只认 `TABCAP_*`（0.2.x 对旧 `BBL_*` 的回退已在 0.3 删除）。
 
-1. **拿二进制**：从 release 下载 `tabcap-darwin-arm64`，改名 `tabcap` 放进 `PATH`（浏览器下载的要先 `xattr -d com.apple.quarantine tabcap`）；或者在本仓库 `bun install && bun run build:darwin-arm64` 自己编。
+1. **拿二进制**：从 release 下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，可用 `SHA256SUMS` 核对），解开后把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`（macOS 上浏览器下载的要先 `xattr -d com.apple.quarantine tabcap`）；或者在本仓库 `bun install && bun run build` 自己编。
 2. **装浏览器**：`tabcap setup`。从 Chrome for Testing 官方 JSON 下载 Stable 到 `~/.cache/tabcap/chrome/<版本>/`，写 `~/.config/tabcap/config.json`；不交互，可重复跑。已有 Chrome for Testing 的话用 `tabcap setup --executable-path <二进制路径>`。
 3. **启动**：`tabcap daemon start && tabcap browser start`。要求浏览器只连本机时加 `--proxy none`；默认跟随系统代理。
 
@@ -98,6 +98,8 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 <!-- END GENERATED: commands -->
 
 **站点与账号库**：`tabcap site add <名> --url <入口> --user <账号>` 在提示符下输入密码（或 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。这是**明文**库，保护程度和 `~/.netrc` 一样（文件 0600、目录 0700，权限更宽时守护进程拒绝启动），能用测试账号就别用主账号。AI 只看得到站点名、入口、账号名，命令里只写引用 `tabcap fill <ref> --secret <名>.password`；守护进程把所有输出、日志、证据包事件里的已知密码替换成 `<secret:<名>.password>`，只有登录请求本身的正文原样进包，导出 HAR 时会被打码。同一会话第二次用密码登录会被拦下（`guard.login-limit`），撞上验证页时会话进入 `waiting`、交给人处理。tabcap 不带任何验证码 / 挑战的解法；`~/.config/tabcap/plugins/` 只提供给你自己的处理程序用的接口（见 `skills/tabcap/SKILL.md`）。
+
+**即将提供**：Homebrew、npm（`tabcap` 包，每个平台一个可选依赖）、Scoop。模板在 `packaging/`，还没有发布到任何仓库。从源码：Bun 1.4+，`bun install` 后 `bun run build`（本机）或 `bun run build:<平台>`（`darwin-arm64`、`linux-x64`、`linux-arm64`、`windows-x64`），`bun run release` 一次构建并打包四个平台。
 
 文件位置：`~/.config/tabcap/`（socket、日志、profile、配置、`state.db`、`plugins/`）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）；设 `TABCAP_HOME` 可整体搬到一个目录。
 

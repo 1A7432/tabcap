@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## 0.3.0（未发布）
+## 0.3.0（2026-10-16）
 
 - **命令名对齐 Chrome DevTools MCP**（docs/08 §5）：`press` → `press-key`，`tabs` / `tab use` → `tab list` / `tab select`，`console` → `console list`（新增 `--types`、`--page-size`、`--page-idx`、`--include-stack-traces`，`--level`、`--limit` 保留）与 `console show <msgid>`；`net list --type / --limit / --offset` → `--resource-types / --page-size / --page-idx`（页码语义，`nextPageIdx`；不给分页参数时返回全部匹配，给了默认每页 100；默认仍藏失败与 `data:`，`--all` 全列）；`screenshot --out / --full` → `--file-path / --full-page`，新增 `--format png|jpeg|webp`、`--quality`、`--ref`；`snapshot` 新增 `--verbose`、`--file-path`；`type --submit-key`；`click --dbl-click`；`dialog --prompt-text`；`wait --text` 可重复（任一命中），并在所有帧里找；`evaluate --function` / `--args`；`reload --ignore-cache`。旧名保留到 0.4，`--help` 标为弃用；`net list` 输出仍带旧的 `offset` / `limit` / `nextOffset` 字段一版。
 - **新命令**：`tab new <url> [--background]`（默认后台）；`tab select --bring-to-front`（焦点阶梯第三级，明确要求时才拉前台并在输出里说明）；`hover <ref>`（可信鼠标路径，标签不绘制时报新错误码 `not-painted`）；`resize <宽> <高>`；`upload <ref> <文件…>`（`DOM.setFileInputFiles`，按钮打开文件框时拦截并回答）；`emulate`（视口、UA、配色、网络与 CPU 节流、地理位置；每次调用替换之前全部设置）。
@@ -32,6 +32,12 @@
 - **默认点击不变，但标明残缺**：不带 `--trusted` 的 `click` 仍是 DOM `el.click()`，输出新增 `eventShape:"incomplete"` 和「事件序残缺」警告（只有一个 `isTrusted:false` 的 `click`，没有 pointer / mouse 事件）。
 - **逐键输入**：`tabcap type <文字> --trusted` 每个字符按一次键（keydown、keypress、beforeinput、input、keyup，全部可信），美式键盘上没有的字符（中文、emoji）逐字插入；`--delay <毫秒>` 设字符间隔，默认 0。默认的 `type` 和新的 `--insert` 仍是一次插入整段，输出 `eventShape:"insert"` 和「事件序残缺」警告。
 - **页面不读的响应也能及时看到**：页面拿到响应却从不读正文时，Chrome 不发完成事件，以前要到 `net stop` 才写进证据包；现在响应到达 1 秒后若已经拦截到完整正文，就写成 `finished`，带 `unreadByPage: true`、`bodySource: "fetch"`、没有结束时间，录制中 `net list` / `net show` / `net wait` 和 guard 都能看到。
+- **Linux x64 与 Windows x64 代码路径**（macOS 行为不变）。Linux：默认目录遵循 XDG（`$XDG_CONFIG_HOME/tabcap`、`$XDG_CACHE_HOME/tabcap`、`$XDG_DATA_HOME/tabcap`；未设置时仍是 `~/.config` / `~/.cache` / `~/.local/share`），`tabcap setup` 用 `unzip` 解压，没有 `unzip` 时用 `bsdtar`。Windows：全部放在 `%LOCALAPPDATA%\tabcap\{config,cache,data}`；守护进程监听 127.0.0.1 的随机端口，每次启动生成新的 bearer 令牌，端口与令牌写进 `config\daemon.json`，CLI 从这里读（令牌不进日志、不进命令行、不出现在 `daemon status` 里；不带令牌的请求回 401）；`tabcap setup` 下载 `win64` 版，用 PowerShell `Expand-Archive` 解压，并读二进制的版本资源核对（Windows 上 `chrome.exe --version` 不输出任何东西）；本地库与插件目录在 Windows 上不做权限检查（没有 POSIX 权限位，文件沿用 `%LOCALAPPDATA%` 的用户默认 ACL）；前台归还（macOS 的 `osascript`）跳过并记一行日志。
+- `tabcap daemon status` 新增 `listener`（`unix` 或 `tcp`），Windows 上另有 `port`、`socket` 为 null。`tabcap setup --platform` 接受 `win64`。
+- **二进制与发布包**：`bun run release` 用 Bun 交叉编译出 `tabcap-darwin-arm64`、`tabcap-linux-x64`、`tabcap-linux-arm64`、`tabcap-windows-x64.exe`，各打成 `tabcap-v<版本>-<平台>.tar.gz`（Windows 为 `.zip`），内含二进制、skill、`README.md` 与 `README.zh-CN.md`（只含快速开始）、`LICENSE`、`NOTICE`；每个包一个 `.sha256`，另有一份 `SHA256SUMS`。
+- **CI**（GitHub Actions）：Linux、Windows、macOS 上跑单元测试、类型检查、skill 校验；Linux（Xvfb）与 Windows 上跑端到端测试，Chrome for Testing 由 `tabcap setup` 下载并按版本缓存；打 `v*` 标签时在对应 runner 上构建四个包（linux-arm64 为交叉编译）并建草稿 release，从不自动发布。
+- **打包模板**放在 `packaging/`（不发布到任何地方）：Homebrew formula（macOS arm64）、npm 包装包（每个平台一个可选依赖，启动垫片不带安装脚本）、Scoop 清单。
+- 仓库在所有系统上都以 LF 换行检出（`.gitattributes`）；夹具与生成文档按字节比对。
 
 ## 0.2.0（2026-10-15）
 

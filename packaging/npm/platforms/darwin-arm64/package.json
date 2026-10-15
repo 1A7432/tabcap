@@ -1,6 +1,6 @@
 {
   "name": "@tabcap/darwin-arm64",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The tabcap binary for macOS arm64. Installed by the tabcap package; not meant to be used directly.",
   "license": "Apache-2.0",
   "repository": {

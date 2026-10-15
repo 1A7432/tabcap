@@ -10,7 +10,7 @@ Status: 0.3.0 in development (alpha). Tested on macOS arm64 only. Apache-2.0.
 
 `tabcap` is a command-line tool plus a background daemon that owns its own Chrome for Testing (a separate profile). The agent works in background tabs that never take the macOS foreground; pages come back as accessibility trees with refs (`e12`) to click and fill; network requests are recorded with their bodies into an evidence bundle. 0.1.0 was released under the name `bbl`; only `TABCAP_*` environment variables are read.
 
-1. **Get the binary**: download `tabcap-darwin-arm64` from the release, rename it to `tabcap` and put it on your `PATH` (after a browser download run `xattr -d com.apple.quarantine tabcap` first); or build it from this repository with `bun install && bun run build:darwin-arm64`.
+1. **Get the binary**: download the package for your platform from the release (`tabcap-v<version>-darwin-arm64.tar.gz`, `-linux-x64.tar.gz`, `-linux-arm64.tar.gz` or `-windows-x64.zip`; check it against `SHA256SUMS`), unpack it and put `tabcap` (`tabcap.exe` on Windows) on your `PATH` (macOS, after a browser download: run `xattr -d com.apple.quarantine tabcap` first); or build it from this repository with `bun install && bun run build`.
 2. **Get the browser**: `tabcap setup` downloads Chrome for Testing (Stable) from the official JSON endpoints into `~/.cache/tabcap/chrome/<version>/` and writes `~/.config/tabcap/config.json`. It never asks questions and can be run again. With a Chrome for Testing you already have: `tabcap setup --executable-path <binary>`.
 3. **Start**: `tabcap daemon start && tabcap browser start`. Add `--proxy none` to keep the browser on 127.0.0.1 / localhost only; by default it follows the system proxy.
 
@@ -120,7 +120,8 @@ Most agent browsers start from "give the agent a clean, isolated browser and let
 ## Install
 
 - **Binary**: see Quick start. Only `darwin-arm64` is built and tested today; Linux x64 and Windows x64 are planned.
-- **From source**: Bun 1.4 or newer, `bun install`, then `bun run build` (this machine) or `bun run build:darwin-arm64`; `bun test test/unit` runs the offline tests.
+- **Coming**: Homebrew, npm (a `tabcap` package with one optional dependency per platform) and Scoop. The templates are in `packaging/`; nothing is published to a registry yet.
+- **From source**: Bun 1.4 or newer, `bun install`, then `bun run build` (this machine) or `bun run build:<platform>` (`darwin-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`); `bun run release` builds and packs all four; `bun test test/unit` runs the offline tests.
 - **Files**: `~/.config/tabcap/` (socket, log, profile, config, `state.db`, `plugins/`), `~/.cache/tabcap/` (the browser), `~/.local/share/tabcap/` (screenshots, bundles). `TABCAP_HOME` moves all of them into one directory.
 
 ## Credentials store

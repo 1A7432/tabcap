@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-10-16)
 
 ### Names aligned with Chrome DevTools MCP
 
@@ -39,6 +39,15 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **The default click is unchanged but says what it is**: plain `click` is still the DOM `el.click()` and now reports `eventShape:"incomplete"` with a warning (one untrusted `click`, no pointer / mouse events).
 - **Per-key typing**: `tabcap type <text> --trusted` presses one key per character (keydown, keypress, beforeinput, input, keyup, all trusted); characters without a US-layout key (CJK, emoji) are inserted one by one; `--delay <ms>` between characters, default 0. The default `type` and the new `--insert` still insert the whole text at once and report `eventShape:"insert"` with a warning.
 - **Responses the page never reads**: when the page never reads a body, Chrome sends no finished event and the request used to wait until `net stop`; now, 1 s after the response arrived and once Fetch interception has the full body, it is written as `finished` with `unreadByPage: true`, `bodySource: "fetch"` and no end time, visible to `net list` / `net show` / `net wait` and the guard while recording.
+
+### Platforms, CI and packaging
+
+- **Linux x64 and Windows x64 code paths** (macOS behaviour is unchanged). Linux: the default directories follow XDG (`$XDG_CONFIG_HOME/tabcap`, `$XDG_CACHE_HOME/tabcap`, `$XDG_DATA_HOME/tabcap`; the old `~/.config` / `~/.cache` / `~/.local/share` paths when unset), and `tabcap setup` unpacks with `unzip`, or `bsdtar` when `unzip` is missing. Windows: everything lives under `%LOCALAPPDATA%\tabcap\{config,cache,data}`; the daemon listens on 127.0.0.1 with a random port and a bearer token made at every start, both written to `config\daemon.json`, where the CLI reads them (the token is never logged, never on a command line and never in `daemon status`; requests without it get 401); `tabcap setup` downloads the `win64` build, unpacks it with PowerShell `Expand-Archive` and checks the binary's version resource (`chrome.exe --version` prints nothing on Windows); the store and plugin directories are not permission-checked there (no POSIX modes on Windows: the files keep the user-default ACL of `%LOCALAPPDATA%`); handing the foreground back (macOS `osascript`) is skipped with a log line.
+- `tabcap daemon status` gains `listener` (`unix` or `tcp`) and, on Windows, `port`; `socket` is null there. `tabcap setup --platform` accepts `win64`.
+- **Binaries and packages**: `bun run release` builds `tabcap-darwin-arm64`, `tabcap-linux-x64`, `tabcap-linux-arm64` and `tabcap-windows-x64.exe` (Bun cross-compilation) and packs each as `tabcap-v<version>-<platform>.tar.gz` (`.zip` for Windows) with the binary, the skill, `README.md` and `README.zh-CN.md` (quick start only), `LICENSE` and `NOTICE`, a `.sha256` per package and one `SHA256SUMS`.
+- **CI** (GitHub Actions): unit tests, typecheck and skill validation on Linux, Windows and macOS; end-to-end tests on Linux (Xvfb) and Windows with Chrome for Testing from `tabcap setup`, cached by version; a `v*` tag builds the four packages on their runners (linux-arm64 cross-compiled) and creates a draft release, which is never published automatically.
+- **Packaging templates** in `packaging/` (not published anywhere): a Homebrew formula (macOS arm64), an npm wrapper with one optional dependency per platform and a shim without install scripts, a Scoop manifest.
+- The repository checks out with LF line endings on every OS (`.gitattributes`); fixtures and generated docs are compared byte for byte.
 
 ### Fixes and housekeeping
 
