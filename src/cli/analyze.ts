@@ -1,0 +1,130 @@
+// `tabcap analyze …`: argument parsing and printing only; the work is in
+// src/analyze/ (pure functions over bundle directories, no daemon).
+
+import { TabcapError, fail, ok, toFail, type Envelope } from "../shared/envelope.ts";
+import { find, renderFindText, type FindResult } from "../analyze/find.ts";
+import { appendFinding, type SavedFinding } from "../analyze/finding.ts";
+import { diff, renderDiffText, type DiffResult } from "../analyze/diff.ts";
+import { flagNames, specOf, usageOf } from "./commands.ts";
+
+const FIND = specOf("analyze find");
+const DIFF = specOf("analyze diff");
+export const ANALYZE_USAGE = [usageOf(FIND), usageOf(DIFF)];
+
+type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
+
+function split(argv: readonly string[], allowed: readonly string[], usage: string): { pos: string[]; flags: Set<string> } {
+  const pos: string[] = [];
+  const flags = new Set<string>();
+  let rest = false;
+  for (const a of argv) {
+    if (!rest && a === "--") rest = true;
+    else if (!rest && a.startsWith("--")) {
+      if (!allowed.includes(a)) throw new TabcapError("usage", `unknown option ${a}`, `Usage: ${usage}`);
+      flags.add(a);
+    } else pos.push(a);
+  }
+  return { pos, flags };
+}
+
+function findEvidence(r: FindResult): Record<string, unknown>[] {
+  if (r.hits.length === 0) return (r.hints?.suspectEncrypted ?? []).map((s) => ({ request: s.ref }));
+  return r.hits.map((h) => {
+    if (h.kind === "ws") return { ws: h.ref, frame: h.seq };
+    if (h.kind === "console") return { console: h.seq };
+    return h.path === null ? { request: h.ref } : { request: h.ref, path: h.innerPath === null ? h.path : `${h.path} -> ${h.innerPath}` };
+  });
+}
+
+function findClaim(r: FindResult): string {
+  const q = JSON.stringify(r.query.text);
+  if (r.hits.length > 0) {
+    const where = r.hits
+      .slice(0, 10)
+      .map((h) => `${h.kind === "console" ? `console@${h.seq}` : (h.ref ?? "")} [${h.decode.join(",")}]`)
+      .join(", ");
+    return `${q} found in ${r.hits.length} place(s): ${where}`;
+  }
+  return `${q} not found in ${r.searched.bodies} bodies, ${r.searched.wsFrames} ws frames, ${r.searched.console} console lines; ${r.hints?.suspectEncrypted.length ?? 0} suspected encrypted`;
+}
+
+function cmdFind(argv: readonly string[]): Outcome {
+  const usage = ANALYZE_USAGE[0] ?? "";
+  const { pos, flags } = split(argv, flagNames(FIND), usage);
+  const [bundle, ...words] = pos;
+  if (bundle === undefined || words.length === 0) throw new TabcapError("usage", "expected <bundle> <text>", `Usage: ${usage}`);
+  const text = words.join(" ");
+  const result = find(bundle, text, { ignoreCase: flags.has("--ignore-case") });
+  let saved: SavedFinding | null = null;
+  if (flags.has("--save")) {
+    saved = appendFinding(bundle, {
+      actor: "ai",
+      tool: "find",
+      grade: result.hits.length > 0 ? "实测" : "推断",
+      claim: findClaim(result),
+      evidence: findEvidence(result),
+      input: { text, ignoreCase: result.query.ignoreCase },
+      output: { hits: result.hits.length, truncated: result.truncated, searched: result.searched.bodies, suspectEncrypted: result.hints?.suspectEncrypted.map((s) => s.ref) ?? [] },
+    });
+  }
+  const data = { ...result, saved };
+  if (flags.has("--text")) {
+    const t = renderFindText(result) + (saved === null ? "" : `\nsaved finding seq ${saved.seq} in ${saved.bundle}`);
+    return { code: 0, envelope: ok(data), text: t };
+  }
+  return { code: 0, envelope: ok(data) };
+}
+
+function diffClaim(r: DiffResult): string {
+  const parts = r.groups.map((g) => {
+    const by = (c: string) => g.params.filter((p) => p.class === c).map((p) => (p.location === "query" || p.location === "json" ? p.name : `${p.location} ${p.name}`));
+    const classes = ["constant", "constant-or-session", "session", "timestamp", "varying"]
+      .map((c) => [c, by(c)] as const)
+      .filter(([, names]) => names.length > 0)
+      .map(([c, names]) => `${c} ${names.join(", ")}`);
+    return `${g.key}: ${classes.join("; ")}`;
+  });
+  return `${r.bundles.length} recordings, ${r.sessions} session(s). ${parts.join(" | ")}`;
+}
+
+function cmdDiff(argv: readonly string[]): Outcome {
+  const usage = ANALYZE_USAGE[1] ?? "";
+  const { pos, flags } = split(argv, flagNames(DIFF), usage);
+  if (pos.length < 2) throw new TabcapError("usage", `expected at least two bundles, got ${pos.length}`, `Usage: ${usage}`);
+  const result = diff(pos);
+  let saved: SavedFinding | null = null;
+  const first = pos[0];
+  if (flags.has("--save") && first !== undefined) {
+    saved = appendFinding(first, {
+      actor: "ai",
+      tool: "diff",
+      grade: "推断",
+      claim: diffClaim(result),
+      evidence: result.groups.flatMap((g) => g.requests.filter((q) => q.bundle === 0).map((q) => ({ request: q.ref }))),
+      input: { bundles: result.bundles.map((b) => ({ dir: b.dir, id: b.id, session: b.sessionKey })) },
+      output: { summary: result.summary, groups: result.groups.map((g) => ({ key: g.key, params: g.params.map((p) => ({ location: p.location, name: p.name, class: p.class, hints: p.hints })) })) },
+    });
+  }
+  const data = { ...result, saved };
+  if (flags.has("--text")) {
+    const t = renderDiffText(result) + (saved === null ? "" : `\nsaved finding seq ${saved.seq} in ${saved.bundle}`);
+    return { code: 0, envelope: ok(data), text: t };
+  }
+  return { code: 0, envelope: ok(data) };
+}
+
+export async function runAnalyze(argv: readonly string[]): Promise<Outcome> {
+  try {
+    const [, sub, ...rest] = argv;
+    if (sub === undefined || sub === "--help" || argv.includes("--help")) {
+      const text = ["Analysis over bundles (no daemon needed):", ...ANALYZE_USAGE.map((u) => `  ${u}`)].join("\n");
+      return { code: 0, envelope: ok({ help: text }), text };
+    }
+    if (sub === "find") return cmdFind(rest);
+    if (sub === "diff") return cmdDiff(rest);
+    return { code: 2, envelope: fail("usage", `unknown command: analyze ${sub}`, `Available: ${ANALYZE_USAGE.join(" | ")}`) };
+  } catch (e) {
+    const env = toFail(e);
+    return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
+  }
+}

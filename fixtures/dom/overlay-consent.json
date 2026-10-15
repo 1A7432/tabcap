@@ -1,0 +1,205 @@
+{
+ "capturedWith": "Chrome for Testing Chrome/155.0.8059.79",
+ "page": "test/e2e/site.ts /ov/consent",
+ "collected": {
+  "vw": 1200,
+  "vh": 828,
+  "cands": [
+   {
+    "n": 1,
+    "tag": "div",
+    "role": "",
+    "idcls": "",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 16,
+    "y": 774,
+    "w": 69,
+    "h": 25,
+    "area": 0.002,
+    "z": 10,
+    "bg": 0,
+    "pointer": true,
+    "touchTop": false,
+    "touchBottom": false,
+    "name": "",
+    "text": "下载报表",
+    "textLen": 4,
+    "iframes": [],
+    "buttons": [
+     {
+      "n": 0,
+      "tag": "button",
+      "text": "下载报表",
+      "label": "",
+      "cls": ""
+     }
+    ],
+    "parent": -1,
+    "hits": 0
+   },
+   {
+    "n": 5,
+    "tag": "div",
+    "role": "",
+    "idcls": "cookie-banner cookie-consent",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 0,
+    "y": 708,
+    "w": 1200,
+    "h": 120,
+    "area": 0.145,
+    "z": 50,
+    "bg": 1,
+    "pointer": true,
+    "touchTop": false,
+    "touchBottom": true,
+    "name": "Cookie 提示",
+    "text": "本站使用 Cookie 改善体验并统计访问。接受全部 拒绝 设置",
+    "textLen": 32,
+    "iframes": [],
+    "buttons": [
+     {
+      "n": 2,
+      "tag": "button",
+      "text": "接受全部",
+      "label": "",
+      "cls": ""
+     },
+     {
+      "n": 3,
+      "tag": "button",
+      "text": "拒绝",
+      "label": "",
+      "cls": ""
+     },
+     {
+      "n": 4,
+      "tag": "a",
+      "text": "设置",
+      "label": "",
+      "cls": ""
+     }
+    ],
+    "parent": -1,
+    "hits": 0
+   }
+  ],
+  "landmarks": [
+   {
+    "name": "main",
+    "in": []
+   },
+   {
+    "name": "h1",
+    "in": []
+   },
+   {
+    "name": "form#f",
+    "in": []
+   }
+  ],
+  "nodes": [
+   {
+    "tag": "button",
+    "id": "footer-btn",
+    "cls": ""
+   },
+   {
+    "tag": "div",
+    "id": "",
+    "cls": ""
+   },
+   {
+    "tag": "button",
+    "id": "accept",
+    "cls": ""
+   },
+   {
+    "tag": "button",
+    "id": "reject",
+    "cls": ""
+   },
+   {
+    "tag": "a",
+    "id": "cset",
+    "cls": ""
+   },
+   {
+    "tag": "div",
+    "id": "cookie-banner",
+    "cls": "cookie-consent"
+   }
+  ]
+ },
+ "digest": {
+  "els": [
+   {
+    "t": "form",
+    "id": "f",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "input",
+    "id": "q",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "button",
+    "id": "submit",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "button",
+    "id": "footer-btn",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "div",
+    "id": "cookie-banner",
+    "c": "cookie-consent",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "button",
+    "id": "accept",
+    "c": "",
+    "a": {},
+    "p": 4
+   },
+   {
+    "t": "button",
+    "id": "reject",
+    "c": "",
+    "a": {},
+    "p": 4
+   },
+   {
+    "t": "a",
+    "id": "cset",
+    "c": "",
+    "a": {},
+    "p": 4
+   }
+  ],
+  "total": 20,
+  "truncated": false
+ },
+ "globals": {
+  "layer": false
+ }
+}

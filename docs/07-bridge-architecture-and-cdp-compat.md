@@ -1,0 +1,138 @@
+# bridge 架构与 CDP 兼容中继（草案，待审）
+
+2026-10-15。回答 `03` §8 第 4 条「中继是否兼容标准 CDP」，并定下扩展与守护进程的职责划分。参照：Playwright MCP Bridge 的 `cdpRelay.ts`（Apache-2.0，可抄）、DrissionPage（自定义非商业许可，**只借思路不抄代码**）、一款闭源扩展式工具（私有笔记，只借思路）。
+
+标注：【实测】跑过或读过源码；【推断】间接推出；【待验】没验证。
+
+## 1. 薄扩展、厚守护进程
+
+两条传输层，同一个接口（10-15 第五轮定，`direct` 默认且先做）：
+
+- **`direct`**：`setup` 下载 Chrome for Testing，独立 `--user-data-dir`，优先 `--remote-debugging-pipe`（【实测 10-15】Bun 下经 `node:child_process` 的 5 项 stdio 可用，`Browser.getVersion` 经管道返回；`--remote-debugging-port=0` 作备选），守护进程直连 Chrome 自己的 CDP 端点。`Target.setAutoAttach` 原生可用【实测：OOPIF、Service Worker】。扩展只剩人那一面的 UI，由 `--load-extension` 自动装【实测：Chrome for Testing 155 认这个参数】。
+- **`ext`**（阶段 2）：接管用户自己的 Chrome，Chrome 137+ 品牌版不认 `--load-extension`【实测：Chromium Extensions 公告】，扩展从 Chrome Web Store 装；扩展同时充当 CDP 管道。下表是 `ext` 模式下扩展的职责。
+
+守护进程里的一切（会话、焦点阶梯、对话框锁、录制器、分析、兼容端点）与传输层无关。
+
+| 谁 | 只做这些 |
+|---|---|
+| 扩展（MV3 service worker） | 按标签 `chrome.debugger.attach/detach`；`sendCommand` 与 `onEvent` 原样转发，带 `sessionId`（Chrome 125 起 `DebuggerSession.sessionId`【推断，待验：spike 1】）；子目标自动挂接（`Target.setAutoAttach`，flatten）；`chrome.tabs` / `tabGroups` / favicon 角标 / 横条等「只有扩展能做」的事；期望状态同步（`storage` + `alarms`，私有笔记）；P2 的人工操作录制 content script |
+| 守护进程（Bun） | 会话与 owned / borrowed；焦点阶梯；对话框页锁；每标签队列与命令级超时；录制器（所有 CDP 事件都经过这里 → 证据包）；分析；CLI / HTTP / skill；secrets；guard；handoff；**CDP 兼容端点** |
+
+为什么薄扩展：未打包扩展每次改都要去 `chrome://extensions` 重载，守护进程只是个进程；所有 CDP 事件只经过一处，录制器和分析在同一进程；兼容端点几乎免费（§2）；与 Playwright 的做法一致，可直接抄。代价是每条命令多一跳本机 WebSocket【推断：亚毫秒】。
+
+### 1.1 `direct` 模式的启动与挂接协议（10-15 spike 1，Chrome for Testing 155，全部【实测】除非另注）
+
+启动参数：
+- `--user-data-dir=<profile>`、`--remote-debugging-pipe`（备选 `--remote-debugging-port=0` + 读 `DevToolsActivePort`）、`--load-extension=<ui ext>`、`--no-first-run`、`--no-default-browser-check`。
+- macOS 固定加 **`--use-mock-keychain`**。否则每次启动都会弹 macOS 钥匙串对话框「Chrome for Testing 想要使用 Chromium Safe Storage」，在人点掉之前第一次导航一个请求都发不出去（实测卡 17.5 s，正好是弹窗到点击的间隔）；点「始终允许」也靠不住，CfT 是 ad-hoc 签名，ACL 绑代码哈希，换版本大概率再弹【推断】。代价：profile 里的 cookie 用固定密钥加密，保护退到文件权限，与 `store` 的定位一致。
+- Chrome 自己会向 Google 发 GCM 注册请求，`--disable-background-networking` 挡不住，并且会走系统代理。端到端测试要用黑洞代理 `--proxy-server=127.0.0.1:1 --proxy-bypass-list="127.0.0.1;localhost"` 把外连全部截断【待验】；生产模式要不要跟随系统代理是作者的决定（见 §4 第 6 条）。
+
+挂接协议：
+- 浏览器级 `Target.setAutoAttach {autoAttach:true, waitForDebuggerOnStart:true, flatten:true}`；每收到 `Target.attachedToTarget`，先 `Runtime.enable`、`Page.enable`（录制时再 `Network.enable`），然后**必须**发 `Runtime.runIfWaitingForDebugger`。
+- 原因：Chrome 155 即使 `waitForDebuggerOnStart:false`，`window.open` 开出的弹窗仍被挂起直到收到 `runIfWaitingForDebugger`，而且 attach 事件里报的 `waitingForDebugger:false` 是假的，不能信这个字段。不发，opener 的 `window.open` 调用永远不返回（evaluate 超时），弹窗停在 `about:blank`。
+- 子目标（OOPIF、Service Worker、弹窗）都经此挂上；跨站 iframe 和 SW 的 Network 事件落在各自子会话。
+
+「页面就绪」的判定：
+- 不能只等 `Page.frameNavigated`（新建目标的首次导航经常收不到）或 `Page.loadEventFired`（可能在 `Page.enable` 之前就触发而丢失）。
+- 等主文档的 `Runtime.executionContextCreated`（`isDefault` 且 `origin` 等于目标 URL 的 origin；`Runtime.enable` 会补发已有的 context），再 evaluate 一次 `location.href` 与 `document.readyState` 作最终确认。同标签内的 `Page.navigate` 事件完整，用它返回的 `loaderId` 对应。
+- 去掉钥匙串因素后，首次导航在 100 ms 内；`background:true/false`、是否 auto-attach 都不影响导航耗时。
+
+后台标签与焦点阶梯（10-15 spike 1g，全部【实测】，每步独立新标签）：
+- `background:true` 的标签基线：`hidden`、`hasFocus:false`、定时器 1 Hz、rAF 0。没开焦点仿真时 CDP 鼠标事件不生效，而且对从未绘制过的隐藏标签发 `Input.dispatchMouseEvent {type:"mouseMoved"}` **永远不返回**，每条命令必须带超时。`Page.startScreencast` 不能替代仿真，隐藏标签 3 s 内 0 帧。
+- **第一级**：`Runtime.evaluate` 调 `el.click()`。不抢焦点、不改可见性，但只触发 `click`、`isTrusted:false`、没有 pointer 事件；带 `userGesture:true` 可让 `userActivation.isActive` 为 true。填表用 `el.focus()` + `Input.insertText` 不需要仿真即可（`beforeinput` / `input` 可信）；`Input.dispatchKeyEvent` 必须开仿真。
+- **第二级**：`Emulation.setFocusEmulationEnabled {enabled:true}`，然后 CDP `Input.*`。`hasFocus` 变 true，点击的 pointerdown / mousedown / pointerup / mouseup / click 全部 `isTrusted:true`，按键可用；macOS 前台应用不变、标签不被激活、窗口不动。代价：页面变成 `visible`，定时器 10 Hz、rAF 120 Hz 全速跑，页面能察觉 `visibilitychange`。做完立即关闭；关闭后 `hasFocus` 不回落。
+- **第三级**：`Page.bringToFront` 会把 Chrome 抢到 macOS 前台并激活标签，只在人要接手时用。
+- 以上三级作为焦点阶梯采纳（10-15 作者定），接受第二级让页面短暂变 visible 的代价；`Target.activateTarget` 与 `Page.bringToFront` 在 AI 命令路径上一律改写成第二级。
+- 启动本身会抢前台：Chrome 进程起来时 macOS 前台从终端变成 Chrome。【实测 格 3】加 `--no-startup-window` 后启动和第一次 `createTarget` 开窗都不抢前台，已设为默认；`osascript activate` 归还作兜底（单次可能失败，最多重试 4 次）。守护进程被 SIGKILL 时管道断开，Chrome 自行退出。隐藏标签截图靠 `CDPScreenshotNewSurface` 直接非空白，不需要焦点仿真【实测】。
+- 此结果同时回答了私有笔记里的待验项「焦点模拟是否让 `document.hasFocus()` 变真」：是。
+- 弹窗拦截的识别：`userGesture:false` 时 `window.open` 返回 null、不建目标，但 host 会收到 `Page.windowOpen {userGesture:false}`，守护进程可据此报「弹窗被拦截」并给下一步。
+- **可信点击（作者定 10-15；提案 `docs/10`，0.3-E）**：默认 `click` 仍是第一级 DOM 点击，输出 `eventShape:"incomplete"` 与「事件序残缺」警告。`click --trusted` = 第二级：焦点仿真 → 滚入视口 → **rAF 绘制确认**（页面里 `requestAnimationFrame` 在 1 s 内回调且 `visibilityState` 为 `visible`）→ 终点遮挡检查 → `mouseMoved` 路径（起点是本标签上次可信鼠标事件的位置，新标签或新文档为 0,0；直线 + minimum-jerk，时长 100–400 ms 均匀随机，约 60 点/秒、至少 3 点，终点精确等于目标；±0.4 px 散布默认关；`button:"none"`、`buttons:0`；每条单独 1 s 超时）→ `mousePressed {button:"left", buttons:1, clickCount:1, force:0.5}` → 50–140 ms → `mouseReleased`。pointer / mouse 两族事件全部由 Chrome 合成，不手写 DOM 事件。确认不了已绘制时绝不发 `mouseMoved`（spike 1g：未绘制的隐藏标签上永不返回），降到第一级并标 `degraded:"not-painted"`。某条 move 超时报 `move-timeout`，不按下、不重试；任何失败都不自动重试。随机数可注入（测试用固定种子），CLI 不暴露种子。【实测 10-15，CfT 155：`force:0.5` 让 pointerdown 的 `pressure` 为 0.5，与 Playwright 导出一致；`navigate --new-tab` 开出的后台标签（点击前 `visibilityState:"hidden"`；是否从未绘制过属【推断】），开仿真后 rAF 按时回调、按下时 `visibilityState:"visible"`、`hasFocus:true`，走完整路径约 0.85 s，命令结束后回到 hidden。降级路径目前只由假 CDP 覆盖（L0），真实浏览器里还没遇到过确认不了绘制的标签】
+- **逐键输入（作者定 10-15）**：默认 `type` 与 `--insert` 仍是一次 `Input.insertText`，输出 `eventShape:"insert"` 与「事件序残缺」警告。`type --trusted`：US 布局里有键位的字符逐个 `Input.dispatchKeyEvent`（`keyDown` 带 `text` / `unmodifiedText`、`modifiers:0` → `keyUp`），由 Chrome 合成 keydown / keypress / beforeinput / textInput / input / keyup；没有键位的字符（中文、emoji、`\t`）逐字 `Input.insertText`；`--delay <ms>` 是两个字符之间的间隔，默认 0。要开焦点仿真。【实测 10-15：s46 上 `type --trusted "aB3 中"` 与 Playwright `type()` 导出逐字段相同（大写不发 Shift，`shiftKey:false`）】真人节奏的下限等作者的 L3 导出（`06` A7.9）再定。
+- **第一级的定位**：`el.click()` 是默认点击、也是 `--trusted` 确认不了绘制时的降级路径，输出必带 `eventShape:"incomplete"`。
+
+### 1.2 启动参数表（抄自 Playwright `chromiumSwitches.ts`，Apache-2.0，保留 NOTICE；10-15 作者定）
+
+来源：`packages/playwright-core/src/server/chromium/chromiumSwitches.ts`（main，2026-10-15 读取）。我们的取舍按用途分组；标「待验」的由 spike 1g / 实现时确认。
+
+| 组 | 参数 | 取舍 |
+|---|---|---|
+| 压外连 | `--disable-background-networking` `--disable-component-update` `--disable-sync` `--metrics-recording-only` `--no-service-autorun` `--disable-field-trial-config` `--disable-client-side-phishing-detection` `--disable-breakpad` `--disable-default-apps` `--disable-component-extensions-with-background-pages` `--disable-features=OptimizationHints,NetworkTimeServiceQuerying,AimEnabled,Translate,MediaRouter,DialMediaRouteProvider,GlobalMediaControls,LensOverlay,HttpsUpgrades` | 全部采用。spike 1 看到的 GCM 外连在这组之下是否消失【待验】 |
+| 钥匙串 / 密码库 | `--use-mock-keychain`（macOS）`--password-store=basic`（Linux） | 采用，已定 |
+| 后台标签不节流 | `--disable-background-timer-throttling` `--disable-renderer-backgrounding` `--disable-backgrounding-occluded-windows` | 采用。这是 spike 1g「隐藏标签定时器节流」的已知解法，和焦点模拟配合用 |
+| 不打扰 | `--no-first-run` `--no-default-browser-check` `--disable-search-engine-choice-screen` `--disable-infobars`（隐藏 Chrome for Testing 自己的信息栏）`--disable-prompt-on-repost` `--disable-hang-monitor` `--disable-popup-blocking` | 采用。弹窗拦截关掉：登录弹窗是真实场景，`Page.windowOpen` 照样记录；要不要默认关【待定，倾向关】 |
+| 录制相关 | `--disable-back-forward-cache`（bfcache 会让后退 / 前进不走网络、事件不完整）`--disable-features=PaintHolding,ThirdPartyStoragePartitioning,AvoidCorsURLLoaderRestartOnRedirect,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose` `--enable-features=CDPScreenshotNewSurface`（隐藏标签截图）`--allow-pre-commit-input` `--disable-ipc-flooding-protection` `--force-color-profile=srgb` `--export-tagged-pdf` | 采用；`CDPScreenshotNewSurface` 对后台标签截图的效果【待验】 |
+| 不要 | `--disable-extensions`（我们要装 UI 扩展）`--unsafely-disable-devtools-self-xss-warnings` `--disable-stack-profiler`（Windows 专用）`--disable-dev-shm-usage`（Linux 容器）以及所有 `edge` / `ms` 前缀的 Edge 专用项 | 不采用 |
+
+注意：不传 `--enable-automation`；【实测 10-15 探针页】以 `--remote-debugging-pipe` 启动时 `navigator.webdriver` 仍为 true，Playwright 同样如此，原因未查【推断：管道连接即视为自动化】。参数表以代码里的常量为准，本表只是取舍记录。
+
+扩展 ↔ 守护进程的信封（回环、单控制者、来源校验，沿用私有笔记）：
+
+```
+→ {"id":1,"type":"cdp","tab":1234,"sessionId":null,"method":"Network.enable","params":{…}}
+← {"id":1,"result":{…}} | {"id":1,"error":{"message":"…"}}
+← {"type":"event","tab":1234,"sessionId":"…","method":"Network.loadingFinished","params":{…}}
+→ {"id":2,"type":"tabs","op":"create"|"close"|"group"|"query"|"mark","args":{…}}
+→ {"id":3,"type":"attach"|"detach","tab":1234}
+← {"type":"tab-event","event":"created"|"removed"|"replaced"|"detached","tab":1234,"detail":{…}}
+```
+
+## 2. CDP 兼容端点：外部工具要什么
+
+### 2.1 DrissionPage 实际用到的（【实测】读 master 源码，2026-10-15）
+
+- 探活：`GET /json/version`，只看有没有 `webSocketDebuggerUrl`；`Chromium.__init__` 要求它以 `browser` 结尾，否则用 `Target.getTargets` / `Target.getBrowserContexts` 猜 id。
+- 只开**一条** `ws://<addr>/devtools/browser/<id>`；标签都走 `Target.attachToTarget(flatten=True)` 的 `sessionId`，**不**连 `/devtools/page/<id>`。
+- 浏览器级方法：`Target.setDiscoverTargets`、`getTargets`、`getTargetInfo`、`createTarget`、`closeTarget`、`activateTarget`、`attachToTarget`、`detachFromTarget`、`createBrowserContext`；事件 `Target.targetCreated / targetDestroyed / detachedFromTarget`；`Browser.getVersion`、`Browser.close`、`Browser.setDownloadBehavior`、`Browser.getHistograms`；`Storage.getCookies`、`Storage.clearCookies`；`Network.clearBrowserCache`；`GET /json` 列标签。
+- 标签级：`Emulation.setFocusEmulationEnabled(true)`（与 DrissionPage 和一款闭源扩展式工具同一招，三方印证）、`Page.*`、`Runtime.*`、`DOM.*`、`Input.*`、`Network.*`。
+- 抓包：`Network.loadingFinished` 即 `Network.getResponseBody`（和 `04` §5.2 同一选择）；另有浏览器级 `Fetch.requestPaused → Fetch.getResponseBody → Fetch.continueResponse` 的拦截版。后者就是 `04` §5.2 第 8 条的备选方案，证明可行。
+
+Playwright `connectOverCDP`、puppeteer `connect`、agent-browser `--cdp` 也是「`/json/version` + 浏览器级 WS + flatten」模型，只是方法集略有出入（agent-browser-stealth 踩过 `Browser.getVersion` 的坑，`01` §4）。
+
+### 2.2 端点表
+
+默认**不开**；`tabcap cdp serve --port <p>` 才开，只绑回环。
+
+| 面 | 做法 |
+|---|---|
+| `GET /json/version` | 本地应答：`Browser`、`Protocol-Version`、`User-Agent`（从任一标签 `Browser.getVersion` 缓存）、`webSocketDebuggerUrl: ws://127.0.0.1:<p>/devtools/browser/<id>` |
+| `GET /json`、`/json/list` | 只列**本兼容会话**的标签（owned + 显式 attach 的），不列用户其它标签 |
+| `GET /json/new?url`、`/json/activate/<id>`、`/json/close/<id>` | 分别映射到后台新标签、焦点阶梯、只关 owned |
+| `ws /devtools/browser/<id>` | 一条连接一个会话；client 的 `sessionId` ↔（标签，Chrome 子会话）映射在守护进程 |
+| `ws /devtools/page/<id>` | 一期不做；需要时再加（puppeteer 老版本用） |
+
+浏览器级方法分四类：
+
+| 类 | 方法 |
+|---|---|
+| **本地应答** | `Browser.getVersion`、`Target.getTargets`（只回会话内）、`Target.getTargetInfo`、`Target.setDiscoverTargets`（之后把 `chrome.tabs` 事件翻成 `targetCreated/Destroyed`，只限会话内）、`Browser.getHistograms`（回空）、`Storage.getCookies`（经 `chrome.cookies`，**只回会话标签涉及的域**，已定） |
+| **改写** | `Target.createTarget` → 后台新标签进会话组；`Target.closeTarget` → 只关 owned，借来的回错误；`Target.activateTarget` / `Page.bringToFront` → 焦点阶梯（§1.1），永不拉窗口；`Target.attachToTarget(flatten)` → 扩展 attach + 分配 `sessionId`；`Target.detachFromTarget` → 对应 detach |
+| **转发** | 带 `sessionId` 的一切标签级方法 → 扩展 → `chrome.debugger.sendCommand` |
+| **拒绝**（错误文案写明替代） | `Browser.close`、`Storage.clearCookies`、`Network.clearBrowserCache`（账号保护）、`Target.createBrowserContext`（扩展造不出隔离上下文，v0 不做）、`Browser.setDownloadBehavior`（v0 回成功但不生效并记警告，已定） |
+
+`direct` 模式下兼容端点是对 Chrome 自己端点的带过滤直通：只保留拒绝清单、改写项和「只暴露会话内标签」，其余原样转发。
+
+录制器顺带生效：经兼容端点发的命令和收到的事件照样进证据包，`actor:"ai"`、`cmd` 为 `cdp:<client>`；`cdp` 透传同样留痕（私有笔记）。
+
+### 2.3 放在哪一期
+
+建议阶段 2 末或阶段 3：阶段 1 把 §1 的分层做对，兼容端点只是守护进程多一个监听器。
+
+验收（到时候写进 `06` 的同类文档）：
+1. 自动：用 Playwright `connectOverCDP`（Apache-2.0）开 s01、读页面、抓 `/api/items`；再用一个 40 行的原始 CDP 客户端复现 DrissionPage 的握手序列（`/json/version` → 浏览器 WS → `setDiscoverTargets` → `createTarget` → `attachToTarget(flatten)` → `Network.enable`），断言每步成功且 `Target.activateTarget` 不把 Chrome 拉到前台。
+2. 人工：作者用 DrissionPage `Chromium('127.0.0.1:<p>')` 跑一遍 s01 + `listen`。DrissionPage 的许可是非商业自定义条款，所以它**不进仓库依赖**，只在作者本机做人工核对。
+
+## 3. 从 DrissionPage 借的产品思路（不抄代码）
+
+- **d / s 两模式切换**：浏览器模式探路，切到 requests 会话模式复用同一份 cookie 重放。对应我们的 `replay`：从证据包 `state` 的 cookies 生成 Python 客户端会话，不用人手抄。
+- **`listen` 的人体工学**：`listen.start(targets)` → 触发 → `listen.wait()` / `listen.steps()` 拿到带正文的包。对应 CLI：`tabcap net wait --url /api/x --timeout 10`、`tabcap net steps`，给 AI 一个「等那个接口回来」的原语，比 `list` + `detail` 省两步。
+- **浏览器级 `Fetch` 拦截抓包**：跳转竞态的备选实现，已知有人在生产用。
+- **连已有浏览器只看 `/json/version`**：兼容端点的最低门槛就这一条。
+
+## 4. 决定记录（10-15 第二轮，作者：都按建议）
+
+1. 兼容端点放阶段 3。
+2. `Target.getTargets` / `/json` 只暴露会话内标签；用户的其它标签对外部工具不可见。
+3. `Storage.getCookies` 只回会话涉及的域。
+4. `Browser.setDownloadBehavior` 回成功但不生效，记警告。
+5. `ws /devtools/page/<id>` 先不做。
+6. 生产模式默认跟随系统代理，`tabcap browser start --proxy system|none|<url>` 和配置项可切换（10-15 作者定）；Chrome 自身的后台外连（GCM、组件更新等）用 Playwright 的默认启动参数表压到最少（Apache-2.0，抄并保留 NOTICE）；端到端测试再叠加黑洞代理。

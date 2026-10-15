@@ -1,0 +1,101 @@
+{
+ "capturedWith": "Chrome for Testing Chrome/155.0.8059.79",
+ "page": "test/e2e/site.ts /ov/mask",
+ "collected": {
+  "vw": 1200,
+  "vh": 828,
+  "cands": [
+   {
+    "n": 0,
+    "tag": "div",
+    "role": "",
+    "idcls": "loading",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 0,
+    "y": 0,
+    "w": 1200,
+    "h": 828,
+    "area": 1,
+    "z": 999,
+    "bg": 0.7,
+    "pointer": true,
+    "touchTop": true,
+    "touchBottom": true,
+    "name": "",
+    "text": "加载中…",
+    "textLen": 4,
+    "iframes": [],
+    "buttons": [],
+    "parent": -1,
+    "hits": 9
+   }
+  ],
+  "landmarks": [
+   {
+    "name": "main",
+    "in": [
+     0
+    ]
+   },
+   {
+    "name": "h1",
+    "in": [
+     0
+    ]
+   },
+   {
+    "name": "form#f",
+    "in": [
+     0
+    ]
+   }
+  ],
+  "nodes": [
+   {
+    "tag": "div",
+    "id": "loading",
+    "cls": ""
+   }
+  ]
+ },
+ "digest": {
+  "els": [
+   {
+    "t": "form",
+    "id": "f",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "input",
+    "id": "q",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "button",
+    "id": "submit",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "div",
+    "id": "loading",
+    "c": "",
+    "a": {},
+    "p": -1
+   }
+  ],
+  "total": 15,
+  "truncated": false
+ },
+ "globals": {
+  "layer": false
+ }
+}

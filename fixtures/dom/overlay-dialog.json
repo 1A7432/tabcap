@@ -1,0 +1,163 @@
+{
+ "capturedWith": "Chrome for Testing Chrome/155.0.8059.79",
+ "page": "test/e2e/site.ts /ov/dialog",
+ "collected": {
+  "vw": 1200,
+  "vh": 828,
+  "cands": [
+   {
+    "n": 0,
+    "tag": "button",
+    "role": "",
+    "idcls": "under",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 565,
+    "y": 402,
+    "w": 69,
+    "h": 25,
+    "area": 0.002,
+    "z": 1,
+    "bg": 1,
+    "pointer": true,
+    "touchTop": false,
+    "touchBottom": false,
+    "name": "",
+    "text": "下方按钮",
+    "textLen": 4,
+    "iframes": [],
+    "buttons": [],
+    "parent": -1,
+    "hits": 0
+   },
+   {
+    "n": 2,
+    "tag": "div",
+    "role": "alertdialog",
+    "idcls": "dlg2",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": true,
+    "fixed": true,
+    "x": 420,
+    "y": 334,
+    "w": 360,
+    "h": 160,
+    "area": 0.058,
+    "z": 10,
+    "bg": 1,
+    "pointer": true,
+    "touchTop": false,
+    "touchBottom": false,
+    "name": "操作失败",
+    "text": "操作失败 网络异常，请稍后重试。 关闭",
+    "textLen": 21,
+    "iframes": [],
+    "buttons": [
+     {
+      "n": 1,
+      "tag": "button",
+      "text": "关闭",
+      "label": "",
+      "cls": ""
+     }
+    ],
+    "parent": -1,
+    "hits": 1
+   }
+  ],
+  "landmarks": [
+   {
+    "name": "main",
+    "in": []
+   },
+   {
+    "name": "h1",
+    "in": []
+   },
+   {
+    "name": "form#f",
+    "in": []
+   }
+  ],
+  "nodes": [
+   {
+    "tag": "button",
+    "id": "under",
+    "cls": ""
+   },
+   {
+    "tag": "button",
+    "id": "dlg2-close",
+    "cls": ""
+   },
+   {
+    "tag": "div",
+    "id": "dlg2",
+    "cls": ""
+   }
+  ]
+ },
+ "digest": {
+  "els": [
+   {
+    "t": "form",
+    "id": "f",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "input",
+    "id": "q",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "button",
+    "id": "submit",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "button",
+    "id": "under",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "div",
+    "id": "dlg2",
+    "c": "",
+    "a": {
+     "role": "alertdialog"
+    },
+    "p": -1
+   },
+   {
+    "t": "h2",
+    "id": "dlg2-title",
+    "c": "",
+    "a": {},
+    "p": 4
+   },
+   {
+    "t": "button",
+    "id": "dlg2-close",
+    "c": "",
+    "a": {},
+    "p": 4
+   }
+  ],
+  "total": 19,
+  "truncated": false
+ },
+ "globals": {
+  "layer": false
+ }
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "tabcap-adapter/0",
+  "name": "overlay",
+  "category": "overlay",
+  "version": 1,
+  "description": "Overlays in front of the page: aria-modal / role=dialog dialogs, full-viewport masks, iframe layers (layer.js style), session-timeout prompts, cookie / consent banners. Never closes anything.",
+  "script": "page.js",
+  "detect": [
+    { "kind": "dom", "match": { "attr": { "name": "aria-modal", "value": "true" } }, "confidence": 0.6, "label": "aria-modal element" },
+    { "kind": "dom", "match": { "attr": { "name": "role", "value": "dialog" } }, "confidence": 0.5, "label": "role=dialog element" },
+    { "kind": "dom", "match": { "attr": { "name": "role", "value": "alertdialog" } }, "confidence": 0.5, "label": "role=alertdialog element" },
+    { "kind": "dom", "match": { "tag": "dialog" }, "confidence": 0.4, "label": "<dialog> element" },
+    { "kind": "class-prefix", "prefix": "layui-layer", "confidence": 0.6, "label": "layer.js classes (layui-layer*)" },
+    { "kind": "dom", "match": { "classPrefix": "layui-layer" }, "has": { "tag": "iframe" }, "confidence": 0.8, "label": "iframe inside a layui-layer" },
+    { "kind": "global", "name": "layer", "confidence": 0.3, "label": "global layer (layer.js)" }
+  ],
+  "hooks": {
+    "describe": { "when": "always" },
+    "act": { "ops": ["covered"] }
+  }
+}

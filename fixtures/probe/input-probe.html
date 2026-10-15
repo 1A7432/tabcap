@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>input probe</title>
+<style>
+  body { font: 14px/1.6 -apple-system, system-ui, sans-serif; margin: 40px; }
+  #target { width: 260px; height: 90px; line-height: 90px; text-align: center;
+            border: 1px solid #999; border-radius: 6px; cursor: pointer; user-select: none; }
+  #target:active { background: #eee; }
+  #status { margin-top: 16px; color: #555; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<!--
+  docs/05 s46 input-fidelity. Promoted from the owner's local click probe
+  (/tmp/tabcap-probe/probe.html, 10-15) plus the typing copy of the 0.3-D
+  re-run: capture-phase listeners on window record every pointer / mouse /
+  keyboard / beforeinput / textInput / input / composition / focus event with
+  its fields. Changes from the original: a #field input; keyboard events also
+  record keyCode / charCode / which / repeat / location and the four modifier
+  keys; input events record inputType / data; the report goes to this page's
+  own origin (/report) instead of a fixed port; the fingerprint and CDP-probe
+  sections are left out (not part of the scenario). The page only records; it
+  never changes what a click or a key does.
+-->
+<h1>input probe</h1>
+<p>本页只记录事件，不改变点击行为。</p>
+<div id="target">默认框，点这里</div>
+<p><input id="field" autocomplete="off" placeholder="type here"></p>
+<div id="status">waiting…</div>
+
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const run = params.get('run') || 'unnamed';
+  const MAX_EVENTS = 400;
+
+  const events = [];
+  let lastT = null;
+
+  const MOVE_TYPES = new Set(['mousemove', 'pointermove']);
+  const TYPES = [
+    'pointerover', 'pointerenter', 'pointerdown', 'pointermove', 'pointerup', 'pointercancel',
+    'mouseover', 'mouseenter', 'mousemove', 'mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu',
+    'touchstart', 'touchend', 'keydown', 'keypress', 'keyup', 'beforeinput', 'textInput', 'compositionstart', 'compositionend',
+    'focus', 'blur', 'focusin', 'focusout', 'input', 'change',
+  ];
+
+  function rec(t) {
+    if (events.length >= MAX_EVENTS) return;
+    const e = t;
+    const rec = {
+      seq: events.length,
+      type: e.type,
+      isTrusted: e.isTrusted,
+      target: (e.target && (e.target.id || e.target.tagName)) || null,
+      timeStamp: Math.round(e.timeStamp * 1000) / 1000,
+      dt: lastT === null ? null : Math.round((e.timeStamp - lastT) * 1000) / 1000,
+      bubbles: e.bubbles,
+      cancelable: e.cancelable,
+      composed: e.composed,
+      eventPhase: e.eventPhase,
+      defaultPrevented: e.defaultPrevented,
+    };
+    lastT = e.timeStamp;
+
+    if ('clientX' in e) {
+      rec.clientX = e.clientX; rec.clientY = e.clientY;
+      rec.screenX = e.screenX; rec.screenY = e.screenY;
+      rec.pageX = e.pageX; rec.pageY = e.pageY;
+      rec.offsetX = e.offsetX; rec.offsetY = e.offsetY;
+      rec.layerX = e.layerX; rec.layerY = e.layerY;
+      rec.movementX = e.movementX; rec.movementY = e.movementY;
+      rec.button = e.button; rec.buttons = e.buttons; rec.detail = e.detail;
+      rec.altKey = e.altKey; rec.ctrlKey = e.ctrlKey; rec.shiftKey = e.shiftKey; rec.metaKey = e.metaKey;
+    }
+    if ('pointerId' in e) {
+      rec.pointerId = e.pointerId; rec.pointerType = e.pointerType; rec.isPrimary = e.isPrimary;
+      rec.width = e.width; rec.height = e.height; rec.pressure = e.pressure;
+      rec.tangentialPressure = e.tangentialPressure; rec.tiltX = e.tiltX; rec.tiltY = e.tiltY; rec.twist = e.twist;
+    }
+    if ('key' in e) {
+      rec.key = e.key; rec.code = e.code; rec.keyCode = e.keyCode; rec.charCode = e.charCode; rec.which = e.which;
+      rec.repeat = e.repeat; rec.location = e.location;
+      rec.altKey = e.altKey; rec.ctrlKey = e.ctrlKey; rec.shiftKey = e.shiftKey; rec.metaKey = e.metaKey;
+    }
+    if ('inputType' in e) { rec.inputType = e.inputType; rec.data = e.data; rec.isComposing = e.isComposing; }
+    if (e.type === 'textInput' && 'data' in e) rec.data = e.data;
+    if (e.target && e.target.id === 'field' && /^(key|input|beforeinput)/.test(e.type)) rec.value = e.target.value;
+    if ('relatedTarget' in e) rec.relatedTarget = e.relatedTarget ? (e.relatedTarget.id || e.relatedTarget.tagName) : null;
+    if (typeof e.composedPath === 'function') {
+      try { rec.path = e.composedPath().map(n => (n && (n.id || n.tagName)) || String(n)).join('<'); } catch (_) {}
+    }
+    if (e.type === 'click' || e.type === 'pointerdown' || e.type === 'mousedown') {
+      rec.view = e.view ? (e.view === window ? 'window' : 'other') : null;
+      rec.hasFocus = document.hasFocus();
+      rec.activeElement = document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : null;
+      rec.visibilityState = document.visibilityState;
+      rec.hidden = document.hidden;
+    }
+    events.push(rec);
+  }
+
+  for (const type of TYPES) {
+    window.addEventListener(type, rec, { capture: true, passive: true });
+  }
+
+  function summarize() {
+    const click = events.find(e => e.type === 'click');
+    const firstMove = events.find(e => MOVE_TYPES.has(e.type));
+    const downs = events.filter(e => e.type === 'pointerdown' || e.type === 'mousedown');
+    return {
+      totalEvents: events.length,
+      moveEventCount: events.filter(e => MOVE_TYPES.has(e.type)).length,
+      pointerMoveCount: events.filter(e => e.type === 'pointermove').length,
+      mouseMoveCount: events.filter(e => e.type === 'mousemove').length,
+      hadMoveBeforeClick: !!(firstMove && click && firstMove.seq < click.seq),
+      firstEventType: events.length ? events[0].type : null,
+      clickIsTrusted: click ? click.isTrusted : null,
+      clickDetail: click ? click.detail : null,
+      clickButtons: click ? click.buttons : null,
+      clickPointerType: click ? (click.pointerType ?? 'n/a') : null,
+      pointerdownIsTrusted: downs.length ? downs.map(d => d.isTrusted) : [],
+      pointerSequence: events.filter(e => /^(pointer|mouse)(down|up)$/.test(e.type)).map(e => e.type + ':' + e.isTrusted),
+      hasFocusAtClick: click ? click.hasFocus : null,
+      activeElementBeforeClick: downs.length ? downs[0].activeElement : null,
+    };
+  }
+
+  let fired = false;
+  function build() {
+    const t = document.getElementById('target').getBoundingClientRect();
+    return {
+      run,
+      href: location.href,
+      at: Date.now(),
+      target: { x: t.left + t.width / 2, y: t.top + t.height / 2, left: t.left, top: t.top, width: t.width, height: t.height },
+      field: document.getElementById('field').value,
+      summary: summarize(),
+      events,
+    };
+  }
+
+  async function report(why) {
+    if (fired) return null;
+    fired = true;
+    const payload = build();
+    payload.why = why;
+    window.__probe = payload;
+    document.getElementById('status').textContent =
+      'reported (' + why + '): moves=' + payload.summary.moveEventCount +
+      ' clickIsTrusted=' + payload.summary.clickIsTrusted;
+    try {
+      await fetch('/report', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      document.getElementById('status').textContent += ' | POST failed: ' + e;
+    }
+    return payload;
+  }
+
+  window.__probeReport = () => report('manual');
+  window.__probeBuild = build;
+
+  document.getElementById('target').addEventListener('click', () => {
+    setTimeout(() => report('target-click'), 350);
+  });
+
+  if (params.get('autoreport') === '1') setTimeout(() => report('timeout'), 4000);
+})();
+</script>
+</body>
+</html>

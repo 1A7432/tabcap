@@ -1,0 +1,47 @@
+tabcap
+Copyright 2026 tabcap contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party
+-----------
+Playwright (https://github.com/microsoft/playwright), Apache License 2.0,
+Copyright (c) Microsoft Corporation.
+  The Chrome launch argument table in
+  src/daemon/transport/direct/launcher.ts is derived from
+  packages/playwright-core/src/server/chromium/chromiumSwitches.ts
+  (read 2026-10-15; selection documented in docs/07 §1.2).
+  The US keyboard layout table used by `type --trusted` is derived from
+  packages/playwright-core/src/server/usKeyboardLayout.ts (read 2026-10-15).
+  Playwright's NOTICE file states that it contains code derived from the
+  Puppeteer project (https://github.com/puppeteer/puppeteer), Apache 2.0.
+
+chrome-devtools-mcp (https://github.com/ChromeDevTools/chrome-devtools-mcp),
+Apache License 2.0, Copyright 2025 Google LLC. Read at commit
+e9000381f414bf5fd5fb83a9164fabfb8e0987b3 (2026-10-15); the upstream
+repository has no NOTICE file. Derived files keep the upstream copyright
+header and say what was changed.
+  src/shared/pagination.ts is derived from src/utils/pagination.ts and the
+  pagination texts of src/McpResponse.ts (#dataWithPagination).
+  src/daemon/tools/formatters.ts is derived from
+  src/formatters/NetworkFormatter.ts (URL and body size limits,
+  getSizeLimitedString, the <empty response> / <binary data> markers) and
+  src/formatters/SnapshotFormatter.ts (booleanPropertyMap and the
+  attribute conventions used by src/daemon/browser/ax.ts).
+  src/daemon/tools/emulatespec.ts is derived from src/tools/emulation.ts
+  (the emulate parameter set and its semantics), src/tools/ToolDefinition.ts
+  (viewportTransform, geolocationTransform), src/McpPage.ts (emulate) and
+  src/utils/WaitForHelper.ts (getNetworkMultiplierFromString).
+  src/daemon/tools/postwait.ts and src/daemon/tools/settle.ts reimplement
+  the post-action wait of src/utils/WaitForHelper.ts over CDP.
+  The command names, option names and some help and error wording in
+  src/cli/commands.ts and src/daemon/tools/ (input.ts, page.ts, device.ts,
+  console.ts, wait.ts) follow src/tools/input.ts, pages.ts, screenshot.ts,
+  snapshot.ts, console.ts, network.ts, script.ts and emulation.ts.
+
+Puppeteer (https://github.com/puppeteer/puppeteer), Apache License 2.0,
+Copyright 2021 Google Inc. Read at commit
+10c43c1b9101ab62835332393f49e3fb426dde88 (2026-10-15).
+  The network presets in src/daemon/tools/emulatespec.ts are copied from
+  packages/puppeteer-core/src/cdp/PredefinedNetworkConditions.ts, and the
+  CDP calls that apply them follow packages/puppeteer-core/src/cdp/NetworkManager.ts.

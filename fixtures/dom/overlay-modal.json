@@ -1,0 +1,290 @@
+{
+ "capturedWith": "Chrome for Testing Chrome/155.0.8059.79",
+ "page": "test/e2e/site.ts /ov/modal",
+ "collected": {
+  "vw": 1200,
+  "vh": 828,
+  "cands": [
+   {
+    "n": 0,
+    "tag": "div",
+    "role": "",
+    "idcls": "mask1 v-modal",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 0,
+    "y": 0,
+    "w": 1200,
+    "h": 828,
+    "area": 1,
+    "z": 2000,
+    "bg": 0.5,
+    "pointer": true,
+    "touchTop": true,
+    "touchBottom": true,
+    "name": "",
+    "text": "",
+    "textLen": 0,
+    "iframes": [],
+    "buttons": [],
+    "parent": -1,
+    "hits": 0
+   },
+   {
+    "n": 4,
+    "tag": "div",
+    "role": "",
+    "idcls": "wrap1 el-dialog__wrapper",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 0,
+    "y": 0,
+    "w": 1200,
+    "h": 828,
+    "area": 1,
+    "z": 2001,
+    "bg": 0,
+    "pointer": true,
+    "touchTop": true,
+    "touchBottom": true,
+    "name": "系统提示",
+    "text": "系统提示× 为了账户安全，请修改初始密码。 稍后再说 去修改",
+    "textLen": 30,
+    "iframes": [],
+    "buttons": [
+     {
+      "n": 1,
+      "tag": "button",
+      "text": "×",
+      "label": "Close",
+      "cls": "el-dialog__headerbtn"
+     },
+     {
+      "n": 2,
+      "tag": "button",
+      "text": "稍后再说",
+      "label": "",
+      "cls": ""
+     },
+     {
+      "n": 3,
+      "tag": "button",
+      "text": "去修改",
+      "label": "",
+      "cls": ""
+     }
+    ],
+    "parent": -1,
+    "hits": 9
+   },
+   {
+    "n": 5,
+    "tag": "div",
+    "role": "dialog",
+    "idcls": "dlg1 el-dialog",
+    "ariaModal": true,
+    "nativeModal": false,
+    "dialogRole": true,
+    "fixed": false,
+    "x": 374,
+    "y": 124,
+    "w": 452,
+    "h": 98,
+    "area": 0.045,
+    "z": 0,
+    "bg": 1,
+    "pointer": true,
+    "touchTop": false,
+    "touchBottom": false,
+    "name": "系统提示",
+    "text": "系统提示× 为了账户安全，请修改初始密码。 稍后再说 去修改",
+    "textLen": 30,
+    "iframes": [],
+    "buttons": [
+     {
+      "n": 1,
+      "tag": "button",
+      "text": "×",
+      "label": "Close",
+      "cls": "el-dialog__headerbtn"
+     },
+     {
+      "n": 2,
+      "tag": "button",
+      "text": "稍后再说",
+      "label": "",
+      "cls": ""
+     },
+     {
+      "n": 3,
+      "tag": "button",
+      "text": "去修改",
+      "label": "",
+      "cls": ""
+     }
+    ],
+    "parent": 1,
+    "hits": 1
+   }
+  ],
+  "landmarks": [
+   {
+    "name": "main",
+    "in": [
+     1
+    ]
+   },
+   {
+    "name": "h1",
+    "in": [
+     1
+    ]
+   },
+   {
+    "name": "form#f",
+    "in": [
+     1
+    ]
+   }
+  ],
+  "nodes": [
+   {
+    "tag": "div",
+    "id": "mask1",
+    "cls": "v-modal"
+   },
+   {
+    "tag": "button",
+    "id": "dlg1-close",
+    "cls": "el-dialog__headerbtn"
+   },
+   {
+    "tag": "button",
+    "id": "dlg1-later",
+    "cls": ""
+   },
+   {
+    "tag": "button",
+    "id": "dlg1-ok",
+    "cls": ""
+   },
+   {
+    "tag": "div",
+    "id": "wrap1",
+    "cls": "el-dialog__wrapper"
+   },
+   {
+    "tag": "div",
+    "id": "dlg1",
+    "cls": "el-dialog"
+   }
+  ]
+ },
+ "digest": {
+  "els": [
+   {
+    "t": "form",
+    "id": "f",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "input",
+    "id": "q",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "button",
+    "id": "submit",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "div",
+    "id": "mask1",
+    "c": "v-modal",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "div",
+    "id": "wrap1",
+    "c": "el-dialog__wrapper",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "div",
+    "id": "dlg1",
+    "c": "el-dialog",
+    "a": {
+     "aria-modal": "true",
+     "role": "dialog"
+    },
+    "p": 4
+   },
+   {
+    "t": "div",
+    "id": "",
+    "c": "el-dialog__header",
+    "a": {},
+    "p": 5
+   },
+   {
+    "t": "span",
+    "id": "",
+    "c": "el-dialog__title",
+    "a": {},
+    "p": 6
+   },
+   {
+    "t": "button",
+    "id": "dlg1-close",
+    "c": "el-dialog__headerbtn",
+    "a": {},
+    "p": 6
+   },
+   {
+    "t": "div",
+    "id": "",
+    "c": "el-dialog__body",
+    "a": {},
+    "p": 5
+   },
+   {
+    "t": "div",
+    "id": "",
+    "c": "el-dialog__footer",
+    "a": {},
+    "p": 5
+   },
+   {
+    "t": "button",
+    "id": "dlg1-later",
+    "c": "",
+    "a": {},
+    "p": 10
+   },
+   {
+    "t": "button",
+    "id": "dlg1-ok",
+    "c": "",
+    "a": {},
+    "p": 10
+   }
+  ],
+  "total": 24,
+  "truncated": false
+ },
+ "globals": {
+  "layer": false
+ }
+}

@@ -1,0 +1,114 @@
+// Daemon-wide state: the browser connection (at most one), sessions/tabs,
+// recorders, known secrets. Tools receive this object; nothing here talks HTTP.
+
+import { TabcapError } from "../shared/envelope.ts";
+import type { Paths } from "../shared/paths.ts";
+import type { Recorder } from "./capture/recorder.ts";
+import { Tabs, type Tab } from "./browser/targets.ts";
+import type { ConsoleLog } from "./capture/console.ts";
+import type { DirectTransport } from "./transport/direct/index.ts";
+import { Guard } from "./guard.ts";
+import { Secrets } from "./secrets.ts";
+import type { Store } from "./store/db.ts";
+
+export type BrowserInfo = {
+  transport: "direct";
+  channel: "pipe" | "port";
+  pid: number;
+  version: string;
+  userAgent: string;
+  executable: string;
+  executableSource: string;
+  profile: string;
+  proxy: string;
+  foreground: boolean;
+  front: unknown;
+  startedAt: number;
+};
+
+/**
+ * docs/04 §16: `net wait` looks back to the start of the most recent of these;
+ * read-only commands (wait, snapshot, find, screenshot, console, net list, tabs …) do not count.
+ * Daemon action names: `press` is the CLI's press-key, `navigate` also `tab new`;
+ * hover and upload (0.3-F) act on the page like click.
+ */
+export const ACTION_COMMANDS: ReadonlySet<string> = new Set(["navigate", "click", "fill", "type", "press", "go", "reload", "evaluate", "hover", "upload"]);
+
+export type LastAction = { action: string; at: number; cmd: string | null };
+
+export type Running = { t: DirectTransport; tabs: Tabs; console: ConsoleLog; info: BrowserInfo };
+
+export type SiteBinding = { site: string; account: string | null };
+
+export class Daemon {
+  readonly secrets = new Secrets();
+  /** Credential store (docs/04 §8.1); null only in unit tests that do not need it. */
+  store: Store | null = null;
+  /** Store site bound to each session by `session start --site`. */
+  readonly sites = new Map<string, SiteBinding>();
+  readonly guard: Guard;
+  browser: Running | null = null;
+  readonly recorders = new Map<string, Recorder>();
+  /** Last finished recording per session, so `net list/body/show` keep working after `net stop`. */
+  readonly lastBundles = new Map<string, Recorder>();
+  /** Start of the most recent action command per session (net wait look-back, docs/04 §16). */
+  private actions = new Map<string, LastAction>();
+  readonly startedAt = Date.now();
+
+  constructor(
+    readonly paths: Paths,
+    deps: { screenshot?: (d: Daemon, session: string, tab: string) => Promise<string | null>; pageInfo?: (d: Daemon, session: string, tab: string) => Promise<{ url: string | null; title: string | null; text: string | null }> } = {},
+  ) {
+    this.guard = new Guard({
+      configDir: paths.config,
+      secrets: this.secrets,
+      siteOf: (s) => this.sites.get(s) ?? null,
+      screenshot: (s, tab) => deps.screenshot?.(this, s, tab) ?? Promise.resolve(null),
+      pageInfo: (s, tab) => deps.pageInfo?.(this, s, tab) ?? Promise.resolve({ url: null, title: null, text: null }),
+    });
+    this.guard.recorder = (s) => this.recorders.get(s);
+  }
+
+  /** Re-read the store's secrets so replacement covers sites added since (`tabcap site add` runs in the CLI). */
+  refreshSecrets(): void {
+    if (this.store !== null) this.secrets.setStored(this.store.knownSecrets());
+  }
+
+  needStore(): Store {
+    if (this.store === null) throw new TabcapError("internal", "the credential store is not open", "Restart the daemon (`tabcap daemon stop`, then `tabcap daemon start`).");
+    return this.store;
+  }
+
+  need(): Running {
+    if (this.browser === null) throw new TabcapError("not-running", "the browser is not running", "Run `tabcap browser start` first.");
+    return this.browser;
+  }
+
+  /** The tab's nav epoch in its session's recording (`n-<seq>`), or null when not recording. */
+  navOf(tab: Tab): string | null {
+    return this.recorders.get(tab.session)?.navId(tab.id) ?? null;
+  }
+
+  /** Remember an action command's start (read-only commands never move the look-back point). */
+  noteAction(session: string, a: LastAction): void {
+    if (ACTION_COMMANDS.has(a.action)) this.actions.set(session, a);
+  }
+
+  /** The most recent action command of the session, or null. */
+  lastAction(session: string): LastAction | null {
+    return this.actions.get(session) ?? null;
+  }
+
+  /** Called when the browser connection goes away for any reason. */
+  async browserGone(): Promise<void> {
+    for (const [name, r] of this.recorders) {
+      const res = await r.stop().catch(() => null);
+      this.lastBundles.set(name, r);
+      void res;
+    }
+    this.recorders.clear();
+    this.browser?.tabs.dispose();
+    this.browser?.console.dispose();
+    this.browser = null;
+  }
+}

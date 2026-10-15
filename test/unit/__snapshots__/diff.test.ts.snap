@@ -1,0 +1,47 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`CLI: tabcap analyze diff --text snapshot and --save appends a finding to the first bundle 1`] = `
+"diff of 3 bundles, 2 session(s)
+  b1  <b1>  session=range-s06-a  requests=5
+  b2  <b2>  session=range-s06-a  requests=4
+  b3  <b3>  session=range-s06-b  requests=4
+
+GET /api/orders/{id}  samples 3 (1/1/1), sessions 2
+  query   fmt     constant    full
+  header  accept  constant    application/json
+
+GET /api/search  samples 3 (1/1/1), sessions 2
+  query   client          constant                    web
+  query   nonce           varying    looks-random     qPUTLMZNW0hOArvZ | nj8VYyTULw6ktvT8 | dHTB5-2SmvWA_mbk
+  query   page            varying                     1 | 2
+  query   q               varying    input            周报表 | 会议纪要 | 日程表
+  query   sid             session                     sH-CaFWjexkb0zhDB6b9E4 | JQnMM1LtrwjUhfS2oP_KnT
+  query   sig             varying    looks-signature  1065d437da562dc822ccf71ec1f2cc2b6f22da8226e39047a2050295e4be807a | deeb8f83216337591890223098fd38aca7795563a66f715ac657eb1e081249da | 0767705c0acf507acf37540aaf4158fc8b56dfe081937af974d3523eceaa49b2
+  query   t               timestamp                   1760500100970 | 1760503700970 | 1760507300970
+  query   v               constant                    3
+  header  accept          constant                    application/json
+  header  x-client-build  constant                    2026.10
+  header  x-request-id    varying    looks-random     bfe74a1b-98f3-486b-a1bd-846cb3c01b91 | 9456bdfa-12ea-4695-ac94-a3572f5d91c7 | a697f8b9-9a46-4846-ab9a-70e7af44e49a
+  cookie  sid             session                     sH-CaFWjexkb0zhDB6b9E4 | JQnMM1LtrwjUhfS2oP_KnT
+  cookie  theme           constant                    dark
+
+POST /api/items/{n}/log  samples 3 (1/1/1), sessions 2
+  header  content-type  constant          application/json
+  cookie  sid           session           sH-CaFWjexkb0zhDB6b9E4 | JQnMM1LtrwjUhfS2oP_KnT
+  cookie  theme         constant          dark
+  json    $.app.ver     constant          3.1
+  json    $.query       varying    input  周报表 | 会议纪要 | 日程表
+  json    $.sessionId   session           sess_8f2c41d09b7e4a6f | sess_0c5d7e9a1b3f4a2e
+  json    $.ts          timestamp         1760500102 | 1760503702 | 1760507302
+
+POST /api/track  samples 3 (1/1/1), sessions 2
+  header  content-type  constant                 application/x-www-form-urlencoded
+  form    at            timestamp                2025-10-15T03:48:22.995Z | 2025-10-15T04:48:22.995Z | 2025-10-15T05:48:22.995Z
+  form    kw            varying    input         周报表 | 会议纪要 | 日程表
+  form    lang          constant                 zh
+  form    r             varying    looks-random  5axbI-YkJyqc | pfp3ej3GcmjK | IR_BhDQd4L2r
+
+single sample (not compared): GET /api/once
+
+summary: constant 12, timestamp 3, session 4, constant-or-session 0, varying 8"
+`;

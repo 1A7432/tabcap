@@ -1,0 +1,190 @@
+{
+ "capturedWith": "Chrome for Testing Chrome/155.0.8059.79",
+ "page": "test/e2e/site.ts /ov/layer",
+ "collected": {
+  "vw": 1200,
+  "vh": 828,
+  "cands": [
+   {
+    "n": 0,
+    "tag": "div",
+    "role": "",
+    "idcls": "layui-layer-shade1 layui-layer-shade",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 0,
+    "y": 0,
+    "w": 1200,
+    "h": 828,
+    "area": 1,
+    "z": 19891014,
+    "bg": 0.3,
+    "pointer": true,
+    "touchTop": true,
+    "touchBottom": true,
+    "name": "",
+    "text": "",
+    "textLen": 0,
+    "iframes": [],
+    "buttons": [],
+    "parent": -1,
+    "hits": 8
+   },
+   {
+    "n": 2,
+    "tag": "div",
+    "role": "",
+    "idcls": "layui-layer1 layui-layer layui-layer-iframe",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 80,
+    "y": 80,
+    "w": 500,
+    "h": 300,
+    "area": 0.151,
+    "z": 19891015,
+    "bg": 1,
+    "pointer": true,
+    "touchTop": false,
+    "touchBottom": false,
+    "name": "选择条目",
+    "text": "选择条目",
+    "textLen": 4,
+    "iframes": [
+     "/ov/layer-content"
+    ],
+    "buttons": [
+     {
+      "n": 1,
+      "tag": "a",
+      "text": "",
+      "label": "",
+      "cls": "layui-layer-ico layui-layer-close layui-layer-close1"
+     }
+    ],
+    "parent": -1,
+    "hits": 1
+   }
+  ],
+  "landmarks": [
+   {
+    "name": "main",
+    "in": [
+     0
+    ]
+   },
+   {
+    "name": "h1",
+    "in": [
+     0
+    ]
+   },
+   {
+    "name": "form#f",
+    "in": [
+     0
+    ]
+   }
+  ],
+  "nodes": [
+   {
+    "tag": "div",
+    "id": "layui-layer-shade1",
+    "cls": "layui-layer-shade"
+   },
+   {
+    "tag": "a",
+    "id": "layer-close",
+    "cls": "layui-layer-ico layui-layer-close layui-layer-close1"
+   },
+   {
+    "tag": "div",
+    "id": "layui-layer1",
+    "cls": "layui-layer layui-layer-iframe"
+   }
+  ]
+ },
+ "digest": {
+  "els": [
+   {
+    "t": "form",
+    "id": "f",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "input",
+    "id": "q",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "button",
+    "id": "submit",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "div",
+    "id": "layui-layer-shade1",
+    "c": "layui-layer-shade",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "div",
+    "id": "layui-layer1",
+    "c": "layui-layer layui-layer-iframe",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "div",
+    "id": "",
+    "c": "layui-layer-title",
+    "a": {},
+    "p": 4
+   },
+   {
+    "t": "div",
+    "id": "layui-layer-content1",
+    "c": "layui-layer-content",
+    "a": {},
+    "p": 4
+   },
+   {
+    "t": "iframe",
+    "id": "layui-layer-iframe1",
+    "c": "",
+    "a": {},
+    "p": 6
+   },
+   {
+    "t": "span",
+    "id": "",
+    "c": "layui-layer-setwin",
+    "a": {},
+    "p": 4
+   },
+   {
+    "t": "a",
+    "id": "layer-close",
+    "c": "layui-layer-ico layui-layer-close layui-layer-close1",
+    "a": {},
+    "p": 8
+   }
+  ],
+  "total": 21,
+  "truncated": false
+ },
+ "globals": {
+  "layer": true
+ }
+}

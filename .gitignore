@@ -1,0 +1,19 @@
+# Third-party material, local reference only
+evidence/ext/
+evidence/pretty/
+evidence/daemon/
+evidence/skill-latest/
+# Task briefs, local only
+evidence/tasks/
+
+# Build and tooling
+node_modules/
+dist/
+.DS_Store
+*.local
+.tabcap-cache/
+*.bun-build
+
+# Export products and browser profiles never go into the repo
+fixtures/**/exports/
+**/profile*/

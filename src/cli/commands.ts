@@ -1,0 +1,882 @@
+// Command table: one entry per CLI command. It drives parsing, `--help`,
+// `tabcap schema --json`, the generated command tables in README.md,
+// README.zh-CN.md and skills/tabcap/references/commands.md (`bun run gen:docs`),
+// and the mapping to daemon actions, so the CLI stays a thin shell (docs/08 §2)
+// with one source of truth.
+//
+// Names follow the Chrome DevTools MCP tool surface (docs/08 §5, owner decision
+// 10-15): `press-key`, `tab list` / `tab select`, `console list` / `console show`,
+// `--page-size` / `--page-idx`, `--file-path` … Old names stay for one release
+// as deprecated aliases (`deprecatedFor` commands, `deprecated` flag spellings).
+
+import { TabcapError } from "../shared/envelope.ts";
+import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
+
+/** `optnum`: a flag whose number value may be omitted (`--idle` or `--idle 800`). */
+export type FlagKind = "string" | "bool" | "number" | "optnum";
+export type FlagSpec = {
+  flag: string;
+  key: string;
+  kind: FlagKind;
+  help: string;
+  /** Value used when the flag is absent (for `optnum`: when given without a number). */
+  default?: string | number;
+  /** Placeholder shown in usage lines (default `v`, or `ms` for timeouts). */
+  metavar?: string;
+  /** Second spelling of the same flag (e.g. `-o` / `--out`). */
+  alias?: string;
+  /** The command fails without it. */
+  required?: boolean;
+  /** Old spellings that still work for one release (docs/08 §5); help marks them deprecated. */
+  deprecated?: string[];
+  /** The flag itself is deprecated: this note says what to use instead. */
+  deprecatedNote?: string;
+  /** May be given more than once; the value is then a list of strings. */
+  repeat?: boolean;
+};
+
+export type CommandSpec = {
+  path: string[];
+  /** Positional argument keys; a trailing "..." on the last one joins the rest with spaces. */
+  pos: string[];
+  /** Positionals that may be omitted. */
+  optional?: number;
+  /** Allowed values of a positional, by key. */
+  choices?: Record<string, string[]>;
+  flags: FlagSpec[];
+  summary: string;
+  example: string;
+  /** Daemon action; absent for commands the CLI runs itself. */
+  action?: string;
+  /** Plumbing, not for users or agents: listed in the schema, left out of the docs. */
+  internal?: boolean;
+  /** Never echo argument values in errors (a stray positional may be a password). */
+  quiet?: boolean;
+  /** Deprecated alias of this command (removed in 0.4): run that one instead. */
+  deprecatedFor?: string;
+  /** Arguments always sent with this command (e.g. `tab new` = navigate in a new tab). */
+  fixed?: Record<string, string | number | boolean>;
+  /** The trailing variadic positional is kept as a list (file paths), not joined with spaces. */
+  restList?: boolean;
+  /** Argument keys holding local file paths: the CLI resolves them against its own working directory. */
+  localPaths?: string[];
+};
+
+/** The release that drops the deprecated aliases. */
+export const ALIASES_REMOVED_IN = "0.4";
+
+const SESSION: FlagSpec = { flag: "--session", key: "session", kind: "string", help: "session name; else $TABCAP_SESSION", default: "default", metavar: "name" };
+const TIMEOUT: FlagSpec = { flag: "--timeout", key: "timeoutMs", kind: "number", help: "command timeout in ms", default: 30000, metavar: "ms" };
+const T = [SESSION, TIMEOUT];
+const TAB: FlagSpec = { flag: "--tab", key: "tab", kind: "string", help: "act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab", metavar: "t2" };
+/** Session, timeout and --tab: the flags of commands that act on one tab. */
+const TT = [SESSION, TIMEOUT, TAB];
+const WAIT_TIMEOUT: FlagSpec = { flag: "--timeout", key: "timeoutMs", kind: "number", help: "give up after this many ms (max 120000)", default: 10000, metavar: "ms" };
+/** Flags most browser commands share; the generated docs mention them once instead of per row. */
+export const COMMON_FLAGS: readonly string[] = ["--session", "--timeout"];
+const NO_WAIT: FlagSpec = {
+  flag: "--no-wait",
+  key: "noWait",
+  kind: "bool",
+  help: "return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling)",
+};
+/** Flags of the interactive commands (docs/08 §5): post-action wait control and the fresh snapshot. */
+const INTERACT: FlagSpec[] = [NO_WAIT, { flag: "--snapshot", key: "snapshot", kind: "bool", help: "also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait" }];
+
+export const COMMANDS: CommandSpec[] = [
+  {
+    path: ["setup"],
+    pos: [],
+    flags: [
+      { flag: "--executable-path", key: "executablePath", kind: "string", help: "use this Chrome for Testing binary instead of downloading", metavar: "path" },
+      { flag: "--platform", key: "platform", kind: "string", help: "mac-arm64 | mac-x64 | linux64 (default: this machine)", metavar: "platform" },
+    ],
+    summary: "download Chrome for Testing (Stable) into the cache and record it in config.json",
+    example: "tabcap setup",
+  },
+  { path: ["daemon", "start"], pos: [], flags: [], summary: "start the background daemon", example: "tabcap daemon start" },
+  { path: ["daemon", "stop"], pos: [], flags: [], summary: "stop the daemon (closes the browser, finishes recordings)", example: "tabcap daemon stop" },
+  { path: ["daemon", "status"], pos: [], flags: [], summary: "daemon and browser status, open recordings", example: "tabcap daemon status" },
+  { path: ["daemon", "run"], pos: [], flags: [], summary: "run the daemon in the foreground (used by `daemon start`)", example: "tabcap daemon run", internal: true },
+  {
+    path: ["browser", "start"],
+    pos: [],
+    flags: [
+      { flag: "--proxy", key: "proxy", kind: "string", help: "system (default) | none (block everything but 127.0.0.1/localhost) | <url>", metavar: "mode" },
+      { flag: "--foreground", key: "foreground", kind: "bool", help: "open new tabs as the active tab of the window (still never steals the macOS foreground)" },
+      { flag: "--executable-path", key: "executablePath", kind: "string", help: "Chrome for Testing binary (else $TABCAP_CHROME, config.json, cache)", metavar: "path" },
+    ],
+    summary: "launch the dedicated Chrome for Testing (own profile, CDP over a pipe)",
+    example: "tabcap browser start --proxy none",
+    action: "browser.start",
+  },
+  { path: ["browser", "stop"], pos: [], flags: [], summary: "close the browser (recordings are finished first)", example: "tabcap browser stop", action: "browser.stop" },
+  { path: ["browser", "status"], pos: [], flags: [], summary: "browser status", example: "tabcap browser status", action: "browser.status" },
+  {
+    path: ["site", "add"],
+    pos: ["name"],
+    quiet: true,
+    flags: [
+      { flag: "--url", key: "url", kind: "string", help: "entry URL of the site", required: true, metavar: "entry" },
+      { flag: "--user", key: "user", kind: "string", help: "account username (not a secret: shown in listings)", required: true, metavar: "username" },
+      { flag: "--domains", key: "domains", kind: "string", help: "comma list of the site's domains (default: the entry URL's host)", metavar: "a,b" },
+      { flag: "--notes", key: "notes", kind: "string", help: "free-text note", metavar: "text" },
+      { flag: "--password-stdin", key: "passwordStdin", kind: "bool", help: "read the password from stdin (else an interactive prompt; never an argument)" },
+    ],
+    summary: "add a site and its account to the local store (state.db, 0600); for the human, not the AI: the password is typed at a prompt or piped, never passed as an argument",
+    example: "tabcap site add shop --url https://shop.example/login --user alice",
+  },
+  { path: ["site", "list"], pos: [], flags: [], summary: "stored sites: name, entry URL, domains, usernames and the secret references to use (never secret values)", example: "tabcap site list" },
+  { path: ["site", "remove"], pos: ["name"], flags: [], summary: "delete a site with its accounts and guard counters from the store", example: "tabcap site remove shop" },
+  {
+    path: ["session", "start"],
+    pos: ["name"],
+    flags: [{ flag: "--site", key: "site", kind: "string", help: "bind a stored site: its account is used by fill --secret and recorded in the bundle manifest", metavar: "site" }],
+    summary: "create a session (navigate also creates it); --site binds a stored site → entryUrl and the secret references",
+    example: "tabcap session start shop --site shop",
+    action: "session.start",
+  },
+  { path: ["session", "stop"], pos: ["name"], flags: [], summary: "close the session's own tabs (never tabs it did not open) and finish its recording", example: "tabcap session stop shop", action: "session.stop" },
+  { path: ["session", "list"], pos: [], flags: [], summary: "list sessions", example: "tabcap session list", action: "session.list" },
+  {
+    path: ["navigate"],
+    pos: ["url"],
+    flags: [...TT, { flag: "--new-tab", key: "newTab", kind: "bool", help: "open a new background tab (it becomes the session's current tab)" }, NO_WAIT],
+    summary: "load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav",
+    example: "tabcap navigate http://127.0.0.1:8080/ --session shop",
+    action: "navigate",
+  },
+  { path: ["tab", "list"], pos: [], flags: [SESSION], summary: "list the session's tabs (never other tabs): tab id, url, title, owned, popup opener, current", example: "tabcap tab list", action: "tabs" },
+  {
+    path: ["tab", "select"],
+    pos: ["tab"],
+    flags: [
+      SESSION,
+      {
+        flag: "--bring-to-front",
+        key: "bringToFront",
+        kind: "bool",
+        help: "also bring the tab and Chrome to the front (focus ladder level 3: Page.bringToFront takes the macOS foreground; only when the human is to look at it)",
+      },
+    ],
+    summary: "make one of the session's tabs (e.g. a popup) its current tab for later commands; never brings it to the front unless --bring-to-front",
+    example: "tabcap tab select t2",
+    action: "tab.use",
+  },
+  {
+    path: ["tab", "new"],
+    pos: ["url"],
+    flags: [...T, { flag: "--background", key: "background", kind: "bool", help: "open in the background even when the browser was started with --foreground (background is the default otherwise)" }, NO_WAIT],
+    summary: "open a new tab in the session, load a URL and make it the current tab (same as navigate --new-tab)",
+    example: "tabcap tab new http://127.0.0.1:8080/",
+    action: "navigate",
+    fixed: { newTab: true },
+  },
+  { path: ["tab", "close"], pos: ["tab"], flags: [SESSION], summary: "close one of the session's tabs", example: "tabcap tab close t2", action: "tab.close" },
+  { path: ["tabs"], pos: [], flags: [SESSION], summary: "list the session's tabs (never other tabs)", example: "tabcap tabs", action: "tabs", deprecatedFor: "tab list" },
+  { path: ["tab", "use"], pos: ["tab"], flags: [SESSION], summary: "make one of the session's tabs (e.g. a popup) its current tab", example: "tabcap tab use t2", action: "tab.use", deprecatedFor: "tab select" },
+  { path: ["go"], pos: ["direction"], choices: { direction: ["back", "forward"] }, flags: [...TT, NO_WAIT], summary: "history back / forward, waits until ready and the DOM is quiet", example: "tabcap go back", action: "go" },
+  {
+    path: ["reload"],
+    pos: [],
+    flags: [...TT, { flag: "--ignore-cache", key: "ignoreCache", kind: "bool", help: "reload without the HTTP cache (like Shift+reload)" }, NO_WAIT],
+    summary: "reload the current tab, waits until ready and the DOM is quiet",
+    example: "tabcap reload --ignore-cache",
+    action: "reload",
+  },
+  {
+    path: ["snapshot"],
+    pos: [],
+    flags: [
+      ...TT,
+      { flag: "--interactive", key: "interactive", kind: "bool", help: "only controls (buttons, links, inputs …) and their ancestors" },
+      { flag: "--verbose", key: "verbose", kind: "bool", help: "the full tree: keep unnamed wrappers and text that repeats its parent's name, add descriptions and capability flags (focusable, expandable …)" },
+      { flag: "--max-chars", key: "maxChars", kind: "number", help: "truncate the tree text", default: 60000, metavar: "n" },
+      { flag: "--file-path", key: "filePath", kind: "string", help: "write the tree text to this file and return its path instead of the tree", metavar: "path" },
+    ],
+    summary:
+      "accessibility tree as indented text, one element per line: role \"name\" [ref] flags (e.g. `- button \"Save\" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (遮挡 / 识别到, counts toward --max-chars)",
+    example: "tabcap snapshot --interactive",
+    action: "snapshot",
+    localPaths: ["filePath"],
+  },
+  {
+    path: ["outline"],
+    pos: [],
+    flags: [...TT, { flag: "--max-chars", key: "maxChars", kind: "number", help: "truncate the outline text", default: 6000, metavar: "n" }],
+    summary:
+      "page map head: tab line, 遮挡 (overlays: dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), 识别到 (adapters detected, with confidence), 新窗口 (popups); read-only, never closes anything",
+    example: "tabcap outline",
+    action: "outline",
+  },
+  { path: ["find"], pos: ["text..."], flags: TT, summary: "search the accessibility tree (name, value, description); up to 20 hits with refs, clickable ones first", example: "tabcap find Add to cart", action: "find" },
+  {
+    path: ["click"],
+    pos: ["ref"],
+    flags: [
+      ...TT,
+      {
+        flag: "--trusted",
+        key: "trusted",
+        kind: "bool",
+        help: "trusted input via focus emulation: mouse path to the target, press, 50–140 ms, release (all events isTrusted); a tab not confirmed painted falls back to the DOM click (degraded: not-painted); fails honestly if not delivered, never retries",
+      },
+      { flag: "--dbl-click", key: "dblClick", kind: "bool", help: "double click (DOM: two clicks and a dblclick event; --trusted: two presses, Chrome fires dblclick)" },
+      ...INTERACT,
+    ],
+    summary:
+      "click an element by ref (default: DOM el.click(), eventShape incomplete), then wait for a navigation it starts and for the DOM to settle; fails with `covered` when an overlay is in front (its close-button refs are in the error; tabcap never closes it)",
+    example: "tabcap click e12",
+    action: "click",
+  },
+  {
+    path: ["hover"],
+    pos: ["ref"],
+    flags: [...TT, ...INTERACT],
+    summary: "move the mouse over an element by ref (trusted input via focus emulation: a mouse path ending on its centre; menus and tooltips open as for a real pointer); needs a painted tab",
+    example: "tabcap hover e4",
+    action: "hover",
+  },
+  {
+    path: ["fill"],
+    pos: ["ref", "text..."],
+    optional: 1,
+    flags: [
+      ...TT,
+      { flag: "--trusted", key: "trusted", kind: "bool", help: "focus emulation + Input.insertText" },
+      { flag: "--secret", key: "secret", kind: "string", help: "fill a stored value instead of text: <site>.password or <site>.username (the daemon fills it; output shows <secret:…>)", metavar: "site.field" },
+      { flag: "--confirm", key: "confirm", kind: "bool", help: "allow a second --secret password fill in this session (only after the human said so)" },
+      ...INTERACT,
+    ],
+    summary: "set a text field's value, React-safe (password values are masked everywhere); --secret fills from the store, one password fill per site per session (guard.login-limit)",
+    example: "tabcap fill e7 --secret shop.password",
+    action: "fill",
+  },
+  {
+    path: ["type"],
+    pos: ["text..."],
+    flags: [
+      ...TT,
+      { flag: "--trusted", key: "trusted", kind: "bool", help: "one key event pair per character (keydown … keyup), insertText for characters without a US-layout key (eventShape keys)" },
+      { flag: "--delay", key: "delay", kind: "number", help: "with --trusted: ms between two characters", default: 0, metavar: "ms" },
+      { flag: "--insert", key: "insert", kind: "bool", help: "one Input.insertText for the whole text, no key events (the default; eventShape insert)" },
+      { flag: "--submit-key", key: "submitKey", kind: "string", help: "press this key after typing, e.g. Enter or Tab", metavar: "key" },
+      ...INTERACT,
+    ],
+    summary: "type into the element that has focus now (focus it first with click or fill). Default / --insert: one insertText, no key events (eventShape insert); --trusted: per-key events",
+    example: "tabcap type hello --submit-key Enter",
+    action: "type",
+  },
+  {
+    path: ["press-key"],
+    pos: ["key"],
+    flags: [...TT, ...INTERACT],
+    summary: "press a key or a combination on the focused element: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a, Control+Shift+R … (modifiers: Control, Shift, Alt, Meta)",
+    example: "tabcap press-key Enter",
+    action: "press",
+  },
+  { path: ["press"], pos: ["key"], flags: [...TT, ...INTERACT], summary: "press a key: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a …", example: "tabcap press Enter", action: "press", deprecatedFor: "press-key" },
+  {
+    path: ["upload"],
+    pos: ["ref", "files..."],
+    restList: true,
+    localPaths: ["files"],
+    flags: [...TT, { flag: "--snapshot", key: "snapshot", kind: "bool", help: "also return a fresh snapshot taken after the upload" }],
+    summary: "put local files into a file input by ref (DOM.setFileInputFiles); for an element that opens a file chooser instead, it is clicked and the chooser answered",
+    example: "tabcap upload e9 ./photo.png",
+    action: "upload",
+  },
+  {
+    path: ["evaluate"],
+    pos: ["expression..."],
+    optional: 1,
+    flags: [
+      ...TT,
+      { flag: "--await", key: "await", kind: "bool", help: "await a returned promise" },
+      { flag: "--function", key: "function", kind: "string", help: "a function declaration to call instead of an expression, e.g. '(a, b) => a + b' or 'el => el.innerText' (promises are awaited)", metavar: "js" },
+      { flag: "--args", key: "args", kind: "string", help: "with --function: JSON array of arguments; {\"ref\":\"e12\"} passes that element", metavar: "json" },
+    ],
+    summary: "run JavaScript in the page (an expression, or --function with --args) and return a JSON value (truncated at 60000 chars)",
+    example: "tabcap evaluate 'document.title'",
+    action: "evaluate",
+  },
+  {
+    path: ["screenshot"],
+    pos: [],
+    flags: [
+      ...TT,
+      { flag: "--file-path", key: "filePath", kind: "string", help: "image path (default under ~/.local/share/tabcap/shots/)", metavar: "path", deprecated: ["--out"] },
+      { flag: "--full-page", key: "fullPage", kind: "bool", help: "the whole page, not just the viewport (not with --ref)", deprecated: ["--full"] },
+      { flag: "--format", key: "format", kind: "string", help: "png | jpeg | webp", default: "png", metavar: "png|jpeg|webp" },
+      { flag: "--quality", key: "quality", kind: "number", help: "jpeg / webp quality 0–100 (ignored for png)", metavar: "0-100" },
+      { flag: "--ref", key: "ref", kind: "string", help: "only this element (a ref from snapshot)", metavar: "e12" },
+    ],
+    summary: "save an image of the tab, the full page or one element (works on background tabs) → path, width, height (never the image itself)",
+    example: "tabcap screenshot --full-page",
+    action: "screenshot",
+    localPaths: ["filePath"],
+  },
+  {
+    path: ["resize"],
+    pos: ["width", "height"],
+    flags: TT,
+    summary: "resize the tab's window so the page gets this content size in CSS px (other tabs in the same window change too)",
+    example: "tabcap resize 1280 800",
+    action: "resize",
+  },
+  {
+    path: ["emulate"],
+    pos: [],
+    flags: [
+      ...TT,
+      { flag: "--viewport", key: "viewport", kind: "string", help: "<width>x<height>x<devicePixelRatio>[,mobile][,touch][,landscape]", metavar: "WxHxDPR" },
+      { flag: "--user-agent", key: "userAgent", kind: "string", help: "user agent string; empty clears the override", metavar: "ua" },
+      { flag: "--color-scheme", key: "colorScheme", kind: "string", help: "dark | light | auto (auto: the default)", metavar: "dark|light|auto" },
+      { flag: "--network-conditions", key: "networkConditions", kind: "string", help: "Offline | Slow 3G | Fast 3G | Slow 4G | Fast 4G", metavar: "preset" },
+      { flag: "--cpu-throttling-rate", key: "cpuThrottlingRate", kind: "number", help: "CPU slowdown factor 1–20 (1: off)", metavar: "n" },
+      { flag: "--geolocation", key: "geolocation", kind: "string", help: "<latitude>,<longitude>", metavar: "lat,lon" },
+    ],
+    summary:
+      "emulate a device on the tab: viewport, user agent, colour scheme, network and CPU throttling, geolocation. Each call replaces all earlier settings of the tab: a setting left out is cleared",
+    example: "tabcap emulate --viewport 390x844x3,mobile,touch",
+    action: "emulate",
+  },
+  {
+    path: ["dialog"],
+    pos: ["op"],
+    choices: { op: ["status", "accept", "dismiss"] },
+    flags: [...TT, { flag: "--text", alias: "--prompt-text", key: "text", kind: "string", help: "answer for a prompt() dialog", metavar: "text" }],
+    summary: "status | accept | dismiss the JavaScript dialog blocking the tab (while one is open other commands fail with code dialog)",
+    example: "tabcap dialog accept",
+    action: "dialog",
+  },
+  {
+    path: ["net", "start"],
+    pos: [],
+    flags: [SESSION],
+    summary: "record the session's traffic (requests with bodies, WebSocket frames, console) into a bundle under ~/.local/share/tabcap/bundles/",
+    example: "tabcap net start",
+    action: "net.start",
+  },
+  { path: ["net", "stop"], pos: [], flags: [SESSION], summary: "finish the recording (bundle manifest gets `finished`)", example: "tabcap net stop", action: "net.stop" },
+  {
+    path: ["net", "list"],
+    pos: [],
+    flags: [
+      SESSION,
+      { flag: "--filter", key: "filter", kind: "string", help: "URL substring", metavar: "s" },
+      { flag: "--host", key: "host", kind: "string", help: "host[:port] substring", metavar: "s" },
+      { flag: "--status", key: "status", kind: "string", help: "status code or class: 200 | 2xx | 3xx | 4xx | 5xx", metavar: "code" },
+      { flag: "--method", key: "method", kind: "string", help: "only this HTTP method", metavar: "M" },
+      { flag: "--resource-types", key: "types", kind: "string", help: "comma list: xhr,fetch,document,script …", metavar: "xhr,fetch", deprecated: ["--type"] },
+      { flag: "--tab", key: "tab", kind: "string", help: "only requests of this tab", metavar: "t2" },
+      { flag: "--since", key: "since", kind: "string", help: "only requests finished after this command started (the `cmd` id commands return while recording)", metavar: "c-12" },
+      { flag: "--failed", key: "failed", kind: "bool", help: "only failed requests (hidden by default)" },
+      { flag: "--no-failed", key: "noFailed", kind: "bool", help: "hide failed requests (the default)" },
+      { flag: "--all", key: "all", kind: "bool", help: "also failed requests and data: URLs" },
+      { flag: "--page-size", key: "pageSize", kind: "number", help: "requests per page (max 1000); without --page-size / --page-idx every match is returned", metavar: "n", deprecated: ["--limit"] },
+      { flag: "--page-idx", key: "pageIdx", kind: "number", help: "page to return, 0-based (100 per page unless --page-size); nextPageIdx names the next one", metavar: "n" },
+      { flag: "--offset", key: "offset", kind: "number", help: "skip this many matches (oldest first)", metavar: "n", deprecatedNote: "use --page-idx" },
+      { flag: "--kind", key: "kind", kind: "string", help: "http (requests) | ws (WebSocket frames: id, direction, opcode, size, ts)", default: "http", metavar: "http|ws" },
+    ],
+    summary:
+      "recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); paged only when asked (--kind ws: WebSocket frames r-12:34)",
+    example: "tabcap net list --resource-types xhr,fetch --status 2xx",
+    action: "net.list",
+  },
+  {
+    path: ["net", "body"],
+    pos: ["id"],
+    flags: [SESSION, { flag: "--out", key: "out", kind: "string", help: "copy the body to this file", metavar: "path" }],
+    summary: "a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline)",
+    example: "tabcap net body r-12",
+    action: "net.body",
+    localPaths: ["out"],
+  },
+  {
+    path: ["net", "show"],
+    pos: ["id"],
+    flags: [SESSION],
+    summary: "one request in full: method, url, status, request / response headers, postData (over 2 KB: path + first 2 KB), body path, timing, initiator, nav, tab, outcome; r-12:34 shows a WebSocket frame",
+    example: "tabcap net show r-12",
+    action: "net.show",
+  },
+  {
+    path: ["console", "list"],
+    pos: [],
+    flags: [
+      SESSION,
+      TAB,
+      { flag: "--types", key: "types", kind: "string", help: "comma list of message types: log, debug, info, error, warn, dir, table, trace, assert, count, timeEnd, verbose …", metavar: "error,warn" },
+      { flag: "--level", key: "level", kind: "string", help: "debug | log | info | warn | error: that level and more severe (log = info)", metavar: "level" },
+      { flag: "--page-size", key: "pageSize", kind: "number", help: "messages per page; without --page-size / --page-idx every buffered message is returned", metavar: "n" },
+      { flag: "--page-idx", key: "pageIdx", kind: "number", help: "page to return, 0-based (100 per page unless --page-size)", metavar: "n" },
+      { flag: "--limit", key: "limit", kind: "number", help: "only the last N messages (instead of paging)", metavar: "n" },
+      { flag: "--include-stack-traces", key: "includeStackTraces", kind: "bool", help: "include each message's stack trace when there is one" },
+      { flag: "--clear", key: "clear", kind: "bool", help: "empty the tab's buffer after reading" },
+    ],
+    summary: "the tab's console, oldest first (last 500 messages, kept even when not recording): msgid, type, level, source, text (4 KB max), url:line:col",
+    example: "tabcap console list --types error,warn",
+    action: "console.list",
+  },
+  {
+    path: ["console", "show"],
+    pos: ["msgid"],
+    flags: [SESSION, TAB],
+    summary: "one console message by msgid (from console list): text, arguments, location, stack trace",
+    example: "tabcap console show 3",
+    action: "console.show",
+  },
+  {
+    path: ["console"],
+    pos: [],
+    flags: [
+      SESSION,
+      TAB,
+      { flag: "--level", key: "level", kind: "string", help: "debug | log | info | warn | error: that level and more severe (log = info)", metavar: "level" },
+      { flag: "--limit", key: "limit", kind: "number", help: "return at most the last N entries", default: 100, metavar: "n" },
+      { flag: "--clear", key: "clear", kind: "bool", help: "empty the tab's buffer after reading" },
+    ],
+    summary: "the tab's console (last 500 entries, kept even when not recording): ts, level, source, text (4 KB max), url:line:col, exception stack",
+    example: "tabcap console --level warn",
+    action: "console",
+    deprecatedFor: "console list",
+  },
+  {
+    path: ["wait"],
+    pos: [],
+    flags: [
+      SESSION,
+      WAIT_TIMEOUT,
+      TAB,
+      { flag: "--text", key: "text", kind: "string", help: "visible text appears in the page or any of its frames (polled every 100 ms); repeat it to wait for any of several texts", metavar: "text", repeat: true },
+      { flag: "--selector", key: "selector", kind: "string", help: "a CSS selector matches an element (polled)", metavar: "css" },
+      { flag: "--url", key: "url", kind: "string", help: "the tab's URL contains this substring (navigation events)", metavar: "s" },
+      { flag: "--idle", key: "idle", kind: "optnum", help: "no request in flight for N ms", default: 500 },
+      { flag: "--fn", key: "fn", kind: "string", help: "a JavaScript expression becomes truthy (polled; promises are awaited)", metavar: "js" },
+    ],
+    summary: "wait for one condition on the current tab; returns what matched, or error timeout naming what is still outstanding",
+    example: "tabcap wait --text 'Order placed' --text 'Payment failed' --timeout 20000",
+    action: "wait",
+  },
+  {
+    path: ["net", "wait"],
+    pos: [],
+    flags: [
+      SESSION,
+      WAIT_TIMEOUT,
+      { flag: "--url", key: "url", kind: "string", help: "URL substring of the request", required: true, metavar: "s" },
+      { flag: "--method", key: "method", kind: "string", help: "only this HTTP method", metavar: "M" },
+      { flag: "--tab", key: "tab", kind: "string", help: "only requests of this tab", metavar: "t2" },
+      { flag: "--since", key: "since", kind: "string", help: "look back to this command's start (c-12), or `start` for the whole recording", metavar: "c-12|start" },
+      { flag: "--fresh", key: "fresh", kind: "bool", help: "only requests finishing after the wait begins" },
+    ],
+    summary: "wait until a matching request finished with its body stored (needs net start). Counts requests since the start of the last action command (navigate, tab new, click, hover, fill, type, press-key, upload, go, reload, evaluate) → id, status, body path",
+    example: "tabcap net wait --url /api/search --method POST",
+    action: "net.wait",
+  },
+  { path: ["handoff", "status"], pos: [], flags: [SESSION], summary: "is the session handed to the human? state running | waiting | resumed, reason, screenshot, handler answers", example: "tabcap handoff status", action: "handoff.status" },
+  {
+    path: ["handoff", "continue"],
+    pos: [],
+    flags: [SESSION],
+    summary: "end a waiting state after the human finished in the browser (run it only when they say so)",
+    example: "tabcap handoff continue",
+    action: "handoff.continue",
+  },
+  { path: ["plugin", "list"], pos: [], flags: [], summary: "challenge handlers installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, hooks, enabled, errors", example: "tabcap plugin list" },
+  { path: ["plugin", "enable"], pos: ["name"], flags: [], summary: "let the guard ask this handler before handing a challenge to the human", example: "tabcap plugin enable my-handler" },
+  { path: ["plugin", "disable"], pos: ["name"], flags: [], summary: "stop asking this handler", example: "tabcap plugin disable my-handler" },
+  // Offline commands: no daemon. Parsed by src/cli/main.ts (bundle), src/cli/analyze.ts and src/cli/replay.ts.
+  {
+    path: ["bundle", "export", "har"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--out", key: "out", kind: "string", help: "HAR file (default <bundle>/exports/har-<time>.har)", metavar: "file" },
+      { flag: "--tab", key: "tab", kind: "string", help: "only this tab", metavar: "t1" },
+      { flag: "--types", key: "types", kind: "string", help: "only these resource types", metavar: "xhr,fetch" },
+      { flag: "--embed-events", key: "embedEvents", kind: "bool", help: "also embed every event as log._events (lossless round trip)" },
+      { flag: "--no-redact", key: "noRedact", kind: "bool", help: "skip redaction (default: redacted with a per-export salt)" },
+    ],
+    summary: "export a bundle as HAR 1.2 (redacted by default)",
+    example: "tabcap bundle export har ~/.local/share/tabcap/bundles/default-… --types xhr,fetch",
+  },
+  {
+    path: ["bundle", "import", "har"],
+    pos: ["file"],
+    flags: [{ flag: "-o", alias: "--out", key: "out", kind: "string", help: "new bundle directory", metavar: "bundle", required: true }],
+    summary: "import a HAR (DevTools, Charles, mitmproxy …) as a bundle, so analyze works on it",
+    example: "tabcap bundle import har site.har -o ./site-bundle",
+  },
+  { path: ["bundle", "redact"], pos: ["in", "out"], flags: [], summary: "write a redacted copy of a bundle (the original is never changed)", example: "tabcap bundle redact ./b ./b-redacted" },
+  { path: ["bundle", "info"], pos: ["bundle"], flags: [], summary: "bundle summary: counts, event kinds, finished or not, issues", example: "tabcap bundle info ./b" },
+  {
+    path: ["analyze", "find"],
+    pos: ["bundle", "text..."],
+    flags: [
+      { flag: "--ignore-case", key: "ignoreCase", kind: "bool", help: "case-insensitive match" },
+      { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON" },
+      { flag: "--save", key: "save", kind: "bool", help: "append the result as a finding event (finished bundles only)" },
+    ],
+    summary: "which request / WebSocket frame / console line carries this text, through a bounded decode chain (base64, gzip / br, urldecode, JSON, html entities …); 0 hits come with hints",
+    example: "tabcap analyze find ./b 'Order placed'",
+  },
+  {
+    path: ["analyze", "diff"],
+    pos: ["bundle1", "bundle2", "bundles..."],
+    optional: 1,
+    flags: [
+      { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON" },
+      { flag: "--save", key: "save", kind: "bool", help: "append the result as a finding event to the first bundle" },
+    ],
+    summary: "compare recordings of the same action: which parameters are constant, per session, timestamps or varying",
+    example: "tabcap analyze diff ./b1 ./b2",
+  },
+  {
+    path: ["replay", "serve"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--port", key: "port", kind: "number", help: "port to listen on (0: any free port)", default: 4500, metavar: "port" },
+      { flag: "--host", key: "host", kind: "string", help: "loopback address only: 127.0.0.1, ::1 or localhost", default: "127.0.0.1", metavar: "host" },
+      { flag: "--strict", key: "strict", kind: "string", help: "also match these request headers", metavar: "h1,h2" },
+      { flag: "--match-cookies", key: "matchCookies", kind: "bool", help: "also match the cookie header" },
+      { flag: "--json", key: "json", kind: "bool", help: "print {port, bundle, routes} as one JSON envelope (else text, one log line per request on stderr)" },
+      { flag: "--once", key: "once", kind: "number", help: "stop after this many seconds (tests)", metavar: "seconds" },
+    ],
+    summary:
+      "serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256; repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k); no match → 404 with the nearest recordings and what differs",
+    example: "tabcap replay serve ./b --port 4500",
+  },
+  {
+    path: ["replay", "session"],
+    pos: ["bundle"],
+    optional: 1,
+    flags: [
+      { flag: "--out", alias: "-o", key: "out", kind: "string", help: "storageState file to write (0600)", required: true, metavar: "file" },
+      { flag: "--site", key: "site", kind: "string", help: "use the store's saved session of this site (saved at session stop / handoff continue) when there is no bundle or it has no cookie snapshot", metavar: "site" },
+    ],
+    summary:
+      "write the recording's cookies (latest state snapshot), or with --site and no bundle the store's saved session, as a Playwright storageState file, mode 0600; it holds live session cookies, values are never printed",
+    example: "tabcap replay session ./b -o storage-state.json",
+  },
+  {
+    path: ["replay", "export-python"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--out", alias: "-o", key: "out", kind: "string", help: "directory for the generated package", required: true, metavar: "dir" },
+      { flag: "--include", key: "include", kind: "string", help: "only paths matching these globs (* within a segment, ** across)", metavar: "glob,glob" },
+      { flag: "--exclude", key: "exclude", kind: "string", help: "leave out paths matching these globs", metavar: "glob,glob" },
+    ],
+    summary:
+      "generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; signature-like parameters and encrypted bodies become NotImplementedError TODOs",
+    example: "tabcap replay export-python ./b -o ./client",
+  },
+  {
+    path: ["replay", "check"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--against", key: "against", kind: "string", help: "target origin; non-loopback needs --live", default: "http://127.0.0.1:4500", metavar: "url" },
+      { flag: "--live", key: "live", kind: "bool", help: "allow a non-loopback target: needs a stored site (--site or the bundle's), paced and counted per site" },
+      { flag: "--rate", key: "rate", kind: "number", help: "live requests per second (default 0.5)", metavar: "n" },
+      { flag: "--site", key: "site", kind: "string", help: "stored site whose guard counters a live check uses", metavar: "site" },
+      { flag: "--filter", key: "filter", kind: "string", help: "only paths matching these globs", metavar: "glob,glob" },
+      { flag: "--headers", key: "headers", kind: "string", help: "response headers to compare when recorded", default: "content-type,location", metavar: "h1,h2" },
+      { flag: "--with-cookies", key: "withCookies", kind: "bool", help: "also send the recorded cookie header" },
+      { flag: "--json", key: "json", kind: "bool", help: "print one JSON envelope instead of the table" },
+    ],
+    summary: "send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference",
+    example: "tabcap replay check ./b --against http://127.0.0.1:4500",
+  },
+  {
+    path: ["schema"],
+    pos: [],
+    flags: [{ flag: "--json", key: "json", kind: "bool", help: "print the bare schema document (no envelope)" }],
+    summary: "this command table as JSON: names, arguments, flags with types and defaults, help, examples",
+    example: "tabcap schema --json",
+  },
+];
+
+/** The spec for an exact command path; throws (a bug) when the table lacks it. */
+export function specOf(path: string): CommandSpec {
+  const c = COMMANDS.find((x) => x.path.join(" ") === path);
+  if (c === undefined) throw new TabcapError("internal", `no command spec for ${path}`, "This is a bug.");
+  return c;
+}
+
+/** Every spelling of every flag of a command (for the hand-written bundle / analyze parsers). */
+export function flagNames(c: CommandSpec): string[] {
+  return c.flags.flatMap(spellingsOf);
+}
+
+/** Every spelling of one flag: the name, its alias, its deprecated old spellings. */
+export function spellingsOf(f: FlagSpec): string[] {
+  return [f.flag, ...(f.alias === undefined ? [] : [f.alias]), ...(f.deprecated ?? [])];
+}
+
+/** Commands for users and agents now: neither plumbing nor deprecated aliases. */
+export function currentCommands(): CommandSpec[] {
+  return COMMANDS.filter((c) => c.internal !== true && c.deprecatedFor === undefined);
+}
+
+/** "tabs → tab list, …": the deprecated command aliases and what replaces them. */
+export function deprecatedAliases(): { alias: string; use: string }[] {
+  return COMMANDS.flatMap((c) => (c.deprecatedFor === undefined ? [] : [{ alias: c.path.join(" "), use: c.deprecatedFor }]));
+}
+
+const BUNDLE_PATHS = ["bundle export har", "bundle import har", "bundle redact", "bundle info"];
+export const BUNDLE_USAGE: string[] = BUNDLE_PATHS.map((p) => usageOf(specOf(p)));
+
+function posName(c: CommandSpec, p: string): string {
+  if (p.endsWith("...")) return `<${p.slice(0, -3)}>`;
+  const choices = c.choices?.[p];
+  return choices === undefined ? `<${p}>` : choices.join("|");
+}
+
+function flagUsage(f: FlagSpec): string {
+  if (f.kind === "bool") return `[${f.flag}]`;
+  if (f.kind === "optnum") return `[${f.flag} [ms]]`;
+  const v = `${f.flag} ${f.metavar ?? (f.key === "timeoutMs" ? "ms" : "v")}`;
+  if (f.required === true) return f.metavar === undefined ? v : `${f.flag} <${f.metavar}>`;
+  return f.repeat === true ? `[${v}]...` : `[${v}]`;
+}
+
+/** One-line usage; `skip` leaves out flags by name (the docs omit the common ones). */
+export function usageOf(c: CommandSpec, skip: readonly string[] = []): string {
+  const pos = c.pos.map((p, i) => {
+    const name = c.restList === true && i === c.pos.length - 1 ? `${posName(c, p)}...` : posName(c, p);
+    return c.optional !== undefined && i >= c.pos.length - c.optional ? `[${name}]` : name;
+  });
+  const flags = c.flags.filter((f) => !skip.includes(f.flag) && f.deprecatedNote === undefined).map(flagUsage);
+  return [TOOL_NAME, ...c.path, ...pos, ...flags].join(" ");
+}
+
+const deprecationLine = (use: string) => `Deprecated: use \`${TOOL_NAME} ${use}\` instead (this alias is removed in ${ALIASES_REMOVED_IN}).`;
+
+export function helpAll(): string {
+  const shown = COMMANDS.filter((c) => c.deprecatedFor === undefined);
+  const w = Math.max(...shown.map((c) => c.path.join(" ").length));
+  const lines = [
+    "tabcap — a dedicated browser for AI agents: background tabs, refs, network capture.",
+    "Every command prints one JSON envelope: {ok:true,data} or {ok:false,error:{code,message,next}}.",
+    "",
+    "Commands:",
+    ...shown.map((c) => `  ${c.path.join(" ").padEnd(w)}  ${c.summary}\n  ${"".padEnd(w)}  e.g. ${c.example}`),
+    "",
+    `Deprecated aliases (removed in ${ALIASES_REMOVED_IN}): ${deprecatedAliases().map((x) => `${x.alias} → ${x.use}`).join(", ")}`,
+    "",
+    "Start: tabcap setup && tabcap daemon start && tabcap browser start",
+    "Then:  tabcap navigate <url> → tabcap snapshot --interactive → tabcap click <ref> / tabcap fill <ref> <text>",
+    "More:  tabcap <command> --help (or tabcap <group> --help, e.g. tabcap net --help); tabcap schema --json for tools; tabcap --version",
+  ];
+  return lines.join("\n");
+}
+
+/** Help for a command group (`tabcap net --help`): its subcommands, or null when `group` is no group. */
+export function helpGroup(group: string): string | null {
+  const subs = COMMANDS.filter((c) => c.path[0] === group && c.path.length > 1 && c.internal !== true && c.deprecatedFor === undefined);
+  if (subs.length === 0) return null;
+  const old = deprecatedAliases().filter((x) => x.alias.split(" ")[0] === group);
+  return [
+    `${TOOL_NAME} ${group} — subcommands:`,
+    ...subs.map((c) => `  ${usageOf(c, COMMON_FLAGS)}\n      ${c.summary}`),
+    ...(old.length === 0 ? [] : ["", `Deprecated (removed in ${ALIASES_REMOVED_IN}): ${old.map((x) => `${x.alias} → ${x.use}`).join(", ")}`]),
+    "",
+    `More: ${TOOL_NAME} ${group} <subcommand> --help`,
+  ].join("\n");
+}
+
+function flagHelp(f: FlagSpec): string {
+  const base = f.default === undefined ? f.help : `${f.help} [default: ${f.default}]`;
+  const repeat = f.repeat === true ? " (repeatable)" : "";
+  const note = f.deprecatedNote === undefined ? "" : ` — deprecated, ${f.deprecatedNote}; removed in ${ALIASES_REMOVED_IN}`;
+  const old = f.deprecated === undefined ? "" : ` (old spelling ${f.deprecated.join(", ")} still works; deprecated, removed in ${ALIASES_REMOVED_IN})`;
+  return base + repeat + note + old;
+}
+
+export function helpFor(c: CommandSpec): string {
+  const lines = [`Usage: ${usageOf(c)}`, "", c.summary, "", `Example: ${c.example}`];
+  if (c.deprecatedFor !== undefined) lines.splice(1, 0, deprecationLine(c.deprecatedFor));
+  if (c.flags.length > 0) {
+    lines.push("", "Options:");
+    for (const f of c.flags) {
+      const name = (f.alias === undefined ? f.flag : `${f.flag}, ${f.alias}`) + (f.kind === "bool" ? "" : f.kind === "optnum" ? " [ms]" : ` <${f.metavar ?? "v"}>`);
+      lines.push(`  ${name.padEnd(22)} ${flagHelp(f)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------- schema
+
+export const SCHEMA_ID = "tabcap-cli-schema/0";
+
+export type SchemaFlag = {
+  flag: string;
+  alias: string | null;
+  key: string;
+  type: "string" | "boolean" | "number";
+  /** `--idle` style: the number may be left out, then `default` applies. */
+  valueOptional: boolean;
+  required: boolean;
+  default: string | number | boolean | null;
+  help: string;
+  /** May be given more than once (the value is a list). */
+  repeatable: boolean;
+  /** Old spellings that still work until the next minor release. */
+  deprecatedAliases: string[];
+  /** Set when the flag itself is deprecated: what to use instead. */
+  deprecated: string | null;
+};
+
+export type SchemaCommand = {
+  name: string;
+  path: string[];
+  usage: string;
+  summary: string;
+  example: string;
+  positionals: { name: string; required: boolean; variadic: boolean; choices: string[] | null }[];
+  flags: SchemaFlag[];
+  /** Needs the running daemon (and usually the browser). */
+  daemon: boolean;
+  internal: boolean;
+  /** Deprecated alias: the command to use instead (removed in the next minor release). */
+  deprecatedFor: string | null;
+};
+
+export type Schema = {
+  schema: string;
+  tool: string;
+  version: string;
+  envelope: { ok: string; error: string };
+  commands: SchemaCommand[];
+};
+
+function schemaFlag(f: FlagSpec): SchemaFlag {
+  const type = f.kind === "bool" ? "boolean" : f.kind === "string" ? "string" : "number";
+  return {
+    flag: f.flag,
+    alias: f.alias ?? null,
+    key: f.key,
+    type,
+    valueOptional: f.kind === "optnum",
+    required: f.required === true,
+    default: f.default ?? (f.kind === "bool" ? false : null),
+    help: f.help,
+    repeatable: f.repeat === true,
+    deprecatedAliases: [...(f.deprecated ?? [])],
+    deprecated: f.deprecatedNote ?? null,
+  };
+}
+
+/** The registry as a plain, stable JSON document (`tabcap schema --json`). */
+export function schema(): Schema {
+  return {
+    schema: SCHEMA_ID,
+    tool: TOOL_NAME,
+    version: TOOL_VERSION,
+    envelope: { ok: "{ok:true,data}", error: "{ok:false,error:{code,message,next}}" },
+    commands: COMMANDS.map((c) => {
+      const required = c.pos.length - (c.optional ?? 0);
+      return {
+        name: c.path.join(" "),
+        path: [...c.path],
+        usage: usageOf(c),
+        summary: c.summary,
+        example: c.example,
+        positionals: c.pos.map((p, i) => {
+          const variadic = p.endsWith("...");
+          const name = variadic ? p.slice(0, -3) : p;
+          return { name, required: i < required, variadic, choices: c.choices?.[p] ?? null };
+        }),
+        flags: c.flags.map(schemaFlag),
+        daemon: c.action !== undefined,
+        internal: c.internal === true,
+        deprecatedFor: c.deprecatedFor ?? null,
+      };
+    }),
+  };
+}
+
+// ---------------------------------------------------------------- parsing
+
+
+/** Longest command path that prefixes argv's positionals. */
+export function matchCommand(words: readonly string[]): CommandSpec | null {
+  let best: CommandSpec | null = null;
+  for (const c of COMMANDS) {
+    if (c.path.every((p, i) => words[i] === p) && (best === null || c.path.length > best.path.length)) best = c;
+  }
+  return best;
+}
+
+export type ParsedCommand = { args: Record<string, unknown>; session: string | null; help: boolean };
+
+/** Parse argv (after the command path) against the spec. `--` ends options. */
+export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCommand {
+  const usage = `Usage: ${usageOf(c)}`;
+  const args: Record<string, unknown> = {};
+  const pos: string[] = [];
+  let session: string | null = null;
+  let help = false;
+  let rest = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] ?? "";
+    if (rest || !a.startsWith("--") || a === "--") {
+      if (a === "--" && !rest) rest = true;
+      else pos.push(a);
+      continue;
+    }
+    if (a === "--help") {
+      help = true;
+      continue;
+    }
+    const eq = a.indexOf("=");
+    const name = eq > 0 ? a.slice(0, eq) : a;
+    const spec = c.flags.find((f) => spellingsOf(f).includes(name));
+    if (spec === undefined) throw new TabcapError("usage", `unknown option ${name}`, usage);
+    let value: string | undefined;
+    if (spec.kind === "bool") {
+      if (eq > 0) throw new TabcapError("usage", `${name} takes no value`, usage);
+    } else if (spec.kind === "optnum") {
+      const next = argv[i + 1];
+      if (eq > 0) value = a.slice(eq + 1);
+      else if (next !== undefined && /^\d+(\.\d+)?$/.test(next)) value = argv[++i];
+      if (value === undefined) {
+        args[spec.key] = true;
+        continue;
+      }
+    } else {
+      value = eq > 0 ? a.slice(eq + 1) : argv[++i];
+      if (value === undefined) throw new TabcapError("usage", `${name} needs a value`, usage);
+    }
+    if (spec.key === "session") session = value ?? null;
+    else if (spec.kind === "bool") args[spec.key] = true;
+    else if (spec.repeat === true) {
+      const prev = args[spec.key];
+      args[spec.key] = [...(Array.isArray(prev) ? prev : []), value ?? ""];
+    }
+    else if (spec.kind === "number" || spec.kind === "optnum") {
+      const n = Number(value);
+      if (!Number.isFinite(n)) throw new TabcapError("usage", `${name} must be a number`, usage);
+      args[spec.key] = n;
+    } else args[spec.key] = value;
+  }
+  if (help) return { args, session, help };
+  for (const [k, v] of Object.entries(c.fixed ?? {})) args[k] = v;
+  const required = c.pos.length - (c.optional ?? 0);
+  for (let i = 0; i < c.pos.length; i++) {
+    const key = c.pos[i] ?? "";
+    const last = i === c.pos.length - 1;
+    if (key.endsWith("...") && last) {
+      if (pos.length > i) args[key.slice(0, -3)] = c.restList === true ? pos.slice(i) : pos.slice(i).join(" ");
+      else if (i < required) throw new TabcapError("usage", `missing <${key.slice(0, -3)}>`, usage);
+      return { args, session, help };
+    }
+    const v = pos[i];
+    if (v === undefined) {
+      if (i < required) throw new TabcapError("usage", `missing <${key}>`, usage);
+    } else args[key] = v;
+  }
+  if (pos.length > c.pos.length) throw new TabcapError("usage", c.quiet === true ? `unexpected argument #${c.pos.length + 1} (value not shown)` : `unexpected argument: ${pos[c.pos.length] ?? ""}`, usage);
+  return { args, session, help };
+}

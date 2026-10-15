@@ -1,0 +1,39 @@
+{
+  "format": "evidence-bundle/0",
+  "id": "01K7JZM9800000000000000000",
+  "created": 1760500000000,
+  "producer": {
+    "tool": "tabcap",
+    "version": "0.2.0"
+  },
+  "session": {
+    "name": "range-s02",
+    "site": null,
+    "account": null,
+    "tabs": [
+      {
+        "tab": "t1",
+        "chromeTabId": 1234,
+        "owned": true,
+        "firstUrl": "http://127.0.0.1:4310/s02/a"
+      }
+    ]
+  },
+  "mode": {
+    "capture": "mixed",
+    "trace": false,
+    "raw": true,
+    "humanRecorder": false
+  },
+  "counts": {
+    "events": 8,
+    "requests": 3,
+    "bodies": 0,
+    "blobBytes": 0,
+    "bodyMissing": {}
+  },
+  "redaction": null,
+  "imported": null,
+  "notes": "",
+  "finished": 1760500001350
+}

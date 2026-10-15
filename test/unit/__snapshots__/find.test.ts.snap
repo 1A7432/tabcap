@@ -1,0 +1,57 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`CLI: tabcap analyze find JSON envelope, --text rendering snapshot, --save appends a finding 1`] = `
+"find "「靶场 s04 目标文本：全角！」✓🎯" in <bundle>
+13 hit(s)
+  r-2  GET http://127.0.0.1:4310/s04/ 200
+    decode [] exact
+    <!doctype html><html><head><title>「靶场 s04 目标文本：全角！」✓🎯</title></head><body><div id=app></div></body></html>
+  r-3  GET http://127.0.0.1:4310/api/s04/a 200
+    decode [] exact  $.items[2].title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-4  GET http://127.0.0.1:4310/api/s04/b 200
+    decode [] exact  $.title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-5  GET http://127.0.0.1:4310/api/s04/c 200
+    decode [] exact  $.title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-6  GET http://127.0.0.1:4310/api/s04/d 200
+    decode [base64,json] exact  $.data -> $.title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-7  GET http://127.0.0.1:4310/api/s04/e 200
+    decode [base64,gzip,json] exact  $.data -> $.title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-8  GET http://127.0.0.1:4310/api/s04/f 200
+    decode [json-unescape] exact  $.title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-9  GET http://127.0.0.1:4310/api/s04/g 200
+    decode [json-string,json] exact  $.payload -> $.title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-10  GET http://127.0.0.1:4310/api/s04/h 200
+    decode [urldecode] exact  $.title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-11  GET http://127.0.0.1:4310/api/s04/i 200
+    decode [html-entities] exact
+    <p class="t">「靶场 s04 目标文本：全角！」✓🎯</p>
+  r-12  GET http://127.0.0.1:4310/api/s04/j 200
+    decode [jsonp,json] exact  $.data.title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-13  GET http://127.0.0.1:4310/api/s04/k 200
+    decode [sse] exact  $[1].title
+    「靶场 s04 目标文本：全角！」✓🎯
+  r-14  GET http://127.0.0.1:4310/api/s04/l 200
+    decode [ndjson] exact  $[2].title
+    「靶场 s04 目标文本：全角！」✓🎯
+searched: 13 bodies, 0 ws frames, 0 console lines (15 requests)
+skipped: binary 1; no body: navigated 1
+decoders: gzip=1 base64=2 json=4 json-string=1 urldecode=1 html-entities=1 jsonp=1 sse=1 ndjson=1"
+`;
+
+exports[`CLI: tabcap analyze find JSON envelope, --text rendering snapshot, --save appends a finding 2`] = `
+"find "靶场 s04 不存在的文字" in <bundle>
+0 hit(s)
+searched: 13 bodies, 0 ws frames, 0 console lines (15 requests)
+skipped: binary 1; no body: navigated 1
+decoders: gzip=1 base64=2 json=4 json-string=1 urldecode=1 html-entities=1 jsonp=1 sse=1 ndjson=1
+hint: 0 hits. Suspect the query before concluding the text is not in the traffic. 1 request(s) have no body (navigated 1); the text may have been in one of them. 1 payload(s) were skipped (see searched.skipped)."
+`;

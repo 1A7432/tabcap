@@ -1,0 +1,21 @@
+{
+  "schema": "tabcap-adapter/0",
+  "name": "fake-ui",
+  "category": "widget",
+  "version": 1,
+  "description": "Test-only widget library adapter: exercises every feature kind and all five hooks.",
+  "script": "page.js",
+  "detect": [
+    { "kind": "class-prefix", "prefix": "fui-", "confidence": 0.5 },
+    { "kind": "global", "name": "FakeUI", "confidence": 0.6, "label": "global FakeUI" },
+    { "kind": "dom", "match": { "classPrefix": "fui-grid" }, "has": { "tag": "table" }, "confidence": 0.4 },
+    { "kind": "dom", "match": { "attr": { "name": "data-fui-version" } }, "confidence": 0.3 },
+    { "kind": "header", "name": "x-fake-ui", "pattern": "^1\\.", "confidence": 0.2 }
+  ],
+  "hooks": {
+    "describe": { "when": "detected" },
+    "act": { "ops": ["select"] },
+    "read": { "mode": "explicit" },
+    "decode": { "contentTypes": ["application/x-fake-ui"] }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "fake-verify",
+  "version": "0.0.1",
+  "description": "TEST ONLY. Answers the tabcap e2e s15 test page with a canned code; hands everything else to the human. Not a solver: it never looks at a real challenge.",
+  "hooks": ["challenge"],
+  "command": ["bun", "./handler.ts"],
+  "timeoutMs": 10000
+}

@@ -1,0 +1,195 @@
+{
+ "capturedWith": "Chrome for Testing Chrome/155.0.8059.79",
+ "page": "test/e2e/site.ts /ov/timeout",
+ "collected": {
+  "vw": 1200,
+  "vh": 828,
+  "cands": [
+   {
+    "n": 0,
+    "tag": "div",
+    "role": "",
+    "idcls": "tmask",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 0,
+    "y": 0,
+    "w": 1200,
+    "h": 828,
+    "area": 1,
+    "z": 3000,
+    "bg": 0.4,
+    "pointer": true,
+    "touchTop": true,
+    "touchBottom": true,
+    "name": "",
+    "text": "",
+    "textLen": 0,
+    "iframes": [],
+    "buttons": [],
+    "parent": -1,
+    "hits": 9
+   },
+   {
+    "n": 3,
+    "tag": "div",
+    "role": "dialog",
+    "idcls": "tdlg",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": true,
+    "fixed": true,
+    "x": 398,
+    "y": 271,
+    "w": 404,
+    "h": 120,
+    "area": 0.049,
+    "z": 3001,
+    "bg": 1,
+    "pointer": true,
+    "touchTop": false,
+    "touchBottom": false,
+    "name": "会话即将超时",
+    "text": "会话即将超时 您已长时间未操作，系统将在 60 秒后自动退出。 继续使用 退出登录",
+    "textLen": 43,
+    "iframes": [],
+    "buttons": [
+     {
+      "n": 1,
+      "tag": "button",
+      "text": "继续使用",
+      "label": "",
+      "cls": ""
+     },
+     {
+      "n": 2,
+      "tag": "button",
+      "text": "退出登录",
+      "label": "",
+      "cls": ""
+     }
+    ],
+    "parent": -1,
+    "hits": 0
+   }
+  ],
+  "landmarks": [
+   {
+    "name": "main",
+    "in": [
+     0
+    ]
+   },
+   {
+    "name": "h1",
+    "in": [
+     0
+    ]
+   },
+   {
+    "name": "form#f",
+    "in": [
+     0
+    ]
+   }
+  ],
+  "nodes": [
+   {
+    "tag": "div",
+    "id": "tmask",
+    "cls": ""
+   },
+   {
+    "tag": "button",
+    "id": "keep",
+    "cls": ""
+   },
+   {
+    "tag": "button",
+    "id": "quit",
+    "cls": ""
+   },
+   {
+    "tag": "div",
+    "id": "tdlg",
+    "cls": ""
+   }
+  ]
+ },
+ "digest": {
+  "els": [
+   {
+    "t": "form",
+    "id": "f",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "input",
+    "id": "q",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "button",
+    "id": "submit",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "div",
+    "id": "tmask",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "div",
+    "id": "tdlg",
+    "c": "",
+    "a": {
+     "role": "dialog"
+    },
+    "p": -1
+   },
+   {
+    "t": "h3",
+    "id": "to-title",
+    "c": "",
+    "a": {},
+    "p": 4
+   },
+   {
+    "t": "span",
+    "id": "count",
+    "c": "",
+    "a": {},
+    "p": 4
+   },
+   {
+    "t": "button",
+    "id": "keep",
+    "c": "",
+    "a": {},
+    "p": 4
+   },
+   {
+    "t": "button",
+    "id": "quit",
+    "c": "",
+    "a": {},
+    "p": 4
+   }
+  ],
+  "total": 21,
+  "truncated": false
+ },
+ "globals": {
+  "layer": false
+ }
+}

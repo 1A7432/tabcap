@@ -1,0 +1,112 @@
+{
+ "capturedWith": "Chrome for Testing Chrome/155.0.8059.79",
+ "page": "test/e2e/site.ts /ov/shell",
+ "collected": {
+  "vw": 1200,
+  "vh": 828,
+  "cands": [
+   {
+    "n": 1,
+    "tag": "div",
+    "role": "",
+    "idcls": "app",
+    "ariaModal": false,
+    "nativeModal": false,
+    "dialogRole": false,
+    "fixed": true,
+    "x": 0,
+    "y": 0,
+    "w": 1200,
+    "h": 828,
+    "area": 1,
+    "z": 0,
+    "bg": 1,
+    "pointer": true,
+    "touchTop": true,
+    "touchBottom": true,
+    "name": "ov shell",
+    "text": "ov shell 整个应用渲染在一个铺满视口的固定定位容器里，这是很多后台的常见布局，不是遮挡层。 搜索 提交",
+    "textLen": 58,
+    "iframes": [],
+    "buttons": [
+     {
+      "n": 0,
+      "tag": "button",
+      "text": "提交",
+      "label": "",
+      "cls": ""
+     }
+    ],
+    "parent": -1,
+    "hits": 9
+   }
+  ],
+  "landmarks": [],
+  "nodes": [
+   {
+    "tag": "button",
+    "id": "submit",
+    "cls": ""
+   },
+   {
+    "tag": "div",
+    "id": "app",
+    "cls": ""
+   }
+  ]
+ },
+ "digest": {
+  "els": [
+   {
+    "t": "div",
+    "id": "app",
+    "c": "",
+    "a": {},
+    "p": -1
+   },
+   {
+    "t": "form",
+    "id": "f",
+    "c": "",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "input",
+    "id": "q",
+    "c": "",
+    "a": {},
+    "p": 1
+   },
+   {
+    "t": "button",
+    "id": "submit",
+    "c": "",
+    "a": {},
+    "p": 1
+   },
+   {
+    "t": "div",
+    "id": "",
+    "c": "el-dialog__wrapper",
+    "a": {},
+    "p": 0
+   },
+   {
+    "t": "div",
+    "id": "",
+    "c": "",
+    "a": {
+     "aria-modal": "true",
+     "role": "dialog"
+    },
+    "p": 4
+   }
+  ],
+  "total": 18,
+  "truncated": false
+ },
+ "globals": {
+  "layer": false
+ }
+}
