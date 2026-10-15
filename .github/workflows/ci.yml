@@ -50,7 +50,9 @@ jobs:
         include:
           - os: ubuntu-latest
             cft_cache: ~/.cache/tabcap/chrome
-            run_prefix: xvfb-run -a
+            # A screen wider than Chrome's default window (at most 1050 px wide at x=10),
+            # so Xvfb's pointer (screen centre) is not over the page and sends no real mouse events.
+            run_prefix: xvfb-run -a -s "-screen 0 2560x1440x24"
           - os: windows-latest
             cft_cache: ~/AppData/Local/tabcap/cache/chrome
             run_prefix: ""
