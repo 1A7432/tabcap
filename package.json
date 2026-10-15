@@ -14,7 +14,11 @@
     "verify": "bun run test && echo 'matrix: A1-A6 not implemented (L0 only)'",
     "build": "bun build --compile src/cli/main.ts --outfile dist/tabcap",
     "build:darwin-arm64": "bun build --compile --target=bun-darwin-arm64 src/cli/main.ts --outfile dist/tabcap-darwin-arm64",
-    "release:darwin-arm64": "bun scripts/release.ts"
+    "build:linux-x64": "bun build --compile --target=bun-linux-x64 src/cli/main.ts --outfile dist/tabcap-linux-x64",
+    "build:linux-arm64": "bun build --compile --target=bun-linux-arm64 src/cli/main.ts --outfile dist/tabcap-linux-arm64",
+    "build:windows-x64": "bun build --compile --target=bun-windows-x64 src/cli/main.ts --outfile dist/tabcap-windows-x64.exe",
+    "release": "bun scripts/release.ts",
+    "release:darwin-arm64": "bun scripts/release.ts --targets darwin-arm64"
   },
   "devDependencies": {
     "@types/bun": "1.4.3",
