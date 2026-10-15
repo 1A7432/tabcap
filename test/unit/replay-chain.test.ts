@@ -107,6 +107,22 @@ describe("export-python, chain mode", () => {
     expect(steps[1]).toMatchObject({ function: "post_api_data", args: {}, derived: { x_csrf: { from: r.chain?.steps[0], path: "$.csrf", as: "text" } } });
   });
 
+  test("the recorded password is written into no generated file, with or without the chain", () => {
+    for (const chain of [true, false]) {
+      const out = join(root, `secret-${chain ? "chain" : "nochain"}`);
+      const r = exportPython({ bundle: login, out, chain });
+      expect(r.functions.find((f) => f.name === "post_api_login")?.args).toContain("password");
+      const client = readFileSync(join(out, "client.py"), "utf8");
+      expect(client).toContain("password: Any = TODO");
+      expect(client).toContain(`_need("${TODO_SECRET}", password=password)`);
+      expect(pyCompile(["client.py", "conftest.py", "test_replay.py"].map((f) => join(out, f)))).toBeNull();
+      for (const f of walk(out)) {
+        const text = readFileSync(f, "utf8");
+        for (const sp of SPELLINGS) expect([chain, f, text.includes(sp)]).toEqual([chain, f, false]);
+      }
+    }
+  });
+
   test("--no-chain keeps 0.3 output; --chain forces chain mode; both is a usage error", async () => {
     const off = exportPython({ bundle: login, out: join(root, "off"), chain: false });
     expect(off.chain).toBeNull();

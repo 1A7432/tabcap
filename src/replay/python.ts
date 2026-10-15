@@ -8,7 +8,11 @@
 // arguments); a single sample gives constants, except cookies (session) and
 // timestamp-shaped values. Signature-like parameters and encrypted request
 // bodies are NOT reproduced (docs/03 §6): those functions raise
-// NotImplementedError with a TODO marker. Response JSON → TypedDict per group,
+// NotImplementedError with a TODO marker. Inputs with a sensitive name (the
+// `bundle redact` name rule: passw / token / secret / session / sid / auth /
+// api key, and sensitive headers) are never written into any generated file,
+// in any mode: they become parameters defaulting to TODO (TODO_SECRET) and
+// their recorded values stay out of fixtures. Response JSON → TypedDict per group,
 // types inferred from every recorded sample (analyze decoders parse).
 // Everything read from the bundle is untrusted: names become identifiers by
 // a whitelist, values become literals through escaping functions, never by
@@ -421,16 +425,23 @@ function planFunction(
       if (optional) arg.type = `${arg.type} | None`;
       expr = arg.py;
     }
-    if (dp !== null && arg !== null && isSensitive(p.location, p.name)) {
-      // Chain mode never writes a sensitive recorded value out: the caller passes it.
+    let cls = p.class;
+    if (p.location !== "cookie" && isSensitive(p.location, p.name)) {
+      // A sensitive recorded value (password, token …) is never written out, in any mode: the caller passes it.
+      const fresh = arg === null;
+      if (arg === null) {
+        arg = mkArg(p.name, p.location, "Any", true, jsonSample, v0 !== null, "secret input", src);
+        expr = arg.py;
+        cls = "varying";
+      }
       arg.secret = true;
-      if (arg.todo === undefined && !arg.optional) {
+      if (arg.todo === undefined && (fresh || !arg.optional)) {
         arg.todo = TODO_SECRET;
         arg.optional = true;
         todoArgs.push({ arg, why: `${p.location} ${p.name}: secret input` });
       }
     }
-    plans.push({ location: p.location, name: p.name, cls: p.class, hints: [...p.hints], expr, arg, first: v0 });
+    plans.push({ location: p.location, name: p.name, cls, hints: [...p.hints], expr, arg, first: v0 });
   }
   const exprOf = (loc: ParamLocation, n: string) => plans.find((p) => p.location === loc && p.name === n)?.expr;
 
@@ -828,11 +839,12 @@ function chainReadme(chain: ChainResult, redacted: boolean): string {
 /** `chain`: true / false forces chain mode on / off; undefined = on when the deps graph links a request to an earlier response. */
 export type ExportOptions = { bundle: string; out: string; include?: string | undefined; exclude?: string | undefined; chain?: boolean | undefined };
 
-export function generateClientSource(fns: { code: string; types: string[] }[], header: string[], chainMode = false): string {
+/** `todoRuntime`: the TODO sentinel and `_need` (chain mode, or any secret TODO parameter); `chainMode` adds verify(). */
+export function generateClientSource(fns: { code: string; types: string[] }[], header: string[], chainMode = false, todoRuntime = chainMode): string {
   return [
     ...header,
     RUNTIME.trimEnd(),
-    ...(chainMode ? [CHAIN_RUNTIME.trimEnd()] : []),
+    ...(todoRuntime ? [CHAIN_RUNTIME.trimEnd()] : []),
     "",
     "",
     "# ---------------------------------------------------------------- response shapes (inferred from the recording; illustrative)",
@@ -944,7 +956,8 @@ export function exportPython(opts: ExportOptions): ExportResult {
     chmodSync(join(opts.out, rel), 0o644);
     files.push(rel);
   };
-  write("client.py", generateClientSource(planned, header, chainMode));
+  const todoRuntime = chainMode || planned.some((p) => p.fn.args.some((a) => a.todo !== undefined));
+  write("client.py", generateClientSource(planned, header, chainMode, todoRuntime));
   const cases = planned.map((p) => fixtureCase(p.fn, p.group, ctx, byRef, fixturesDir, files));
   writeFileSync(join(fixturesDir, "index.json"), JSON.stringify({ bundle: reader.manifest.id, session: name, cases }, null, 2) + "\n");
   files.push("fixtures/index.json");
