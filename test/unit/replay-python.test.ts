@@ -27,7 +27,7 @@ const FILES = ["client.py", "conftest.py", "test_replay.py"];
 describe("generated package", () => {
   test("client.py snapshot; files; every Python file compiles", () => {
     const out = join(root, "py");
-    const r = exportPython({ bundle, out });
+    const r = exportPython({ bundle, out, chain: false }); // 0.3 behaviour (--no-chain); chain mode: replay-chain.test.ts
     expect(r.files).toEqual([
       "README.md",
       "client.py",
@@ -49,7 +49,7 @@ describe("generated package", () => {
   });
 
   test("functions: arguments for varying values, timestamps optional, TODO for signatures and unrecorded bodies", () => {
-    const r = exportPython({ bundle, out: join(root, "py2") });
+    const r = exportPython({ bundle, out: join(root, "py2"), chain: false });
     const fn = (n: string) => r.functions.find((f) => f.name === n);
     expect(fn("get_api_items")?.args).toEqual(["page"]);
     expect(fn("get_api_feed")?.args).toEqual([]);

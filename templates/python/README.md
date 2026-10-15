@@ -22,7 +22,7 @@ TABCAP_REPLAY=http://127.0.0.1:4500 .venv/bin/python -m pytest -q
 
 {{todo}}
 
-这些函数调用时抛 `NotImplementedError`。签名类参数、加密请求体由页面里的脚本计算，tabcap 不还原（docs/03 §6）；这类接口留在真实浏览器会话里取，或由你自己的研究项目处理。
+这些函数调用时抛 `NotImplementedError`。签名类参数、加密请求体由页面里的脚本计算，tabcap 不还原（docs/03 §6）；这类接口留在真实浏览器会话里取，或由你自己的研究项目处理。{{chain}}
 
 ## 注意
 

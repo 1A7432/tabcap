@@ -852,10 +852,10 @@ Example: `tabcap replay session ./b -o storage-state.json`
 
 ### `tabcap replay export-python`
 
-generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; signature-like parameters and encrypted bodies become NotImplementedError TODOs
+generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs
 
 ```
-tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob]
+tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain]
 ```
 
 Example: `tabcap replay export-python ./b -o ./client`
@@ -865,6 +865,8 @@ Example: `tabcap replay export-python ./b -o ./client`
 | `--out <dir>`, `-o <dir>` |  | directory for the generated package (required) |
 | `--include <glob,glob>` |  | only paths matching these globs (* within a segment, ** across) |
 | `--exclude <glob,glob>` |  | leave out paths matching these globs |
+| `--chain` |  | use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response) |
+| `--no-chain` |  | 0.3 behaviour: per-request heuristics only, no verify() |
 
 ### `tabcap replay check`
 

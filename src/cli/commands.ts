@@ -593,9 +593,11 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--out", alias: "-o", key: "out", kind: "string", help: "directory for the generated package", required: true, metavar: "dir" },
       { flag: "--include", key: "include", kind: "string", help: "only paths matching these globs (* within a segment, ** across)", metavar: "glob,glob" },
       { flag: "--exclude", key: "exclude", kind: "string", help: "leave out paths matching these globs", metavar: "glob,glob" },
+      { flag: "--chain", key: "chain", kind: "bool", help: "use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)" },
+      { flag: "--no-chain", key: "noChain", kind: "bool", help: "0.3 behaviour: per-request heuristics only, no verify()" },
     ],
     summary:
-      "generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; signature-like parameters and encrypted bodies become NotImplementedError TODOs",
+      "generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs",
     example: "tabcap replay export-python ./b -o ./client",
   },
   {

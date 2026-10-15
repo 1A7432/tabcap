@@ -95,7 +95,9 @@ export async function runReplay(argv: readonly string[]): Promise<Outcome> {
       case "export-python": {
         const out = str(a["out"]);
         if (out === undefined) throw new TabcapError("usage", "missing -o <dir>", `Usage: ${usageOf(spec)}`);
-        return { code: 0, envelope: ok(exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]) })) };
+        if (a["chain"] === true && a["noChain"] === true) throw new TabcapError("usage", "give either --chain or --no-chain, not both", `Usage: ${usageOf(spec)}`);
+        const chain = a["chain"] === true ? true : a["noChain"] === true ? false : undefined;
+        return { code: 0, envelope: ok(exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]), chain })) };
       }
       case "check": {
         const rate = a["rate"];

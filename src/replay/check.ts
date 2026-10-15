@@ -123,7 +123,7 @@ function normLocation(value: string, requestUrl: string): string {
   }
 }
 
-function normHeader(name: string, value: string, requestUrl: string): string {
+export function normHeader(name: string, value: string, requestUrl: string): string {
   if (name === "location") return normLocation(value, requestUrl);
   if (name === "content-type") return value.trim().toLowerCase().replace(/\s*;\s*/g, ";");
   return value.trim();
