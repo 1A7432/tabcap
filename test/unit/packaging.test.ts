@@ -9,6 +9,7 @@ import { planFor } from "../../scripts/release.ts";
 import { TOOL_VERSION } from "../../src/bundle/manifest.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { REPO_ROOT } from "./_fixtures.ts";
+import { SLOW_IO_MS } from "./_platform.ts";
 
 const PKG = join(REPO_ROOT, "packaging");
 const RELEASES = "https://github.com/1A7432/tabcap/releases/download";
@@ -30,14 +31,14 @@ describe("Homebrew formula template", () => {
     expect(rb).toContain("on_arm do");
   });
   // Starting ruby on the windows-latest runner took 0.5 s to over 5 s (3.3 s
-  // with --disable-gems too, so not RubyGems); 20 s instead of bun's 5 s.
+  // with --disable-gems too, so not RubyGems).
   test.skipIf(Bun.which("ruby") === null)(
     "ruby -c accepts it",
     () => {
       const r = Bun.spawnSync(["ruby", "-c", join(PKG, "homebrew", "tabcap.rb")], { stdout: "pipe", stderr: "pipe" });
       expect([r.exitCode, r.stderr.toString()]).toEqual([0, ""]);
     },
-    20_000,
+    SLOW_IO_MS,
   );
 });
 

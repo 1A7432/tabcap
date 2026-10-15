@@ -18,6 +18,7 @@ import { saveSiteCookies } from "../../src/daemon/tools/session.ts";
 import type { AttachedTarget, CdpEvent, CdpParams, Transport } from "../../src/daemon/transport/types.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { exportSession } from "../../src/replay/session.ts";
+import { until } from "./_platform.ts";
 
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 const SID = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -102,6 +103,11 @@ describe("recorder: state cookie events (docs/04 §4.1)", () => {
     commit("http://127.0.0.1:4310/s07/data", "L3");
     jar.cookies = [cookie("sid", SID, { httpOnly: true }), cookie("theme", "dark")];
     await Bun.sleep(20);
+    // the snapshot's blob write can lag on a slow Windows runner (state 1 at 20 ms there)
+    await until(() => {
+      const counts = rec.status()["counts"];
+      return isRecord(counts) && typeof counts["state"] === "number" && counts["state"] >= 2;
+    });
     expect(rec.status()).toMatchObject({ counts: { state: 2 } });
     const done = await rec.stop();
     const reader = BundleReader.open(dir);

@@ -13,6 +13,7 @@ import { ReplayIndex, buildResponse, keyOf, sortedQuery, type Incoming } from ".
 import { buildBundle, tmp } from "./_analyze.ts";
 import { startReplayServer } from "../../src/replay/server.ts";
 import { CSRF, FEED, ITEMS1, LOGIN_BODY, ORIGIN, SEARCH, SID, buildReplayBundle } from "./_replay.ts";
+import { SLOW_IO_MS } from "./_platform.ts";
 
 let dir = "";
 let reader: BundleReader;
@@ -34,8 +35,8 @@ beforeAll(async () => {
   await buildReplayBundle(dir);
   reader = BundleReader.open(dir);
   requests = replayableRequests(reader).requests;
-});
-afterAll(() => rmSync(join(dir, ".."), { recursive: true, force: true }));
+}, SLOW_IO_MS);
+afterAll(() => rmSync(join(dir, ".."), { recursive: true, force: true }), SLOW_IO_MS);
 
 describe("key building", () => {
   test("query order does not matter; values and repeated names do", () => {
@@ -239,8 +240,8 @@ describe("multi-host bundles: the host joins the key (0.3-C)", () => {
     });
     multi = BundleReader.open(d);
     reqs = replayableRequests(multi).requests;
-  });
-  afterAll(() => rmSync(join(multi.dir, ".."), { recursive: true, force: true }));
+  }, SLOW_IO_MS);
+  afterAll(() => rmSync(join(multi.dir, ".."), { recursive: true, force: true }), SLOW_IO_MS);
   const from = (m: ReturnType<ReplayIndex["match"]>): string => (m === null ? "none" : new TextDecoder().decode(buildResponse(m.recording, multi, m.n).body ?? new Uint8Array(0)));
 
   test("a Host naming a recorded host picks that host's recording only", () => {

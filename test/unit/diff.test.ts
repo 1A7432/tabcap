@@ -11,6 +11,7 @@ import { createHash, createHmac } from "node:crypto";
 import { diff, pathTemplate, timestampMs, type DiffResult } from "../../src/analyze/diff.ts";
 import { run } from "../../src/cli/main.ts";
 import { buildBundle, tmp } from "./_analyze.ts";
+import { SLOW_IO_MS } from "./_platform.ts";
 
 const ORIGIN = "http://127.0.0.1:4310";
 const T1 = 1760500100000;
@@ -123,7 +124,7 @@ let B: string[] = [];
 
 beforeAll(async () => {
   B = await Promise.all([0, 1, 2].map((i) => recording(i, tmp(`tabcap-s06-${i}-`))));
-});
+}, SLOW_IO_MS);
 
 describe("diff helpers", () => {
   test("path templates and timestamp parsing", () => {
