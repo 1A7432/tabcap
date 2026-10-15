@@ -106,7 +106,7 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | 平台 | 包 | 单元测试、类型检查 | 端到端 | 已知缺口 |
 |---|---|---|---|---|
 | macOS arm64 | `.tar.gz` | 通过（CI，macOS 14） | 81 / 81（本机；CI 不跑） | 无已知 |
-| Linux x64 | `.tar.gz` | 通过（CI，Ubuntu） | 80 / 81（CI，Ubuntu + Xvfb） | 两个用例在 CI 上不稳定（共 4 次）：s07 登录页上 `click --trusted` 有时超时（`move-timeout`，4 次里 3 次），导航后的 cookie 快照有时没拿到新 cookie（4 次里 2 次） |
+| Linux x64 | `.tar.gz` | 通过（CI，Ubuntu） | 81 / 81（CI，Ubuntu + Xvfb，连续 2 次） | 后台标签上的 `click --trusted` / `hover` 在标签帧被限速时，鼠标移动期间开一个极小的 screencast（输出里标 `paint.held`）；Chrome 沙箱需要非特权 user namespace（CI 关掉了 Ubuntu 24.04 的 AppArmor 限制） |
 | Windows x64 | `.zip` | 通过（CI） | 63 / 81（CI，非必过项） | 12 个用例没真正跑到（所在套件第一条就检查 Unix socket）；POSIX 权限检查不适用；`resize 900 700` 得到 693 px 高的页面 |
 | Linux arm64 | `.tar.gz` | — | — | 交叉编译，从未运行 |
 

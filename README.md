@@ -126,7 +126,7 @@ Most agent browsers start from "give the agent a clean, isolated browser and let
   | Platform | Package | Unit tests, typecheck | End-to-end tests | Known gaps |
   |---|---|---|---|---|
   | macOS arm64 | `.tar.gz` | pass (CI, macOS 14) | 81 / 81 (local machine; not run in CI) | none known |
-  | Linux x64 | `.tar.gz` | pass (CI, Ubuntu) | 80 / 81 (CI, Ubuntu under Xvfb) | two tests are flaky in CI (4 runs): `click --trusted` on the s07 login form sometimes times out (`move-timeout`, 3 of 4), and the cookie snapshot after a navigation sometimes misses the new cookie (2 of 4) |
+  | Linux x64 | `.tar.gz` | pass (CI, Ubuntu) | 81 / 81 (CI, Ubuntu under Xvfb, 2 runs in a row) | `click --trusted` / `hover` on a background tab hold a tiny screencast while the mouse moves when the tab's frames are throttled (the output says `paint.held`); Chrome's sandbox needs unprivileged user namespaces (CI turns the Ubuntu 24.04 AppArmor restriction off) |
   | Windows x64 | `.zip` | pass (CI) | 63 / 81 (CI); not a required check | 12 tests not exercised (their suite starts by checking the Unix socket); POSIX permission checks do not apply; `resize 900 700` gives a 693 px high page |
   | Linux arm64 | `.tar.gz` | — | — | cross-compiled, never run |
 
