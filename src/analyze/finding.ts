@@ -26,6 +26,14 @@ export type FindingInput = {
 export type SavedFinding = { bundle: string; seq: number };
 
 export function appendFinding(bundleDir: string, f: FindingInput, now: () => number = nowMs): SavedFinding {
+  const saved = appendFindings(bundleDir, [f], now);
+  return { bundle: bundleDir, seq: saved.seqs[0] ?? 0 };
+}
+
+export type SavedFindings = { bundle: string; seqs: number[] };
+
+/** Append several finding events in one write (seq = last seq + 1, + 2, …) and bump counts.events once. */
+export function appendFindings(bundleDir: string, fs: readonly FindingInput[], now: () => number = nowMs): SavedFindings {
   const reader = BundleReader.open(bundleDir);
   if (!reader.isComplete()) {
     throw new TabcapError("conflict", `bundle ${bundleDir} is not finished (the recording is still running or was interrupted)`, "Stop the recording first (tabcap net stop), then rerun with --save.");
@@ -33,17 +41,21 @@ export function appendFinding(bundleDir: string, f: FindingInput, now: () => num
   const path = join(bundleDir, EVENTS_FILE);
   const text = existsSync(path) ? readFileSync(path, "utf8") : "";
   const lastSeq = reader.events.reduce((m, e) => Math.max(m, e.seq), 0);
-  const seq = lastSeq + 1;
-  const line = JSON.stringify({ seq, ts: now(), mono: null, kind: "finding", actor: f.actor, tab: null, cmd: null, tool: f.tool, grade: f.grade, claim: f.claim, evidence: f.evidence, input: f.input, output: f.output });
+  if (fs.length === 0) return { bundle: bundleDir, seqs: [] };
+  const ts = now();
+  const seqs = fs.map((_, i) => lastSeq + 1 + i);
+  const lines = fs.map((f, i) =>
+    JSON.stringify({ seq: seqs[i], ts, mono: null, kind: "finding", actor: f.actor, tab: null, cmd: null, tool: f.tool, grade: f.grade, claim: f.claim, evidence: f.evidence, input: f.input, output: f.output }),
+  );
   const prefix = text.length > 0 && !text.endsWith("\n") ? "\n" : "";
   const fd = openSync(path, "a", 0o600);
   try {
-    writeSync(fd, Buffer.from(prefix + line + "\n", "utf8"));
+    writeSync(fd, Buffer.from(prefix + lines.join("\n") + "\n", "utf8"));
     fsyncSync(fd);
   } finally {
     closeSync(fd);
   }
   const m = reader.manifest;
-  writeManifest(bundleDir, { ...m, counts: { ...m.counts, events: m.counts.events + 1 } });
-  return { bundle: bundleDir, seq };
+  writeManifest(bundleDir, { ...m, counts: { ...m.counts, events: m.counts.events + fs.length } });
+  return { bundle: bundleDir, seqs };
 }

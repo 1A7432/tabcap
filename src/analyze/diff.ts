@@ -381,6 +381,33 @@ function classify(
   return { ...base, class: "varying", hints };
 }
 
+/**
+ * Single-sample classification (replay export-python, analyze deps): constants,
+ * except cookies (session) and timestamp-shaped values; a signature-shaped
+ * value is varying with the looks-signature hint.
+ */
+export function singleSampleParams(g: GroupAcc): DiffParam[] {
+  const s = g.samples[0];
+  if (s === undefined) return [];
+  const out: DiffParam[] = [];
+  for (const [k, v] of s.params) {
+    const { location, name } = splitKey(k);
+    const ms = timestampMs(v);
+    const isTs = ms !== null && Math.abs(ms - s.ts) <= TIMESTAMP_WINDOW_MS;
+    const sig = !isTs && looksSignature([v]);
+    out.push({
+      location,
+      name,
+      class: isTs ? "timestamp" : location === "cookie" ? "constant-or-session" : sig ? "varying" : "constant",
+      hints: sig ? ["looks-signature"] : [],
+      present: 1,
+      samples: 1,
+      values: [v],
+    });
+  }
+  return out;
+}
+
 /** `input`: a varying query / body value that another varying query / body parameter also carried in the same bundle. */
 function markInputs(out: DiffGroup[], groups: ReadonlyMap<string, GroupAcc>): void {
   const eligible = (p: DiffParam) => p.class === "varying" && (p.location === "query" || p.location === "json" || p.location === "form");

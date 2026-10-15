@@ -440,6 +440,10 @@ export type DecodeHit = {
   /** JSON path per JSON document crossed, outermost first (empty for plain text). */
   paths: string[];
   snippet: string;
+  /** The matched text itself (analyze deps reads which value a set matcher found). */
+  matched: string;
+  /** The match is the whole leaf / text (surrounding whitespace aside), not a part of it. */
+  whole: boolean;
 };
 
 export type OpaqueNode = { size: number; entropy: number; chain: StepName[]; paths: string[] };
@@ -524,7 +528,8 @@ export class Explorer {
   private hit(ctx: Ctx, m: Match, extra: StepName[] = [], extraPath: string | null = null): DecodeHit {
     this.hitCount++;
     const paths = extraPath === null ? ctx.paths : [...ctx.paths, extraPath];
-    return { chain: [...ctx.chain, ...extra], paths, snippet: snippetOf(m) };
+    const matched = m.haystack.slice(m.index, m.index + m.length);
+    return { chain: [...ctx.chain, ...extra], paths, snippet: snippetOf(m), matched, whole: m.haystack.trim() === matched };
   }
 
   private bytes(b: Uint8Array, ctx: Ctx, top: boolean, mime: string): DecodeHit[] {
