@@ -17,6 +17,7 @@ import { paintCheck, pointerClick, trustedClickOn, typeKeys, type PointerDeps } 
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { CdpTimeoutError } from "../../src/daemon/transport/direct/cdp.ts";
+import { until } from "./_platform.ts";
 import type { AttachedTarget, CdpEvent, CdpParams, CdpResult, Transport } from "../../src/daemon/transport/types.ts";
 
 /** mulberry32: a small deterministic rng for the tests. */
@@ -385,7 +386,7 @@ describe("docs/04 §5.2 rule 9: bodies the page never reads", () => {
     await Bun.sleep(80);
     // The timer fired by now; the write behind it (blob to disk) can lag on a
     // Windows runner, where 80 ms was not always enough.
-    for (const until = Date.now() + 3000; rec.index.length === 0 && Date.now() < until; ) await Bun.sleep(10);
+    await until(() => rec.index.length > 0);
     expect(rec.index.map((e) => [e.url, e.outcome, e.unreadByPage, e.blob !== null])).toEqual([[url, "finished", true, true]]);
     // a late loadingFinished (the page read it after all) does not write it twice
     emit("Network.loadingFinished", { requestId: "R1", timestamp: 12 });
@@ -412,6 +413,7 @@ describe("docs/04 §5.2 rule 9: bodies the page never reads", () => {
     emit("Network.responseReceived", { requestId: "R2", type: "Fetch", timestamp: 11.1, response: { status: 200, headers: {}, mimeType: "text/plain" } });
     emit("Network.loadingFinished", { requestId: "R2", timestamp: 11.2 });
     await Bun.sleep(100);
+    await until(() => rec.index.length > 0); // R2's write, as above
     expect(rec.index.map((e) => [e.url, e.outcome, e.unreadByPage ?? false])).toEqual([["http://127.0.0.1:9/api/read", "finished", false]]);
     await rec.stop();
     const reqs = BundleReader.open(dir).requests();

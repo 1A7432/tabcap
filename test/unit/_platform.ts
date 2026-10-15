@@ -15,3 +15,22 @@ export const POSIX_MODES = process.platform !== "win32";
 export function expectMode(path: string, want: number): void {
   if (POSIX_MODES) expect([path, statSync(path).mode & 0o777]).toEqual([path, want]);
 }
+
+// Windows CI runners are sometimes far slower at creating files and starting
+// processes. Measured on windows-latest (CI logs, bracketed test times): a
+// normal run takes ~19 s for test/unit; one slow VM took 49 s, with file-heavy
+// tests 10-50x slower (a reader round-trip 27 ms -> 1478 ms, release packaging
+// 118 ms -> 1436 ms) and a bundle-building beforeAll killed at bun's 5 s
+// default. ruby / PowerShell start-up alone took 2.5 s to over 5 s.
+
+/** Timeout for hooks and tests that build bundles on disk or start a program. */
+export const SLOW_IO_MS = 30_000;
+
+/**
+ * Waits until `done()` holds or `ms` passed, polling every 10 ms. For work the
+ * test cannot await (a recorder's background write): assert after it, never
+ * instead of a fixed sleep's lower bound.
+ */
+export async function until(done: () => boolean, ms = 3000): Promise<void> {
+  for (const end = Date.now() + ms; !done() && Date.now() < end; ) await Bun.sleep(10);
+}

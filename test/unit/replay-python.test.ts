@@ -11,6 +11,7 @@ import { run } from "../../src/cli/main.ts";
 import { buildBundle, tmp } from "./_analyze.ts";
 import { PYTHON3, pyCompile } from "./_python.ts";
 import { buildReplayBundle } from "./_replay.ts";
+import { SLOW_IO_MS } from "./_platform.ts";
 
 let root = "";
 let bundle = "";
@@ -19,8 +20,8 @@ beforeAll(async () => {
   root = tmp("tabcap-replay-py-");
   bundle = join(root, "b");
   await buildReplayBundle(bundle);
-});
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+}, SLOW_IO_MS);
+afterAll(() => rmSync(root, { recursive: true, force: true }), SLOW_IO_MS);
 
 const FILES = ["client.py", "conftest.py", "test_replay.py"];
 

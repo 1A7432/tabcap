@@ -12,6 +12,7 @@ import { run } from "../../src/cli/main.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { tmp } from "./_analyze.ts";
 import { APP_VERSION, C, HTML_TOKEN, PASSWORD, SECRET_REF, SIGNS, TYPED, buildFlows } from "./_deps.ts";
+import { SLOW_IO_MS } from "./_platform.ts";
 
 const FIXTURE = join(import.meta.dir, "..", "..", "fixtures", "bundles", "sample-v0");
 
@@ -29,8 +30,8 @@ beforeAll(async () => {
   (Object.keys(id) as (keyof typeof id)[]).forEach((k, i) => {
     id[k] = ids[i] ?? "";
   });
-});
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+}, SLOW_IO_MS);
+afterAll(() => rmSync(root, { recursive: true, force: true }), SLOW_IO_MS);
 
 function input(req: string, location: string, name: string): DepsInput {
   const q = r.requests.find((x) => x.id === req);

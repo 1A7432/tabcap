@@ -11,7 +11,7 @@ import { exportSession, toStorageCookie } from "../../src/replay/session.ts";
 import { run } from "../../src/cli/main.ts";
 import { tmp, buildBundle } from "./_analyze.ts";
 import { COOKIES, LOCAL_STORAGE, SID, buildReplayBundle } from "./_replay.ts";
-import { expectMode } from "./_platform.ts";
+import { SLOW_IO_MS, expectMode } from "./_platform.ts";
 
 let root = "";
 let bundle = "";
@@ -24,8 +24,8 @@ beforeAll(async () => {
   bare = await buildBundle(join(root, "bare"), { name: "bare", created: 1760600000000, seed: 3 }, async (b) => {
     await b.request({ url: "http://127.0.0.1:4310/x", body: "{}", mime: "application/json", ts: 1760600000100 });
   });
-});
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+}, SLOW_IO_MS);
+afterAll(() => rmSync(root, { recursive: true, force: true }), SLOW_IO_MS);
 
 describe("storageState export", () => {
   test("cookies of the latest snapshot in Playwright shape; localStorage per origin; file 0600", () => {

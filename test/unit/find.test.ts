@@ -12,6 +12,7 @@ import { decodeBase64Strict, decodeHtmlEntities, parseSse, shannonEntropy, unesc
 import { importHar } from "../../src/bundle/har.ts";
 import { run } from "../../src/cli/main.ts";
 import { b64, buildBundle, idOf, tmp } from "./_analyze.ts";
+import { SLOW_IO_MS } from "./_platform.ts";
 
 const TARGET = "「靶场 s04 目标文本：全角！」✓🎯";
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -87,7 +88,7 @@ async function buildS04(dir: string): Promise<string> {
 
 beforeAll(async () => {
   S04 = await buildS04(tmp("tabcap-s04-"));
-});
+}, SLOW_IO_MS);
 
 describe("decoders (unit)", () => {
   test("encoders used by the fixtures round-trip through the decoders", () => {
@@ -220,7 +221,7 @@ describe("s05-like: encrypted response (A3.4)", () => {
       const z = await b.request({ url: `${ORIGIN}/api/archive`, ts: T0 + 400, mime: "application/octet-stream", body: zipLike });
       sid.set("key", idOf(k)).set("secret", idOf(s)).set("secret2", idOf(s2)).set("archive", idOf(z));
     });
-  });
+  }, SLOW_IO_MS);
 
   test("0 hits; suspectEncrypted lists the ciphertexts, not the key or the zip body", () => {
     const r = find(dir, TARGET5);

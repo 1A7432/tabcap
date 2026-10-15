@@ -13,6 +13,7 @@ import { sha256Hex } from "../../src/shared/ids.ts";
 import { tmp } from "./_analyze.ts";
 import { pyCompile, pytestPython } from "./_python.ts";
 import { FEED, HTML, LOGIN_BODY, PNG, SEARCH, SID, buildReplayBundle } from "./_replay.ts";
+import { SLOW_IO_MS } from "./_platform.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const PY = pytestPython();
@@ -60,8 +61,8 @@ beforeAll(async () => {
   root = tmp("tabcap-replay-i-");
   bundle = join(root, "b");
   await buildReplayBundle(bundle);
-});
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+}, SLOW_IO_MS);
+afterAll(() => rmSync(root, { recursive: true, force: true }), SLOW_IO_MS);
 
 const sha = async (r: Response) => sha256Hex(new Uint8Array(await r.arrayBuffer()));
 

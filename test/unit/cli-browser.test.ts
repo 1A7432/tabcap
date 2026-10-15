@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { COMMANDS, helpAll, helpFor, matchCommand, parseCommand } from "../../src/cli/commands.ts";
 import { run } from "../../src/cli/main.ts";
+import { SLOW_IO_MS } from "./_platform.ts";
 
 const home = mkdtempSync(join(tmpdir(), "tabcap-cli-"));
 const prevHome = process.env["TABCAP_HOME"];
@@ -12,7 +13,7 @@ afterAll(() => {
   if (prevHome === undefined) delete process.env["TABCAP_HOME"];
   else process.env["TABCAP_HOME"] = prevHome;
   rmSync(home, { recursive: true, force: true });
-});
+}, SLOW_IO_MS);
 
 describe("help", () => {
   test("tabcap --help lists every command with an example", () => {

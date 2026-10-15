@@ -13,7 +13,7 @@ import { run } from "../../src/cli/main.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { tmp } from "./_analyze.ts";
 import { CSRF, PASSWORD, SIGN_ONE, SIGN_ONE_SIG, USER, buildLogin, buildSign } from "./_deps.ts";
-import { expectMode } from "./_platform.ts";
+import { SLOW_IO_MS, expectMode } from "./_platform.ts";
 import { pyCompile, pytestPython } from "./_python.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
@@ -29,8 +29,8 @@ beforeAll(async () => {
   root = tmp("tabcap-replay-chain-");
   login = await buildLogin(join(root, "login"));
   sign = await buildSign(join(root, "sign"));
-});
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+}, SLOW_IO_MS);
+afterAll(() => rmSync(root, { recursive: true, force: true }), SLOW_IO_MS);
 
 function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));

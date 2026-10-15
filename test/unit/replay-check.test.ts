@@ -13,6 +13,7 @@ import { Store } from "../../src/daemon/store/db.ts";
 import { run } from "../../src/cli/main.ts";
 import { tmp } from "./_analyze.ts";
 import { buildReplayBundle } from "./_replay.ts";
+import { SLOW_IO_MS } from "./_platform.ts";
 
 let root = "";
 let bundle = "";
@@ -22,8 +23,8 @@ beforeAll(async () => {
   root = tmp("tabcap-replay-c-");
   bundle = join(root, "b");
   await buildReplayBundle(bundle);
-});
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+}, SLOW_IO_MS);
+afterAll(() => rmSync(root, { recursive: true, force: true }), SLOW_IO_MS);
 
 describe("JSON comparison", () => {
   test("every leaf and empty container has a path", () => {
