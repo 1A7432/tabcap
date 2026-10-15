@@ -446,27 +446,38 @@ export function startGuardSite(): GuardSite {
 // with header x-client-build; sig = sha256 hex of q|page|t|nonce computed in
 // the page (signature-like: 64 hex). `served` holds the sha256 of every body
 // by path + query, so replay tests compare with what this server really sent.
+// 0.4-A (`startSearchSite({ sid: true })`): the full s06 query, with
+// `sid=<cookie sid>`: the page document sets `sid` when the request has none
+// (readable by the page, not HttpOnly) and the page copies it into the query.
+// `sids` lists every sid handed out, `sidBy` the request path + query that got
+// it (the oracle for "sid 来自 set-cookie").
 export const SEARCH_BUILD = "2026.10";
+export type SearchSite = Site & { sids: string[]; sidBy: Map<string, string> };
 
-const SEARCH_PAGE = `<!doctype html><meta charset=utf-8><title>s06 search</title><p id=out>…</p>
+const searchPage = (withSid: boolean) => `<!doctype html><meta charset=utf-8><title>s06 search</title><p id=out>…</p>
 <script>
 const p = new URLSearchParams(location.search);
 const q = p.get("q") || "x", page = p.get("page") || "1";
 const t = Date.now(), nonce = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+const sid = ${withSid ? `(document.cookie.match(/(?:^|; )sid=([^;]*)/) || [])[1] || ""` : `null`};
 crypto.subtle.digest("SHA-256", new TextEncoder().encode(q + "|" + page + "|" + t + "|" + nonce))
   .then((h) => [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join(""))
-  .then((sig) => fetch("/api/search?q=" + encodeURIComponent(q) + "&page=" + page + "&client=web&v=3&t=" + t + "&nonce=" + nonce + "&sig=" + sig, { headers: { "x-client-build": "${SEARCH_BUILD}" } }))
+  .then((sig) => fetch("/api/search?q=" + encodeURIComponent(q) + "&page=" + page + "&client=web&v=3" + (sid === null ? "" : "&sid=" + sid) + "&t=" + t + "&nonce=" + nonce + "&sig=" + sig, { headers: { "x-client-build": "${SEARCH_BUILD}" } }))
   .then((r) => r.json())
   .then((j) => { document.getElementById("out").textContent = "hits " + j.hits.join(","); });
 </script>`;
+const SEARCH_PAGE = searchPage(false);
+const SEARCH_PAGE_SID = searchPage(true);
 
-export function startSearchSite(): Site {
+export function startSearchSite(opts: { sid?: boolean } = {}): SearchSite {
   const served = new Map<string, string>();
   const hits: string[] = [];
-  const send = (key: string, body: string, type: string) => {
+  const sids: string[] = [];
+  const sidBy = new Map<string, string>();
+  const send = (key: string, body: string, type: string, extra: Record<string, string> = {}) => {
     const bytes = new TextEncoder().encode(body);
     served.set(key, createHash("sha256").update(bytes).digest("hex"));
-    return new Response(bytes, { headers: { "content-type": type, "cache-control": "no-store" } });
+    return new Response(bytes, { headers: { "content-type": type, "cache-control": "no-store", ...extra } });
   };
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -474,6 +485,14 @@ export function startSearchSite(): Site {
     fetch(req) {
       const u = new URL(req.url);
       hits.push(`${req.method} ${u.pathname}`);
+      if (u.pathname === "/s06" && opts.sid === true) {
+        const has = /(?:^|;\s*)sid=/.test(req.headers.get("cookie") ?? "");
+        if (has) return send(u.pathname + u.search, SEARCH_PAGE_SID, "text/html; charset=utf-8");
+        const sid = crypto.randomUUID().replace(/-/g, "");
+        sids.push(sid);
+        sidBy.set(sid, u.pathname + u.search);
+        return send(u.pathname + u.search, SEARCH_PAGE_SID, "text/html; charset=utf-8", { "set-cookie": `sid=${sid}; Path=/; SameSite=Lax` });
+      }
       if (u.pathname === "/s06") return send(u.pathname + u.search, SEARCH_PAGE, "text/html; charset=utf-8");
       if (u.pathname === "/api/search") {
         const q = u.searchParams.get("q") ?? "";
@@ -484,7 +503,7 @@ export function startSearchSite(): Site {
       return new Response("not found", { status: 404 });
     },
   });
-  return { origin: `http://127.0.0.1:${server.port}`, served, hits, stop: () => server.stop(true) };
+  return { origin: `http://127.0.0.1:${server.port}`, served, hits, sids, sidBy, stop: () => server.stop(true) };
 }
 
 // ---------------------------------------------------------------- 0.3-D: overlay range pages (docs/09 §2.3, §12 s24 / s36 / s45; docs/05 s17)
