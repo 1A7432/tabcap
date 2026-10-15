@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { Tabs } from "../../src/daemon/browser/targets.ts";
-import { cookieArray, navWantsCookies, siteCookieUrls, stateOrigin } from "../../src/daemon/capture/cookies.ts";
+import { cookieArray, navCookieParams, navWantsCookies, siteCookieUrls, stateOrigin } from "../../src/daemon/capture/cookies.ts";
 import { Recorder } from "../../src/daemon/capture/recorder.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
 import { COOKIE_SECRET_MIN, Store } from "../../src/daemon/store/db.ts";
@@ -132,6 +132,37 @@ describe("recorder: state cookie events (docs/04 §4.1)", () => {
     const r = exportSession({ bundle: dir, out, configDir: join(dir, "unused") });
     expect(r).toMatchObject({ cookies: 2, source: { kind: "bundle" } });
     expect(JSON.parse(readFileSync(out, "utf8"))["cookies"].map((c: { name: string }) => c.name)).toEqual(["sid", "theme"]);
+  });
+
+  test("the nav snapshot asks for the committed URL; start / stop ask without urls", async () => {
+    expect(navCookieParams("http://127.0.0.1:4310/s07/login?again=1")).toEqual({ urls: ["http://127.0.0.1:4310/s07/login?again=1"] });
+    expect(navCookieParams("about:blank")).toEqual({});
+    expect(navCookieParams("data:text/html,x")).toEqual({});
+    // Linux, Chromium 155: at Page.frameNavigated the no-urls call can still answer
+    // for a frame tree without the committed URL ([]), while the jar holds the cookie.
+    const jar: { cookies: unknown[] } = { cookies: [] };
+    const { t, commit, sent } = fakeBrowser(jar);
+    const send = t.send;
+    t.send = async (method, params = {}, sid, ms) => (method === "Network.getCookies" && params["urls"] === undefined && jar.cookies.length > 0 && racing ? { cookies: [] } : send(method, params, sid, ms));
+    let racing = false;
+    const tabs = new Tabs(t, false);
+    await tabs.createTab("x");
+    commit("http://127.0.0.1:4310/s07/login", "L1");
+    const dir = join(tmp("tabcap-state-race-"), "b");
+    const rec = await Recorder.start({ session: "x", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
+    jar.cookies = [cookie("sid", SID, { httpOnly: true })];
+    racing = true;
+    commit("http://127.0.0.1:4310/s07/login?again=1", "L2");
+    await Bun.sleep(20);
+    racing = false;
+    await rec.stop();
+    const states = BundleReader.open(dir).events.filter((e) => e.kind === "state");
+    expect(states.map((e) => [e["reason"], e["count"]])).toEqual([
+      ["session-start", 0],
+      ["nav", 1],
+      ["session-stop", 1],
+    ]);
+    expect(sent.filter((c) => c.method === "Network.getCookies").map((c) => c.params)).toEqual([{}, { urls: ["http://127.0.0.1:4310/s07/login?again=1"] }, {}]);
   });
 
   test("a failing Network.getCookies writes no state event and does not break the recording", async () => {

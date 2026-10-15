@@ -37,7 +37,7 @@ import {
   resourceType,
 } from "./cdpnet.ts";
 import { framePayload, WsBook, type WsConn } from "./ws.ts";
-import { cookieArray, cookieStateFields, navWantsCookies, stateOrigin, type StateReason } from "./cookies.ts";
+import { cookieArray, cookieStateFields, navCookieParams, navWantsCookies, stateOrigin, type StateReason } from "./cookies.ts";
 
 const NETWORK_ENABLE = { maxTotalBufferSize: 256 * 1024 * 1024, maxResourceBufferSize: 64 * 1024 * 1024, maxPostDataSize: 1024 * 1024 };
 const FETCH_ENABLE = {
@@ -226,15 +226,16 @@ export class Recorder {
    * One `state` cookies event for a tab (docs/04 §4.1): Network.getCookies on
    * the tab's session as CDP returns it, stored as a blob. A tab that is gone,
    * or a CDP error, writes nothing (logged): a snapshot is evidence, never a
-   * reason to fail the recording.
+   * reason to fail the recording. `committed`: the URL of a root commit (the
+   * `nav` snapshot), asked for explicitly (navCookieParams).
    */
-  private async cookieState(tab: Tab, reason: StateReason): Promise<void> {
+  private async cookieState(tab: Tab, reason: StateReason, committed: string | null = null): Promise<void> {
     const bt = this.bundleTab.get(tab.id);
     if (bt === undefined || tab.closed || this.writerClosed) return;
-    const url = tab.url;
+    const url = committed ?? tab.url;
     let cookies: Record<string, unknown>[];
     try {
-      cookies = cookieArray(await this.t.send("Network.getCookies", {}, tab.sessionId, 5000));
+      cookies = cookieArray(await this.t.send("Network.getCookies", committed === null ? {} : navCookieParams(committed), tab.sessionId, 5000));
     } catch (e) {
       log.warn("recorder: cookie snapshot failed", { tab: tab.id, reason, error: String(e) });
       return;
@@ -353,12 +354,13 @@ export class Recorder {
       // Requests of the old document will get no further events (spike 2).
       this.flush((p) => p.sessionId === tab.sessionId && p.loaderId !== loaderId, "navigated", NAV_GRACE_MS);
       const type = tab.navType ?? "navigation";
-      this.writeNav(tab, str(f, "url") ?? tab.url, type, loaderId);
+      const url = str(f, "url") ?? tab.url;
+      this.writeNav(tab, url, type, loaderId);
       // The new document's own request started before the commit; it belongs to the new epoch.
       const nav = this.navOf.get(tab.id) ?? null;
       for (const q of this.pending.values()) if (q.sessionId === tab.sessionId && loaderId !== null && q.loaderId === loaderId) q.nav = nav;
       // Set-Cookie of the new document is stored by the time it commits.
-      if (navWantsCookies(type, false)) this.track(this.cookieState(tab, "nav"));
+      if (navWantsCookies(type, false)) this.track(this.cookieState(tab, "nav", url));
     } else {
       this.writeNav(tab, str(e.params, "url") ?? tab.url, "history", null);
     }

@@ -119,15 +119,21 @@ describe("typing plan against the Playwright type() oracle (s46)", () => {
 
 type Call = { method: string; params: CdpParams; timeoutMs: number | undefined };
 
-function fakeChrome(o: { raf?: boolean; visibility?: string; moveTimeoutAt?: number; delivered?: boolean } = {}) {
+/** `frames`: the frame gap each paint check reports, in order (the last one repeats); default 16 ms. */
+function fakeChrome(o: { raf?: boolean; visibility?: string; moveTimeoutAt?: number; delivered?: boolean; frames?: Array<number | null> } = {}) {
   const calls: Call[] = [];
   let moves = 0;
+  let checks = 0;
   const t: Transport = {
     kind: "direct",
     closed: new Promise<string>(() => undefined),
     send: async (method: string, params: CdpParams = {}, _sid?: string | null, timeoutMs?: number): Promise<CdpResult> => {
       calls.push({ method, params, timeoutMs });
-      if (method === "Runtime.evaluate") return { result: { value: { raf: o.raf ?? true, visibility: o.visibility ?? "visible" } } };
+      if (method === "Runtime.evaluate") {
+        const frames = o.frames ?? [16];
+        const frameMs = frames[Math.min(checks++, frames.length - 1)] ?? null;
+        return { result: { value: { raf: o.raf ?? true, frameMs, visibility: o.visibility ?? "visible" } } };
+      }
       if (method === "DOM.getBoxModel") return { model: { content: [41, 141, 301, 141, 301, 231, 41, 231] } };
       if (method === "Runtime.callFunctionOn") {
         const fn = typeof params["functionDeclaration"] === "string" ? params["functionDeclaration"] : "";
@@ -241,7 +247,48 @@ describe("click --trusted on a fake Chrome", () => {
     const t: Transport = { ...fakeChrome().t, send: () => Promise.reject(new CdpTimeoutError("Runtime.evaluate", 2000)) };
     expect(await paintCheck(t, "S1")).toMatchObject({ painted: false, raf: false });
     const { t: ok } = fakeChrome();
-    expect(await paintCheck(ok, "S1")).toEqual({ painted: true, raf: true, visibility: "visible", error: null });
+    expect(await paintCheck(ok, "S1")).toEqual({ painted: true, raf: true, visibility: "visible", frameMs: 16, error: null });
+  });
+
+  test("full-rate frames: no screencast", async () => {
+    const { t, calls } = fakeChrome();
+    const r = await trustedClickOn(t, fakeTab(), NODE, "e3", instantDeps(2));
+    expect(r.kind === "clicked" ? r.held : "degraded").toBeNull();
+    expect(calls.some((c) => c.method.includes("Screencast"))).toBe(false);
+  });
+
+  test("throttled frames (Linux background tab, 1 per second): a tiny screencast runs from before the first move until after the release, reported as held", async () => {
+    for (const first of [null, 1017]) {
+      const { t, calls, mouse } = fakeChrome({ frames: [first, 17] });
+      const r = await trustedClickOn(t, fakeTab(), NODE, "e3", instantDeps(3));
+      if (r.kind !== "clicked") throw new Error("expected a click");
+      expect(r.held).toEqual({ raf: true, frameMs: first, visibility: "visible", held: "screencast" });
+      expect(mouse().at(-1)).toBe("mouseReleased");
+      const order = calls.map((c) => (c.method === "Input.dispatchMouseEvent" ? `mouse:${String(c.params["type"])}` : c.method));
+      const start = order.indexOf("Page.startScreencast");
+      expect(start).toBeGreaterThan(-1);
+      expect(start).toBeLessThan(order.indexOf("mouse:mouseMoved"));
+      expect(order.filter((m) => m === "Runtime.evaluate").length).toBe(2); // checked again with the screencast on
+      expect(order.slice(-2)).toEqual(["Page.stopScreencast", "Emulation.setFocusEmulationEnabled"]);
+      expect(order.lastIndexOf("mouse:mouseReleased")).toBeLessThan(order.indexOf("Page.stopScreencast"));
+    }
+  });
+
+  test("throttled frames the screencast does not fix: screencast stopped before any move, the click goes on unheld; a move timeout still aborts", async () => {
+    const { t, calls, mouse } = fakeChrome({ frames: [null, null], moveTimeoutAt: 1 });
+    const err = await trustedClickOn(t, fakeTab(), NODE, "e3", instantDeps(5)).catch((e: unknown) => e);
+    expect(err instanceof TabcapError ? err.code : String(err)).toBe("move-timeout");
+    expect(mouse()).toEqual(["mouseMoved"]);
+    const order = calls.map((c) => c.method);
+    expect(order.indexOf("Page.stopScreencast")).toBeLessThan(order.indexOf("Input.dispatchMouseEvent"));
+    expect(order.filter((m) => m.includes("Screencast"))).toEqual(["Page.startScreencast", "Page.stopScreencast"]);
+    expect(calls.at(-1)?.params).toEqual({ enabled: false });
+  });
+
+  test("a hidden tab gets no screencast: degraded as before", async () => {
+    const { t, calls } = fakeChrome({ visibility: "hidden", frames: [null] });
+    expect((await trustedClickOn(t, fakeTab(), NODE, "e3", instantDeps(6))).kind).toBe("degraded");
+    expect(calls.some((c) => c.method.includes("Screencast"))).toBe(false);
   });
 
   test("A7.7: a move that times out aborts at once — move-timeout, nothing pressed, no second try", async () => {
