@@ -77,8 +77,8 @@ describe("renamed commands and their deprecated aliases (docs/08 §5)", () => {
 
   test("local paths resolve against the caller's working directory", () => {
     expect(withLocalPaths(specOf("upload"), { ref: "e1", files: ["a.txt", "/abs/b.txt"] }, "/work")).toEqual({ ref: "e1", files: [resolve("/work/a.txt"), resolve("/abs/b.txt")] });
-    expect(withLocalPaths(specOf("screenshot"), { filePath: "shots/x.png" }, "/work")).toEqual({ filePath: "/work/shots/x.png" });
-    expect(withLocalPaths(specOf("snapshot"), { filePath: "t.txt", interactive: true }, "/w")).toEqual({ filePath: "/w/t.txt", interactive: true });
+    expect(withLocalPaths(specOf("screenshot"), { filePath: "shots/x.png" }, "/work")).toEqual({ filePath: resolve("/work/shots/x.png") });
+    expect(withLocalPaths(specOf("snapshot"), { filePath: "t.txt", interactive: true }, "/w")).toEqual({ filePath: resolve("/w/t.txt"), interactive: true });
     expect(withLocalPaths(specOf("click"), { ref: "e1" }, "/w")).toEqual({ ref: "e1" });
   });
 

@@ -162,7 +162,12 @@ export class Store {
     const db = new Database(path, { create: false, strict: true });
     db.exec("PRAGMA foreign_keys = ON");
     const s = new Store(path, db);
-    s.migrate(now);
+    try {
+      s.migrate(now);
+    } catch (e) {
+      db.close(); // a refused store must not stay open (Windows keeps the file locked)
+      throw e;
+    }
     return s;
   }
 

@@ -72,6 +72,8 @@ describe("no daemon", () => {
   test("daemon status reports not running (ok envelope)", async () => {
     const r = await run(["daemon", "status"]);
     expect(r.code).toBe(0);
-    expect(r.envelope).toMatchObject({ ok: true, data: { running: false, socket: join(home, "config", "daemon.sock") } });
+    // Windows has no Unix socket: the daemon listens on loopback TCP (src/daemon/listener.ts).
+    const where = process.platform === "win32" ? { listener: "tcp", socket: null } : { listener: "unix", socket: join(home, "config", "daemon.sock") };
+    expect(r.envelope).toMatchObject({ ok: true, data: { running: false, ...where } });
   });
 });

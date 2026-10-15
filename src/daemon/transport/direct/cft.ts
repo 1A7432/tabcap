@@ -91,7 +91,7 @@ export type UnpackCommand = { cmd: string[]; env: Record<string, string> };
 export function unpackCommand(platform: NodeJS.Platform, zip: string, dest: string, which: (tool: string) => string | null = (t) => Bun.which(t)): UnpackCommand | null {
   if (platform === "win32") {
     return {
-      cmd: [...POWERSHELL, "$ProgressPreference = 'SilentlyContinue'; Expand-Archive -LiteralPath $env:TABCAP_SETUP_ZIP -DestinationPath $env:TABCAP_SETUP_DEST -Force"],
+      cmd: [...POWERSHELL, "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; Expand-Archive -LiteralPath $env:TABCAP_SETUP_ZIP -DestinationPath $env:TABCAP_SETUP_DEST -Force"],
       env: { TABCAP_SETUP_ZIP: zip, TABCAP_SETUP_DEST: dest },
     };
   }
@@ -184,7 +184,11 @@ async function fetchAndUnpack(url: string, tmp: string, dir: string, platform: C
   if (unzip.exitCode !== 0) throw new TabcapError("io", `unpacking failed: ${unzip.stderr.toString().slice(0, 300)}`, `Make sure \`${how.cmd[0] ?? "unzip"}\` works, then run \`tabcap setup\` again.`);
   rmSync(zip, { force: true });
   const tmpBin = binaryIn(tmp, platform);
-  if (!existsSync(tmpBin)) throw new TabcapError("io", `archive did not contain ${tmpBin}`, "Report this; the archive layout may have changed. Use --executable-path meanwhile.");
+  if (!existsSync(tmpBin)) {
+    const found = readdirSync(tmp).slice(0, 10).join(", ");
+    const err = unzip.stderr.toString().trim().slice(0, 300);
+    throw new TabcapError("io", `archive did not contain ${tmpBin} (unpacked: ${found || "nothing"}${err === "" ? "" : `; ${how.cmd[0] ?? "unzip"} said: ${err}`})`, "Report this; the archive layout may have changed. Use --executable-path meanwhile.");
+  }
   chmodSync(tmpBin, 0o755);
   rmSync(dir, { recursive: true, force: true });
   renameSync(tmp, dir);

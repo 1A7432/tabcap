@@ -19,7 +19,7 @@
 // test/unit/skill.test.ts runs it on skills/tabcap.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 
 export const MAX_DESCRIPTION = 400;
 export const MAX_COMPATIBILITY = 500;
@@ -118,7 +118,7 @@ export function validateSkill(dir: string): string[] {
     if (!existsSync(join(dir, target))) problems.push(`link to ${target} points at nothing`);
   }
   for (const p of walk(dir)) {
-    const rel = relative(dir, p);
+    const rel = relative(dir, p).split(sep).join("/"); // Windows separators too
     if (rel !== "SKILL.md" && !/^references\/[^/]+\.md$/.test(rel) && !rel.startsWith("scripts/")) problems.push(`unexpected file ${rel} (only SKILL.md, references/*.md, scripts/)`);
     if (/\.(sh|bash|zsh|command|ps1|bat)$/i.test(rel) || /(^|\/)install/i.test(rel)) problems.push(`${rel}: no install or shell scripts inside the skill`);
     const content = readFileSync(p, "utf8");
