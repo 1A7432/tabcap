@@ -383,6 +383,9 @@ describe("docs/04 §5.2 rule 9: bodies the page never reads", () => {
     await Bun.sleep(25);
     expect(rec.index).toEqual([]); // not before the delay
     await Bun.sleep(80);
+    // The timer fired by now; the write behind it (blob to disk) can lag on a
+    // Windows runner, where 80 ms was not always enough.
+    for (const until = Date.now() + 3000; rec.index.length === 0 && Date.now() < until; ) await Bun.sleep(10);
     expect(rec.index.map((e) => [e.url, e.outcome, e.unreadByPage, e.blob !== null])).toEqual([[url, "finished", true, true]]);
     // a late loadingFinished (the page read it after all) does not write it twice
     emit("Network.loadingFinished", { requestId: "R1", timestamp: 12 });

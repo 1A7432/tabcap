@@ -67,6 +67,9 @@ export function binaryVersion(bin: string, platform: NodeJS.Platform = process.p
 
 function readVersion(bin: string, platform: NodeJS.Platform): string | null {
   if (platform === "win32") {
+    // Get-Item -LiteralPath does no PATH lookup, so a missing file can only fail:
+    // answer that without starting PowerShell (2.7 s to over 5 s on CI runners).
+    if (!existsSync(bin)) return null;
     // The path goes through the environment, never into the script text.
     const p = Bun.spawnSync([...POWERSHELL, "(Get-Item -LiteralPath $env:TABCAP_SETUP_BIN).VersionInfo.ProductVersion"], {
       timeout: 30_000,

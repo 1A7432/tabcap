@@ -29,8 +29,10 @@ describe("Homebrew formula template", () => {
     expect(rb).toContain('bin.install "tabcap"');
     expect(rb).toContain("on_arm do");
   });
+  // A syntax check needs no gems; RubyGems start-up took 0.5 s to over 5 s on
+  // the Windows runner.
   test.skipIf(Bun.which("ruby") === null)("ruby -c accepts it", () => {
-    const r = Bun.spawnSync(["ruby", "-c", join(PKG, "homebrew", "tabcap.rb")], { stdout: "pipe", stderr: "pipe" });
+    const r = Bun.spawnSync(["ruby", "--disable-gems", "-c", join(PKG, "homebrew", "tabcap.rb")], { stdout: "pipe", stderr: "pipe" });
     expect([r.exitCode, r.stderr.toString()]).toEqual([0, ""]);
   });
 });

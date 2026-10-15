@@ -164,5 +164,7 @@ describe("Chrome for Testing per platform", () => {
   test("version check of a missing binary is null, not a crash", () => {
     const missing = join(tmpdir(), "no-such-chrome-binary");
     expect(binaryVersion(missing)).toBeNull();
+    // On Windows a missing file is answered before PowerShell starts, on any host.
+    expect(binaryVersion(missing, "win32")).toBeNull();
   });
 });
