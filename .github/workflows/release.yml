@@ -89,9 +89,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p dist/release
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'package-*' --dir dist/artifacts
-          find dist/artifacts -type f -exec mv {} dist/release/ \;
+          mkdir -p dist/release dist/artifacts
+          # REST API rather than `gh run download`: this run is still in progress.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name | startswith("package-")) | "\(.id) \(.name)"' |
+            while read -r id name; do
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "dist/artifacts/$name.zip"
+              unzip -q -o "dist/artifacts/$name.zip" -d dist/release
+            done
+          [ "$(ls dist/release/*.sha256 | wc -l)" -eq 4 ] || { echo "expected 4 packages"; ls -l dist/release; exit 1; }
           bun scripts/release.ts --sums-only
           ls -l dist/release
           cat dist/release/SHA256SUMS
