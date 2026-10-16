@@ -2,17 +2,17 @@
 
 [English](README.md) | 中文
 
-人机共驾的采集工作台（自用、准备开源）：程序员和 AI 共用同一个已登录的真实浏览器，AI 探路、放大，卡住或拿不准就交还给人，人给凭据、过验证、核结论；全程录下证据，每个结论都能回放验证。起点是把扩展式浏览器桥（挂 debugger、不弹框、不抢焦点）和 agent-browser（完整 CLI、抓包、HAR）的长处合起来。
+给 AI agent 用的浏览器，在你旁边干活，不占你的屏幕：专属 Chrome 里的后台标签，页面读成带 ref 的无障碍树，每个请求连正文一起录下，遇到登录、验证码或需要人拿主意的地方就交还给人。为采集和分析网页流量而做，不做无人值守的自动化。
 
-状态（2026-10-16）：0.4.0（alpha）。macOS arm64 日常使用、测试全过；Linux x64 与 Windows x64 在 CI 上跑，有已知缺口（见下方「平台」）；Linux arm64 只编译、未运行；Bun + TypeScript、Apache-2.0、守护进程直连自管的 Chrome for Testing（扩展通道阶段 2）。规范在 `docs/04`–`10`。
+状态：0.4.0（alpha）。macOS arm64 日常使用、测试全过；Linux x64 与 Windows x64 在 CI 上跑，有已知缺口（见「[安装](#安装)」）；Linux arm64 只编译、未测试。Apache-2.0。
 
 ## 快速开始
 
-`tabcap` 是给 AI agent 用的专属浏览器：守护进程自己管一份 Chrome for Testing（独立 profile），后台标签操作、不抢前台，页面读成带 ref 的无障碍树，网络请求连正文录进证据包。各平台测到什么程度见下方「平台」。0.1.0 曾以 `bbl` 为名发布；环境变量只认 `TABCAP_*`（0.2.x 对旧 `BBL_*` 的回退已在 0.3 删除）。
+`tabcap` 是一个命令行工具加一个后台守护进程，守护进程自己管一份 Chrome for Testing（独立 profile）。agent 在后台标签里操作，从不抢 macOS 前台；页面读成带 ref（`e12`）的无障碍树，用来点击和填写；网络请求连正文录进证据包。0.1.0 曾以 `bbl` 为名发布；环境变量只认 `TABCAP_*`（0.2.x 对旧 `BBL_*` 的回退已在 0.3 删除）。
 
 1. **拿二进制**：从 release 下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，可用 `SHA256SUMS` 核对），解开后把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`（macOS 上浏览器下载的要先 `xattr -d com.apple.quarantine tabcap`）；或者在本仓库 `bun install && bun run build` 自己编。
 2. **装浏览器**：`tabcap setup`。从 Chrome for Testing 官方 JSON 下载 Stable 到 `~/.cache/tabcap/chrome/<版本>/`，写 `~/.config/tabcap/config.json`；不交互，可重复跑。已有 Chrome for Testing 的话用 `tabcap setup --executable-path <二进制路径>`。
-3. **启动**：`tabcap daemon start && tabcap browser start`。要求浏览器只连本机时加 `--proxy none`；默认跟随系统代理。
+3. **启动**：`tabcap daemon start && tabcap browser start`。要求浏览器只连 127.0.0.1 / localhost 时加 `--proxy none`；默认跟随系统代理。
 
 **agent 宿主**：skill 在 `skills/tabcap/`（agentskills.io 格式：`SKILL.md` + `references/commands.md`，不含任何脚本）。Claude Code 拷到 `~/.claude/skills/tabcap/`；Claude Code 与 DeepSeek harness 也认 `~/.agents/skills/tabcap/`；Hermes Agent 拷进它的 skills 目录。之后直接让 agent「用 tabcap 打开某页、看它调了哪些接口」。
 
@@ -125,37 +125,50 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
 <!-- END GENERATED: commands -->
 
-**站点与账号库**：`tabcap site add <名> --url <入口> --user <账号>` 在提示符下输入密码（或 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。这是**明文**库，保护程度和 `~/.netrc` 一样（macOS / Linux 上文件 0600、目录 0700，权限更宽时守护进程拒绝启动；Windows 上沿用 `%LOCALAPPDATA%` 的用户默认 ACL），能用测试账号就别用主账号。AI 只看得到站点名、入口、账号名，命令里只写引用 `tabcap fill <ref> --secret <名>.password`；守护进程把所有输出、日志、证据包事件里的已知密码替换成 `<secret:<名>.password>`，只有登录请求本身的正文原样进包，导出 HAR 时会被打码。同一会话第二次用密码登录会被拦下（`guard.login-limit`），撞上验证页时会话进入 `waiting`、交给人处理。
+## 它是什么
 
-**平台**（GitHub Actions runner，2026-10-16，Chrome for Testing 155）：
+多数 agent 浏览器的出发点是「给 agent 一个干净、隔离的浏览器，让它自己跑」。真实的采集工作不是这样：你先登录、把流程走一遍，agent 会卡在验证页上，还得有人确认「这个请求带着数据、那个参数是签名」。tabcap 是这个循环的工作台：agent 探路、重复，人给凭据、过验证、核结论；全程录下，每个结论都能回放验证。
 
-| 平台 | 包 | 单元测试、类型检查 | 端到端 | 已知缺口 |
-|---|---|---|---|---|
-| macOS arm64 | `.tar.gz` | 通过（CI，macOS 14） | 81 / 81（本机；CI 不跑） | 无已知 |
-| Linux x64 | `.tar.gz` | 通过（CI，Ubuntu） | 81 / 81（CI，Ubuntu + Xvfb，连续 2 次） | 后台标签上的 `click --trusted` / `hover` 在标签帧被限速时，鼠标移动期间开一个极小的 screencast（输出里标 `paint.held`）；Chrome 沙箱需要非特权 user namespace（CI 关掉了 Ubuntu 24.04 的 AppArmor 限制） |
-| Windows x64 | `.zip` | 通过（CI） | 63 / 81（CI，非必过项） | 12 个用例没真正跑到（所在套件第一条就检查 Unix socket）；POSIX 权限检查不适用；`resize 900 700` 得到 693 px 高的页面 |
-| Linux arm64 | `.tar.gz` | — | — | 交叉编译，从未运行 |
+## 五点不同
 
-Windows：守护进程监听 127.0.0.1 的随机端口，每次启动换新令牌（写在 `daemon.json`）；浏览器走 `--remote-debugging-pipe`；开第一个标签前没有窗口，之后出现一个普通的 Chrome 窗口（Windows 上没有前台归还）。Linux：Ubuntu 23.10 起 Chrome 沙箱需要非特权 user namespace，CI 用 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` 打开（桌面环境没测过）。
+1. **从不占你的屏幕。** 标签在后台打开；需要焦点的输入在一条命令的时长里用 Chrome 的焦点仿真；会抢焦点的 CDP 调用一律拒绝（只有显式要求的 `tab select --bring-to-front` 会把标签提到前面），抢走 macOS 前台的弹窗会被交还。
+2. **把流量录成证据。** `net start` 把请求、响应正文、WebSocket 帧、控制台输出和命令时间线写进证据包，可导出 HAR（默认打码）；录制中就能用 `net list`、`net show`、`net body`、`net wait` 读。
+3. **凭据存一次，之后只用引用。** 站点、账号、密码住在本地库里。推荐你自己输入密码（`tabcap site add`，在提示符下输入或用 `--password-stdin`），这样明文不经过模型；也可以把值交给 agent 一次，由它用同样的方式存入。此后 agent 只写引用（`fill e6 --secret example.password`），每个已知的值在所有输出、日志和证据包事件里都替换成 `<secret:…>`。
+4. **交还给人，不硬闯。** 每个站点每个会话只试一次登录；撞上验证页时会话进入 `waiting` 并附截图，直到人处理完、执行 `tabcap handoff continue`。tabcap 不带任何验证码或挑战的解法。插件接口（`~/.config/tabcap/plugins/`、`tabcap plugin …`、[docs/04 §18](docs/04-evidence-bundle-spec-v0.md)）加载你自己写的验证页处理程序，会话交给人之前先问它们；它们怎么处理由你自己决定。
+5. **录下来就能离线干活。** `analyze find` 和 `where` 把一个值（一段文本，或页面上显示的值）追到携带它的已录响应，经过解码链和归一化（分隔符、全角数字、日期 …）；`analyze diff` 跨多次录制给参数分类；`analyze deps` 与 `analyze chain` 指出每个请求输入从哪来、复现一个请求需要哪些请求，`replay export-python` 把这条链生成为带测试的 httpx 客户端，附回放整条链的 `verify()`；`replay serve` 用证据包应答，`replay check` 把一次真实或回放的运行逐字段比对；`recon` 写出技术栈、数据通道、cookie 与防护的侦查档案（只识别）。追踪模式把哪个页面脚本读了哪些浏览器信号记成 `signal` 事件，只读。信号探针（`fingerprint probe`：本浏览器呈现的值，对照参考值）与线路层探针（`wire probe`：生成的客户端的 TLS、HTTP/2 与头顺序，在本机 echo 上对照浏览器）只做诊断：只说哪个信号或哪一层不同，从不说站点为什么拒绝、也不说怎么改值。
 
-**即将提供**：Homebrew、npm（`tabcap` 包，每个平台一个可选依赖）、Scoop。模板在 `packaging/`，还没有发布到任何仓库。从源码：Bun 1.4+，`bun install` 后 `bun run build`（本机）或 `bun run build:<平台>`（`darwin-arm64`、`linux-x64`、`linux-arm64`、`windows-x64`），`bun run release` 一次构建并打包四个平台。
+## 边界
 
-文件位置：`~/.config/tabcap/`（socket、日志、profile、配置、`state.db`、`plugins/`、`fingerprint/refs/`）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）；Linux 认 `XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_DATA_HOME`；Windows 上三者是 `%LOCALAPPDATA%\tabcap\config`、`\cache`、`\data`，文件沿用用户目录的默认 ACL（tabcap 不另设 ACL；没有 socket，`config\daemon.json` 里是端口和令牌）。设 `TABCAP_HOME` 可整体搬到一个目录。
+- 不是无人值守的采集平台，也不是云浏览器。
+- 类签名参数和加密正文不复现：生成的客户端把它们标成 TODO，这些请求留在真实浏览器会话里。
+- 用于分析和调试你自己在有权使用的站点上的会话；本仓库的测试只对本地页面跑。
+- 凭据库是明文，靠文件权限保护（0700 目录里的 0600 文件，和 `~/.netrc` 一样）；能用测试账号就用测试账号。
 
-## 从哪开始
+## 安装
 
-1. `NOTES.md`：每格三行，最新一条是下一步入口。
-2. `docs/03-product-thesis-and-roadmap.md`：定位、核心工作流、模块、路线与验收标准、待定决策。**以这份为准。**
-3. `docs/01-background-and-options.md`：起因、两边痛点、已有同类项目、最初的方案 A/B/C/D。
-4. `docs/04`–`07`：证据包规范 v0、本地靶场场景、阶段 1 验收测试计划、bridge 架构与 CDP 兼容端点（草案）。
-5. `AGENTS.md`：本目录的 AI 协作规则。
+- **二进制**：见「快速开始」。各平台验证到什么程度（GitHub Actions runner，2026-10-16，Chrome for Testing 155）：
 
-## 目录
+  | 平台 | 包 | 单元测试、类型检查 | 端到端 | 已知缺口 |
+  |---|---|---|---|---|
+  | macOS arm64 | `.tar.gz` | 通过（CI，macOS 14） | 81 / 81（本机；CI 不跑） | 无已知 |
+  | Linux x64 | `.tar.gz` | 通过（CI，Ubuntu） | 81 / 81（CI，Ubuntu + Xvfb，连续 2 次） | 后台标签上的 `click --trusted` / `hover` 在标签帧被限速时，鼠标移动期间开一个极小的 screencast（输出里标 `paint.held`）；Chrome 沙箱需要非特权 user namespace（CI 关掉了 Ubuntu 24.04 的 AppArmor 限制） |
+  | Windows x64 | `.zip` | 通过（CI） | 63 / 81（CI，非必过项） | 12 个用例没真正跑到（所在套件第一条就检查 Unix socket）；POSIX 权限检查不适用；`resize 900 700` 得到 693 px 高的页面 |
+  | Linux arm64 | `.tar.gz` | — | — | 交叉编译，从未运行 |
 
-| 路径 | 内容 |
-|---|---|
-| `AGENTS.md` | 本目录的 AI 协作规则 |
-| `docs/` | 背景与方案、规范草案 |
+  Windows：守护进程监听 127.0.0.1 的随机端口，每次启动换新令牌（写在 `daemon.json`）；浏览器走 `--remote-debugging-pipe`；开第一个标签前没有窗口，之后出现一个普通的 Chrome 窗口（Windows 上没有前台归还）。Linux：Ubuntu 23.10 起 Chrome 沙箱需要非特权 user namespace，CI 用 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` 打开（桌面环境没测过）。
+- **即将提供**：Homebrew、npm（`tabcap` 包，每个平台一个可选依赖）、Scoop。模板在 `packaging/`，还没有发布到任何仓库。
+- **从源码**：Bun 1.4 或更新，`bun install` 后 `bun run build`（本机）或 `bun run build:<平台>`（`darwin-arm64`、`linux-x64`、`linux-arm64`、`windows-x64`）；`bun run release` 一次构建并打包四个平台；`bun test test/unit` 跑离线测试。
+- **文件**：`~/.config/tabcap/`（socket、日志、profile、配置、`state.db`、`plugins/`、`fingerprint/refs/`）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）。Linux 认 `XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_DATA_HOME`。Windows 上三者是 `%LOCALAPPDATA%\tabcap\config`、`\cache`、`\data`，文件沿用用户目录的默认 ACL（tabcap 不另设 ACL；没有 socket，`config\daemon.json` 里是端口和令牌）。设 `TABCAP_HOME` 可整体搬到一个目录。
+
+## 凭据库
+
+`tabcap site add <名> --url <入口> --user <账号>` 在提示符下要密码（或用 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。文件或目录权限比 0600 / 0700 宽时守护进程拒绝启动（macOS 与 Linux；Windows 上文件沿用 `%LOCALAPPDATA%` 的用户默认 ACL）。agent 只看得到站点名、入口网址和账号名，除非你把密码交给它存：`site add` 和 `account add` 不需要终端也能跑，agent 用 `--password-stdin` 存一次，此后只用引用。只有登录请求本身在证据包里保留真实值，导出 HAR 时会被打码。
+
+## 文档
+
+`docs/` 是规范与设计笔记（中文）：证据包格式（`04`）、本地靶场（`05`）、验收测试（`06`）、架构与 CDP 兼容（`07`）、实施计划与命名表（`08`）、侦查与页面理解（`09`，草案）、click / type 的输入保真（`10`，提案）、线路层指纹组件（`11`）。`CHANGELOG.zh-CN.md` 按版本列出变更。
+
+参与开发从这几处进：`NOTES.md`（每格三行，最新一条是下一步入口）、`docs/03-product-thesis-and-roadmap.md`（定位、核心工作流、模块、路线与待定决策，以这份为准）、`docs/01-background-and-options.md`（起因、已有同类项目、最初的方案）、`AGENTS.md`（本目录的 AI 协作规则）。
 
 ## 版权边界
 
