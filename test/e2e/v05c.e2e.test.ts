@@ -121,10 +121,14 @@ describe.skipIf(!enabled)("tabcap 0.5-C L2 (context budget on the range)", () =>
     const hit = lines.findIndex((l) => l.includes("/api/login"));
     expect(hit).toBeGreaterThan(2);
     const page = recs((await ok("net", "list", "--filter", "/s07/login", ...S)).data["requests"])[0];
+    // `net body --grep` is the command's own line search (0.5-F owns the flag on net body, not the output filter):
+    // one match, 1-based line number, the two lines before and after, straight from the range's bytes.
     const body = await ok("net", "body", s(page?.["id"]), "--grep", "/api/login", "--context", "2", ...S);
-    const want = lines.slice(hit - 2, hit + 3).map((text, i) => ({ line: hit - 1 + i, text, match: i === 2 }));
-    expect(body.data["textPreview"]).toEqual(want);
-    expect(body.envelope["filter"]).toMatchObject({ grep: "/api/login", matches: 1 });
+    const matches = recs(body.data["matches"]);
+    expect(matches.length).toBe(1);
+    expect(matches[0]).toMatchObject({ line: hit + 1, text: lines[hit], before: lines.slice(hit - 2, hit), after: lines.slice(hit + 1, hit + 3) });
+    expect(body.data["total"]).toBe(1);
+    expect(body.envelope["filter"]).toBeUndefined();
     expect(s(body.data["path"])).not.toBe("");
   }, 60_000);
 
