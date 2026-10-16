@@ -19,6 +19,11 @@
 // anything is read, keys included; `--no-redact` keeps the recorded values
 // (the login body with its password, as HAR export does). Files are 0600,
 // directories 0700.
+// Preflights and preference (0.6-S): CORS preflights (OPTIONS, common.ts
+// isPreflight) are left out (skipped, reason "preflight") unless
+// --include-preflight; a key whose rule prefers "2xx" / "latest" exports only
+// the recordings `replay serve` answers it with, in recorded order, and lists
+// the others in `notPreferred`. Fixture numbers count the fixtures written.
 // Oracle: the bundle (test/unit/fixtures-export.test.ts compares with the
 // builder's bytes), docs/04 §31. Reproduce: bun test test/unit/fixtures-export.test.ts
 
@@ -29,10 +34,10 @@ import { sha256Hex } from "../shared/ids.ts";
 import { tsToIso } from "../shared/time.ts";
 import { isBinaryMime, utf8 } from "../analyze/decoders.ts";
 import { decodedPayload } from "../analyze/views.ts";
-import { headerJoined, requestBodyBytes, unreplayable, type Skipped } from "../replay/common.ts";
-import { recordedViewPlain, type Plain } from "../replay/match.ts";
+import { headerJoined, isPreflight, requestBodyBytes, unreplayable, type Skipped } from "../replay/common.ts";
+import { ReplayIndex, recordedViewPlain, type Plain } from "../replay/match.ts";
 import { Plaintexts } from "../replay/plaintext.ts";
-import { bodyKeyText, canonicalBody, canonicalQuery, pickRule, queryString, rulesInfo, type RuleSet } from "../replay/rules.ts";
+import { bodyKeyText, canonicalBody, canonicalQuery, pickRule, queryString, rulesInfo, type PreferMode, type RuleSet } from "../replay/rules.ts";
 import { FixtureRunner, type FixturePlugin } from "../daemon/hooks/fixture.ts";
 import { writeFileAtomic } from "./manifest.ts";
 import { parseRequest, type BundleView } from "./reader.ts";
@@ -70,8 +75,13 @@ export type FixturesOptions = {
   redact: { salt: string; knownSecrets: readonly string[] } | false;
   /** Where decode plugins are installed (body "decoded" rules with decodeWith). */
   configDir: string;
+  /** Keep CORS preflights (default: skipped, reason "preflight"; 0.6-S). */
+  includePreflight?: boolean;
   now?: () => number;
 };
+
+/** A recording left out because its key prefers others (0.6-S); `servedBy` became the key's fixtures. */
+export type NotPreferred = { request: string; prefer: PreferMode; servedBy: string[] };
 
 export type FixturesResult = {
   out: string;
@@ -83,6 +93,7 @@ export type FixturesResult = {
   rules: ReturnType<typeof rulesInfo>;
   redacted: boolean;
   skipped: Skipped[];
+  notPreferred: NotPreferred[];
   failed: { request: string; error: string }[];
   plugin?: { name: string; version: string };
   warnings: string[];
@@ -142,7 +153,7 @@ async function requestPlain(r: RequestEvent, view: BundleView, bytes: Uint8Array
   return plain.decode(decodeWith, { direction: "request", id: r.id, url: r.url, method: r.method, requestHeaders: r.request.headers, response: null, body: bytes, mime: headerJoined(r.request.headers, "content-type") });
 }
 
-async function buildFixture(r: RequestEvent, view: BundleView, rules: RuleSet, w: Writer, plain: Plaintexts | null): Promise<Fixture> {
+async function buildFixture(r: RequestEvent, view: BundleView, rules: RuleSet, w: Writer, plain: Plaintexts | null, decoded: ReadonlyMap<string, Plain | null>): Promise<Fixture> {
   const rule = pickRule(rules, r);
   const u = new URL(r.url);
   const cq = canonicalQuery(u.search, rule);
@@ -152,7 +163,7 @@ async function buildFixture(r: RequestEvent, view: BundleView, rules: RuleSet, w
   let fallback: string | null = null;
   const request: Fixture["request"] = { url: r.url, headers: noPseudo(r.request.headers), body: null };
   if ("bytes" in body) {
-    const p = rule.key.body === "decoded" ? await requestPlain(r, view, body.bytes, rule.key.decodeWith, plain) : null;
+    const p = rule.key.body === "decoded" ? (decoded.has(r.id) ? (decoded.get(r.id) ?? null) : await requestPlain(r, view, body.bytes, rule.key.decodeWith, plain)) : null;
     const cb = canonicalBody(body.bytes, rule, p);
     keyBody = bodyKeyText(cb);
     as = cb.as;
@@ -211,23 +222,44 @@ export async function exportFixtures(source: BundleView, opts: FixturesOptions):
     if (e.kind !== "request") continue;
     const r = parseRequest(e);
     if (typeof r === "string") continue;
-    const why = unreplayable(r);
+    const why = unreplayable(r) ?? (opts.includePreflight !== true && isPreflight(r) ? "preflight" : null);
     if (why === null) requests.push(r);
     else skipped.push({ id: r.id, reason: why });
   }
   const w = new Writer(opts.out);
   const needsPlain = opts.rules.rules.some((x) => x.key.body === "decoded" && x.key.decodeWith !== null);
   const plain = needsPlain ? new Plaintexts(opts.configDir) : null;
+  // Keys with a preference other than "recorded": decode the bodies first (the key needs them), then keep the served recordings.
+  const decoded = new Map<string, Plain | null>();
+  const notPreferred: NotPreferred[] = [];
+  let exported = requests;
+  if (opts.rules.rules.some((x) => x.prefer !== "recorded")) {
+    for (const r of requests) {
+      const rule = pickRule(opts.rules, r);
+      const body = requestBodyBytes(r, view);
+      if (rule.key.body === "decoded" && "bytes" in body) decoded.set(r.id, await requestPlain(r, view, body.bytes, rule.key.decodeWith, plain));
+    }
+    const plainOf = new Map([...decoded].flatMap(([id, p]): [string, Plain][] => (p === null ? [] : [[id, p]])));
+    const index = new ReplayIndex(requests, view, { strict: [], matchCookies: false, rules: opts.rules }, plainOf);
+    const out = new Set<string>();
+    for (const rec of index.recordings) {
+      const served = index.servedFor(rec);
+      if (served.includes(rec)) continue;
+      out.add(rec.id);
+      notPreferred.push({ request: rec.id, prefer: index.preferOf(rec), servedBy: served.map((x) => x.id) });
+    }
+    exported = requests.filter((r) => !out.has(r.id));
+  }
   const runner = opts.format === "json" ? null : new FixtureRunner(opts.format);
   const failed: { request: string; error: string }[] = [];
   const listed: { file: string; request: string; method: string; path: string; query: string; status: number | null; rule: string }[] = [];
   const warnings: string[] = [];
   let count = 0;
   try {
-    for (const [i, r] of requests.entries()) {
-      const fx = await buildFixture(r, view, opts.rules, w, plain);
+    for (const r of exported) {
+      const fx = await buildFixture(r, view, opts.rules, w, plain, decoded);
       if (runner === null) {
-        const file = fixtureFileName(i + 1, r.method, fx.key.path);
+        const file = fixtureFileName(count + 1, r.method, fx.key.path);
         w.write(file, JSON.stringify(fx, null, 2) + "\n");
         listed.push({ file, request: r.id, method: fx.key.method, path: fx.key.path, query: fx.key.query, status: fx.response.status, rule: fx.meta.rule });
         count++;
@@ -257,6 +289,7 @@ export async function exportFixtures(source: BundleView, opts: FixturesOptions):
         count,
         fixtures: listed,
         skipped,
+        notPreferred,
       };
       w.write("index.json", JSON.stringify(doc, null, 2) + "\n");
       index = join(opts.out, "index.json");
@@ -273,6 +306,7 @@ export async function exportFixtures(source: BundleView, opts: FixturesOptions):
       rules: rulesInfo(opts.rules),
       redacted: Boolean(opts.redact),
       skipped: skipped.slice(0, MAX_LISTED),
+      notPreferred: notPreferred.slice(0, MAX_LISTED),
       failed: failed.slice(0, MAX_LISTED),
       ...(runner === null ? {} : { plugin: { name: runner.plugin.name, version: runner.plugin.version } }),
       warnings,

@@ -7,6 +7,12 @@
 // recording that answered, and the 404 names the rule and, per candidate,
 // which parts differ (`query`, `body`, `ignored`). Body "decoded" rules decode
 // each incoming body with the plugin(s) first (./plaintext.ts).
+// Preference (0.6-S, `prefer` / `--prefer`): a key whose preference is not
+// "recorded" answers only from its preferred recordings; the header then says
+// so (`r-N;n=k[;rule=<id>];prefer=2xx`), and each route lists `served`.
+// CORS preflights (OPTIONS) are recordings like any other: a recorded
+// preflight answers an OPTIONS with the same path and query; an unrecorded one
+// gets the 404 below (docs/04 §31).
 // Oracle: the bundle's recorded status / headers / blobs. Reproduce:
 //   bun test test/unit/replay-server.test.ts
 
@@ -14,7 +20,7 @@ import { BundleReader } from "../bundle/reader.ts";
 import { sha256Hex } from "../shared/ids.ts";
 import { MAX_REQUEST_BODY, checkLoopbackListen, headerJoined, replayableRequests, requestBodyBytes, type Skipped } from "./common.ts";
 import { ReplayIndex, buildResponse, queryText, recordedViewPlain, type Incoming, type Plain } from "./match.ts";
-import { NO_RULES, pickRule, rulesInfo, type RuleSet } from "./rules.ts";
+import { NO_RULES, pickRule, rulesInfo, type PreferMode, type RuleSet } from "./rules.ts";
 import { Plaintexts } from "./plaintext.ts";
 
 export type ServeOptions = {
@@ -29,10 +35,15 @@ export type ServeOptions = {
   rules?: RuleSet;
   /** Where decode plugins are installed (body "decoded" rules). */
   configDir?: string;
+  /** `--prefer` (0.6-S): overrides every rule's prefer. */
+  prefer?: PreferMode;
 };
 
-/** `host` only when the bundle spans several hosts (it is then part of the match key). */
-export type RouteInfo = { method: string; host?: string; path: string; query: string; bodySha256: string | null; recordings: number; ids: string[]; rule?: string };
+/**
+ * `host` only when the bundle spans several hosts (it is then part of the match key).
+ * `prefer` / `served` (0.6-S) only when the key's preference is not "recorded": the ids that answer.
+ */
+export type RouteInfo = { method: string; host?: string; path: string; query: string; bodySha256: string | null; recordings: number; ids: string[]; rule?: string; prefer?: PreferMode; served?: string[] };
 
 export const MAX_LISTED = 500;
 
@@ -45,6 +56,8 @@ export type ServeInfo = {
   match: { strict: string[]; cookies: boolean; host: boolean };
   /** Where the key rules come from and how many there are (0.6-C). */
   rules: ReturnType<typeof rulesInfo>;
+  /** `--prefer` when given (0.6-S), else null (each rule's prefer). */
+  prefer: PreferMode | null;
   /** Distinct match keys (at most MAX_LISTED listed; `routeCount` is the total). */
   routes: RouteInfo[];
   routeCount: number;
@@ -102,7 +115,7 @@ export async function startReplayServer(opts: ServeOptions): Promise<ReplayServe
     const failed = [...plain.values()].filter((p) => "error" in p).length;
     if (failed > 0) warnings.push(`${failed} recorded request body/bodies could not be decoded by their rule's decodeWith plugin: keyed on their raw bytes`);
   }
-  const index = new ReplayIndex(requests, reader, { strict: opts.strict, matchCookies: opts.matchCookies, rules }, plain);
+  const index = new ReplayIndex(requests, reader, { strict: opts.strict, matchCookies: opts.matchCookies, rules, ...(opts.prefer === undefined ? {} : { prefer: opts.prefer }) }, plain);
   const log = opts.log ?? null;
   let served = 0;
 
@@ -147,9 +160,10 @@ export async function startReplayServer(opts: ServeOptions): Promise<ReplayServe
         return new Response(JSON.stringify(payload, null, 2) + "\n", { status: 404, headers: { "content-type": "application/json; charset=utf-8", "x-tabcap-replay": "no-match" } });
       }
       const r = buildResponse(m.recording, reader, m.n);
-      log?.(`${req.method} ${url.pathname}${url.search} -> ${m.recording.id} n=${m.n}/${m.of} ${r.status}${withRules ? ` rule ${m.rule.id}` : ""}${r.missing === null ? "" : ` (body missing: ${r.missing})`}`);
+      const pref = m.prefer === "recorded" ? "" : `;prefer=${m.prefer}`;
+      log?.(`${req.method} ${url.pathname}${url.search} -> ${m.recording.id} n=${m.n}/${m.of} ${r.status}${withRules ? ` rule ${m.rule.id}` : ""}${pref === "" ? "" : ` prefer ${m.prefer}`}${r.missing === null ? "" : ` (body missing: ${r.missing})`}`);
       const headers = new Headers();
-      for (const [k, v] of r.headers) headers.append(k, k === "x-tabcap-replay" && withRules ? `${v};rule=${m.rule.id}` : v);
+      for (const [k, v] of r.headers) headers.append(k, k === "x-tabcap-replay" ? `${v}${withRules ? `;rule=${m.rule.id}` : ""}${pref}` : v);
       const ign = [...(m.ignored.query.length > 0 ? [`query=${nameList(m.ignored.query)}`] : []), ...(m.ignored.body.length > 0 ? [`body=${nameList(m.ignored.body)}`] : [])];
       if (ign.length > 0) headers.set("x-tabcap-replay-ignored", ign.join(";"));
       return new Response(r.body, { status: r.status, statusText: r.statusText, headers });
@@ -174,7 +188,8 @@ export async function startReplayServer(opts: ServeOptions): Promise<ReplayServe
     complete: reader.isComplete(),
     match: { strict: [...opts.strict], cookies: opts.matchCookies, host: index.hosts.size > 1 },
     rules: rulesInfo(rules),
-    routes: routes.slice(0, MAX_LISTED).map(({ recordings }) => {
+    prefer: opts.prefer ?? null,
+    routes: routes.slice(0, MAX_LISTED).map(({ recordings, served, prefer }) => {
       const first = recordings[0];
       return {
         method: first?.method ?? "",
@@ -185,6 +200,7 @@ export async function startReplayServer(opts: ServeOptions): Promise<ReplayServe
         recordings: recordings.length,
         ids: recordings.map((r) => r.id),
         ...(withRules && first !== undefined ? { rule: first.rule.id } : {}),
+        ...(prefer === "recorded" ? {} : { prefer, served: served.map((r) => r.id) }),
       };
     }),
     routeCount: routes.length,

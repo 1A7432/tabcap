@@ -11,7 +11,7 @@ import { DEFAULT_AGAINST, DEFAULT_HEADERS, check, renderCheckText } from "../rep
 import { headerNames } from "../replay/common.ts";
 import { accountProxy, writeProxyEnv, type AccountProxy } from "../replay/proxyenv.ts";
 import { BundleReader } from "../bundle/reader.ts";
-import { loadRules, type RuleSet } from "../replay/rules.ts";
+import { loadRules, parsePrefer, type PreferMode, type RuleSet } from "../replay/rules.ts";
 
 /** `--rules <file>`, else config.json `sites.<bundle site>.replay` then `replay` (0.6-C). */
 export function bundleRules(bundle: string, file: string | undefined): RuleSet {
@@ -39,6 +39,8 @@ export const REPLAY_USAGE = SUBS.map((s) => usageOf(specOf(`replay ${s}`)));
 
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const numOr = (v: unknown, d: number): number => (typeof v === "number" ? v : d);
+/** `--prefer` (0.6-S), or {} when absent. */
+const preferArg = (v: unknown): { prefer?: PreferMode } => (typeof v === "string" ? { prefer: parsePrefer(v) } : {});
 
 /** `-o` is the only short flag; parseCommand knows long flags. */
 function longFlags(argv: readonly string[]): string[] {
@@ -48,7 +50,8 @@ function longFlags(argv: readonly string[]): string[] {
 
 function serveText(info: ServeInfo): string {
   const rules = info.rules.source === "none" ? "" : `, ${info.rules.rules} rule(s) from ${info.rules.source === "file" ? (info.rules.file ?? "") : "config.json"}`;
-  const lines = [`replaying ${info.bundle} on ${info.url}: ${info.routeCount} route(s), ${info.recordings} recording(s), ${info.skippedCount} skipped${rules}. Ctrl-C to stop.`];
+  const prefer = info.prefer === null ? "" : `, prefer ${info.prefer}`;
+  const lines = [`replaying ${info.bundle} on ${info.url}: ${info.routeCount} route(s), ${info.recordings} recording(s), ${info.skippedCount} skipped${rules}${prefer}. Ctrl-C to stop.`];
   for (const w of info.warnings) lines.push(`warning: ${w}`);
   return lines.join("\n");
 }
@@ -69,6 +72,7 @@ async function serve(spec: CommandSpec, args: Record<string, unknown>): Promise<
     log: json ? null : (line) => process.stderr.write(line + "\n"),
     rules: bundleRules(bundle, str(args["rules"])),
     configDir: paths().config,
+    ...preferArg(args["prefer"]),
   });
   process.stdout.write((json ? JSON.stringify(ok(server.info)) : serveText(server.info)) + "\n");
   await new Promise<void>((resolve) => {
@@ -139,6 +143,7 @@ export async function runReplay(argv: readonly string[]): Promise<Outcome> {
           headers: headers.length > 0 ? headers : DEFAULT_HEADERS,
           configDir: paths().config,
           rules: bundleRules(bundle, str(a["rules"])),
+          ...preferArg(a["prefer"]),
         });
         const code = result.totals.different + result.totals.errors > 0 ? 1 : 0;
         if (a["json"] === true) return { code, envelope: ok(result) };

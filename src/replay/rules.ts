@@ -4,7 +4,8 @@
 // its fixtures. Schema `tabcap-replay-rules/0`:
 //   {schema, rules:[{match:{host?, path?, method?},
 //                    key:{ignoreQuery?, ignoreBodyFields?, body?, decodeWith?, caseInsensitiveQuery?},
-//                    response:{compare?, ignorePaths?, decodeWith?}}]}
+//                    response:{compare?, ignorePaths?, decodeWith?},
+//                    prefer?: "recorded" | "2xx" | "latest"}]}
 // The first rule whose `match` fits a request applies; a request no rule fits
 // gets the default rule, which is the 0.3-B behaviour (method + path + sorted
 // query + sha256 of the body bytes; status + body compared as before).
@@ -12,6 +13,10 @@
 // rules, then config.json `replay` rules (both `{rules:[…]}`).
 // The document is untrusted input: unknown keys are rejected, sizes capped,
 // every glob and JSON path is checked before anything is served.
+// `prefer` (0.6-S): which recordings of one key answer (replay serve), are
+// checked (replay check) and become fixtures (bundle export fixtures):
+// "recorded" (default) all in recorded order, cycling; "2xx" only the 2xx
+// ones (all when the key has none); "latest" only the last one.
 // Oracle: the canonicalisation table in docs/04 §31 (test/unit/replay-rules.test.ts).
 // Reproduce: bun test test/unit/replay-rules.test.ts
 
@@ -35,6 +40,29 @@ export const BODY_MODES = ["raw", "form", "json", "decoded", "none"] as const;
 export type BodyMode = (typeof BODY_MODES)[number];
 export const COMPARE_MODES = ["status", "status+body", "status+decoded-body"] as const;
 export type CompareMode = (typeof COMPARE_MODES)[number];
+export const PREFER_MODES = ["recorded", "2xx", "latest"] as const;
+export type PreferMode = (typeof PREFER_MODES)[number];
+
+/** A `--prefer` value, or a usage error. */
+export function parsePrefer(v: string): PreferMode {
+  const m = PREFER_MODES.find((x) => x === v);
+  if (m === undefined) throw new TabcapError("usage", `bad --prefer ${JSON.stringify(v.slice(0, 40))}`, `Use one of: ${PREFER_MODES.join(", ")} (docs/04 §31).`);
+  return m;
+}
+
+/**
+ * The recordings of one key that answer under `prefer`, in recorded order
+ * (`list` is sorted by seq): all (recorded), the 2xx ones (2xx; all when there
+ * are none), or the last one (latest).
+ */
+export function preferred<T extends { status: number | null }>(list: readonly T[], prefer: PreferMode): T[] {
+  if (prefer === "latest") return list.length === 0 ? [] : list.slice(-1);
+  if (prefer === "2xx") {
+    const ok = list.filter((r) => r.status !== null && r.status >= 200 && r.status < 300);
+    return ok.length > 0 ? ok : [...list];
+  }
+  return [...list];
+}
 
 type Seg = { key: string } | { index: number } | { any: true };
 /** A JSON path (`$.a.b[0]`, `$.items[*].ts`, `$["x y"]`) or a bare name (a form field, or a top-level JSON key). */
@@ -46,6 +74,8 @@ export type Rule = {
   match: { host: string | null; path: string | null; method: string | null };
   key: { ignoreQuery: string[]; ignoreBodyFields: string[]; body: BodyMode; decodeWith: string | null; caseInsensitiveQuery: boolean };
   response: { compare: CompareMode; ignorePaths: string[]; decodeWith: string | null };
+  /** Which recordings of a key answer (0.6-S); "recorded" by default. */
+  prefer: PreferMode;
 };
 
 export type CompiledRule = Rule & {
@@ -65,6 +95,7 @@ export const DEFAULT_RULE: CompiledRule = compileRule({
   match: { host: null, path: null, method: null },
   key: { ignoreQuery: [], ignoreBodyFields: [], body: "raw", decodeWith: null, caseInsensitiveQuery: false },
   response: { compare: "status+body", ignorePaths: [], decodeWith: null },
+  prefer: "recorded",
 });
 
 export const NO_RULES: RuleSet = { rules: [], source: { kind: "none" } };
@@ -76,7 +107,7 @@ const METHOD = /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,32}$/;
 const HOST_GLOB = /^[A-Za-z0-9.*_:[\]-]{1,260}$/;
 
 const bad = (where: string, msg: string) =>
-  new TabcapError("bad-input", `replay rules ${where}: ${msg}`, `Fix the rules (schema ${RULES_SCHEMA}: {rules:[{match:{host, path, method}, key:{ignoreQuery, ignoreBodyFields, body, decodeWith, caseInsensitiveQuery}, response:{compare, ignorePaths, decodeWith}}]}; docs/04 §31).`);
+  new TabcapError("bad-input", `replay rules ${where}: ${msg}`, `Fix the rules (schema ${RULES_SCHEMA}: {rules:[{match:{host, path, method}, key:{ignoreQuery, ignoreBodyFields, body, decodeWith, caseInsensitiveQuery}, response:{compare, ignorePaths, decodeWith}, prefer}]}; docs/04 §31).`);
 
 function onlyKeys(o: Record<string, unknown>, allowed: readonly string[], where: string): void {
   for (const k of Object.keys(o)) if (!allowed.includes(k)) throw bad(where, `unknown key ${JSON.stringify(k)} (known: ${allowed.join(", ")})`);
@@ -187,8 +218,8 @@ function compileRule(r: Rule): CompiledRule {
 }
 
 function parseRule(raw: unknown, id: string): CompiledRule {
-  if (!isRecord(raw)) throw bad(id, "must be an object {match, key, response}");
-  onlyKeys(raw, ["match", "key", "response"], id);
+  if (!isRecord(raw)) throw bad(id, "must be an object {match, key, response, prefer}");
+  onlyKeys(raw, ["match", "key", "response", "prefer"], id);
   const m = raw["match"] ?? {};
   const k = raw["key"] ?? {};
   const s = raw["response"] ?? {};
@@ -222,11 +253,15 @@ function parseRule(raw: unknown, id: string): CompiledRule {
   if (respDecode !== null && compareMode !== "status+decoded-body") throw bad(`${id}.response.decodeWith`, 'needs compare "status+decoded-body"');
   const ignorePaths = strList(s["ignorePaths"], `${id}.response.ignorePaths`, fieldCheck);
   if (ignorePaths.length > 0 && compareMode === "status") throw bad(`${id}.response.ignorePaths`, 'compare "status" compares no body');
+  const pr = raw["prefer"] ?? "recorded";
+  const prefer = PREFER_MODES.find((x) => x === pr);
+  if (prefer === undefined) throw bad(`${id}.prefer`, `must be one of ${PREFER_MODES.map((x) => JSON.stringify(x)).join(", ")}`);
   return compileRule({
     id,
     match: { host, path, method: method === null ? null : method.toUpperCase() },
     key: { ignoreQuery, ignoreBodyFields, body: bodyMode, decodeWith: keyDecode, caseInsensitiveQuery: ci === true },
     response: { compare: compareMode, ignorePaths, decodeWith: respDecode },
+    prefer,
   });
 }
 

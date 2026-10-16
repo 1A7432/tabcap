@@ -19,6 +19,11 @@
 // host it may mean (its Host, else every recorded host); body "decoded" reads
 // the plaintext of each plugin that may decode it (replay serve decodes ahead).
 // Without rules every request gets the 0.3-B key above.
+// Preference (0.6-S, rules.ts `prefer`, `--prefer`): the recordings of one
+// key that answer are all of them (recorded, the default), only the 2xx ones
+// (all when there are none) or only the last one; the rest of the key's
+// recordings are never served. The override applies to every key; without it
+// each key takes the prefer of its rule.
 // Oracle: the recorded bundle itself (status, headers, blob bytes); tests in
 // test/unit/replay-match.test.ts build bundles with the writer and compare the
 // served bytes with the blobs by sha256. Reproduce: bun test test/unit/replay-match.test.ts
@@ -38,14 +43,19 @@ import {
   canonicalQuery,
   differingIgnored,
   pickRule,
+  preferred,
   type CanonBody,
   type CanonQuery,
   type CompiledRule,
+  type PreferMode,
   type RuleSet,
 } from "./rules.ts";
 
-/** `rules` (0.6-C): the key rules; absent = the 0.3-B key for every request. */
-export type MatchOptions = { strict: readonly string[]; matchCookies: boolean; rules?: RuleSet };
+/**
+ * `rules` (0.6-C): the key rules; absent = the 0.3-B key for every request.
+ * `prefer` (0.6-S): overrides every rule's prefer (`--prefer`).
+ */
+export type MatchOptions = { strict: readonly string[]; matchCookies: boolean; rules?: RuleSet; prefer?: PreferMode };
 
 /** A decoded request body: the plaintext, or why there is none. */
 export type Plain = { bytes: Uint8Array; mime: string | null } | { error: string };
@@ -60,6 +70,8 @@ export type Recording = {
   id: string;
   seq: number;
   method: string;
+  /** Recorded response status (null without a response). */
+  status: number | null;
   /** Recorded `URL.host` (lowercase), e.g. `api.example.test:8443`. */
   host: string;
   path: string;
@@ -82,8 +94,11 @@ export type Recording = {
   body: CanonBody | null;
 };
 
-/** `ignored`: the ignored query names / body fields whose values differ from the recording that answered. */
-export type Matched = { recording: Recording; n: number; of: number; rule: CompiledRule; ignored: { query: string[]; body: string[] } };
+/**
+ * `ignored`: the ignored query names / body fields whose values differ from the recording that answered.
+ * `n` / `of` count within the recordings the preference serves; `prefer` is the one that applied.
+ */
+export type Matched = { recording: Recording; n: number; of: number; rule: CompiledRule; prefer: PreferMode; ignored: { query: string[]; body: string[] } };
 
 export type QueryDiff = { missing: string[]; extra: string[]; changed: string[] };
 
@@ -170,6 +185,9 @@ export class ReplayIndex {
   private readonly origins = new Map<string, string>();
   private readonly byKey = new Map<string, Recording[]>();
   private readonly byLoose = new Map<string, Recording[]>();
+  /** The recordings each key list serves under the preference (same keys as byKey / byLoose). */
+  private readonly servedKey = new Map<string, Recording[]>();
+  private readonly servedLoose = new Map<string, Recording[]>();
   private readonly counters = new Map<string, number>();
   /** Plugins whose views the recordings of a body "decoded" rule without decodeWith carry. */
   private readonly rulePlugins = new Map<string, Set<string>>();
@@ -212,6 +230,7 @@ export class ReplayIndex {
         id: r.id,
         seq: r.seq,
         method: r.method.toUpperCase(),
+        status: r.response?.status ?? null,
         host: ps.host,
         path: ps.path,
         query: cq.pairs,
@@ -240,6 +259,22 @@ export class ReplayIndex {
       }
     }
     for (const list of [...this.byKey.values(), ...this.byLoose.values()]) list.sort((a, b) => a.seq - b.seq);
+    for (const [from, to] of [
+      [this.byKey, this.servedKey],
+      [this.byLoose, this.servedLoose],
+    ] as const) {
+      for (const [k, list] of from) to.set(k, preferred(list, this.preferOf(list[0])));
+    }
+  }
+
+  /** The preference of a key: the override, else the rule of its recordings (they share one: the rule id is in the key). */
+  preferOf(rec: Recording | undefined): PreferMode {
+    return this.opts.prefer ?? rec?.rule.prefer ?? "recorded";
+  }
+
+  /** The recordings that answer `rec`'s key under the preference, in recorded order. */
+  servedFor(rec: Recording): Recording[] {
+    return this.servedKey.get(rec.key) ?? [rec];
   }
 
   private get withRules(): boolean {
@@ -262,9 +297,11 @@ export class ReplayIndex {
     return this.hosts.size > 1 && this.hosts.has(h) ? h : null;
   }
 
-  /** Distinct keys with their recordings, in first-recorded order. */
-  routes(): { key: string; recordings: Recording[] }[] {
-    return [...this.byKey.entries()].map(([key, recordings]) => ({ key, recordings })).sort((a, b) => (a.recordings[0]?.seq ?? 0) - (b.recordings[0]?.seq ?? 0));
+  /** Distinct keys with their recordings and the ones the preference serves, in first-recorded order. */
+  routes(): { key: string; recordings: Recording[]; served: Recording[]; prefer: PreferMode }[] {
+    return [...this.byKey.entries()]
+      .map(([key, recordings]) => ({ key, recordings, served: this.servedKey.get(key) ?? recordings, prefer: this.preferOf(recordings[0]) }))
+      .sort((a, b) => (a.recordings[0]?.seq ?? 0) - (b.recordings[0]?.seq ?? 0));
   }
 
   /** The recorded hosts an incoming request may mean: its Host when that is one, else all (first recorded first). */
@@ -349,7 +386,7 @@ export class ReplayIndex {
   match(req: Incoming): Matched | null {
     for (const parts of this.readings(req)) {
       // A recorded host keys on the host (multi-host bundles); anything else on the loose key.
-      const map = parts.host === null ? this.byLoose : this.byKey;
+      const map = parts.host === null ? this.servedLoose : this.servedKey;
       let key = this.keyFor(parts, parts.bodyKey);
       let list = map.get(key);
       if (list === undefined) {
@@ -365,7 +402,7 @@ export class ReplayIndex {
         query: differingIgnored(recording.canonQuery.ignored, parts.canonQuery.ignored),
         body: recording.body === null ? [] : differingIgnored(recording.body.ignored, parts.body.ignored),
       };
-      return { recording, n: (i % list.length) + 1, of: list.length, rule: recording.rule, ignored };
+      return { recording, n: (i % list.length) + 1, of: list.length, rule: recording.rule, prefer: this.preferOf(recording), ignored };
     }
     return null;
   }

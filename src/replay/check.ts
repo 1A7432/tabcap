@@ -22,6 +22,10 @@
 // `decodeWith`, else the plugin of the recorded view; when either side cannot
 // be decoded the row is unverified, with a note), and `ignorePaths` are left
 // out of both JSON bodies before they are compared.
+// Preference (0.6-S, rules.ts `prefer`, `--prefer`): keys whose preference
+// is not "recorded" are checked only on the recordings `replay serve` answers
+// with (keys as serve builds them without --strict / --match-cookies); the
+// others are listed in `notPreferred` and not sent.
 // Oracle: the bundle (recorded status / headers / blobs). Reproduce:
 //   bun test test/unit/replay-check.test.ts test/unit/replay-integration.test.ts
 
@@ -37,7 +41,8 @@ import { HOP_BY_HOP, flattenJson, globMatcher, headerJoined, isLoopbackHost, rep
 import { DecodeHost, DecodeSession, type DecodePlugin } from "../daemon/hooks/decode.ts";
 import { decodePlugins } from "../daemon/hooks/plugins.ts";
 import { decodedPayload } from "../analyze/views.ts";
-import { DEFAULT_RULE, NO_RULES, pickRule, rulesInfo, stripResponseJson, type CompiledRule, type RuleSet } from "./rules.ts";
+import { DEFAULT_RULE, NO_RULES, pickRule, rulesInfo, stripResponseJson, type CompiledRule, type PreferMode, type RuleSet } from "./rules.ts";
+import { ReplayIndex } from "./match.ts";
 import { Plaintexts } from "./plaintext.ts";
 
 export const DEFAULT_AGAINST = "http://127.0.0.1:4500";
@@ -90,6 +95,10 @@ export type CheckResult = {
   warnings: string[];
   /** Where the rules come from (0.6-C). */
   rules?: ReturnType<typeof rulesInfo>;
+  /** `--prefer` when given (0.6-S), else null. */
+  prefer?: PreferMode | null;
+  /** Recordings not sent because their key prefers others (0.6-S): `servedBy` are the ones that answer it. */
+  notPreferred?: { id: string; prefer: PreferMode; servedBy: string[] }[];
 };
 
 // ------------------------------------------------------------ comparator
@@ -190,6 +199,8 @@ export type CheckOptions = {
   fetch?: HttpClient;
   /** Key rules (0.6-C); absent: every answer compared as before. */
   rules?: RuleSet;
+  /** `--prefer` (0.6-S): overrides every rule's prefer. */
+  prefer?: PreferMode;
 };
 
 /** Reasons a recorded body cannot be compared (not a difference). */
@@ -278,18 +289,22 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
   if (opts.withCookies) warnings.push("--with-cookies: the recorded cookie header is sent; it may have expired (docs/03 §4: sessions expire)");
 
   const { requests, skipped } = replayableRequests(reader);
+  const rules = opts.rules ?? NO_RULES;
   const match = globMatcher(opts.filter);
-  const chosen = requests.filter((r) => {
+  const inFilter = (r: RequestEvent): boolean => {
     if (match === null) return true;
     try {
       return match(new URL(r.url).pathname);
     } catch {
       return false;
     }
-  });
+  };
+  const shadowedAll = notPreferredOf(requests, reader, rules, opts.prefer);
+  const shadowed = new Set(shadowedAll.map((x) => x.id));
+  const chosen = requests.filter((r) => !shadowed.has(r.id) && inFilter(r));
+  const notPreferred = shadowedAll.filter((x) => requests.some((r) => r.id === x.id && inFilter(r)));
 
   const rows: CheckRow[] = [];
-  const rules = opts.rules ?? NO_RULES;
   const plugins = chosen.some((r) => r.response?.decoded?.ok === true) ? decodePlugins(opts.configDir) : [];
   const decoder: Decoder = { host: new DecodeHost(), plugins, sessions: new Map(), plain: rules.rules.some((r) => r.response.compare === "status+decoded-body") ? new Plaintexts(opts.configDir) : null };
   try {
@@ -310,7 +325,32 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
     else if (row.result === "error") totals.errors++;
     else totals.unverified++;
   }
-  return { bundle: opts.bundle, against: base.href, live: guard !== null, proxy: egress?.proxy ?? null, headers: [...opts.headers], totals, rows, skipped, warnings, rules: rulesInfo(rules) };
+  return {
+    bundle: opts.bundle,
+    against: base.href,
+    live: guard !== null,
+    proxy: egress?.proxy ?? null,
+    headers: [...opts.headers],
+    totals,
+    rows,
+    skipped,
+    warnings,
+    rules: rulesInfo(rules),
+    prefer: opts.prefer ?? null,
+    notPreferred,
+  };
+}
+
+/** Recordings `replay serve` would never answer with under the preference (none when every key is "recorded"). */
+function notPreferredOf(requests: readonly RequestEvent[], reader: BundleReader, rules: RuleSet, prefer: PreferMode | undefined): NonNullable<CheckResult["notPreferred"]> {
+  if ((prefer ?? "recorded") === "recorded" && rules.rules.every((r) => r.prefer === "recorded")) return [];
+  const index = new ReplayIndex(requests, reader, { strict: [], matchCookies: false, rules, ...(prefer === undefined ? {} : { prefer }) });
+  const out: NonNullable<CheckResult["notPreferred"]> = [];
+  for (const rec of index.recordings) {
+    const served = index.servedFor(rec);
+    if (!served.includes(rec)) out.push({ id: rec.id, prefer: index.preferOf(rec), servedBy: served.map((x) => x.id) });
+  }
+  return out;
 }
 
 async function checkOne(
@@ -526,6 +566,8 @@ export function renderCheckText(r: CheckResult): string {
   lines.push("", `totals: ${t.requests} request(s), ${t.same} same, ${t.different} different, ${t.errors} error(s), ${t.unverified} unverified, ${t.skipped} skipped (not replayable)`);
   const ri = r.rules;
   if (ri !== undefined && ri.source !== "none") lines.push(`rules: ${ri.rules} from ${ri.source === "file" ? (ri.file ?? "") : `config.json${ri.site === null || ri.site === undefined ? "" : ` (site ${ri.site})`}`}`);
+  const np = r.notPreferred ?? [];
+  if (np.length > 0) lines.push(`not preferred: ${np.length} recording(s) not sent (${np.slice(0, 5).map((x) => `${x.id} prefer ${x.prefer} → ${x.servedBy.join(",")}`).join("; ")}${np.length > 5 ? "; …" : ""})`);
   for (const w of r.warnings) lines.push(`warning: ${w}`);
   return lines.join("\n");
 }

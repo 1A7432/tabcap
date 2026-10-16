@@ -151,6 +151,16 @@ export function unreplayable(r: RequestEvent): string | null {
   return null;
 }
 
+/**
+ * A CORS preflight: an OPTIONS request the browser sent before the real one
+ * (CDP initiator type "preflight"; HAR imports and older recordings: an
+ * OPTIONS with an access-control-request-method header).
+ */
+export function isPreflight(r: RequestEvent): boolean {
+  if (r.method.toUpperCase() !== "OPTIONS") return false;
+  return r.initiator?.type === "preflight" || headerJoined(r.request.headers, "access-control-request-method") !== null;
+}
+
 export type Skipped = { id: string; reason: string };
 
 /** Requests of a bundle that carry a response we can serve / compare, in recorded order, and the rest with a reason. */
