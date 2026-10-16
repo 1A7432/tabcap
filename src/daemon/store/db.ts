@@ -594,12 +594,23 @@ export class Store {
     return r === null ? null : accountRow(r);
   }
 
-  /** Another account for an existing site (store level only: the CLI has `site add`, one account per site). */
-  addAccount(a: { site: string; username: string; password: string }, now = Date.now()): void {
+  /** Another account for an existing site (`tabcap account add`; `site add` creates the first one). */
+  addAccount(a: { site: string; username: string; password: string; totpSeed?: string | null }, now = Date.now()): void {
     if (this.site(a.site) === null) throw new TabcapError("not-found", `no site named "${a.site}"`, "Run `tabcap site list`.");
     if (a.username === "" || a.password === "") throw new TabcapError("usage", "missing username or password", "Give both.");
     if (this.account(a.site, a.username) !== null) throw new TabcapError("conflict", `account ${a.site}.${a.username} already exists`, "Use another username.");
-    this.db.query("INSERT INTO accounts (site, username, password, created) VALUES (?1, ?2, ?3, ?4)").run(a.site, a.username, a.password, now);
+    this.db.query("INSERT INTO accounts (site, username, password, totp_seed, created) VALUES (?1, ?2, ?3, ?4, ?5)").run(a.site, a.username, a.password, a.totpSeed ?? null, now);
+  }
+
+  /** Remove one account with its saved cookies and guard counters. Returns false when there was none. */
+  removeAccount(site: string, username: string): boolean {
+    let changed = 0;
+    this.db.transaction(() => {
+      this.db.query("DELETE FROM guard_counters WHERE site = ?1 AND account = ?2").run(site, username);
+      this.db.query("DELETE FROM sessions WHERE site = ?1 AND username = ?2").run(site, username);
+      changed = this.db.query("DELETE FROM accounts WHERE site = ?1 AND username = ?2").run(site, username).changes;
+    })();
+    return changed > 0;
   }
 
   /** Bind an account to a proxy name, `system` or `none`. */
