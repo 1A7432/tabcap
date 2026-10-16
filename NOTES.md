@@ -244,3 +244,9 @@
 - 做了什么：作者裁定 brief 里方向写反了，改为 `missing` = 本浏览器缺、参照里有，`extra` = 本浏览器有、参照里缺（`fields.ts` 判定与注释、`--ref` 帮助文字与 schema 快照、生成的 commands.md、SKILL、docs/04 §4.3、docs/07 §5、两份 CHANGELOG 各加一行）；单测与 v04g 只对调期望标签，断言强度不变（参照里删掉的 vendor 现在是 `extra`，summary `{same 46, differs 2, missing 0, extra 1}`）。【实测】单测 589 pass、tsc 无错、skill valid、gen:docs 无差异、v04g 单独跑 6/6。
 - 卡在哪：`--text` 输出本来没有图例，只有末行计数 `same N, differs N, missing N, extra N`，方向说明在 `--ref` 的帮助里，已改那里；没另加图例行（会改变文本输出的行数）。
 - 下一格从哪开始：作者审 0.4-G2 草稿 PR，合入时主循环重生 schema 快照。
+
+## 2026-10-16 · 0.4-J · recon 侦查档案 v0（四问）
+- 做了什么：`src/analyze/recon.ts`（纯函数，`recon` 与 `analyze recon` 共用）+ `src/daemon/tools/recon.ts`（读当前页 innerText / title 与适配器 detect，不发请求）；写 `exports/dossier.json`（`tabcap-dossier/0`）与 `.md`（0600、覆写），`cmd` end 的 `outputSummary.receipt` 带 `{dossier:"exports/dossier.json"}`（`summarize` 保留 receipt 对象）；技术栈 = 适配器结果 + 17 条头 / 会话 cookie 名标记表；通道按 (方法, 路径模板, 类型, 正文类别) 分组，覆盖率用 find 的精确子串匹配走解码链（含收到的 ws 帧）；cookie 分来源 / 有效期 / 标志 / 用途表 / requiredBy（deps 的 `sourceGrade`）；防护 = guard breaker + handoff 与 8 条响应信号表；docs/03 §5、docs/04 §2 / §4.1 / §22、docs/09 §1、SKILL、CHANGELOG。【实测】单测 604 pass、tsc 无错、skill valid、gen:docs 无差异；本机 e2e 全量 118/118（v04j 3/3，一次过）；CI run 38852457323 全绿。
+- 卡在哪：按字面定、待作者审：「cookies include … the csrf value」而 s07 的 csrf 不是 cookie，于是把名字像 csrf 的非 cookie 输入（`x-csrf` 头等）也列进 `cookies`，`carrier` 写位置、`origin` 取 deps；cookie 标记只记名字不记值；「HTML 403 or 429」读成 HTML 403 与任意 429；限流头 `x-ratelimit-*` 按 docs/09 #8 收进信号表；四个 bot 管理头名（cf-mitigated、x-amzn-waf-action、x-datadome、x-iinfo）没在任何部署上验过【待验】；dossier 多了 `notes` / `warnings`、覆盖率多 `capped`；e2e 先 s07 后 s06（两站同在 127.0.0.1，cookie 不分端口，反过来 sid 的来源会是 s06 文档）；s41 未合入，未覆盖。
+- 下一格从哪开始：作者审 PR #16、docs/04 §22 与两张固定表（标记、cookie 用途、防护信号）的增删；之后 `--probe`（0.5）与 docs/09 §1 其余问题。
+
