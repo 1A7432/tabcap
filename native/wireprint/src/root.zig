@@ -66,7 +66,8 @@ test {
     _ = fp.ja3;
     _ = fp.ja4;
     _ = fp.akamai;
-    _ = server.listener;
+    // The `serve` listener is POSIX sockets only (MSG_PEEK|MSG_DONTWAIT, socketpair); not analyzed on Windows.
+    if (comptime @import("builtin").os.tag != .windows) _ = server.listener;
     _ = server.tls_openssl;
     _ = server.h2_conn;
     _ = server.report;
