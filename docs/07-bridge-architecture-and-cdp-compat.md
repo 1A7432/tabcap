@@ -31,6 +31,12 @@
 - 浏览器级 `Target.setAutoAttach {autoAttach:true, waitForDebuggerOnStart:true, flatten:true}`；每收到 `Target.attachedToTarget`，先 `Runtime.enable`、`Page.enable`（录制时再 `Network.enable`），然后**必须**发 `Runtime.runIfWaitingForDebugger`。
 - 原因：Chrome 155 即使 `waitForDebuggerOnStart:false`，`window.open` 开出的弹窗仍被挂起直到收到 `runIfWaitingForDebugger`，而且 attach 事件里报的 `waitingForDebugger:false` 是假的，不能信这个字段。不发，opener 的 `window.open` 调用永远不返回（evaluate 超时），弹窗停在 `about:blank`。
 - 子目标（OOPIF、Service Worker、弹窗）都经此挂上；跨站 iframe 和 SW 的 Network 事件落在各自子会话。
+- 【实测 10-16 spike「页面脚本读了哪些信号」】`Target.setAutoAttach {waitForDebuggerOnStart:true}` 之后用 `Target.createTarget {url}` 直接带 URL 开的新标签，attach 事件报 `waitingForDebugger:true`，但页面脚本在我们发 `runIfWaitingForDebugger` 之前就已执行（`DOMContentLoaded` 早于 `Debugger.enable` 返回）。要在第一行脚本前装东西，先开 `about:blank` 再 `Page.navigate`（tabcap 的 `createTab` 就是这样）；OOPIF 和 Worker 在等待调试器时确实停着。
+
+追踪模式（0.4-F，Debugger 断点，只读）：
+- 【实测 spike】`Debugger.paused` 的 `callFrames[].url` 在 CfT 155 上是空串（字段已废弃）；脚本 URL 要用 `callFrames[].location.scriptId` 去查 `Debugger.scriptParsed` 的 `url`。
+- 【实测 spike，0.4-F e2e 复测】装断点用 `EventBreakpoints.setInstrumentationBreakpoint {eventName:"scriptFirstStatement"}`：它的暂停（`reason:"EventListener"`，`data.eventName:"instrumentation:scriptFirstStatement"`）里命令照常响应，`Debugger.evaluateOnCallFrame` 取各 API 的 getter / 函数，再 `Debugger.setBreakpointOnFunctionCall`，然后 resume；新文档（顶层、同源 iframe、OOPIF）的第一条语句前就装好，页面零注入。不要用 `Debugger.setInstrumentationBreakpoint beforeScriptExecution`：它的暂停里除 resume 外的命令都卡到 resume 之后。Worker 在等待调试器时 `Runtime.evaluate` 取 `WorkerNavigator.prototype.*` 并装好再放行。
+- isolated world 里读 Blink 的 getter（如 `navigator.userAgent`）不会命中主世界的断点【实测 spike】；但在 isolated world 里读 `new Date().getTimezoneOffset()` 的值后，表里多出一条脚本 URL 为空的 `Date.prototype.getTimezoneOffset` 读取，丢弃栈里有 isolated world 脚本或追踪自身求值脚本的暂停后消失【实测 0.4-F e2e】。原因是 V8 内建函数的断点跨上下文共享【推断】。
 
 「页面就绪」的判定：
 - 不能只等 `Page.frameNavigated`（新建目标的首次导航经常收不到）或 `Page.loadEventFired`（可能在 `Page.enable` 之前就触发而丢失）。

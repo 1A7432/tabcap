@@ -53,7 +53,7 @@
 
 ### 4.1 P1 必做
 
-**`session`**：`{phase:"start"|"stop", name, mode:{capture:"passive"|"active"|"mixed", trace:false, raw:true}}`。`stop` 时把还没完成的请求按 §5.4 收尾。
+**`session`**：`{phase:"start"|"stop", name, mode:{capture:"passive"|"active"|"mixed", trace:false, raw:true}}`。`stop` 时把还没完成的请求按 §5.4 收尾。`stop` 的 `mode.trace` 等于 manifest 的 `mode.trace`（0.4-F：`false` 或追踪设置对象，见 §7）。
 
 **`tab`**：`{phase:"open"|"attach"|"detach"|"close"|"replace", tab, chromeTabId, owned:bool, url, title, reason}`。
 `reason` 取值：`"ai-opened"`、`"borrowed"`、`"user-cancelled-debugging"`、`"closed"`、`"crashed"`、`"popup"`。
@@ -85,6 +85,18 @@
 分析命令默认不写入；加 `--save` 才追加；`grade` 只有人能标 `人确认`（P2 的 `confirm` 事件会生成它）。
 
 **`note`**：`{actor, text, refs:[…]}`。人或 AI 的旁注。
+
+**`signal`**（0.4-F 追踪模式，10-16 作者定）：`{tab, frame, nav, api:"Navigator.prototype.userAgent", access:"get"|"call", args:<≤256 B summary, after secret substitution>, caller:{kind:"page"|"tabcap", url, scriptId, line, col}, stack:[≤stack frames of {url,line,col}], count, firstMono, lastMono, truncated?:true, value?}`。
+- 只读、只记：页面里什么都不改（不注入脚本、不包 getter、不改值），输出里也不给改值的建议。机制是 Debugger 断点（`Debugger.setBreakpointOnFunctionCall` + `EventBreakpoints` 的 `scriptFirstStatement`），见 `07` §1.1。
+- 聚合：每个 (文档, api, 调用位置) 一条；调用位置是栈顶帧（原生 getter / 函数没有自己的帧）。文档结束（执行上下文销毁、导航、标签关闭）、`trace stop`、录制停止时写入；还开着的文档 `trace list` 也列出（标 pending，未写入包）。录制停止而追踪仍开时，已见的读数先写进这份包，之后从 0 重新计数。
+- `value` 每个文档每个 API 在隔离世界读一次：≤1 KB 内联，否则 blob；canvas / audio 数据只记 `sha256:…`；`document.cookie`、storage 和表单值写 `"<not-recorded>"`；所有文本过守护进程的秘密值替换。只在 window realm、且有无参数无副作用读法时读（navigator / screen 的 getter、`Intl.DateTimeFormat().resolvedOptions()`、`new Date().getTimezoneOffset()`）；要接收者或参数的（canvas、WebGL、字体、权限）和会让页面开始做事的（`getVoices` 会加载语音并触发 `voiceschanged`）没有 `value`；worker 里不读。
+- 限流：`firstN`（默认 20）——同一 (api, 调用位置 url:line:col) 在一次追踪里只有前 N 条事件带栈，之后的事件 `stack:[]`、只计数；`maxHits`（默认 500）——同一 API 在同一文档里命中满 maxHits 次后，该文档的这个断点撤掉，之后的读取不计，该 (文档, api) 的事件都带 `truncated:true`。断点按渲染进程共享，撤掉后同进程的同源 frame 也不再记这个 API，直到下一个文档。`performance.now`、`Date.now`、`Math.random` 不在默认表里。
+- `caller.kind:"tabcap"`：栈里有 tabcap `evaluate` 进行中在该目标上编译的脚本。tabcap 自己读值在隔离世界里做；V8 内建函数（`Date`、`Intl`）的断点跨上下文共享、隔离世界里也会停，这类暂停和栈里有隔离世界脚本的暂停都不记。
+- `access:"event"`：instrumentation 断点也记成 `signal`，`api` 为 `instrumentation:<名>`，`args` 为暂停 `data` 去掉 `eventName` 后的摘要。名字只有 spike 实测会触发的 `canvasContextCreated`、`webglErrorFired`、`audioContextCreated`、`audioContextClosed`（`protocol.json` 不列这些名字，写错也返回成功，代码里集中在一个常量并注明）。`maxHits` 对 event 只停止计数，不撤 instrumentation 断点。
+- `line` / `col` 是 CDP 原值（从 0 起）；`trace list` 显示从 1 起（同 §17 `net show`）。`firstMono` / `lastMono` 是 CDP 单调时钟（毫秒），由守护进程收到暂停的时刻按带 `timestamp` 的 CDP 事件校准估算，无法校准时为 null；信封 `mono` 等于 `firstMono`。
+- worker 里 `Navigator.prototype.*` 解析为 `WorkerNavigator.prototype.*`，`api` 写实际装断点的名字。
+- grade：`signal` 事件是【实测】。
+- 已知盲区（spike Q7）：导航开始之后旧文档里的读取记不到（旧文档不再暂停）；Service Worker / Shared Worker 0.4 不覆盖；交接等人期间（`Debugger.setSkipAllPauses`）不记，期间新加载的文档在 `handoff continue` 时补装断点。
 
 ### 4.2 P2 预留（v0 只占 kind，不实现）
 
@@ -186,6 +198,8 @@
   "session": { "name": "range-s02", "site": "range-demo", "account": "demo",   // 只记站点名和账号名，与本地库靠站点名关联
                "tabs": [ { "tab": "t1", "chromeTabId": 1234, "owned": true, "firstUrl": "…" } ] },
   "mode": { "capture": "mixed", "trace": false, "raw": true, "humanRecorder": true },
+  // 0.4-F：开过追踪模式的包 "trace" 为 {"mechanism": ["fn-breakpoint", "instrumentation"], "apis": "sha256:<of the active signals.json>", "stack": 8, "firstN": 20, "maxHits": 500}（最后一次 trace start 的设置）
+  // "traceWindows": [ { "fromSeq": 120, "toSeq": 388 } ],  // 每个开 / 关窗口一条，两端是开、关时写的 note 事件的 seq；开着时 toSeq 为 null；没开过追踪则无此字段
   "counts": { "events": 412, "requests": 97, "bodies": 91, "blobBytes": 18234567,
               "bodyMissing": { "redirect": 3, "not-modified": 2, "navigated": 1 } },
   "redaction": null,                               // 导出副本里是 {"rules": "default@1", "applied": 1760500950000, "salt": "<仅本地副本保留>"}
@@ -350,3 +364,7 @@
 ## 20. 0.3-E 裁决（10-15）
 
 按实现定案：`--trusted` 的降级只有「确认不了绘制」一种，元素无盒子仍报 `page`；散布只有代码开关；`type --trusted` 不做绘制确认，只靠每条 5 s 超时；`--delay` 指两个字符之间的间隔；默认 `type` 与 `--insert` 都标 `eventShape:"insert"`；`unreadByPage` 只在 1 s 时查一次；这类 `finished` 请求进 HAR 时 `time` 为 -1（HAR 1.2 未规定负值，沿用现有约定）；升格的探针页去掉了指纹与 CDP 探针段，只保留输入事件记录。
+
+## 21. 0.4-F 按实现定案（10-16，待作者审）
+
+追踪模式实现时按字面解的几处：`trace start` 不要求在录制，未录制时只在内存里计数（`trace status` 可见），`signal` 只写进正在录的包，输出带 warning；`net start` 时追踪已开则这份包从此开一个窗口；`firstN` 按 (api, 调用位置 url:line:col) 跨文档计「带栈的事件」条数（不是每文档每次命中）；一条事件只有一个 `stack`（首次命中的栈）；`get` / `call` 的 `args` 为 null（函数调用断点的暂停里拿不到原生函数的实参），只有 `event` 有 `args`；worker 不读 `value`；`window.devicePixelRatio` 在 CfT 155 上是全局对象自有的访问器、原型链上没有，按「else skip and say so」跳过，`trace status` 的 `skipped` 写明原因；窗口两端用 `note` 事件的 seq；`trace list` 的 `--api` 精确匹配、`--script` 子串匹配；`trace start` 自己的输出带那句提示（即「trace start 之后的第一条输出」），`trace status` 也带。
