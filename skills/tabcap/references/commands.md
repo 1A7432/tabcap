@@ -195,7 +195,7 @@ Example: `tabcap session list`
 hand the logged-in tab's session to a script: its cookies, the authentication headers the page sent (sensitive or page-set headers of the latest recorded request to the origin's host; needs net start) and its localStorage / sessionStorage (values over 64 KB skipped), written to a 0600 file; prints the path, counts and header names, never a value
 
 ```
-tabcap session export [--session name] [--timeout ms] [--tab t2] --for <requests|httpx|playwright> --out <file> [--origin url]
+tabcap session export [--session name] [--timeout ms] [--tab t2] --for <requests|httpx|playwright> --out <file> [--origin url|host]
 ```
 
 Example: `tabcap session export --for httpx --out ./example_session.py`
@@ -205,7 +205,7 @@ Example: `tabcap session export --for httpx --out ./example_session.py`
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--for <requests\|httpx\|playwright>` |  | requests (JSON, schema tabcap-session-export/0) \| httpx (a Python module <file>.py with cookies, headers, storage and client()) \| playwright (storageState: cookies and localStorage only) (required) |
 | `--out <file>` |  | file to write, mode 0600 (new directories 0700); --for httpx adds .py when missing (required) |
-| `--origin <url>` |  | export this origin instead of the tab's (the tab's page or one of its frames must be on it) |
+| `--origin <url\|host>` |  | export this origin instead of the tab's page, e.g. the API origin a single-page app calls (a URL, or a host: the scheme its recorded requests used, else https): the headers of the latest recorded request to it from any tab, its cookies next to the page's. Without it, when the page's origin got no auth-looking header, the recorded host with the most of them gives the headers (source.headers.auto) |
 
 ### `tabcap tab list`
 
@@ -740,7 +740,7 @@ Example: `tabcap net wait --url /api/search --method POST`
 send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) | bodyFile, timing, waitedMs}
 
 ```
-tabcap fetch [<url>] [--session name] [--timeout ms] [--tab t2] [--method M] [--header k:v]... [--body text|@file] [--json text|@file] [--form k=v]... [--stop-on rule]... [--out file] [--raw] [--batch file.jsonl] [--reveal]
+tabcap fetch [<url>] [--session name] [--timeout ms] [--tab t2] [--method M] [--header k:v]... [--body text|@file] [--json text|@file] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--out file] [--raw] [--batch file.jsonl] [--reveal]
 ```
 
 Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
@@ -753,10 +753,11 @@ Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
 | `--body <text\|@file>` |  | request body text, or @<file> to read it from a file |
 | `--json <text\|@file>` |  | JSON request body (checked; content-type application/json unless --header sets one), or @<file> |
 | `--form <k=v>` |  | form field of an application/x-www-form-urlencoded body (repeatable) |
+| `--credentials <include\|same-origin\|omit>` | `include` | the page fetch()'s credentials option: include (cookies on every origin) \| same-origin \| omit (no cookies; for an API that answers Access-Control-Allow-Origin: * and authenticates by a header); with --batch: for lines without their own |
 | `--stop-on <rule>` |  | stop rule, on top of config.json fetch.stopOn: empty-body \| status>=<n> \| status=<n> \| json:<$.path>=<v> \| json:<$.path>!=<v> \| text:<regex>; when one fires the site's fetches are refused until `tabcap guard resume --site` (repeatable) |
 | `--out <file>` |  | write the body (text secret-scrubbed) to this file instead of inline / bodyFile |
 | `--raw` |  | the body as base64 inline (bodyBase64, up to 16 MB; text secret-scrubbed) instead of inline text / bodyFile |
-| `--batch <file.jsonl>` |  | JSON lines file, one request per line {url, method?, headers?, body?\|json?\|form?, tab?, timeoutMs?, stopOn?}: sent in order under the same limits, one envelope printed per line |
+| `--batch <file.jsonl>` |  | JSON lines file, one request per line {url, method?, headers?, body?\|json?\|form?, credentials?, tab?, timeoutMs?, stopOn?}: sent in order under the same limits, one envelope printed per line |
 | `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ### `tabcap where`

@@ -89,8 +89,11 @@ export function fetchArgs(a: Record<string, unknown>, cwd: string, read: ReadTex
     if (clash.length > 0) throw usage(`--batch takes the requests from the file; leave out ${clash.join(", ")}`);
     const timeoutMs = typeof a["timeoutMs"] === "number" ? a["timeoutMs"] : undefined;
     const lines = batchLines(read(resolve(cwd, batchFile)));
+    const credentials = typeof a["credentials"] === "string" ? a["credentials"] : undefined;
     const withTimeout = timeoutMs === undefined ? lines : lines.map((l) => ("timeoutMs" in l ? l : { ...l, timeoutMs }));
-    return { batch: a["reveal"] === true ? withTimeout.map((l) => ("reveal" in l ? l : { ...l, reveal: true })) : withTimeout };
+    // 0.6-P: --credentials is the mode of the lines that do not name their own.
+    const withMode = credentials === undefined ? withTimeout : withTimeout.map((l) => ("credentials" in l ? l : { ...l, credentials }));
+    return { batch: a["reveal"] === true ? withMode.map((l) => ("reveal" in l ? l : { ...l, reveal: true })) : withMode };
   }
   if (typeof a["url"] !== "string" || a["url"] === "") throw usage("missing <url>");
   const out: Record<string, unknown> = { url: a["url"] };
@@ -105,7 +108,7 @@ export function fetchArgs(a: Record<string, unknown>, cwd: string, read: ReadTex
   if (form.length > 0) out["form"] = form;
   const stopOn = list(a["stopOn"]);
   if (stopOn.length > 0) out["stopOn"] = stopOn;
-  for (const k of ["tab", "out", "timeoutMs"]) if (a[k] !== undefined) out[k] = a[k];
+  for (const k of ["tab", "out", "timeoutMs", "credentials"]) if (a[k] !== undefined) out[k] = a[k];
   if (a["rawBody"] === true) out["rawBody"] = true;
   if (a["reveal"] === true) out["reveal"] = true;
   return out;

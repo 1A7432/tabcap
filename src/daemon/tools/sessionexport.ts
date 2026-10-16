@@ -1,22 +1,31 @@
 // 0.6-F `tabcap session export --for requests|httpx|playwright --out <file>
-// [--origin <url>] [--tab t2]`: hand the logged-in tab's session to a script.
-// The file holds live credentials by design (like `replay session`): it is
-// written 0600 (new directories 0700) and no value is ever printed; the
+// [--origin <url or host>] [--tab t2]`: hand the logged-in tab's session to a
+// script. The file holds live credentials by design (like `replay session`):
+// it is written 0600 (new directories 0700) and no value is ever printed; the
 // answer carries the path, counts and header names only.
+// The export origin is the tab's page origin, or `--origin` (0.6-P: any
+// origin, e.g. the API origin a single-page app calls; a bare host takes the
+// scheme its recorded requests used, else https).
 // What goes in:
-//   - cookies: Network.getCookies for the export origin (its root URL and the
-//     tab's URL when it is on that origin), plus Storage.getCookies of the
-//     session's own browser context when it has one (a pool account, 0.4-D);
+//   - cookies: Network.getCookies for the export origin's root URL, the tab's
+//     page (0.6-P: always, next to an `--origin` one), the frame storage is
+//     read from and the origin the headers came from, plus Storage.getCookies
+//     of the session's own browser context when it has one (a pool account,
+//     0.4-D);
 //   - headers: from the most recent recorded request (open or last finished
-//     recording of this session) to the origin's host that carries a selected
-//     header (else the most recent one, which then gives none): every header
-//     that is sensitive (the `bundle redact` header rule, x-csrf* / x-xsrf*,
-//     *-token, *-auth*, api-key) or that the page set itself, i.e. not a
-//     header the browser adds (BROWSER_HEADERS); cookie goes in `cookies`,
-//     proxy-* (the pool proxy's credentials) and pseudo-headers never;
+//     recording of this session, any tab) to the export origin's host that
+//     carries a selected header (else the most recent one, which then gives
+//     none): every header that is sensitive (the `bundle redact` header rule,
+//     x-csrf* / x-xsrf*, *-token, *-auth*, api-key) or that the page set
+//     itself, i.e. not a header the browser adds (BROWSER_HEADERS); cookie
+//     goes in `cookies`, proxy-* (the pool proxy's credentials) and
+//     pseudo-headers never. 0.6-P: without --origin, when that yields no
+//     auth-looking (sensitive) header, the recorded host whose latest request
+//     carries the most of them is used instead and the answer says so
+//     (`source.headers.auto`);
 //   - storage: localStorage and sessionStorage, read in tabcap's isolated
-//     world of the tab's frame on that origin; values over 64 KB are skipped
-//     and listed (key, size).
+//     world of the tab's frame on the export origin (else the tab's page);
+//     values over 64 KB are skipped and listed (key, size).
 // Formats: `requests` = JSON schema tabcap-session-export/0; `httpx` = a
 // Python module <file>.py (cookies / headers / storage dicts, client());
 // `playwright` = the `replay session` storageState (cookies, localStorage),
@@ -49,7 +58,7 @@ export const EXPORT_FORMATS = ["requests", "httpx", "playwright"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 /** Storage values (UTF-8 bytes) above this are skipped and listed. */
 export const STORAGE_VALUE_MAX = 64 * 1024;
-const USAGE = "tabcap session export --for requests|httpx|playwright --out <file> [--origin <url>] [--tab t2]";
+const USAGE = "tabcap session export --for requests|httpx|playwright --out <file> [--origin <url or host>] [--tab t2]";
 const LIVE_NOTE = "live session credentials: keep this file out of the repository and do not share it; it expires with the session";
 
 // ------------------------------------------------------------ headers
@@ -90,15 +99,13 @@ export function selectHeaders(h: unknown): Record<string, string> {
 
 export type HeaderSource = { id: string; url: string; headers: Record<string, string> };
 
-/**
- * The request the headers come from: the most recent `request` event to
- * `host` (URL host, port included) that carries a selected header, else the
- * most recent one to that host (no headers); null when none was recorded.
- * `lines`: events.jsonl, untrusted (bad lines are skipped).
- */
-export function headerSource(lines: Iterable<string>, host: string): HeaderSource | null {
-  let lastAny: HeaderSource | null = null;
-  let lastWith: HeaderSource | null = null;
+/** How many of the selected headers look like authentication (the sensitive class), 0.6-P. */
+export function authCount(headers: Record<string, string>): number {
+  return Object.keys(headers).filter((n) => headerClass(n) === "sensitive").length;
+}
+
+/** The `request` events of events.jsonl lines (untrusted: torn or foreign lines are skipped). */
+function* requestEvents(lines: Iterable<string>): Generator<{ id: string; url: string; host: string; headers: unknown }> {
   for (const line of lines) {
     if (!line.includes('"kind":"request"')) continue;
     let ev: unknown;
@@ -110,13 +117,55 @@ export function headerSource(lines: Iterable<string>, host: string): HeaderSourc
     if (!isRecord(ev) || ev["kind"] !== "request") continue;
     const id = str(ev, "id");
     const url = str(ev, "url");
-    if (id === null || url === null || hostOf(url) !== host) continue;
+    const host = url === null ? null : hostOf(url);
+    if (id === null || url === null || host === null) continue;
     const req = isRecord(ev["request"]) ? ev["request"] : {};
-    const s = { id, url, headers: selectHeaders(req["headers"]) };
+    yield { id, url, host, headers: req["headers"] };
+  }
+}
+
+/**
+ * The request the headers come from: the most recent `request` event to
+ * `host` (URL host, port included) that carries a selected header, else the
+ * most recent one to that host (no headers); null when none was recorded.
+ * `lines`: events.jsonl, untrusted (bad lines are skipped).
+ */
+export function headerSource(lines: Iterable<string>, host: string): HeaderSource | null {
+  let lastAny: HeaderSource | null = null;
+  let lastWith: HeaderSource | null = null;
+  for (const r of requestEvents(lines)) {
+    if (r.host !== host) continue;
+    const s = { id: r.id, url: r.url, headers: selectHeaders(r.headers) };
     lastAny = s;
     if (Object.keys(s.headers).length > 0) lastWith = s;
   }
   return lastWith ?? (lastAny === null ? null : { ...lastAny, headers: {} });
+}
+
+/**
+ * 0.6-P fallback: per recorded host, its latest request that carries an
+ * auth-looking header; of those, the one with the most such headers (a tie:
+ * the later request). Null when no recorded request carries one.
+ */
+export function authSource(lines: Iterable<string>): HeaderSource | null {
+  const byHost = new Map<string, { s: HeaderSource; n: number; order: number }>();
+  let order = 0;
+  for (const r of requestEvents(lines)) {
+    order++;
+    const headers = selectHeaders(r.headers);
+    const n = authCount(headers);
+    if (n > 0) byHost.set(r.host, { s: { id: r.id, url: r.url, headers }, n, order });
+  }
+  let best: { s: HeaderSource; n: number; order: number } | null = null;
+  for (const c of byHost.values()) if (best === null || c.n > best.n || (c.n === best.n && c.order > best.order)) best = c;
+  return best?.s ?? null;
+}
+
+/** The origin (scheme included) of the latest recorded request to a host, or null. */
+export function recordedOrigin(lines: Iterable<string>, host: string): string | null {
+  let last: string | null = null;
+  for (const r of requestEvents(lines)) if (r.host === host) last = stateOrigin(r.url);
+  return last;
 }
 
 function hostOf(url: string): string | null {
@@ -215,12 +264,23 @@ export type SessionData = {
   cookies: StorageCookie[];
   headers: Record<string, string>;
   storage: { localStorage: Record<string, string>; sessionStorage: Record<string, string> };
-  source: { headers: string };
+  /** 0.6-P: where the headers came from, and the origin storage was read on (null: none read). */
+  source: { headers: HeadersFrom; storage: string | null };
 };
 
+/** `source.headers` (0.6-P): the recorded request, its origin, and whether the fallback chose it (`auto`). */
+export type HeadersFrom = { request: string | null; origin: string | null; auto: boolean };
+
+/** One sentence on where the headers came from (file note and answer note). */
+export function headersNote(s: SessionData): string {
+  const h = s.source.headers;
+  if (h.request === null) return "no recorded request to this origin's host: headers are empty; run `tabcap net start` first and let the page make its requests";
+  if (h.auto) return `no auth-looking header in the recorded requests to ${s.origin}, so the headers come from ${h.request} to ${h.origin ?? "?"}, the recorded host whose requests carry the most of them (source.headers.auto); pass --origin to choose`;
+  return `headers from recorded request ${h.request}${h.origin !== null && h.origin !== s.origin ? ` to ${h.origin}` : ""}`;
+}
+
 export function noteOf(s: SessionData): string {
-  const h = s.source.headers === "none" ? "no recorded request to this origin's host: headers are empty (run `tabcap net start` first and let the page make its requests)" : `headers from recorded request ${s.source.headers}`;
-  return `${LIVE_NOTE}; ${h}`;
+  return `${LIVE_NOTE}; ${headersNote(s)}`;
 }
 
 /** `--for requests`: the JSON document (schema tabcap-session-export/0). */
@@ -233,7 +293,9 @@ export function renderRequests(s: SessionData): string {
         capturedAt: s.capturedAt,
         cookies: s.cookies,
         headers: s.headers,
+        headersFrom: s.source.headers,
         storage: s.storage,
+        storageOrigin: s.source.storage,
         note: noteOf(s),
       },
       null,
@@ -245,7 +307,7 @@ export function renderRequests(s: SessionData): string {
 /** `--for playwright`: Playwright storageState (as `replay session` writes it). */
 export function renderPlaywright(s: SessionData): string {
   const ls = Object.entries(s.storage.localStorage).map(([name, value]) => ({ name, value }));
-  const state: StorageState = { cookies: s.cookies, origins: ls.length === 0 ? [] : [{ origin: s.origin, localStorage: ls }] };
+  const state: StorageState = { cookies: s.cookies, origins: ls.length === 0 ? [] : [{ origin: s.source.storage ?? s.origin, localStorage: ls }] };
   return JSON.stringify(state, null, 2) + "\n";
 }
 
@@ -279,7 +341,9 @@ export function renderHttpx(s: SessionData): string {
     "",
     `ORIGIN = ${pyStr(s.origin)}`,
     `CAPTURED_AT = ${String(s.capturedAt)}  # ms since the epoch`,
-    `HEADERS_FROM = ${pyStr(s.source.headers)}  # recorded request id, or "none"`,
+    `HEADERS_FROM = ${pyStr(s.source.headers.request ?? "none")}  # recorded request id, or "none"`,
+    `HEADERS_ORIGIN = ${s.source.headers.origin === null ? "None" : pyStr(s.source.headers.origin)}  # where that request went${s.source.headers.auto ? " (chosen automatically: no auth header to ORIGIN)" : ""}`,
+    `STORAGE_ORIGIN = ${s.source.storage === null ? "None" : pyStr(s.source.storage)}  # the origin storage was read on`,
     "",
     "# name -> value (a name set on several domains / paths: the last one; COOKIE_RECORDS has them all)",
     `cookies: dict[str, str] = ${pyDict(Object.fromEntries(byName))}`,
@@ -347,7 +411,7 @@ export function exportSummary(fmt: ExportFormat, file: string, s: SessionData, s
   if (skipped.length > 0) out["skipped"] = skipped;
   const all = [...notes];
   if (playwright && (names.length > 0 || ss > 0)) all.push("storageState has no place for headers or sessionStorage (see omitted); --for requests or httpx carries them");
-  all.push(s.source.headers === "none" ? "no recorded request to this origin's host: headers are empty; run `tabcap net start` first and let the page make its requests" : `headers from recorded request ${s.source.headers}`);
+  all.push(headersNote(s));
   all.push(`the file holds ${LIVE_NOTE}`);
   out["note"] = all.join("; ");
   return out;
@@ -355,10 +419,17 @@ export function exportSummary(fmt: ExportFormat, file: string, s: SessionData, s
 
 // ------------------------------------------------------------ the tool
 
-function originArg(raw: string): string {
-  const o = stateOrigin(raw);
-  if (o === null) throw new TabcapError("usage", `--origin ${cut(raw)} is not an http(s) URL`, "Give an origin such as --origin https://api.example.com (a frame of the tab must be on it).");
-  return o;
+const BARE_HOST = /^(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])(?::\d{1,5})?$/;
+
+/** `--origin`: an http(s) URL (its origin), or a bare host[:port] (the scheme its recorded requests used, else https). */
+export function originArg(raw: string, lines: readonly string[]): string {
+  const t = raw.trim();
+  const o = stateOrigin(t);
+  if (o !== null) return o;
+  const host = t.toLowerCase();
+  const asHttps = BARE_HOST.test(host) ? stateOrigin(`https://${host}`) : null;
+  if (asHttps !== null) return recordedOrigin(lines, new URL(asHttps).host) ?? recordedOrigin(lines, host) ?? asHttps;
+  throw new TabcapError("usage", `--origin ${cut(raw)} is not an http(s) URL or a host`, "Give an origin such as --origin https://api.example.com, or a host such as --origin api.example.com.");
 }
 
 /** The tab's frame on `origin` (the root document first). */
@@ -381,6 +452,7 @@ export async function sessionExport(d: Daemon, a: Args, session: string): Promis
   if (outArg === null || outArg === "") throw new TabcapError("usage", "missing --out", `Usage: ${USAGE}`);
   const file = exportPath(outArg, fmt);
   const originOpt = optStr(a, "origin");
+  const given = originOpt !== null && originOpt.trim() !== "";
   const { t, tabs } = d.need();
   const tab: Tab = tabs.pick(session, optStr(a, "tab"));
   const rec = d.recorders.get(session) ?? d.lastBundles.get(session) ?? null;
@@ -389,44 +461,67 @@ export async function sessionExport(d: Daemon, a: Args, session: string): Promis
     tab,
     async () => {
       await settle(tab, 10_000);
+      if (rec !== null) await rec.flushEvents();
+      const lines = rec === null ? [] : recordedLines(rec.dir);
       const tabOrigin = stateOrigin(tab.url);
-      const origin = originOpt !== null && originOpt !== "" ? originArg(originOpt) : tabOrigin;
+      const origin = given && originOpt !== null ? originArg(originOpt, lines) : tabOrigin;
       if (origin === null) throw new TabcapError("usage", `tab ${tab.id} is not on an http(s) page (${cut(tab.url)})`, "Navigate the tab to the logged-in site first, or pass --origin.");
-      const frames = await rawFrames(t, tab);
-      const frame = frameOn(frames, origin);
-      if (frame === null) throw new TabcapError("not-found", `no frame of tab ${tab.id} is on ${origin}`, "--origin selects an origin the tab shows (its page or one of its frames); navigate there first.");
 
-      const urls = [`${origin}/`, ...(stateOrigin(tab.url) === origin ? [tab.url] : []), ...(frame.url !== "" && stateOrigin(frame.url) === origin ? [frame.url] : [])];
+      // Headers: the latest recorded request to the export origin's host (any tab of the session); without
+      // --origin and without an auth-looking header there, the recorded host carrying the most of them (0.6-P).
+      let src: HeaderSource | null = rec === null ? null : headerSource(lines, new URL(origin).host);
+      let auto = false;
+      if (rec !== null && !given && (src === null || authCount(src.headers) === 0)) {
+        const best = authSource(lines);
+        if (best !== null) {
+          src = best;
+          auto = true;
+        }
+      }
+      const headersOrigin = src === null ? null : stateOrigin(src.url);
+
+      // Storage: the tab's frame on the export origin, else its page (an API origin usually has no frame).
+      const frames = await rawFrames(t, tab);
+      const frame = frameOn(frames, origin) ?? (tabOrigin === null ? null : frameOn(frames, tabOrigin));
+      const notes: string[] = [];
+      let ls: StorageRead = { items: {}, skipped: [], error: null };
+      let ss: StorageRead = { items: {}, skipped: [], error: null };
+      const storageOrigin = frame === null ? null : (stateOrigin(frame.securityOrigin) ?? stateOrigin(frame.url));
+      if (frame === null) notes.push(`no frame of tab ${tab.id} is on an http(s) origin: storage is empty`);
+      else {
+        if (storageOrigin !== origin) notes.push(`no frame of tab ${tab.id} is on ${origin}: storage is the page's (${storageOrigin ?? "?"})`);
+        const doc = { frameId: frame.frameId, loaderId: frame.loaderId, url: frame.url, sessionId: frame.sessionId };
+        const r = await inWorld(t, tab, doc, (c) =>
+          t.send("Runtime.callFunctionOn", { functionDeclaration: STORAGE_FN, executionContextId: c, arguments: [{ value: STORAGE_VALUE_MAX }], returnByValue: true }, frame.sessionId, 10_000),
+        );
+        const v = callResult(r);
+        ls = storageOf(isRecord(v) ? v["localStorage"] : null);
+        ss = storageOf(isRecord(v) ? v["sessionStorage"] : null);
+        if (ls.error !== null) notes.push(`localStorage not readable: ${ls.error}`);
+        if (ss.error !== null) notes.push(`sessionStorage not readable: ${ss.error}`);
+      }
+      const skipped = [...ls.skipped.map((x) => ({ storage: "localStorage", ...x })), ...ss.skipped.map((x) => ({ storage: "sessionStorage", ...x }))];
+      if (skipped.length > 0) notes.push(`${skipped.length} storage value(s) over ${STORAGE_VALUE_MAX / 1024} KB skipped (see skipped)`);
+
+      // Cookies: the export origin's next to the page's (0.6-P), plus the storage frame's and the headers' origin's.
+      const urls = [
+        `${origin}/`,
+        ...(tabOrigin === null ? [] : [`${tabOrigin}/`, tab.url]),
+        ...(frame !== null && stateOrigin(frame.url) !== null ? [frame.url] : []),
+        ...(headersOrigin === null ? [] : [`${headersOrigin}/`]),
+      ];
       const lists: unknown[][] = [cookieArray(await t.send("Network.getCookies", { urls: [...new Set(urls)] }, tab.sessionId, 5000))];
       // 0.4-D: a pool account's own browser context holds the account's whole jar.
       if (ctx !== undefined) lists.push(cookieArray(await t.send("Storage.getCookies", { browserContextId: ctx.browserContextId }, null, 5000)));
       const cookies = mergeCookies(lists);
 
-      const doc = { frameId: frame.frameId, loaderId: frame.loaderId, url: frame.url, sessionId: frame.sessionId };
-      const r = await inWorld(t, tab, doc, (c) =>
-        t.send("Runtime.callFunctionOn", { functionDeclaration: STORAGE_FN, executionContextId: c, arguments: [{ value: STORAGE_VALUE_MAX }], returnByValue: true }, frame.sessionId, 10_000),
-      );
-      const v = callResult(r);
-      const ls = storageOf(isRecord(v) ? v["localStorage"] : null);
-      const ss = storageOf(isRecord(v) ? v["sessionStorage"] : null);
-      const notes: string[] = [];
-      if (ls.error !== null) notes.push(`localStorage not readable: ${ls.error}`);
-      if (ss.error !== null) notes.push(`sessionStorage not readable: ${ss.error}`);
-      const skipped = [...ls.skipped.map((x) => ({ storage: "localStorage", ...x })), ...ss.skipped.map((x) => ({ storage: "sessionStorage", ...x }))];
-      if (skipped.length > 0) notes.push(`${skipped.length} storage value(s) over ${STORAGE_VALUE_MAX / 1024} KB skipped (see skipped)`);
-
-      let src: HeaderSource | null = null;
-      if (rec !== null) {
-        await rec.flushEvents();
-        src = headerSource(recordedLines(rec.dir), new URL(origin).host);
-      }
       const data: SessionData = {
         origin,
         capturedAt: Date.now(),
         cookies,
         headers: src?.headers ?? {},
         storage: { localStorage: ls.items, sessionStorage: ss.items },
-        source: { headers: src === null ? "none" : src.id },
+        source: { headers: { request: src?.id ?? null, origin: headersOrigin, auto }, storage: storageOrigin },
       };
       const text = fmt === "requests" ? renderRequests(data) : fmt === "httpx" ? renderHttpx(data) : renderPlaywright(data);
       writeSecretFile(file, text);

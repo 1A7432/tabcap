@@ -249,7 +249,13 @@ export const COMMANDS: CommandSpec[] = [
       ...TT,
       { flag: "--for", key: "for", kind: "string", help: "requests (JSON, schema tabcap-session-export/0) | httpx (a Python module <file>.py with cookies, headers, storage and client()) | playwright (storageState: cookies and localStorage only)", required: true, metavar: "requests|httpx|playwright" },
       { flag: "--out", key: "out", kind: "string", help: "file to write, mode 0600 (new directories 0700); --for httpx adds .py when missing", required: true, metavar: "file" },
-      { flag: "--origin", key: "origin", kind: "string", help: "export this origin instead of the tab's (the tab's page or one of its frames must be on it)", metavar: "url" },
+      {
+        flag: "--origin",
+        key: "origin",
+        kind: "string",
+        help: "export this origin instead of the tab's page, e.g. the API origin a single-page app calls (a URL, or a host: the scheme its recorded requests used, else https): the headers of the latest recorded request to it from any tab, its cookies next to the page's. Without it, when the page's origin got no auth-looking header, the recorded host with the most of them gives the headers (source.headers.auto)",
+        metavar: "url|host",
+      },
     ],
     summary:
       "hand the logged-in tab's session to a script: its cookies, the authentication headers the page sent (sensitive or page-set headers of the latest recorded request to the origin's host; needs net start) and its localStorage / sessionStorage (values over 64 KB skipped), written to a 0600 file; prints the path, counts and header names, never a value",
@@ -663,6 +669,14 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--json", key: "json", kind: "string", help: "JSON request body (checked; content-type application/json unless --header sets one), or @<file>", metavar: "text|@file" },
       { flag: "--form", key: "form", kind: "string", repeat: true, help: "form field of an application/x-www-form-urlencoded body", metavar: "k=v" },
       {
+        flag: "--credentials",
+        key: "credentials",
+        kind: "string",
+        help: "the page fetch()'s credentials option: include (cookies on every origin) | same-origin | omit (no cookies; for an API that answers Access-Control-Allow-Origin: * and authenticates by a header); with --batch: for lines without their own",
+        default: "include",
+        metavar: "include|same-origin|omit",
+      },
+      {
         flag: "--stop-on",
         key: "stopOn",
         kind: "string",
@@ -676,7 +690,7 @@ export const COMMANDS: CommandSpec[] = [
         flag: "--batch",
         key: "batch",
         kind: "string",
-        help: "JSON lines file, one request per line {url, method?, headers?, body?|json?|form?, tab?, timeoutMs?, stopOn?}: sent in order under the same limits, one envelope printed per line",
+        help: "JSON lines file, one request per line {url, method?, headers?, body?|json?|form?, credentials?, tab?, timeoutMs?, stopOn?}: sent in order under the same limits, one envelope printed per line",
         metavar: "file.jsonl",
       },
       REVEAL,

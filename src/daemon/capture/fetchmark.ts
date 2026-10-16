@@ -10,7 +10,7 @@
 
 import { isRecord } from "../../shared/json.ts";
 import type { Headers } from "../../bundle/types.ts";
-import { FETCH_MARKER } from "../fetch/spec.ts";
+import { FETCH_MARKER, type FetchCredentials } from "../fetch/spec.ts";
 
 export { FETCH_MARKER };
 
@@ -26,6 +26,8 @@ export type FetchReg = {
   fnName: string;
   /** Runtime.compileScript's scriptId of the helper; set before the script runs. */
   scriptId: string | null;
+  /** 0.6-P: the fetch()'s credentials mode, written on every request of the fetch (`fetchCredentials`). */
+  credentials: FetchCredentials;
 };
 
 /** The marker value in a CDP headers object (any name case), or null. */

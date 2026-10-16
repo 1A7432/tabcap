@@ -1,11 +1,11 @@
 // The request a `tabcap fetch` sends (0.6-A). One shape for the CLI and the
 // daemon's `POST /fetch` endpoint: {url, method?, headers?, body?|json?|form?,
-// tab?, timeoutMs?, stopOn?, out?, rawBody?, reveal?}. Everything here is untrusted
+// credentials?, tab?, timeoutMs?, stopOn?, out?, rawBody?, reveal?}. Everything here is untrusted
 // JSON (a script on the machine sends it): malformed input is a usage error,
 // never a crash.
 
 import { TabcapError } from "../../shared/envelope.ts";
-import { isRecord } from "../../shared/json.ts";
+import { isRecord, oneOf } from "../../shared/json.ts";
 
 /** The request header the in-tab helper adds on same-origin fetches; the recorder removes it before the request leaves Chrome. */
 export const FETCH_MARKER = "x-tabcap-fetch";
@@ -15,15 +15,21 @@ const MAX_HEADERS = 100;
 const MAX_URL = 8192;
 /** Request bodies are text; 16 MB is far above what a page posts. */
 export const MAX_REQUEST_BODY = 16 * 1024 * 1024;
+/** 0.6-P: the page fetch()'s `credentials` option (Fetch Standard, RequestCredentials); default include. */
+export const FETCH_CREDENTIALS = ["include", "same-origin", "omit"] as const;
+export type FetchCredentials = (typeof FETCH_CREDENTIALS)[number];
+export const DEFAULT_FETCH_CREDENTIALS: FetchCredentials = "include";
 
 export const FETCH_USAGE =
-  "tabcap fetch <url> [--method M] [--header k:v]... [--body <text>|@<file>] [--json <text>|@<file>] [--form k=v]... [--stop-on rule]... [--out file] [--tab t2] [--timeout ms] | tabcap fetch --batch <file.jsonl>";
+  "tabcap fetch <url> [--method M] [--header k:v]... [--body <text>|@<file>] [--json <text>|@<file>] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--out file] [--tab t2] [--timeout ms] | tabcap fetch --batch <file.jsonl>";
 
 export type FetchSpec = {
   url: string;
   method: string;
   headers: Array<[string, string]>;
   body: string | null;
+  /** 0.6-P: fetch()'s credentials mode; omit sends no cookies (for APIs that answer `Access-Control-Allow-Origin: *`). */
+  credentials: FetchCredentials;
   tab: string | null;
   timeoutMs: number;
   stopOn: string[];
@@ -108,6 +114,9 @@ export function parseFetchSpec(a: unknown): FetchSpec {
   }
   if (body !== null && body.length > MAX_REQUEST_BODY) throw usage(`the request body is over ${MAX_REQUEST_BODY} characters`);
   if (body !== null && (method === "GET" || method === "HEAD")) throw usage(`a ${method} request has no body; add --method POST (or PUT, PATCH …)`);
+  const cr = a["credentials"];
+  if (cr !== undefined && cr !== null && (typeof cr !== "string" || !oneOf(FETCH_CREDENTIALS, cr))) throw usage(`credentials must be one of ${FETCH_CREDENTIALS.join(", ")}`);
+  const credentials: FetchCredentials = typeof cr === "string" && oneOf(FETCH_CREDENTIALS, cr) ? cr : DEFAULT_FETCH_CREDENTIALS;
   const tab = a["tab"];
   if (tab !== undefined && tab !== null && (typeof tab !== "string" || !/^t\d{1,6}$/.test(tab))) throw usage("tab must be a tab id like t2");
   const t = a["timeoutMs"];
@@ -132,6 +141,7 @@ export function parseFetchSpec(a: unknown): FetchSpec {
     method,
     headers,
     body,
+    credentials,
     tab: typeof tab === "string" ? tab : null,
     timeoutMs: typeof t === "number" ? Math.round(t) : DEFAULT_FETCH_TIMEOUT_MS,
     stopOn,

@@ -14,6 +14,7 @@ import { isRecord } from "../shared/json.ts";
 import { log } from "../shared/log.ts";
 import type { Paths } from "../shared/paths.ts";
 import { ACTION_COMMANDS, Daemon } from "./state.ts";
+import { DEFAULT_FETCH_CREDENTIALS } from "./fetch/spec.ts";
 import { BLOCKED_WHILE_WAITING, waitingError } from "./guard.ts";
 import { Store } from "./store/db.ts";
 import { screenshot } from "./tools/page.ts";
@@ -139,15 +140,29 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   return env;
 }
 
-/** A fetch's request body can be megabytes: the `cmd` start event keeps text fields up to 4096 chars. */
+/**
+ * A fetch's request body can be megabytes: the `cmd` start event keeps text
+ * fields up to 4096 chars. 0.6-P: it always says which credentials mode the
+ * page fetch() used (the default `include` too); a batch counts its lines per mode.
+ */
 export function fetchInput(args: Record<string, unknown>): Record<string, unknown> {
   const cut = (v: unknown): unknown => (typeof v === "string" && v.length > 4096 ? `${v.slice(0, 4096)}… (${v.length} chars)` : v);
+  // Validation comes later (a bad mode is a usage error); here the value as given, cut, or the default.
+  const modeOf = (v: unknown): string => (typeof v === "string" ? v.slice(0, 40) : v === undefined || v === null ? DEFAULT_FETCH_CREDENTIALS : typeof v);
   const out: Record<string, unknown> = {};
+  const batch = args["batch"];
   for (const [k, v] of Object.entries(args)) {
-    if (k === "batch" && Array.isArray(v)) out[k] = { requests: v.length };
-    else if (k === "json") out[k] = cut(JSON.stringify(v) ?? null);
+    if (k === "batch" && Array.isArray(v)) {
+      const modes: Record<string, number> = {};
+      for (const line of v) {
+        const m = modeOf(isRecord(line) ? line["credentials"] : undefined);
+        modes[m] = (modes[m] ?? 0) + 1;
+      }
+      out[k] = { requests: v.length, credentials: modes };
+    } else if (k === "json") out[k] = cut(JSON.stringify(v) ?? null);
     else out[k] = cut(v);
   }
+  if (batch === undefined || batch === null) out["credentials"] = modeOf(args["credentials"]);
   return out;
 }
 
@@ -159,7 +174,7 @@ function withoutResult(e: Record<string, unknown>): Record<string, unknown> {
 
 /** `POST /fetch` (0.6-A): one `tabcap fetch` for a script; same auth as /command, same envelope as the CLI. */
 export async function handleFetch(d: Daemon, body: unknown, shutdown: () => void): Promise<Envelope<unknown>> {
-  if (!isRecord(body)) return fail("usage", "POST /fetch needs a JSON object {session, url, method?, headers?, body?|json?|form?, tab?, timeoutMs?, stopOn?, rawBody?, reveal?}", "See _tabcap_fetch.py (tabcap replay export-python ships it).");
+  if (!isRecord(body)) return fail("usage", "POST /fetch needs a JSON object {session, url, method?, headers?, body?|json?|form?, credentials?, tab?, timeoutMs?, stopOn?, rawBody?, reveal?}", "See _tabcap_fetch.py (tabcap replay export-python ships it).");
   if ("batch" in body) return fail("usage", "POST /fetch takes one request", "Send one request per call, or use `tabcap fetch --batch <file.jsonl>`.");
   if ("out" in body) return fail("usage", "POST /fetch has no out: the body comes back inline (text up to 8 KB), as bodyFile, or base64 with rawBody", "Leave out `out`.");
   const args = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "session"));

@@ -28,7 +28,7 @@ import type { ConsoleLog } from "../capture/console.ts";
 import type { Transport } from "../transport/types.ts";
 import { helperResultOf, helperSource, type HelperResult } from "../fetch/helper.ts";
 import { firstStop, parseStopRule, type StopRule } from "../fetch/stoprules.ts";
-import { FETCH_USAGE, parseFetchSpec, targetUrl, type FetchSpec } from "../fetch/spec.ts";
+import { FETCH_USAGE, parseFetchSpec, targetUrl, type FetchCredentials, type FetchSpec } from "../fetch/spec.ts";
 import { exportBody } from "./bodyexport.ts";
 import { decodeBody } from "./netsearch.ts";
 import { redactFlatHeaders } from "./liveredact.ts";
@@ -193,13 +193,37 @@ async function corsReason(d: Daemon, b: FetchBrowser, tab: Tab, url: string, sin
   return null;
 }
 
+/**
+ * Does a CORS reason fail only because the request carried credentials?
+ * Chrome's messages for a credentialed cross-origin read all end in "when the
+ * request's credentials mode is 'include'": `Access-Control-Allow-Origin: *`
+ * ("must not be the wildcard '*'"), and an `Access-Control-Allow-Credentials`
+ * that is missing or not exactly `true` (e.g. a duplicated "true, true").
+ * Oracle: the console messages of the s60 range (docs/05), CfT 155.
+ */
+export function credentialsBlock(reason: string): "wildcard-origin" | "allow-credentials" | null {
+  if (!/credentials mode is 'include'/.test(reason)) return null;
+  if (/Access-Control-Allow-Origin/.test(reason) && /wildcard '\*'/.test(reason)) return "wildcard-origin";
+  if (/Access-Control-Allow-Credentials/.test(reason)) return "allow-credentials";
+  return null;
+}
+
+/** The `next` of fetch.blocked (0.6-P): `--credentials omit` first when only the credentials mode is in the way. */
+export function blockedNext(reason: string, mode: FetchCredentials, origin: string): string {
+  const navigate = `navigate the tab to a page of ${origin} first and fetch from there (the request's Origin / Referer then become ${origin}, which some backends refuse)`;
+  const why = mode === "include" ? credentialsBlock(reason) : null;
+  if (why === null) return `The site does not let the page read this URL; ${navigate}, or use a same-origin URL.`;
+  const what = why === "wildcard-origin" ? "answers `Access-Control-Allow-Origin: *`, which a request with cookies may not read" : "sends an `Access-Control-Allow-Credentials` that is not exactly `true` (missing, or duplicated like `true, true`)";
+  return `The API ${what}: retry with \`--credentials omit\` (POST /fetch: "credentials": "omit"); no cookies are sent then, which is fine when the API authenticates by a header such as Authorization. Otherwise ${navigate}.`;
+}
+
 /** Run the helper in a fresh isolated world of the tab's main frame. */
 async function runHelper(t: Transport, tab: Tab, reg: FetchReg, spec: FetchSpec, target: URL, budgetMs: number): Promise<HelperResult> {
   const sid = tab.sessionId;
   const w = await t.send("Page.createIsolatedWorld", { frameId: tab.targetId, worldName: "tabcap-fetch", grantUniveralAccess: false }, sid, 5000);
   const ctx = num(w, "executionContextId");
   if (ctx === null) throw new TabcapError("cdp", "Page.createIsolatedWorld returned no context", "Retry; if the tab is still loading, wait for it first.");
-  const src = helperSource(reg.fnName, { url: target.href, method: spec.method, headers: spec.headers, body: spec.body, marker: reg.marker, timeoutMs: Math.max(1, budgetMs) });
+  const src = helperSource(reg.fnName, { url: target.href, method: spec.method, headers: spec.headers, body: spec.body, credentials: spec.credentials, marker: reg.marker, timeoutMs: Math.max(1, budgetMs) });
   const c = await t.send("Runtime.compileScript", { expression: src, sourceURL: "", persistScript: true, executionContextId: ctx }, sid, 5000);
   const scriptId = str(c, "scriptId");
   if (scriptId === null) throw new TabcapError("internal", "the fetch helper did not compile", "This is a bug; rerun with TABCAP_LOG=debug and report the output.");
@@ -255,7 +279,7 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
     const again = d.guard.fetchStopOf(where.key);
     if (again !== null) throw fetchStoppedError(again);
     const same = originOf(tab.url) === target.origin;
-    const reg: FetchReg = { fetchId, cmd, sessionId: tab.sessionId, marker: same ? fetchId : null, fnName: `__tabcap_fetch_${randomBytes(4).toString("hex")}_${k}`, scriptId: null };
+    const reg: FetchReg = { fetchId, cmd, sessionId: tab.sessionId, marker: same ? fetchId : null, fnName: `__tabcap_fetch_${randomBytes(4).toString("hex")}_${k}`, scriptId: null, credentials: spec.credentials };
     rec.expectFetch(reg);
     if (same) releaseStage = await rec.holdRequestStage(tab.sessionId);
     const consoleSince = Date.now();
@@ -270,10 +294,11 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
       }
       const reason = await corsReason(d, b, tab, target.href, consoleSince);
       if (reason !== null) {
-        throw new TabcapError("fetch.blocked", `the page's CORS rules blocked the request: ${reason}`, "The site does not let the page read this URL; fetch it from a page of its own origin (navigate there first), or use a same-origin URL.", {
+        throw new TabcapError("fetch.blocked", `the page's CORS rules blocked the request: ${reason}`, blockedNext(reason, spec.credentials, target.origin), {
           fetchId,
           request: recorded?.entry.id ?? null,
           url: target.href,
+          credentials: spec.credentials,
           reason,
         });
       }

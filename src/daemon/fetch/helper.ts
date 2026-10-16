@@ -2,19 +2,22 @@
 // compiled into a tabcap isolated world (Page.createIsolatedWorld) of the
 // tab's main frame, so the page's scripts cannot see or change it, while the
 // request itself is the page's: same origin, same cookies (credentials:
-// "include"), same CORS rules. Its function has a unique name per fetch: the
+// "include" by default; 0.6-P `--credentials same-origin|omit`), same CORS
+// rules. Its function has a unique name per fetch: the
 // recorder recognises cross-origin requests by that name (and the scriptId)
 // on the initiator stack. Same-origin requests also carry the marker header,
 // which the recorder removes at the Request stage.
 
 import { isRecord } from "../../shared/json.ts";
-import { FETCH_MARKER } from "./spec.ts";
+import { FETCH_MARKER, type FetchCredentials } from "./spec.ts";
 
 export type HelperPayload = {
   url: string;
   method: string;
   headers: Array<[string, string]>;
   body: string | null;
+  /** fetch()'s credentials option (0.6-P). */
+  credentials: FetchCredentials;
   /** The fetchId to send as the marker header on a same-origin request, or null. */
   marker: string | null;
   timeoutMs: number;
@@ -37,7 +40,7 @@ export function helperSource(fnName: string, p: HelperPayload): string {
     `  if (spec.marker !== null && new URL(spec.url, location.href).origin === location.origin) { headers.set(${JSON.stringify(FETCH_MARKER)}, spec.marker); marked = true; }`,
     "  const ac = new AbortController();",
     "  const timer = setTimeout(() => ac.abort(), spec.timeoutMs);",
-    '  const init = { method: spec.method, headers, credentials: "include", redirect: "follow", signal: ac.signal };',
+    '  const init = { method: spec.method, headers, credentials: spec.credentials, redirect: "follow", signal: ac.signal };',
     "  if (spec.body !== null) init.body = spec.body;",
     "  const failed = (e) => { clearTimeout(timer); return { ok: false, aborted: ac.signal.aborted, error: String((e && e.message) || e).slice(0, 500), marked }; };",
     "  return fetch(spec.url, init)",

@@ -48,6 +48,7 @@ import {
 import { framePayload, WsBook, type WsConn } from "./ws.ts";
 import { cookieArray, cookieStateFields, navCookieParams, navWantsCookies, stateOrigin, type StateReason } from "./cookies.ts";
 import { continueHeaders, initiatorMatch, markerOf, withoutMarker, type FetchReg } from "./fetchmark.ts";
+import type { FetchCredentials } from "../fetch/spec.ts";
 import { decodedField, type DecodeDirection, type DecodeJob, type DecodeOutcome } from "../hooks/decode.ts";
 import { BODIES_DEFAULT, keepsBody, SKIPPED_REASON, type BodiesMode } from "../../shared/bodies.ts";
 import { appendSidecar, readSidecar } from "../../bundle/decoded.ts";
@@ -153,7 +154,12 @@ type Pending = {
   /** 0.6-A: the `tabcap fetch` (c-N:f-K) and its command window, when attributed. */
   fetchId: string | null;
   fetchCmd: string | null;
+  /** 0.6-P: that fetch's credentials mode. */
+  fetchCredentials: FetchCredentials | null;
 };
+
+/** Which `tabcap fetch` a request belongs to (0.6-A), and its credentials mode (0.6-P). */
+type FetchAttribution = { fetchId: string; cmd: string | null; credentials: FetchCredentials | null };
 
 /** Body (and response line) captured at the Fetch Response stage. */
 type FetchedBody = { bytes: Uint8Array; response: Record<string, unknown> };
@@ -552,6 +558,7 @@ export class Recorder {
       responseMono: c.responseMono,
       fetchId: null,
       fetchCmd: null,
+      fetchCredentials: null,
     };
     const missing: { reason: BodyMissingReason; detail: string | null } =
       missingReason !== null
@@ -653,7 +660,7 @@ export class Recorder {
     let redirectPending: Promise<string | null> | null = null;
     const prev = this.pending.get(key);
     // 0.6-A: a redirect hop stays with the fetch it belongs to.
-    let fetch: { fetchId: string; cmd: string | null } | null = prev !== undefined && prev.fetchId !== null ? { fetchId: prev.fetchId, cmd: prev.fetchCmd } : null;
+    let fetch: FetchAttribution | null = prev !== undefined && prev.fetchId !== null ? { fetchId: prev.fetchId, cmd: prev.fetchCmd, credentials: prev.fetchCredentials } : null;
     if (prev !== undefined && isRecord(p["redirectResponse"])) {
       this.pending.delete(key);
       this.disarmUnread(key);
@@ -727,6 +734,7 @@ export class Recorder {
       responseMono: null,
       fetchId: fetch?.fetchId ?? null,
       fetchCmd: fetch?.cmd ?? null,
+      fetchCredentials: fetch?.credentials ?? null,
     });
   }
 
@@ -747,17 +755,18 @@ export class Recorder {
    * the helper sent (same-origin), else the helper's function and scriptId on
    * the initiator stack (cross-origin), else a preflight's initiator request.
    */
-  private attribute(sid: string, headers: unknown, initiator: unknown): { fetchId: string; cmd: string | null } | null {
+  private attribute(sid: string, headers: unknown, initiator: unknown): FetchAttribution | null {
     if (this.fetchRegs.size === 0) return null;
+    const of = (r: FetchReg): FetchAttribution => ({ fetchId: r.fetchId, cmd: r.cmd, credentials: r.credentials });
     const marker = markerOf(headers);
     const byMarker = marker === null ? undefined : this.fetchRegs.get(marker);
-    if (byMarker !== undefined && byMarker.sessionId === sid) return { fetchId: byMarker.fetchId, cmd: byMarker.cmd };
+    if (byMarker !== undefined && byMarker.sessionId === sid) return of(byMarker);
     const byStack = initiatorMatch(initiator, this.fetchRegs.values(), sid);
-    if (byStack !== null) return { fetchId: byStack.fetchId, cmd: byStack.cmd };
+    if (byStack !== null) return of(byStack);
     if (isRecord(initiator) && initiator["type"] === "preflight" && typeof initiator["requestId"] === "string") {
       const main = this.fetchOfKey.get(`${sid}|${initiator["requestId"]}`);
       const reg = main === undefined ? undefined : this.fetchRegs.get(main);
-      if (reg !== undefined) return { fetchId: reg.fetchId, cmd: reg.cmd };
+      if (reg !== undefined) return of(reg);
     }
     return null;
   }
@@ -1117,6 +1126,7 @@ export class Recorder {
       // 0.6-A: a `tabcap fetch` request belongs to its own command window, whatever else is open.
       cmd: q.fetchCmd ?? this.cmdRef(),
       ...(q.fetchId === null ? {} : { fetchId: q.fetchId }),
+      ...(q.fetchId === null || q.fetchCredentials === null ? {} : { fetchCredentials: q.fetchCredentials }),
       nav: q.nav,
       cdp: { requestId: q.requestId, loaderId: q.loaderId, frameId: q.frameId, sessionId: q.sessionId },
       type: q.type,
