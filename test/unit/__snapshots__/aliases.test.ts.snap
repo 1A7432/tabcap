@@ -419,6 +419,112 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
+      "example": "tabcap proxy set-state p1 disabled",
+      "flags": [],
+      "internal": false,
+      "name": "proxy set-state",
+      "path": [
+        "proxy",
+        "set-state",
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "name": "name",
+          "required": true,
+          "variadic": false,
+        },
+        {
+          "choices": [
+            "active",
+            "disabled",
+          ],
+          "name": "state",
+          "required": true,
+          "variadic": false,
+        },
+      ],
+      "summary": "disable a proxy by hand (skipped by allocation and rotation, never checked) or set it active again (back to unknown until the next check)",
+      "usage": "tabcap proxy set-state <name> active|disabled",
+    },
+    {
+      "daemon": false,
+      "example": "tabcap account add example --user bob --password-stdin",
+      "flags": [
+        {
+          "alias": null,
+          "default": null,
+          "flag": "--user",
+          "help": "account username (not a secret: shown in listings)",
+          "key": "user",
+          "repeatable": false,
+          "required": true,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--password-stdin",
+          "help": "read the password from stdin (else an interactive prompt; never an argument)",
+          "key": "passwordStdin",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--totp-stdin",
+          "help": "also store a TOTP seed: needs --password-stdin, stdin is two lines (password, then seed)",
+          "key": "totpStdin",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+      ],
+      "internal": false,
+      "name": "account add",
+      "path": [
+        "account",
+        "add",
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "name": "site",
+          "required": true,
+          "variadic": false,
+        },
+      ],
+      "summary": "add another account to a stored site (for the human, not the AI: the password is typed at a prompt or piped, never an argument, never shown); a duplicate <site>.<user> is refused",
+      "usage": "tabcap account add <site> --user <username> [--password-stdin] [--totp-stdin]",
+    },
+    {
+      "daemon": false,
+      "example": "tabcap account remove example.bob",
+      "flags": [],
+      "internal": false,
+      "name": "account remove",
+      "path": [
+        "account",
+        "remove",
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "name": "account",
+          "required": true,
+          "variadic": false,
+        },
+      ],
+      "summary": "delete a stored account with its saved cookies and counters; refused while a session uses it",
+      "usage": "tabcap account remove <account>",
+    },
+    {
+      "daemon": false,
       "example": "tabcap account bind example.alice --proxy p1",
       "flags": [
         {
