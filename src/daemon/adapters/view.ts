@@ -4,6 +4,7 @@
 // outline (docs/09 §2, §2.3: overlays come first).
 
 import { isRecord } from "../../shared/json.ts";
+import { challengeLine, type ChallengeView } from "../browser/captcha.ts";
 import type { Detection } from "./detect.ts";
 
 export const OVERLAY_KINDS = ["dialog", "iframe-layer", "mask", "timeout-prompt", "consent"] as const;
@@ -115,7 +116,7 @@ const MAX_LINES = 6;
 export const LABEL = { overlays: "overlays  ", detected: "detected  ", popups: "popups    ", more: "          " } as const;
 
 /** Header lines; `overlays` null means the check failed (`error` says why). */
-export function headerLines(x: { overlays: Overlay[] | null; detected: Detection[] | null; error: string | null }): string[] {
+export function headerLines(x: { overlays: Overlay[] | null; detected: Detection[] | null; error: string | null; challenge?: ChallengeView | null }): string[] {
   const lines: string[] = [];
   if (x.overlays === null) lines.push(`${LABEL.overlays}? (check failed: ${(x.error ?? "unknown").slice(0, 160)})`);
   else if (x.overlays.length === 0) lines.push(`${LABEL.overlays}none`);
@@ -126,6 +127,8 @@ export function headerLines(x: { overlays: Overlay[] | null; detected: Detection
   const shown = (x.detected ?? []).filter((d) => d.category !== "overlay" && d.confidence > 0);
   if (x.detected === null) lines.push(`${LABEL.detected}?`);
   else lines.push(`${LABEL.detected}${shown.length === 0 ? "none" : shown.map(detectionText).join("; ")}`);
+  // 0.6-D: an image captcha is an advisory line, only when there is one.
+  if (x.challenge !== undefined && x.challenge !== null) lines.push(challengeLine(x.challenge));
   return lines;
 }
 

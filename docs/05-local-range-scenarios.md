@@ -248,6 +248,10 @@
 - 页面 `/s49`：表单 `POST /s49/submit`（`user` / `note` 两个字段，`note` 含中文与 `&` `=`）→ 302 → `GET /s49/done`；按钮 `fetch POST /s49/api`（JSON）→ 302 → `GET /s49/api/done`（JSON `{done:"s49-api-done"}`）。服务端 `posts` 记下收到的原样请求体（oracle）。
 - expected：包里两条 POST 的 `response.status` 是 302、`request.postData` 等于 `{inline: <服务端收到的正文>}`；跳到的 GET 的 `redirect.from` 指向那条 POST。
 
+### s50 image-captcha（P1；0.6-D，图片验证码提示）
+- 页面 `/s50`：登录表单（用户名、密码、`input#s50-code name=verifyCode`、`img#s50-img.captcha-img alt=验证码`，100×40、登录按钮）；`/s50/plain` 是去掉验证码的同一表单。
+- expected：`snapshot` 与 `outline` 头有 `challenge  image-captcha img [e<i>] → input [e<j>]; read the image (screenshot --ref e<i>) or hand over …`，`e<i>` 是 `#s50-img`、`e<j>` 是 `#s50-code`（`html --attrs` 对得上），`screenshot --ref e<i>` 可用；对该表单的 `fill`（用户名、验证码）与 `click`（登录）输出带 `challenge: {kind:"image-captcha", image:e<i>, input:e<j>}`；`handoff status` 不是 `waiting`；`/s50/plain` 头里没有 `challenge` 行、`fill` 不带 `challenge`；录制里 `/s50` 只有一条 `guard` `{event:"challenge"}`，`detail` 为 `{kind:"image-captcha", advisory:true, image, input, url}`。
+
 ### s52 frame-dates（P1；0.6-D，`where` 读帧里的页面文字）
 - 页面 `/s52`：根文档 `p#s52-date` 写 `03/04/2026`（日月顺序不定），iframe `/s52/frame` 写 `截止 25/04/2026`（日 > 12，只能是 DD/MM）。
 - expected：录制中 `where <#s52-date 的 ref>` 没有 `ambiguous`，`normalized` 含 `2026-04-03`、不含 `2026-03-04`。

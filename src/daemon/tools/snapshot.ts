@@ -24,6 +24,7 @@ import type { Transport } from "../transport/types.ts";
 import { optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
 import { clampInt, compileRegex } from "./textsearch.ts";
+import { adviseChallenge } from "./challenge.ts";
 
 /** Default `--max-chars` of `snapshot` (and of `--snapshot` on actions): 0.5-C context budget, owner 10-16. */
 export const SNAPSHOT_MAX_CHARS = 12_000;
@@ -387,10 +388,12 @@ async function renderFiltered(d: Daemon, t: Transport, tab: Tab, o: SnapshotOpti
     refs: refs + domRefs,
     overlays: page.overlays,
     detected: (page.detected ?? []).filter((x) => x.confidence > 0),
+    ...(page.challenge === undefined || page.challenge === null ? {} : { challenge: page.challenge }),
     ...(frames.length > 0 ? { frames } : {}),
     ...(o.frame === null ? {} : { frame: o.frame }),
     search,
   };
+  await adviseChallenge(d, t, tab, page.challenge);
   if (o.filePath !== null) {
     mkdirSync(dirname(o.filePath), { recursive: true });
     writeFileSync(o.filePath, `${text}\n`, { mode: 0o600 });
@@ -431,10 +434,13 @@ export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: Snaps
     refs,
     overlays: page.overlays,
     detected: (page.detected ?? []).filter((x) => x.confidence > 0),
+    // 0.6-D: an image captcha advisory, only when there is one.
+    ...(page.challenge === undefined || page.challenge === null ? {} : { challenge: page.challenge }),
     // Only pages with child frames carry the list (a page without frames answers as before 0.4-I).
     ...(frames.length > 0 ? { frames } : {}),
     ...(o.frame === null ? {} : { frame: o.frame }),
   };
+  await adviseChallenge(d, t, tab, page.challenge);
   const blockText = (b: { head: string; body: Rendered | string }, max: number): { text: string; truncated: boolean; chars: number } => {
     if (typeof b.body === "string") return { text: `${b.head}\n${b.body}`, truncated: false, chars: b.head.length + 1 + b.body.length };
     const cut = cutText(b.body.text, max);

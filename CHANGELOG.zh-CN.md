@@ -30,6 +30,7 @@
 - **点击效果**：默认（DOM）`click` 的回答说明点击后的等待里发生了什么：`effect: "dom" | "navigation" | "request"`（最先看到的那个），页面什么都没做时是 `effect: "none"` 加一条建议 `--trusted` 的 `note`（处理程序只认可信输入）。只观察（tabcap 隔离世界里的 MutationObserver、Page / Network 事件；没在录制时只为这次观察临时开 Network）；退出码不变；`--trusted` 与 `--no-wait` 不报效果。
 - **`find` 搜子帧**：根文档与帧树里的每个帧；帧里的命中带 `frame` 与帧路径 ref，回答带 `frames`（搜了几个帧）。`where` 判日期顺序时也读全部帧的页面文字。
 - **被重定向回答的 POST 保留请求体**：录制器写被重定向的那一跳时没带请求体（`postData: null`）；现在按常规规则存（≤ 64 KiB 内联，否则 blob），下一跳的 `redirect.from` 仍指向它。
+- **图片验证码提示**：登录表单旁的图片验证码（图片的 src / id / class / alt / 标签含 captcha / verify / 验证码 / 校验码，或输入框名字像 captcha / vcode / verifyCode）让 `snapshot` / `outline` 头多一行 `challenge  image-captcha img [e12] → input [e13]; …`、JSON 多 `challenge`，对该表单的 `fill` / `click` 带 `challenge: {kind, image, input}`，每个页面写一条 `guard` 事件 `{event: "challenge", detail: {kind: "image-captcha", advisory: true, …}}`。不等待、不拒绝：模型自己读图（`screenshot --ref`）或叫人。其他挑战照旧转交。
 
 ## 0.5.0（2026-10-16）
 

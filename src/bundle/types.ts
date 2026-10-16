@@ -323,7 +323,8 @@ export type ConfirmEvent = Envelope & {
 
 export type GuardEvent = Envelope & {
   kind: "guard";
-  event: "budget" | "breaker" | "probe";
+  /** "challenge" (0.6-D): an advisory, detail {kind, advisory: true, image, input, url}; never a waiting state. */
+  event: "budget" | "breaker" | "probe" | "challenge";
   site: string;
   account: string | null;
   detail: unknown;

@@ -34,6 +34,7 @@ import { log } from "../../shared/log.ts";
 import { CdpTimeoutError } from "../transport/direct/cdp.ts";
 import { keyEventParams, planClick, planTyping, type ClickPlan, type Point, type Rng } from "./inputplan.ts";
 import { classifyEffect, watchEffect, type EffectWatch } from "./effect.ts";
+import { actionChallenge } from "./challenge.ts";
 
 const ELEMENT = "const el = this.nodeType === 1 ? this : this.parentElement;";
 // A ref whose node was replaced (framework re-render) can still resolve to the
@@ -547,14 +548,17 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
       const clicked = withPostWait(t, tab, noWait, async (): Promise<Record<string, unknown>> => {
         const node = await resolveRef(t, tab, ref);
         const overlayCheck = await overlayGate(t, tab, node, ref);
+        // 0.6-D: an image captcha on the target's form is an advisory in the output (looked at before the click).
+        const challenge = await actionChallenge(d, t, tab, node);
         if (!trusted) {
           if (!noWait) watched.w = await watchEffect(d, t, tab, node);
           const v = liveOrStale(rec(callResult(await call(t, node.sessionId, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
-          return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), ...dbl, overlayCheck };
+          return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), ...dbl, overlayCheck, ...challenge };
         }
         const r = await trustedClickOn(t, tab, node, ref, DEFAULT_DEPS, clicks);
         if (r.kind === "degraded") {
           return {
+            ...challenge,
             tab: tab.id,
             ref,
             ...frameField(node),
@@ -584,6 +588,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
           ...(r.held === null ? {} : { paint: r.held }),
           ...dbl,
           overlayCheck,
+          ...challenge,
         };
       });
       const { result, wait } = await clicked.catch(async (e: unknown) => {
@@ -762,6 +767,7 @@ async function fillOn(
   const { trusted, secret, secretRef, counted } = o;
   const node = await resolveRef(t, tab, ref);
   const overlayCheck = await overlayGate(t, tab, node, ref);
+  const challenge = await actionChallenge(d, t, tab, node);
   let v: Record<string, unknown>;
   // Input.insertText goes to the tab's session: Chrome routes it to the focused frame (0.4-I, measured).
   if (!trusted) {
@@ -796,6 +802,7 @@ async function fillOn(
     overlayCheck,
     ...(secret === null ? {} : { secret: secretRef, value: `<secret:${secretRef ?? ""}>` }),
     ...(v["matches"] === false ? { warning: "the field normalised the value (e.g. type=number)" } : {}),
+    ...challenge,
   };
 }
 

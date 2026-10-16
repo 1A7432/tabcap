@@ -24,6 +24,7 @@ import { DIGEST_FN, DIGEST_MAX, detectAdapter, digestNeeds, globalNames, globals
 import { hookNotImplemented, type Adapter, type HookName } from "./manifest.ts";
 import { builtinAdapters } from "./registry.ts";
 import { parseButtons, parseOverlay, parseOverlayNodes, type NodeRef, type Overlay } from "./view.ts";
+import { CAPTCHA_SCAN_CAP, CAPTCHA_SCAN_FN, detectCaptcha, parseCaptchaScan, type CaptchaHit, type CaptchaScan, type ChallengeView } from "../browser/captcha.ts";
 
 const GROUP = "tabcap-adapters";
 
@@ -161,7 +162,7 @@ export async function runDetect(t: Transport, tab: Tab, doc: FrameDoc, adapters:
   return adapters.map((a) => detectAdapter(a, { digest, globals, headers }));
 }
 
-export type PageView = { overlays: Overlay[] | null; detected: Detection[] | null; error: string | null };
+export type PageView = { overlays: Overlay[] | null; detected: Detection[] | null; error: string | null; challenge?: ChallengeView | null };
 
 const refMaker = (backendIds: Array<number | null>, refFor: (id: number) => string): NodeRef => (n) => {
   if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0) return null;
@@ -279,7 +280,60 @@ export async function inspectPage(t: Transport, tab: Tab, doc: FrameDoc, adapter
     }
   }
   view.overlays = found.map((o, i) => ({ ...o, id: `o${i + 1}` }));
+  view.challenge = await pageChallenge(t, tab, doc, tree);
   return view;
+}
+
+/**
+ * 0.6-D: scan one document for an image captcha (browser/captcha.ts) in the
+ * isolated world; `target` (a backend node id) also says which form an action
+ * acts on. Refs of the image and the input are minted in the document's frame
+ * (DOM-backed refs: neither needs an accessibility line). Null when nothing is
+ * found; throws on CDP errors.
+ */
+export async function scanCaptcha(t: Transport, tab: Tab, doc: FrameDoc, frame: FrameBinding | null, target: number | null = null): Promise<{ scan: CaptchaScan; hit: CaptchaHit; view: ChallengeView } | null> {
+  try {
+    return await inWorld(t, tab, doc, async (ctx) => {
+      let r: Record<string, unknown>;
+      const args = [{ value: CAPTCHA_SCAN_CAP }, { value: target !== null }];
+      if (target !== null) {
+        const n = await t.send("DOM.resolveNode", { backendNodeId: target, executionContextId: ctx, objectGroup: GROUP }, doc.sessionId, 5000);
+        const obj = isRecord(n["object"]) ? n["object"] : null;
+        const objectId = obj === null ? null : str(obj, "objectId");
+        if (objectId === null) return null;
+        r = await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: CAPTCHA_SCAN_FN, arguments: args, returnByValue: false, objectGroup: GROUP }, doc.sessionId, 10_000);
+      } else {
+        r = await t.send("Runtime.callFunctionOn", { executionContextId: ctx, functionDeclaration: CAPTCHA_SCAN_FN, arguments: args, returnByValue: false, objectGroup: GROUP }, doc.sessionId, 10_000);
+      }
+      const { data, backendIds } = await unpack(t, doc.sessionId, r, "captcha scan");
+      const scan = parseCaptchaScan(data);
+      const hit = detectCaptcha(scan);
+      if (hit === null) return null;
+      const ref = (n: number | null): string | null => {
+        const id = n === null ? null : (backendIds[n] ?? null);
+        return id === null ? null : tab.refs.refFor(id, frame);
+      };
+      const view: ChallengeView = { kind: "image-captcha", image: ref(hit.image), input: ref(hit.input), advisory: true, ...(frame === null || frame.path === "" ? {} : { frame: frame.path }) };
+      return { scan, hit, view };
+    });
+  } finally {
+    await release(t, doc.sessionId);
+  }
+}
+
+/** The first image captcha of the root document, then of the child frames (tree order); null when none (or the scan failed). */
+async function pageChallenge(t: Transport, tab: Tab, doc: FrameDoc, tree: FrameNode | null): Promise<ChallengeView | null> {
+  const docs: Array<{ doc: FrameDoc; frame: FrameBinding | null }> = [{ doc, frame: null }];
+  if (tree !== null) for (const f of descendants(tree).slice(0, MAX_OVERLAY_FRAMES)) docs.push({ doc: docOf(f), frame: bindingOf(f) });
+  for (const x of docs) {
+    try {
+      const r = await scanCaptcha(t, tab, x.doc, x.frame);
+      if (r !== null) return r.view;
+    } catch (e) {
+      log.info("captcha scan skipped a document", { tab: tab.id, frame: x.frame?.path ?? "", error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return null;
 }
 
 export type Cover = { overlay: Overlay; at: { x: number; y: number } | null; offscreen: boolean };

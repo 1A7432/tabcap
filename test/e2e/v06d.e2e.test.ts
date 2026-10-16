@@ -258,4 +258,36 @@ describe.skipIf(!enabled)("tabcap 0.6-D L2 (docs/05 s22, s47–s52: DOM-backed r
     const raw = readFileSync(join(bundle, "raw", "cdp.jsonl"), "utf8");
     expect(raw).toContain('"redirectResponse"');
   }, 120_000);
+
+  test("D5 s50: an image captcha is an advisory (challenge header line, challenge on fill / click, one guard event per page); no waiting", async () => {
+    const S = ["--session", "d5"];
+    const bundle = s((await ok("net", "start", ...S))["bundle"]);
+    await ok("navigate", `${site.origin}/s50`, ...S);
+    const snap = await ok("snapshot", ...S);
+    const tree = s(snap["tree"]);
+    const m = /^challenge {2}image-captcha img \[(e\d+)\] → input \[(e\d+)\]; read the image \(screenshot --ref (e\d+)\) or hand over/m.exec(tree);
+    if (m === null || m[1] === undefined || m[2] === undefined) throw new Error(`no challenge line in:\n${tree}`);
+    const [img, input] = [m[1], m[2]];
+    expect(m[3]).toBe(img);
+    expect(rec(snap["challenge"])).toMatchObject({ kind: "image-captcha", image: img, input, advisory: true });
+    expect(rec((await ok("html", img, "--attrs", ...S))["attrs"])).toMatchObject({ id: "s50-img", alt: S50_IMG_ALT });
+    expect(rec((await ok("html", input, "--attrs", ...S))["attrs"])).toMatchObject({ id: "s50-code", name: "verifyCode" });
+    expect(Number((await ok("screenshot", "--ref", img, ...S))["width"])).toBeGreaterThan(0);
+    expect(s((await ok("outline", ...S))["outline"])).toContain(`challenge  image-captcha img [${img}] → input [${input}]`);
+    const userRef = (await cssRef("#s50-user", S)).ref;
+    expect(rec((await ok("fill", userRef, "demo", ...S))["challenge"])).toEqual({ kind: "image-captcha", image: img, input });
+    expect(rec((await ok("fill", input, "1234", ...S))["challenge"])).toEqual({ kind: "image-captcha", image: img, input });
+    expect(rec((await ok("click", (await cssRef("#s50-go", S)).ref, ...S))["challenge"])).toEqual({ kind: "image-captcha", image: img, input });
+    // advisory only: the session is not handed over, actions go on
+    expect((await ok("handoff", "status", ...S))["state"]).not.toBe("waiting");
+    await ok("navigate", `${site.origin}/s50/plain`, ...S);
+    const plain = await ok("snapshot", ...S);
+    expect(s(plain["tree"])).not.toMatch(/^challenge /m);
+    expect(plain["challenge"]).toBeUndefined();
+    expect((await ok("fill", (await cssRef("#s50-user", S)).ref, "demo", ...S))["challenge"]).toBeUndefined();
+    await ok("net", "stop", ...S);
+    const guard = BundleReader.open(bundle).byKind("guard").filter((e) => e["event"] === "challenge");
+    expect(guard.length).toBe(1);
+    expect(rec(guard[0]?.["detail"])).toMatchObject({ kind: "image-captcha", advisory: true, image: img, input, url: `${site.origin}/s50` });
+  }, 120_000);
 });

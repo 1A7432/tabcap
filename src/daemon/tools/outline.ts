@@ -14,6 +14,7 @@ import { refreshTabInfo } from "./session.ts";
 import { docIdentity, settle } from "./snapshot.ts";
 import { frameHeaderLines, frameList, frameTree } from "../browser/frames.ts";
 import { rootDoc } from "../browser/worlds.ts";
+import { adviseChallenge } from "./challenge.ts";
 
 export const OUTLINE_MAX_CHARS = 6000;
 
@@ -29,6 +30,7 @@ export async function outline(d: Daemon, a: Args, session: string): Promise<unkn
       tab.refs.setDocument(doc);
       const tree = await frameTree(t, tab).catch(() => null);
       const page = await inspectPage(t, tab, rootDoc(tab, doc), undefined, tree === null ? null : tree.root);
+      await adviseChallenge(d, t, tab, page.challenge);
       await refreshTabInfo(d, session);
       const nav = d.navOf(tab);
       const popups = tabs
@@ -48,6 +50,7 @@ export async function outline(d: Daemon, a: Args, session: string): Promise<unkn
         nav,
         overlays: page.overlays,
         detected: (page.detected ?? []).filter((x) => x.confidence > 0),
+        ...(page.challenge === undefined || page.challenge === null ? {} : { challenge: page.challenge }),
         ...(frames.length > 0 ? { frames } : {}),
         popups,
         chars: full.length,

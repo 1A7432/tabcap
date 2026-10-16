@@ -152,6 +152,9 @@ export function fetchStoppedError(s: FetchStop): TabcapError {
   });
 }
 
+/** Advisory keys a session remembers (0.6-D: one `challenge` event per page); older ones go first. */
+const MAX_ADVISORIES = 256;
+
 export class Guard {
   private handoffs = new Map<string, Handoff>();
   private fetchStops = new Map<string, FetchStop>();
@@ -200,6 +203,8 @@ export class Guard {
   fetchStopsBy(session: string): FetchStop[] {
     return [...this.fetchStops.values()].filter((s) => s.session === session);
   }
+  /** 0.6-D: pages whose image captcha advisory was recorded, per session. */
+  private advisories = new Map<string, Set<string>>();
   /** Running trips (screenshots, handlers), awaited by tests and shutdown. */
   readonly pending = new Set<Promise<void>>();
 
@@ -356,6 +361,27 @@ export class Guard {
         log.warn("guard: state listener failed", { session, error: String(e) });
       }
     }
+  }
+
+  /**
+   * 0.6-D image captcha advisory: true the first time `key` (tab + page) is
+   * seen in the session, so the `guard` {event:"challenge", advisory:true}
+   * event is written once per page. Advisory only: never a waiting state.
+   */
+  firstAdvisory(session: string, key: string): boolean {
+    let seen = this.advisories.get(session);
+    if (seen === undefined) {
+      seen = new Set();
+      this.advisories.set(session, seen);
+    }
+    if (seen.has(key)) return false;
+    seen.add(key);
+    while (seen.size > MAX_ADVISORIES) {
+      const oldest = seen.values().next().value;
+      if (oldest === undefined) break;
+      seen.delete(oldest);
+    }
+    return true;
   }
 
   /** True while the session waits for the human. */
