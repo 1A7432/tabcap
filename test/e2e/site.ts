@@ -1534,3 +1534,54 @@ export function startDecodeSite(): DecodeSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, served, hits, orders, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.6-J: click landing range (docs/05 s56)
+// One page, three widgets after the three UI-library patterns of the owner's
+// real-project test (10-16). Every text and id a test expects is a literal
+// here; what each handler received is what the page itself wrote down
+// (window.__s56: one "<widget>:<isTrusted>" entry per handler run).
+//   #s56-lay    layui: the accessible element (role=button, 300 px wide) has
+//               no listener; the handler is hooked by attribute onto the inner
+//               span[lay-event] (60 px, at the left edge).
+//   #s56-menu   antd / Element UI: the handler is delegated at a root four
+//               levels up (#s56-app) and only reacts when the event target is
+//               inside the cursor:pointer child .s56-title (80 px, at the left).
+//   #s56-trust  a handler on the element itself that ignores untrusted clicks.
+
+export const S56_LAY_TEXT = "编辑";
+export const S56_MENU_TEXT = "菜单项";
+export const S56_TRUST_TEXT = "只认真点";
+
+export function startClickTargetSite(): Site {
+  const served = new Map<string, string>();
+  const hits: string[] = [];
+  const html = `<!doctype html><meta charset=utf-8><title>s56 click landing</title>
+<style>.s56-box{display:block;width:300px;height:32px;margin:8px 0;border:1px solid #888}.s56-box span{display:inline-block;height:30px;line-height:30px}</style>
+<div class=s56-box role=button id=s56-lay tabindex=0><span lay-event=s56-edit id=s56-lay-span style="width:60px">${S56_LAY_TEXT}</span></div>
+<div id=s56-app><div class=ant-wrap><div class=ant-row><div class=ant-col>
+  <div class=s56-box role=menuitem id=s56-menu tabindex=0><span class=s56-title id=s56-menu-title style="width:80px;cursor:pointer">${S56_MENU_TEXT}</span></div>
+</div></div></div></div>
+<div class=s56-box role=button id=s56-trust tabindex=0 style="width:120px">${S56_TRUST_TEXT}</div>
+<p id=s56-out></p>
+<script>
+window.__s56 = [];
+const out = (w, e) => { window.__s56.push(w + ":" + e.isTrusted); document.getElementById("s56-out").textContent = window.__s56.join(" "); };
+document.querySelectorAll("[lay-event]").forEach((el) => el.addEventListener("click", (e) => out("lay", e)));
+document.getElementById("s56-app").addEventListener("click", (e) => { if (e.target instanceof Element && e.target.closest(".s56-title")) out("menu", e); });
+document.getElementById("s56-trust").addEventListener("click", (e) => { if (e.isTrusted) out("trust", e); });
+</script>`;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      hits.push(`${req.method} ${u.pathname}`);
+      if (u.pathname === "/s56") {
+        served.set("/s56", html);
+        return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served, hits, stop: () => server.stop(true) };
+}
