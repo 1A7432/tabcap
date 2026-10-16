@@ -1,0 +1,1551 @@
+{
+  "source": "https://www.rfc-editor.org/rfc/rfc7541.txt",
+  "source_sha256": "2239d7f8fb839b69ae2e928e685559b11376888269f131512197a0e3bacf7f7a",
+  "appendix": "B",
+  "note": "257 entries; sym 256 is EOS. code_hex is the code right-aligned as printed in the RFC (lowercase, no prefix); code_bits is the binary string with the RFC's '|' separators removed.",
+  "entries": [
+    {
+      "sym": 0,
+      "code_hex": "1ff8",
+      "bit_length": 13,
+      "code_bits": "1111111111000"
+    },
+    {
+      "sym": 1,
+      "code_hex": "7fffd8",
+      "bit_length": 23,
+      "code_bits": "11111111111111111011000"
+    },
+    {
+      "sym": 2,
+      "code_hex": "fffffe2",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111100010"
+    },
+    {
+      "sym": 3,
+      "code_hex": "fffffe3",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111100011"
+    },
+    {
+      "sym": 4,
+      "code_hex": "fffffe4",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111100100"
+    },
+    {
+      "sym": 5,
+      "code_hex": "fffffe5",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111100101"
+    },
+    {
+      "sym": 6,
+      "code_hex": "fffffe6",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111100110"
+    },
+    {
+      "sym": 7,
+      "code_hex": "fffffe7",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111100111"
+    },
+    {
+      "sym": 8,
+      "code_hex": "fffffe8",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111101000"
+    },
+    {
+      "sym": 9,
+      "code_hex": "ffffea",
+      "bit_length": 24,
+      "code_bits": "111111111111111111101010"
+    },
+    {
+      "sym": 10,
+      "code_hex": "3ffffffc",
+      "bit_length": 30,
+      "code_bits": "111111111111111111111111111100"
+    },
+    {
+      "sym": 11,
+      "code_hex": "fffffe9",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111101001"
+    },
+    {
+      "sym": 12,
+      "code_hex": "fffffea",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111101010"
+    },
+    {
+      "sym": 13,
+      "code_hex": "3ffffffd",
+      "bit_length": 30,
+      "code_bits": "111111111111111111111111111101"
+    },
+    {
+      "sym": 14,
+      "code_hex": "fffffeb",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111101011"
+    },
+    {
+      "sym": 15,
+      "code_hex": "fffffec",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111101100"
+    },
+    {
+      "sym": 16,
+      "code_hex": "fffffed",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111101101"
+    },
+    {
+      "sym": 17,
+      "code_hex": "fffffee",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111101110"
+    },
+    {
+      "sym": 18,
+      "code_hex": "fffffef",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111101111"
+    },
+    {
+      "sym": 19,
+      "code_hex": "ffffff0",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111110000"
+    },
+    {
+      "sym": 20,
+      "code_hex": "ffffff1",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111110001"
+    },
+    {
+      "sym": 21,
+      "code_hex": "ffffff2",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111110010"
+    },
+    {
+      "sym": 22,
+      "code_hex": "3ffffffe",
+      "bit_length": 30,
+      "code_bits": "111111111111111111111111111110"
+    },
+    {
+      "sym": 23,
+      "code_hex": "ffffff3",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111110011"
+    },
+    {
+      "sym": 24,
+      "code_hex": "ffffff4",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111110100"
+    },
+    {
+      "sym": 25,
+      "code_hex": "ffffff5",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111110101"
+    },
+    {
+      "sym": 26,
+      "code_hex": "ffffff6",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111110110"
+    },
+    {
+      "sym": 27,
+      "code_hex": "ffffff7",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111110111"
+    },
+    {
+      "sym": 28,
+      "code_hex": "ffffff8",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111111000"
+    },
+    {
+      "sym": 29,
+      "code_hex": "ffffff9",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111111001"
+    },
+    {
+      "sym": 30,
+      "code_hex": "ffffffa",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111111010"
+    },
+    {
+      "sym": 31,
+      "code_hex": "ffffffb",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111111011"
+    },
+    {
+      "sym": 32,
+      "code_hex": "14",
+      "bit_length": 6,
+      "code_bits": "010100"
+    },
+    {
+      "sym": 33,
+      "code_hex": "3f8",
+      "bit_length": 10,
+      "code_bits": "1111111000"
+    },
+    {
+      "sym": 34,
+      "code_hex": "3f9",
+      "bit_length": 10,
+      "code_bits": "1111111001"
+    },
+    {
+      "sym": 35,
+      "code_hex": "ffa",
+      "bit_length": 12,
+      "code_bits": "111111111010"
+    },
+    {
+      "sym": 36,
+      "code_hex": "1ff9",
+      "bit_length": 13,
+      "code_bits": "1111111111001"
+    },
+    {
+      "sym": 37,
+      "code_hex": "15",
+      "bit_length": 6,
+      "code_bits": "010101"
+    },
+    {
+      "sym": 38,
+      "code_hex": "f8",
+      "bit_length": 8,
+      "code_bits": "11111000"
+    },
+    {
+      "sym": 39,
+      "code_hex": "7fa",
+      "bit_length": 11,
+      "code_bits": "11111111010"
+    },
+    {
+      "sym": 40,
+      "code_hex": "3fa",
+      "bit_length": 10,
+      "code_bits": "1111111010"
+    },
+    {
+      "sym": 41,
+      "code_hex": "3fb",
+      "bit_length": 10,
+      "code_bits": "1111111011"
+    },
+    {
+      "sym": 42,
+      "code_hex": "f9",
+      "bit_length": 8,
+      "code_bits": "11111001"
+    },
+    {
+      "sym": 43,
+      "code_hex": "7fb",
+      "bit_length": 11,
+      "code_bits": "11111111011"
+    },
+    {
+      "sym": 44,
+      "code_hex": "fa",
+      "bit_length": 8,
+      "code_bits": "11111010"
+    },
+    {
+      "sym": 45,
+      "code_hex": "16",
+      "bit_length": 6,
+      "code_bits": "010110"
+    },
+    {
+      "sym": 46,
+      "code_hex": "17",
+      "bit_length": 6,
+      "code_bits": "010111"
+    },
+    {
+      "sym": 47,
+      "code_hex": "18",
+      "bit_length": 6,
+      "code_bits": "011000"
+    },
+    {
+      "sym": 48,
+      "code_hex": "0",
+      "bit_length": 5,
+      "code_bits": "00000"
+    },
+    {
+      "sym": 49,
+      "code_hex": "1",
+      "bit_length": 5,
+      "code_bits": "00001"
+    },
+    {
+      "sym": 50,
+      "code_hex": "2",
+      "bit_length": 5,
+      "code_bits": "00010"
+    },
+    {
+      "sym": 51,
+      "code_hex": "19",
+      "bit_length": 6,
+      "code_bits": "011001"
+    },
+    {
+      "sym": 52,
+      "code_hex": "1a",
+      "bit_length": 6,
+      "code_bits": "011010"
+    },
+    {
+      "sym": 53,
+      "code_hex": "1b",
+      "bit_length": 6,
+      "code_bits": "011011"
+    },
+    {
+      "sym": 54,
+      "code_hex": "1c",
+      "bit_length": 6,
+      "code_bits": "011100"
+    },
+    {
+      "sym": 55,
+      "code_hex": "1d",
+      "bit_length": 6,
+      "code_bits": "011101"
+    },
+    {
+      "sym": 56,
+      "code_hex": "1e",
+      "bit_length": 6,
+      "code_bits": "011110"
+    },
+    {
+      "sym": 57,
+      "code_hex": "1f",
+      "bit_length": 6,
+      "code_bits": "011111"
+    },
+    {
+      "sym": 58,
+      "code_hex": "5c",
+      "bit_length": 7,
+      "code_bits": "1011100"
+    },
+    {
+      "sym": 59,
+      "code_hex": "fb",
+      "bit_length": 8,
+      "code_bits": "11111011"
+    },
+    {
+      "sym": 60,
+      "code_hex": "7ffc",
+      "bit_length": 15,
+      "code_bits": "111111111111100"
+    },
+    {
+      "sym": 61,
+      "code_hex": "20",
+      "bit_length": 6,
+      "code_bits": "100000"
+    },
+    {
+      "sym": 62,
+      "code_hex": "ffb",
+      "bit_length": 12,
+      "code_bits": "111111111011"
+    },
+    {
+      "sym": 63,
+      "code_hex": "3fc",
+      "bit_length": 10,
+      "code_bits": "1111111100"
+    },
+    {
+      "sym": 64,
+      "code_hex": "1ffa",
+      "bit_length": 13,
+      "code_bits": "1111111111010"
+    },
+    {
+      "sym": 65,
+      "code_hex": "21",
+      "bit_length": 6,
+      "code_bits": "100001"
+    },
+    {
+      "sym": 66,
+      "code_hex": "5d",
+      "bit_length": 7,
+      "code_bits": "1011101"
+    },
+    {
+      "sym": 67,
+      "code_hex": "5e",
+      "bit_length": 7,
+      "code_bits": "1011110"
+    },
+    {
+      "sym": 68,
+      "code_hex": "5f",
+      "bit_length": 7,
+      "code_bits": "1011111"
+    },
+    {
+      "sym": 69,
+      "code_hex": "60",
+      "bit_length": 7,
+      "code_bits": "1100000"
+    },
+    {
+      "sym": 70,
+      "code_hex": "61",
+      "bit_length": 7,
+      "code_bits": "1100001"
+    },
+    {
+      "sym": 71,
+      "code_hex": "62",
+      "bit_length": 7,
+      "code_bits": "1100010"
+    },
+    {
+      "sym": 72,
+      "code_hex": "63",
+      "bit_length": 7,
+      "code_bits": "1100011"
+    },
+    {
+      "sym": 73,
+      "code_hex": "64",
+      "bit_length": 7,
+      "code_bits": "1100100"
+    },
+    {
+      "sym": 74,
+      "code_hex": "65",
+      "bit_length": 7,
+      "code_bits": "1100101"
+    },
+    {
+      "sym": 75,
+      "code_hex": "66",
+      "bit_length": 7,
+      "code_bits": "1100110"
+    },
+    {
+      "sym": 76,
+      "code_hex": "67",
+      "bit_length": 7,
+      "code_bits": "1100111"
+    },
+    {
+      "sym": 77,
+      "code_hex": "68",
+      "bit_length": 7,
+      "code_bits": "1101000"
+    },
+    {
+      "sym": 78,
+      "code_hex": "69",
+      "bit_length": 7,
+      "code_bits": "1101001"
+    },
+    {
+      "sym": 79,
+      "code_hex": "6a",
+      "bit_length": 7,
+      "code_bits": "1101010"
+    },
+    {
+      "sym": 80,
+      "code_hex": "6b",
+      "bit_length": 7,
+      "code_bits": "1101011"
+    },
+    {
+      "sym": 81,
+      "code_hex": "6c",
+      "bit_length": 7,
+      "code_bits": "1101100"
+    },
+    {
+      "sym": 82,
+      "code_hex": "6d",
+      "bit_length": 7,
+      "code_bits": "1101101"
+    },
+    {
+      "sym": 83,
+      "code_hex": "6e",
+      "bit_length": 7,
+      "code_bits": "1101110"
+    },
+    {
+      "sym": 84,
+      "code_hex": "6f",
+      "bit_length": 7,
+      "code_bits": "1101111"
+    },
+    {
+      "sym": 85,
+      "code_hex": "70",
+      "bit_length": 7,
+      "code_bits": "1110000"
+    },
+    {
+      "sym": 86,
+      "code_hex": "71",
+      "bit_length": 7,
+      "code_bits": "1110001"
+    },
+    {
+      "sym": 87,
+      "code_hex": "72",
+      "bit_length": 7,
+      "code_bits": "1110010"
+    },
+    {
+      "sym": 88,
+      "code_hex": "fc",
+      "bit_length": 8,
+      "code_bits": "11111100"
+    },
+    {
+      "sym": 89,
+      "code_hex": "73",
+      "bit_length": 7,
+      "code_bits": "1110011"
+    },
+    {
+      "sym": 90,
+      "code_hex": "fd",
+      "bit_length": 8,
+      "code_bits": "11111101"
+    },
+    {
+      "sym": 91,
+      "code_hex": "1ffb",
+      "bit_length": 13,
+      "code_bits": "1111111111011"
+    },
+    {
+      "sym": 92,
+      "code_hex": "7fff0",
+      "bit_length": 19,
+      "code_bits": "1111111111111110000"
+    },
+    {
+      "sym": 93,
+      "code_hex": "1ffc",
+      "bit_length": 13,
+      "code_bits": "1111111111100"
+    },
+    {
+      "sym": 94,
+      "code_hex": "3ffc",
+      "bit_length": 14,
+      "code_bits": "11111111111100"
+    },
+    {
+      "sym": 95,
+      "code_hex": "22",
+      "bit_length": 6,
+      "code_bits": "100010"
+    },
+    {
+      "sym": 96,
+      "code_hex": "7ffd",
+      "bit_length": 15,
+      "code_bits": "111111111111101"
+    },
+    {
+      "sym": 97,
+      "code_hex": "3",
+      "bit_length": 5,
+      "code_bits": "00011"
+    },
+    {
+      "sym": 98,
+      "code_hex": "23",
+      "bit_length": 6,
+      "code_bits": "100011"
+    },
+    {
+      "sym": 99,
+      "code_hex": "4",
+      "bit_length": 5,
+      "code_bits": "00100"
+    },
+    {
+      "sym": 100,
+      "code_hex": "24",
+      "bit_length": 6,
+      "code_bits": "100100"
+    },
+    {
+      "sym": 101,
+      "code_hex": "5",
+      "bit_length": 5,
+      "code_bits": "00101"
+    },
+    {
+      "sym": 102,
+      "code_hex": "25",
+      "bit_length": 6,
+      "code_bits": "100101"
+    },
+    {
+      "sym": 103,
+      "code_hex": "26",
+      "bit_length": 6,
+      "code_bits": "100110"
+    },
+    {
+      "sym": 104,
+      "code_hex": "27",
+      "bit_length": 6,
+      "code_bits": "100111"
+    },
+    {
+      "sym": 105,
+      "code_hex": "6",
+      "bit_length": 5,
+      "code_bits": "00110"
+    },
+    {
+      "sym": 106,
+      "code_hex": "74",
+      "bit_length": 7,
+      "code_bits": "1110100"
+    },
+    {
+      "sym": 107,
+      "code_hex": "75",
+      "bit_length": 7,
+      "code_bits": "1110101"
+    },
+    {
+      "sym": 108,
+      "code_hex": "28",
+      "bit_length": 6,
+      "code_bits": "101000"
+    },
+    {
+      "sym": 109,
+      "code_hex": "29",
+      "bit_length": 6,
+      "code_bits": "101001"
+    },
+    {
+      "sym": 110,
+      "code_hex": "2a",
+      "bit_length": 6,
+      "code_bits": "101010"
+    },
+    {
+      "sym": 111,
+      "code_hex": "7",
+      "bit_length": 5,
+      "code_bits": "00111"
+    },
+    {
+      "sym": 112,
+      "code_hex": "2b",
+      "bit_length": 6,
+      "code_bits": "101011"
+    },
+    {
+      "sym": 113,
+      "code_hex": "76",
+      "bit_length": 7,
+      "code_bits": "1110110"
+    },
+    {
+      "sym": 114,
+      "code_hex": "2c",
+      "bit_length": 6,
+      "code_bits": "101100"
+    },
+    {
+      "sym": 115,
+      "code_hex": "8",
+      "bit_length": 5,
+      "code_bits": "01000"
+    },
+    {
+      "sym": 116,
+      "code_hex": "9",
+      "bit_length": 5,
+      "code_bits": "01001"
+    },
+    {
+      "sym": 117,
+      "code_hex": "2d",
+      "bit_length": 6,
+      "code_bits": "101101"
+    },
+    {
+      "sym": 118,
+      "code_hex": "77",
+      "bit_length": 7,
+      "code_bits": "1110111"
+    },
+    {
+      "sym": 119,
+      "code_hex": "78",
+      "bit_length": 7,
+      "code_bits": "1111000"
+    },
+    {
+      "sym": 120,
+      "code_hex": "79",
+      "bit_length": 7,
+      "code_bits": "1111001"
+    },
+    {
+      "sym": 121,
+      "code_hex": "7a",
+      "bit_length": 7,
+      "code_bits": "1111010"
+    },
+    {
+      "sym": 122,
+      "code_hex": "7b",
+      "bit_length": 7,
+      "code_bits": "1111011"
+    },
+    {
+      "sym": 123,
+      "code_hex": "7ffe",
+      "bit_length": 15,
+      "code_bits": "111111111111110"
+    },
+    {
+      "sym": 124,
+      "code_hex": "7fc",
+      "bit_length": 11,
+      "code_bits": "11111111100"
+    },
+    {
+      "sym": 125,
+      "code_hex": "3ffd",
+      "bit_length": 14,
+      "code_bits": "11111111111101"
+    },
+    {
+      "sym": 126,
+      "code_hex": "1ffd",
+      "bit_length": 13,
+      "code_bits": "1111111111101"
+    },
+    {
+      "sym": 127,
+      "code_hex": "ffffffc",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111111100"
+    },
+    {
+      "sym": 128,
+      "code_hex": "fffe6",
+      "bit_length": 20,
+      "code_bits": "11111111111111100110"
+    },
+    {
+      "sym": 129,
+      "code_hex": "3fffd2",
+      "bit_length": 22,
+      "code_bits": "1111111111111111010010"
+    },
+    {
+      "sym": 130,
+      "code_hex": "fffe7",
+      "bit_length": 20,
+      "code_bits": "11111111111111100111"
+    },
+    {
+      "sym": 131,
+      "code_hex": "fffe8",
+      "bit_length": 20,
+      "code_bits": "11111111111111101000"
+    },
+    {
+      "sym": 132,
+      "code_hex": "3fffd3",
+      "bit_length": 22,
+      "code_bits": "1111111111111111010011"
+    },
+    {
+      "sym": 133,
+      "code_hex": "3fffd4",
+      "bit_length": 22,
+      "code_bits": "1111111111111111010100"
+    },
+    {
+      "sym": 134,
+      "code_hex": "3fffd5",
+      "bit_length": 22,
+      "code_bits": "1111111111111111010101"
+    },
+    {
+      "sym": 135,
+      "code_hex": "7fffd9",
+      "bit_length": 23,
+      "code_bits": "11111111111111111011001"
+    },
+    {
+      "sym": 136,
+      "code_hex": "3fffd6",
+      "bit_length": 22,
+      "code_bits": "1111111111111111010110"
+    },
+    {
+      "sym": 137,
+      "code_hex": "7fffda",
+      "bit_length": 23,
+      "code_bits": "11111111111111111011010"
+    },
+    {
+      "sym": 138,
+      "code_hex": "7fffdb",
+      "bit_length": 23,
+      "code_bits": "11111111111111111011011"
+    },
+    {
+      "sym": 139,
+      "code_hex": "7fffdc",
+      "bit_length": 23,
+      "code_bits": "11111111111111111011100"
+    },
+    {
+      "sym": 140,
+      "code_hex": "7fffdd",
+      "bit_length": 23,
+      "code_bits": "11111111111111111011101"
+    },
+    {
+      "sym": 141,
+      "code_hex": "7fffde",
+      "bit_length": 23,
+      "code_bits": "11111111111111111011110"
+    },
+    {
+      "sym": 142,
+      "code_hex": "ffffeb",
+      "bit_length": 24,
+      "code_bits": "111111111111111111101011"
+    },
+    {
+      "sym": 143,
+      "code_hex": "7fffdf",
+      "bit_length": 23,
+      "code_bits": "11111111111111111011111"
+    },
+    {
+      "sym": 144,
+      "code_hex": "ffffec",
+      "bit_length": 24,
+      "code_bits": "111111111111111111101100"
+    },
+    {
+      "sym": 145,
+      "code_hex": "ffffed",
+      "bit_length": 24,
+      "code_bits": "111111111111111111101101"
+    },
+    {
+      "sym": 146,
+      "code_hex": "3fffd7",
+      "bit_length": 22,
+      "code_bits": "1111111111111111010111"
+    },
+    {
+      "sym": 147,
+      "code_hex": "7fffe0",
+      "bit_length": 23,
+      "code_bits": "11111111111111111100000"
+    },
+    {
+      "sym": 148,
+      "code_hex": "ffffee",
+      "bit_length": 24,
+      "code_bits": "111111111111111111101110"
+    },
+    {
+      "sym": 149,
+      "code_hex": "7fffe1",
+      "bit_length": 23,
+      "code_bits": "11111111111111111100001"
+    },
+    {
+      "sym": 150,
+      "code_hex": "7fffe2",
+      "bit_length": 23,
+      "code_bits": "11111111111111111100010"
+    },
+    {
+      "sym": 151,
+      "code_hex": "7fffe3",
+      "bit_length": 23,
+      "code_bits": "11111111111111111100011"
+    },
+    {
+      "sym": 152,
+      "code_hex": "7fffe4",
+      "bit_length": 23,
+      "code_bits": "11111111111111111100100"
+    },
+    {
+      "sym": 153,
+      "code_hex": "1fffdc",
+      "bit_length": 21,
+      "code_bits": "111111111111111011100"
+    },
+    {
+      "sym": 154,
+      "code_hex": "3fffd8",
+      "bit_length": 22,
+      "code_bits": "1111111111111111011000"
+    },
+    {
+      "sym": 155,
+      "code_hex": "7fffe5",
+      "bit_length": 23,
+      "code_bits": "11111111111111111100101"
+    },
+    {
+      "sym": 156,
+      "code_hex": "3fffd9",
+      "bit_length": 22,
+      "code_bits": "1111111111111111011001"
+    },
+    {
+      "sym": 157,
+      "code_hex": "7fffe6",
+      "bit_length": 23,
+      "code_bits": "11111111111111111100110"
+    },
+    {
+      "sym": 158,
+      "code_hex": "7fffe7",
+      "bit_length": 23,
+      "code_bits": "11111111111111111100111"
+    },
+    {
+      "sym": 159,
+      "code_hex": "ffffef",
+      "bit_length": 24,
+      "code_bits": "111111111111111111101111"
+    },
+    {
+      "sym": 160,
+      "code_hex": "3fffda",
+      "bit_length": 22,
+      "code_bits": "1111111111111111011010"
+    },
+    {
+      "sym": 161,
+      "code_hex": "1fffdd",
+      "bit_length": 21,
+      "code_bits": "111111111111111011101"
+    },
+    {
+      "sym": 162,
+      "code_hex": "fffe9",
+      "bit_length": 20,
+      "code_bits": "11111111111111101001"
+    },
+    {
+      "sym": 163,
+      "code_hex": "3fffdb",
+      "bit_length": 22,
+      "code_bits": "1111111111111111011011"
+    },
+    {
+      "sym": 164,
+      "code_hex": "3fffdc",
+      "bit_length": 22,
+      "code_bits": "1111111111111111011100"
+    },
+    {
+      "sym": 165,
+      "code_hex": "7fffe8",
+      "bit_length": 23,
+      "code_bits": "11111111111111111101000"
+    },
+    {
+      "sym": 166,
+      "code_hex": "7fffe9",
+      "bit_length": 23,
+      "code_bits": "11111111111111111101001"
+    },
+    {
+      "sym": 167,
+      "code_hex": "1fffde",
+      "bit_length": 21,
+      "code_bits": "111111111111111011110"
+    },
+    {
+      "sym": 168,
+      "code_hex": "7fffea",
+      "bit_length": 23,
+      "code_bits": "11111111111111111101010"
+    },
+    {
+      "sym": 169,
+      "code_hex": "3fffdd",
+      "bit_length": 22,
+      "code_bits": "1111111111111111011101"
+    },
+    {
+      "sym": 170,
+      "code_hex": "3fffde",
+      "bit_length": 22,
+      "code_bits": "1111111111111111011110"
+    },
+    {
+      "sym": 171,
+      "code_hex": "fffff0",
+      "bit_length": 24,
+      "code_bits": "111111111111111111110000"
+    },
+    {
+      "sym": 172,
+      "code_hex": "1fffdf",
+      "bit_length": 21,
+      "code_bits": "111111111111111011111"
+    },
+    {
+      "sym": 173,
+      "code_hex": "3fffdf",
+      "bit_length": 22,
+      "code_bits": "1111111111111111011111"
+    },
+    {
+      "sym": 174,
+      "code_hex": "7fffeb",
+      "bit_length": 23,
+      "code_bits": "11111111111111111101011"
+    },
+    {
+      "sym": 175,
+      "code_hex": "7fffec",
+      "bit_length": 23,
+      "code_bits": "11111111111111111101100"
+    },
+    {
+      "sym": 176,
+      "code_hex": "1fffe0",
+      "bit_length": 21,
+      "code_bits": "111111111111111100000"
+    },
+    {
+      "sym": 177,
+      "code_hex": "1fffe1",
+      "bit_length": 21,
+      "code_bits": "111111111111111100001"
+    },
+    {
+      "sym": 178,
+      "code_hex": "3fffe0",
+      "bit_length": 22,
+      "code_bits": "1111111111111111100000"
+    },
+    {
+      "sym": 179,
+      "code_hex": "1fffe2",
+      "bit_length": 21,
+      "code_bits": "111111111111111100010"
+    },
+    {
+      "sym": 180,
+      "code_hex": "7fffed",
+      "bit_length": 23,
+      "code_bits": "11111111111111111101101"
+    },
+    {
+      "sym": 181,
+      "code_hex": "3fffe1",
+      "bit_length": 22,
+      "code_bits": "1111111111111111100001"
+    },
+    {
+      "sym": 182,
+      "code_hex": "7fffee",
+      "bit_length": 23,
+      "code_bits": "11111111111111111101110"
+    },
+    {
+      "sym": 183,
+      "code_hex": "7fffef",
+      "bit_length": 23,
+      "code_bits": "11111111111111111101111"
+    },
+    {
+      "sym": 184,
+      "code_hex": "fffea",
+      "bit_length": 20,
+      "code_bits": "11111111111111101010"
+    },
+    {
+      "sym": 185,
+      "code_hex": "3fffe2",
+      "bit_length": 22,
+      "code_bits": "1111111111111111100010"
+    },
+    {
+      "sym": 186,
+      "code_hex": "3fffe3",
+      "bit_length": 22,
+      "code_bits": "1111111111111111100011"
+    },
+    {
+      "sym": 187,
+      "code_hex": "3fffe4",
+      "bit_length": 22,
+      "code_bits": "1111111111111111100100"
+    },
+    {
+      "sym": 188,
+      "code_hex": "7ffff0",
+      "bit_length": 23,
+      "code_bits": "11111111111111111110000"
+    },
+    {
+      "sym": 189,
+      "code_hex": "3fffe5",
+      "bit_length": 22,
+      "code_bits": "1111111111111111100101"
+    },
+    {
+      "sym": 190,
+      "code_hex": "3fffe6",
+      "bit_length": 22,
+      "code_bits": "1111111111111111100110"
+    },
+    {
+      "sym": 191,
+      "code_hex": "7ffff1",
+      "bit_length": 23,
+      "code_bits": "11111111111111111110001"
+    },
+    {
+      "sym": 192,
+      "code_hex": "3ffffe0",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111100000"
+    },
+    {
+      "sym": 193,
+      "code_hex": "3ffffe1",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111100001"
+    },
+    {
+      "sym": 194,
+      "code_hex": "fffeb",
+      "bit_length": 20,
+      "code_bits": "11111111111111101011"
+    },
+    {
+      "sym": 195,
+      "code_hex": "7fff1",
+      "bit_length": 19,
+      "code_bits": "1111111111111110001"
+    },
+    {
+      "sym": 196,
+      "code_hex": "3fffe7",
+      "bit_length": 22,
+      "code_bits": "1111111111111111100111"
+    },
+    {
+      "sym": 197,
+      "code_hex": "7ffff2",
+      "bit_length": 23,
+      "code_bits": "11111111111111111110010"
+    },
+    {
+      "sym": 198,
+      "code_hex": "3fffe8",
+      "bit_length": 22,
+      "code_bits": "1111111111111111101000"
+    },
+    {
+      "sym": 199,
+      "code_hex": "1ffffec",
+      "bit_length": 25,
+      "code_bits": "1111111111111111111101100"
+    },
+    {
+      "sym": 200,
+      "code_hex": "3ffffe2",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111100010"
+    },
+    {
+      "sym": 201,
+      "code_hex": "3ffffe3",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111100011"
+    },
+    {
+      "sym": 202,
+      "code_hex": "3ffffe4",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111100100"
+    },
+    {
+      "sym": 203,
+      "code_hex": "7ffffde",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111011110"
+    },
+    {
+      "sym": 204,
+      "code_hex": "7ffffdf",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111011111"
+    },
+    {
+      "sym": 205,
+      "code_hex": "3ffffe5",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111100101"
+    },
+    {
+      "sym": 206,
+      "code_hex": "fffff1",
+      "bit_length": 24,
+      "code_bits": "111111111111111111110001"
+    },
+    {
+      "sym": 207,
+      "code_hex": "1ffffed",
+      "bit_length": 25,
+      "code_bits": "1111111111111111111101101"
+    },
+    {
+      "sym": 208,
+      "code_hex": "7fff2",
+      "bit_length": 19,
+      "code_bits": "1111111111111110010"
+    },
+    {
+      "sym": 209,
+      "code_hex": "1fffe3",
+      "bit_length": 21,
+      "code_bits": "111111111111111100011"
+    },
+    {
+      "sym": 210,
+      "code_hex": "3ffffe6",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111100110"
+    },
+    {
+      "sym": 211,
+      "code_hex": "7ffffe0",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111100000"
+    },
+    {
+      "sym": 212,
+      "code_hex": "7ffffe1",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111100001"
+    },
+    {
+      "sym": 213,
+      "code_hex": "3ffffe7",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111100111"
+    },
+    {
+      "sym": 214,
+      "code_hex": "7ffffe2",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111100010"
+    },
+    {
+      "sym": 215,
+      "code_hex": "fffff2",
+      "bit_length": 24,
+      "code_bits": "111111111111111111110010"
+    },
+    {
+      "sym": 216,
+      "code_hex": "1fffe4",
+      "bit_length": 21,
+      "code_bits": "111111111111111100100"
+    },
+    {
+      "sym": 217,
+      "code_hex": "1fffe5",
+      "bit_length": 21,
+      "code_bits": "111111111111111100101"
+    },
+    {
+      "sym": 218,
+      "code_hex": "3ffffe8",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111101000"
+    },
+    {
+      "sym": 219,
+      "code_hex": "3ffffe9",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111101001"
+    },
+    {
+      "sym": 220,
+      "code_hex": "ffffffd",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111111101"
+    },
+    {
+      "sym": 221,
+      "code_hex": "7ffffe3",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111100011"
+    },
+    {
+      "sym": 222,
+      "code_hex": "7ffffe4",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111100100"
+    },
+    {
+      "sym": 223,
+      "code_hex": "7ffffe5",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111100101"
+    },
+    {
+      "sym": 224,
+      "code_hex": "fffec",
+      "bit_length": 20,
+      "code_bits": "11111111111111101100"
+    },
+    {
+      "sym": 225,
+      "code_hex": "fffff3",
+      "bit_length": 24,
+      "code_bits": "111111111111111111110011"
+    },
+    {
+      "sym": 226,
+      "code_hex": "fffed",
+      "bit_length": 20,
+      "code_bits": "11111111111111101101"
+    },
+    {
+      "sym": 227,
+      "code_hex": "1fffe6",
+      "bit_length": 21,
+      "code_bits": "111111111111111100110"
+    },
+    {
+      "sym": 228,
+      "code_hex": "3fffe9",
+      "bit_length": 22,
+      "code_bits": "1111111111111111101001"
+    },
+    {
+      "sym": 229,
+      "code_hex": "1fffe7",
+      "bit_length": 21,
+      "code_bits": "111111111111111100111"
+    },
+    {
+      "sym": 230,
+      "code_hex": "1fffe8",
+      "bit_length": 21,
+      "code_bits": "111111111111111101000"
+    },
+    {
+      "sym": 231,
+      "code_hex": "7ffff3",
+      "bit_length": 23,
+      "code_bits": "11111111111111111110011"
+    },
+    {
+      "sym": 232,
+      "code_hex": "3fffea",
+      "bit_length": 22,
+      "code_bits": "1111111111111111101010"
+    },
+    {
+      "sym": 233,
+      "code_hex": "3fffeb",
+      "bit_length": 22,
+      "code_bits": "1111111111111111101011"
+    },
+    {
+      "sym": 234,
+      "code_hex": "1ffffee",
+      "bit_length": 25,
+      "code_bits": "1111111111111111111101110"
+    },
+    {
+      "sym": 235,
+      "code_hex": "1ffffef",
+      "bit_length": 25,
+      "code_bits": "1111111111111111111101111"
+    },
+    {
+      "sym": 236,
+      "code_hex": "fffff4",
+      "bit_length": 24,
+      "code_bits": "111111111111111111110100"
+    },
+    {
+      "sym": 237,
+      "code_hex": "fffff5",
+      "bit_length": 24,
+      "code_bits": "111111111111111111110101"
+    },
+    {
+      "sym": 238,
+      "code_hex": "3ffffea",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111101010"
+    },
+    {
+      "sym": 239,
+      "code_hex": "7ffff4",
+      "bit_length": 23,
+      "code_bits": "11111111111111111110100"
+    },
+    {
+      "sym": 240,
+      "code_hex": "3ffffeb",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111101011"
+    },
+    {
+      "sym": 241,
+      "code_hex": "7ffffe6",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111100110"
+    },
+    {
+      "sym": 242,
+      "code_hex": "3ffffec",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111101100"
+    },
+    {
+      "sym": 243,
+      "code_hex": "3ffffed",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111101101"
+    },
+    {
+      "sym": 244,
+      "code_hex": "7ffffe7",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111100111"
+    },
+    {
+      "sym": 245,
+      "code_hex": "7ffffe8",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111101000"
+    },
+    {
+      "sym": 246,
+      "code_hex": "7ffffe9",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111101001"
+    },
+    {
+      "sym": 247,
+      "code_hex": "7ffffea",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111101010"
+    },
+    {
+      "sym": 248,
+      "code_hex": "7ffffeb",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111101011"
+    },
+    {
+      "sym": 249,
+      "code_hex": "ffffffe",
+      "bit_length": 28,
+      "code_bits": "1111111111111111111111111110"
+    },
+    {
+      "sym": 250,
+      "code_hex": "7ffffec",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111101100"
+    },
+    {
+      "sym": 251,
+      "code_hex": "7ffffed",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111101101"
+    },
+    {
+      "sym": 252,
+      "code_hex": "7ffffee",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111101110"
+    },
+    {
+      "sym": 253,
+      "code_hex": "7ffffef",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111101111"
+    },
+    {
+      "sym": 254,
+      "code_hex": "7fffff0",
+      "bit_length": 27,
+      "code_bits": "111111111111111111111110000"
+    },
+    {
+      "sym": 255,
+      "code_hex": "3ffffee",
+      "bit_length": 26,
+      "code_bits": "11111111111111111111101110"
+    },
+    {
+      "sym": 256,
+      "code_hex": "3fffffff",
+      "bit_length": 30,
+      "code_bits": "111111111111111111111111111111",
+      "eos": true
+    }
+  ]
+}

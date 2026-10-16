@@ -1,0 +1,40 @@
+{
+  "rfc": "7541",
+  "section": "C.6.3",
+  "title": "Third Response",
+  "huffman": true,
+  "dynamic_table_max_size": 256,
+  "continues_from": "C.6.2",
+  "hex_file": "c6_3.hex",
+  "headers": [
+    [":status", "200"],
+    ["cache-control", "private"],
+    ["date", "Mon, 21 Oct 2013 20:13:22 GMT"],
+    ["location", "https://www.example.com"],
+    ["content-encoding", "gzip"],
+    ["set-cookie", "foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1"]
+  ],
+  "dynamic_table_after": {
+    "entries": [
+      {
+        "index": 62,
+        "name": "set-cookie",
+        "value": "foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1",
+        "size": 98
+      },
+      {
+        "index": 63,
+        "name": "content-encoding",
+        "value": "gzip",
+        "size": 52
+      },
+      {
+        "index": 64,
+        "name": "date",
+        "value": "Mon, 21 Oct 2013 20:13:22 GMT",
+        "size": 65
+      }
+    ],
+    "size": 215
+  }
+}

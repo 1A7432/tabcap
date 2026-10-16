@@ -1,0 +1,16 @@
+{
+  "rfc": "7541",
+  "section": "C.2.4",
+  "title": "Indexed Header Field",
+  "huffman": false,
+  "dynamic_table_max_size": 4096,
+  "continues_from": null,
+  "hex_file": "c2_4.hex",
+  "headers": [
+    [":method", "GET"]
+  ],
+  "dynamic_table_after": {
+    "entries": [],
+    "size": 0
+  }
+}

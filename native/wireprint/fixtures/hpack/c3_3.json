@@ -1,0 +1,39 @@
+{
+  "rfc": "7541",
+  "section": "C.3.3",
+  "title": "Third Request",
+  "huffman": false,
+  "dynamic_table_max_size": 4096,
+  "continues_from": "C.3.2",
+  "hex_file": "c3_3.hex",
+  "headers": [
+    [":method", "GET"],
+    [":scheme", "https"],
+    [":path", "/index.html"],
+    [":authority", "www.example.com"],
+    ["custom-key", "custom-value"]
+  ],
+  "dynamic_table_after": {
+    "entries": [
+      {
+        "index": 62,
+        "name": "custom-key",
+        "value": "custom-value",
+        "size": 54
+      },
+      {
+        "index": 63,
+        "name": "cache-control",
+        "value": "no-cache",
+        "size": 53
+      },
+      {
+        "index": 64,
+        "name": ":authority",
+        "value": "www.example.com",
+        "size": 57
+      }
+    ],
+    "size": 164
+  }
+}

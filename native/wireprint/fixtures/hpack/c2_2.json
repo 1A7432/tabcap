@@ -1,0 +1,16 @@
+{
+  "rfc": "7541",
+  "section": "C.2.2",
+  "title": "Literal Header Field without Indexing",
+  "huffman": false,
+  "dynamic_table_max_size": 4096,
+  "continues_from": null,
+  "hex_file": "c2_2.hex",
+  "headers": [
+    [":path", "/sample/path"]
+  ],
+  "dynamic_table_after": {
+    "entries": [],
+    "size": 0
+  }
+}
