@@ -39,7 +39,7 @@ import { looksEncrypted } from "../analyze/find.ts";
 import { flattenJson, globMatcher, headerJoined, HOP_BY_HOP, isBrowserHeader, replayableRequests, requestBodyBytes } from "./common.ts";
 import { DEFAULT_HEADERS, normHeader } from "./check.ts";
 import { DepsGraph, type ResolvedInput } from "../analyze/deps.ts";
-import { chainOf, dataBearing, type ChainResult } from "../analyze/chain.ts";
+import { chainOf, latestTarget, type ChainResult } from "../analyze/chain.ts";
 import RUNTIME from "../../templates/python/_runtime.py" with { type: "text" };
 import CHAIN_RUNTIME from "../../templates/python/_chain.py" with { type: "text" };
 import VERIFY from "../../templates/python/_verify.py" with { type: "text" };
@@ -978,13 +978,14 @@ export function exportPython(opts: ExportOptions): ExportResult {
     for (const smp of g.samples) fnOfRef.set(smp.ref, n);
   }
 
-  // Chain mode (0.4-A): the deps graph and the chain to the last data-bearing request.
+  // Chain mode (0.4-A): the deps graph and the chain to the target analyze chain would pick
+  // among the exported requests (latestTarget: the data-bearing one that started last, 0.6-C).
   const graph = opts.chain === false ? null : DepsGraph.of(reader);
   const linked = graph !== null && chosen.some((r) => graph.inputs(r.id).some((i) => i.primary !== null && (i.primary.kind === "set-cookie" || i.primary.kind === "response")));
   const chainMode = graph !== null && (opts.chain === true || linked);
   let chain: ChainResult | null = null;
   if (graph !== null && chainMode) {
-    const target = [...chosen].reverse().find(dataBearing) ?? chosen[chosen.length - 1];
+    const target = latestTarget(chosen) ?? chosen[chosen.length - 1];
     if (target !== undefined) chain = chainOf(graph, opts.bundle, { request: target.id });
     for (const w of graph.warnings) if (!warnings.includes(w)) warnings.push(w);
   }

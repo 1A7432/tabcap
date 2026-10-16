@@ -89,11 +89,19 @@ export function latestStartFirst(list: readonly RequestEvent[]): RequestEvent[] 
   });
 }
 
-/** The default target: the data-bearing xhr / fetch / document request that started last (else the latest-started of those types with a response). */
-export function defaultTarget(g: DepsGraph, session?: string): RequestEvent {
-  const list = g.select({ session });
+/**
+ * The target rule of `analyze chain` and `replay export-python` (one rule for
+ * both, 0.6-C): among `list`, the data-bearing xhr / fetch / document request
+ * that started last, else the latest-started of those types with a response.
+ */
+export function latestTarget(list: readonly RequestEvent[]): RequestEvent | undefined {
   const last = latestStartFirst(list);
-  const hit = last.find(dataBearing) ?? last.find((r) => DATA_TYPES.has(r.type) && r.response !== null);
+  return last.find(dataBearing) ?? last.find((r) => DATA_TYPES.has(r.type) && r.response !== null);
+}
+
+/** The default target: latestTarget over the graph's requests (of one session). */
+export function defaultTarget(g: DepsGraph, session?: string): RequestEvent {
+  const hit = latestTarget(g.select({ session }));
   if (hit === undefined) throw new TabcapError("not-found", "no xhr / fetch / document request with a response to build a chain for", "Pass the target explicitly: --request r-N.");
   return hit;
 }

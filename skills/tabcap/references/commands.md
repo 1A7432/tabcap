@@ -1110,7 +1110,7 @@ Example: `tabcap replay export-python ./b -o ./client`
 | `--out <dir>`, `-o <dir>` |  | directory for the generated package (required) |
 | `--include <glob,glob>` |  | only paths matching these globs (* within a segment, ** across) |
 | `--exclude <glob,glob>` |  | leave out paths matching these globs |
-| `--chain` |  | use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response) |
+| `--chain` |  | use the deps graph and the chain to the data-bearing request that started last (the analyze chain default): computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response) |
 | `--no-chain` |  | 0.3 behaviour: per-request heuristics only, no verify() |
 | `--browser-headers` |  | send every recorded request header (user-agent, accept-language, sec-ch-ua*, sec-fetch-* …); default: only content-type, authorization, a non-default accept, a cross-origin referer and headers the browser does not add itself (custom x-* …) |
 | `--proxy-env <file>` |  | also write TABCAP_PROXY_URL (the bundle account's proxy, with its credentials) to this file, mode 0600; never printed. The generated client reads TABCAP_PROXY_URL |

@@ -970,7 +970,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--out", alias: "-o", key: "out", kind: "string", help: "directory for the generated package", required: true, metavar: "dir" },
       { flag: "--include", key: "include", kind: "string", help: "only paths matching these globs (* within a segment, ** across)", metavar: "glob,glob" },
       { flag: "--exclude", key: "exclude", kind: "string", help: "leave out paths matching these globs", metavar: "glob,glob" },
-      { flag: "--chain", key: "chain", kind: "bool", help: "use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)" },
+      { flag: "--chain", key: "chain", kind: "bool", help: "use the deps graph and the chain to the data-bearing request that started last (the analyze chain default): computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)" },
       { flag: "--no-chain", key: "noChain", kind: "bool", help: "0.3 behaviour: per-request heuristics only, no verify()" },
       {
         flag: "--browser-headers",

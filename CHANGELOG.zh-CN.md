@@ -18,6 +18,7 @@
 - **`tabcap bundle export fixtures <包> --out <目录> [--rules f] [--format json|<插件>] [--no-redact]`**：每条可回放的交换一个夹具 `fixtures/<n>-<METHOD>-<路径 slug>.json`（`{schema: "tabcap-fixture/0", key:{method, path, query, body}, request:{url, headers, body}, response:{status, headers, body | bodyFile, decoded?}, meta:{request, rule, recordedAt, keyBody}}`，大的或二进制正文放 `bodies/`），另写 `index.json`；默认像 HAR 导出一样脱敏，键也从脱敏后的包算（`--no-redact` 保留登录体连同密码）；`--out` 必须是新的或空目录；文件 0600。
 - **夹具插件**：插件清单写 `"kind": "fixture"`（同一插件目录，用 `--format` 点名，不必启用）；协议 `tabcap-fixture/1`，与解码插件同样的 JSON 行：`{"id","op":"fixture","fixture"}` → `{"id","files":[{"path","encoding","data"}]}`，写到 `--out` 下（只许相对路径，一个回答最多 64 个文件，有 `maxBytes` 上限）。`plugin list` 显示 `kind: "fixture"` 与 `fixtureProtocol`。
 - **`bundle export har --rules <file>`** 只把各规则忽略的 query 参数从条目的 URL 与 `queryString` 去掉，别的不变。
+- `replay export-python`（链模式）挑目标与 `analyze chain` 的默认目标同一条规则（导出的请求里有数据、开始时间最晚的那条），不再按事件流里的最后一条。
 
 ### 与 mitmproxy / Burp 互通（0.6-M）
 

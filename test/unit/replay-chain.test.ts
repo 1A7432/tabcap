@@ -12,7 +12,9 @@ import { join } from "node:path";
 import { exportPython, TODO_MARK, TODO_SECRET } from "../../src/replay/python.ts";
 import { run } from "../../src/cli/main.ts";
 import { isRecord } from "../../src/shared/json.ts";
-import { tmp } from "./_analyze.ts";
+import { buildBundle, tmp } from "./_analyze.ts";
+import { DepsGraph } from "../../src/analyze/deps.ts";
+import { defaultTarget } from "../../src/analyze/chain.ts";
 import { ACCESS_TOKEN, CSRF, PASSWORD, QUOTED, SIGN_ONE, SIGN_ONE_SIG, USER, buildLogin, buildReport, buildSign, buildToken } from "./_deps.ts";
 import { SLOW_IO_MS, expectMode } from "./_platform.ts";
 import { need, packageReason, pyCompile, runInPackage, runInPackageAsync, skipWithout, syncPackage } from "./_python.ts";
@@ -260,4 +262,23 @@ describe("export-python, chain mode: prefixed header values and caller-input (0.
       await s.stop();
     }
   }, 60_000);
+});
+
+describe("export-python and analyze chain pick the same target (0.6-C)", () => {
+  test("event order the other way round from the start times: both take the request that started last", async () => {
+    // planted: /api/data starts later (timing.start 5300) but its event is written first; /api/report
+    // starts first (5100) and its event comes last. Both are data-bearing fetches.
+    const C = 1760700000000;
+    const M = 5000;
+    const dir = await buildBundle(join(root, "start-order"), { name: "start-order", created: C, seed: 21 }, async (b) => {
+      await b.request({ url: "http://127.0.0.1:4310/api/data", type: "fetch", mime: "application/json", body: '{"data":"ok"}', ts: C + 400, extra: { mono: M + 350, timing: { start: M + 300, responseStart: M + 340, end: M + 350, cdp: null } } });
+      await b.request({ url: "http://127.0.0.1:4310/api/report", type: "fetch", mime: "application/json", body: '{"report":1}', ts: C + 500, extra: { mono: M + 450, timing: { start: M + 100, responseStart: M + 440, end: M + 450, cdp: null } } });
+    });
+    const g = DepsGraph.open(dir);
+    const [data, rep] = g.requests;
+    expect([data?.url, (data?.seq ?? 0) < (rep?.seq ?? 0)]).toEqual(["http://127.0.0.1:4310/api/data", true]);
+    const r = exportPython({ bundle: dir, out: join(root, "start-order-client"), chain: true });
+    expect(r.chain?.target).toBe(defaultTarget(g).id);
+    expect(r.chain?.target).toBe(data?.id ?? "?");
+  }, SLOW_IO_MS);
 });

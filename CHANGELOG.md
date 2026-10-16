@@ -26,6 +26,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **`tabcap bundle export fixtures <bundle> --out <dir> [--rules f] [--format json|<plugin>] [--no-redact]`**: one fixture per replayable exchange as `fixtures/<n>-<METHOD>-<path slug>.json` (`{schema: "tabcap-fixture/0", key:{method, path, query, body}, request:{url, headers, body}, response:{status, headers, body | bodyFile, decoded?}, meta:{request, rule, recordedAt, keyBody}}`, large or binary bodies under `bodies/`) plus `index.json`; redacted like a HAR export by default, keys included (`--no-redact` keeps the login body with its password); `--out` must be new or empty; files 0600.
 - **Fixture plugins**: `"kind": "fixture"` in a plugin manifest (same plugins directory, named with `--format`, need not be enabled); protocol `tabcap-fixture/1`, the decode plugins' JSON lines: `{"id","op":"fixture","fixture"}` → `{"id","files":[{"path","encoding","data"}]}` written under `--out` (relative paths only, at most 64 per answer, `maxBytes` cap). `plugin list` shows `kind: "fixture"` and `fixtureProtocol`.
 - **`bundle export har --rules <file>`** drops each rule's ignored query parameters from the entry URL and `queryString`; nothing else changes.
+- `replay export-python` (chain mode) picks its target with the same rule as `analyze chain`'s default (the data-bearing request that started last, among the exported requests), no longer the last one in the event stream.
 
 ### Interop with mitmproxy and Burp (0.6-M)
 
