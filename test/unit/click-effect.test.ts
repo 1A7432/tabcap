@@ -6,9 +6,12 @@
 // 0.6-R popup: the owner's 0.6-R brief (a click that opens a page the session
 // owns reports effect "popup" with the new tab id, URL when known, and no
 // --trusted hint) and TargetInfo.openerId / type of the Target domain.
+// 0.6-U popup window: the owner's 0.6-U brief (a popup seen at any point before
+// the watch returns is in the answer and outranks; the grace after the wait
+// stays within POPUP_REGISTER_MS).
 
 import { describe, expect, test } from "bun:test";
-import { classifyEffect, isNavigationEvent, isRequestEvent, NO_EFFECT_NOTE, popupNote, popupTargetOf } from "../../src/daemon/tools/effect.ts";
+import { classifyEffect, isNavigationEvent, isRequestEvent, NO_EFFECT_NOTE, POPUP_REGISTER_MS, POPUP_SETTLE_MS, popupGraceOver, popupNote, popupTargetOf } from "../../src/daemon/tools/effect.ts";
 
 describe("click effect classification (0.6-D)", () => {
   test("nothing seen → none with the --trusted note", () => {
@@ -58,5 +61,29 @@ describe("click effect classification (0.6-D)", () => {
     expect(popupTargetOf({ method: "Target.targetCreated", params: info({}), sessionId: "S1" }, "T1")).toBeNull();
     expect(popupTargetOf({ method: "Target.targetInfoChanged", params: info({}), sessionId: null }, "T1")).toBeNull();
     expect(popupTargetOf({ method: "Target.targetCreated", params: { targetInfo: "junk" }, sessionId: null }, "T1")).toBeNull();
+  });
+
+  test("0.6-U: request seen first, popup later (after the wait, in the grace) → effect popup with the popup field", () => {
+    const late = { at: 1900, tab: "t2", url: "http://127.0.0.1:9/popup-target" };
+    expect(classifyEffect({ dom: null, navigation: null, request: 100, popup: late })).toEqual({ effect: "popup", popup: { tab: "t2", url: "http://127.0.0.1:9/popup-target" }, note: popupNote("t2") });
+    expect(classifyEffect({ dom: 50, navigation: 60, request: 100, popup: { at: 2100, tab: null, url: null } })).toEqual({ effect: "popup", popup: { tab: null }, note: popupNote(null) });
+  });
+
+  test("0.6-U: the grace after the wait: registration of a seen popup, or a watched request that may still open one; never past the deadline", () => {
+    const base = { now: 1000, deadline: 1000 + POPUP_REGISTER_MS, popup: null, inflight: 0, lastEnd: null, requests: true };
+    expect(POPUP_REGISTER_MS).toBe(2000);
+    // no popup, no request: over at once (a plain click is not slowed)
+    expect(popupGraceOver(base)).toBe(true);
+    // a watched request still in flight: keep looking; a dialog (requests false) does not
+    expect(popupGraceOver({ ...base, inflight: 1 })).toBe(false);
+    expect(popupGraceOver({ ...base, inflight: 1, requests: false })).toBe(true);
+    // the last request ended just now: wait POPUP_SETTLE_MS for its handler
+    expect(popupGraceOver({ ...base, lastEnd: 1000 - POPUP_SETTLE_MS + 1 })).toBe(false);
+    expect(popupGraceOver({ ...base, lastEnd: 1000 - POPUP_SETTLE_MS })).toBe(true);
+    // a popup seen: until it is registered, whatever the requests do
+    expect(popupGraceOver({ ...base, popup: { registered: false } })).toBe(false);
+    expect(popupGraceOver({ ...base, popup: { registered: true }, inflight: 3 })).toBe(true);
+    // the deadline ends everything
+    expect(popupGraceOver({ ...base, now: base.deadline, popup: { registered: false }, inflight: 2 })).toBe(true);
   });
 });

@@ -22,6 +22,16 @@
 // first, and the new tab is what the caller must act on), else the first of
 // the other three observed, or "none" with a `note` suggesting `--trusted`.
 // The exit code never changes.
+// Popup window (0.6-U, a real-site re-test 10-17: the click's request was seen,
+// the popup target came after the wait and the answer said "request" with no
+// popup): the popup is looked for until the watch returns, not until the
+// post-action wait ends. After the wait one grace of at most POPUP_REGISTER_MS
+// follows: with a popup seen, until it is registered as a session tab (as
+// before); with none seen, only while a request the watch saw is still in
+// flight or finished less than POPUP_SETTLE_MS ago (a handler that opens the
+// popup from the response), so a click without such a request is not slowed.
+// A popup is also taken from the session's tab list: a tab whose opener is the
+// clicked tab that was not there when the watch started.
 
 import { isRecord, num, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
@@ -101,8 +111,24 @@ export function popupTargetOf(e: Pick<CdpEvent, "method" | "params" | "sessionId
   return str(info, "targetId");
 }
 
-/** How long `stop` waits for a seen popup to be registered as a session tab (attach setup runs first). */
+/** The grace after the post-action wait (0.6-U: one budget for a popup to show up and to be registered as a session tab). */
 export const POPUP_REGISTER_MS = 2000;
+/** With no popup seen, the grace lasts while a watched request is in flight or ended less than this ago. */
+export const POPUP_SETTLE_MS = 300;
+
+/**
+ * Pure (0.6-U): may the grace after the post-action wait end now? `popup`:
+ * null none seen, else whether it is registered; `inflight` watched requests
+ * not finished; `lastEnd` when the last one finished (ms) or null; `requests`
+ * false skips the request part (a dialog is open: the page's script is paused).
+ */
+export function popupGraceOver(s: { now: number; deadline: number; popup: { registered: boolean } | null; inflight: number; lastEnd: number | null; requests: boolean }): boolean {
+  if (s.now >= s.deadline) return true;
+  if (s.popup !== null) return s.popup.registered;
+  if (!s.requests) return true;
+  if (s.inflight > 0) return false;
+  return s.lastEnd === null || s.now - s.lastEnd >= POPUP_SETTLE_MS;
+}
 
 /** A request worth counting: anything but data: URLs (inline images and the like). */
 export function isRequestEvent(e: Pick<CdpEvent, "method" | "params">): boolean {
@@ -137,17 +163,29 @@ export type EffectWatch = { stop: (skipDom: boolean) => Promise<EffectSeen> };
  * by `sessionId`; `frame` null: the root document). Never throws: a part that
  * cannot be set up is simply not watched.
  */
+/** Popup tabs of `opener` in the session's tab list (0.6-U: a popup the target events did not name is still found). */
+function popupTabsOf(tabs: Pick<Tabs, "tabs">, opener: Tab): Tab[] {
+  return [...tabs.tabs.values()].filter((x) => !x.closed && x.reason === "popup" && x.opener === opener.id && x.session === opener.session);
+}
+
 export async function watchEffect(
   d: Daemon,
   t: Transport,
-  tabs: Pick<Tabs, "byTarget">,
+  tabs: Pick<Tabs, "byTarget" | "tabs">,
   tab: Tab,
   node: { backendNodeId: number; sessionId: string; frame: { frameId: string; loaderId: string } | null },
 ): Promise<EffectWatch> {
   const started = Date.now();
   const seen: EffectSeen = { dom: null, navigation: null, request: null, popup: null };
   const sessions = new Set([tab.sessionId, node.sessionId]);
+  const popupsBefore = new Set(popupTabsOf(tabs, tab).map((x) => x.id));
   let popupTarget: string | null = null;
+  // Requests the watch saw start and not yet finish (0.6-U grace), and when the last one finished.
+  const inflight = new Set<string>();
+  let lastEnd: number | null = null;
+  // Set when the post-action wait has ended: DOM / navigation / request are judged over the wait only (as in
+  // 0.6-D), and a request that starts later does not lengthen the grace.
+  let waitOver = false;
   const off = t.onEvent((e) => {
     if (popupTarget === null) {
       const id = popupTargetOf(e, tab.targetId);
@@ -158,9 +196,19 @@ export async function watchEffect(
       }
     }
     if (e.sessionId === null || !sessions.has(e.sessionId)) return;
-    if (seen.navigation === null && isNavigationEvent(e)) seen.navigation = Date.now();
-    else if (seen.request === null && isRequestEvent(e)) seen.request = Date.now();
+    const rid = str(e.params, "requestId");
+    if (e.method === "Network.loadingFinished" || e.method === "Network.loadingFailed") {
+      if (rid !== null && inflight.delete(`${e.sessionId}\n${rid}`)) lastEnd = Date.now();
+      return;
+    }
+    if (waitOver) return;
+    if (isRequestEvent(e)) {
+      if (rid !== null) inflight.add(`${e.sessionId}\n${rid}`);
+      if (seen.request === null) seen.request = Date.now();
+    } else if (seen.navigation === null && isNavigationEvent(e)) seen.navigation = Date.now();
   });
+  /** A popup tab registered since the watch started that the target events did not name. */
+  const newPopupTab = (): Tab | undefined => popupTabsOf(tabs, tab).find((x) => !popupsBefore.has(x.id));
   // Network events need Network on; a recording has it on already.
   let held = false;
   if (!d.recorders.has(tab.session)) {
@@ -190,7 +238,8 @@ export async function watchEffect(
   }
   return {
     stop: async (skipDom: boolean) => {
-      off();
+      // 0.6-U: the event listener stays on until the watch returns (popups and request ends).
+      waitOver = true;
       if (watchId !== null && doc !== null && !skipDom) {
         // A navigation took the document (and the watch) away: the navigation is the effect then.
         const r = await t.send("Runtime.callFunctionOn", { objectId: watchId, functionDeclaration: READ_FN, returnByValue: true }, doc.sessionId, 3000).catch(() => null);
@@ -202,17 +251,20 @@ export async function watchEffect(
         }
       }
       if (doc !== null) await t.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }, doc.sessionId, 3000).catch(() => undefined);
-      if (held) await netOff(d, t, tab).catch(() => undefined);
-      if (popupTarget !== null && seen.popup !== null) {
-        // Tabs registers the popup in an attach hook, which may still be running.
-        const end = Date.now() + POPUP_REGISTER_MS;
-        let pop = tabs.byTarget(popupTarget);
-        while (pop === undefined && Date.now() < end) {
-          await Bun.sleep(50);
-          pop = tabs.byTarget(popupTarget);
-        }
-        if (pop !== undefined) seen.popup = { at: seen.popup.at, tab: pop.id, url: pop.url };
+      // The grace (0.6-U): one budget for a popup to show up (only while a watched request may still open one)
+      // and to be registered (Tabs registers it in an attach hook, which may still be running).
+      const deadline = Date.now() + POPUP_REGISTER_MS;
+      let pop: Tab | undefined;
+      for (;;) {
+        pop = popupTarget === null ? newPopupTab() : (tabs.byTarget(popupTarget) ?? newPopupTab());
+        if (pop !== undefined && seen.popup === null) seen.popup = { at: Date.now(), tab: null, url: null };
+        const state = { now: Date.now(), deadline, popup: seen.popup === null ? null : { registered: pop !== undefined }, inflight: inflight.size, lastEnd, requests: !skipDom };
+        if (popupGraceOver(state)) break;
+        await Bun.sleep(50);
       }
+      off();
+      if (held) await netOff(d, t, tab).catch(() => undefined);
+      if (pop !== undefined && seen.popup !== null) seen.popup = { at: seen.popup.at, tab: pop.id, url: pop.url };
       return seen;
     },
   };
