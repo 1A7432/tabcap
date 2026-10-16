@@ -206,7 +206,7 @@ def _run_step(step: dict[str, Any], session: Session, base_url: str, replies: di
 def verify(base_url: str | None = None, *, expected: str | Path | None = None, storage_state: str | Path | None = None) -> int:
     """Replay the chain against `base_url` (e.g. `tabcap replay serve`), print a per-step table; 0 when every step passes."""
     if not base_url:
-        print("verify needs a base URL: python client.py verify --base-url http://127.0.0.1:4500 (or TABCAP_REPLAY)", file=_sys.stderr)
+        print("verify needs a base URL: uv run client.py verify --base-url http://127.0.0.1:4500 (or TABCAP_REPLAY)", file=_sys.stderr)
         return 2
     spec = json.loads(Path(expected or (_HERE / "verify_expected.json")).read_text("utf-8"))
     hook = _load_hook()
