@@ -9,6 +9,18 @@ import { exportSession } from "../replay/session.ts";
 import { exportPython } from "../replay/python.ts";
 import { DEFAULT_AGAINST, DEFAULT_HEADERS, check, renderCheckText } from "../replay/check.ts";
 import { headerNames } from "../replay/common.ts";
+import { accountProxy, writeProxyEnv, type AccountProxy } from "../replay/proxyenv.ts";
+import { BundleReader } from "../bundle/reader.ts";
+
+/** --proxy-env: the proxy of the account the bundle was recorded with (manifest session.site / account). */
+function bundleAccountProxy(bundle: string): AccountProxy {
+  const m = BundleReader.open(bundle).manifest;
+  const site = m.session.site;
+  if (site === null) throw new TabcapError("usage", "--proxy-env: the bundle names no site (manifest session.site)", "Record in a session started with --site <site> --account <user>.");
+  const ap = accountProxy(paths().config, site, m.session.account);
+  if (ap === null) throw new TabcapError("conflict", `--proxy-env: account ${site}.${m.session.account ?? "(first)"} is not bound to a pool proxy (system / none): there is no proxy URL to write`, "Leave out --proxy-env; or bind the account with `tabcap account bind <site>.<user> --proxy <name>`.");
+  return ap;
+}
 
 type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
 
@@ -97,7 +109,11 @@ export async function runReplay(argv: readonly string[]): Promise<Outcome> {
         if (out === undefined) throw new TabcapError("usage", "missing -o <dir>", `Usage: ${usageOf(spec)}`);
         if (a["chain"] === true && a["noChain"] === true) throw new TabcapError("usage", "give either --chain or --no-chain, not both", `Usage: ${usageOf(spec)}`);
         const chain = a["chain"] === true ? true : a["noChain"] === true ? false : undefined;
-        return { code: 0, envelope: ok(exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]), chain })) };
+        const proxyEnv = str(a["proxyEnv"]);
+        // 0.4-D: resolve the account's proxy first, so a bundle without one fails before anything is written.
+        const ap = proxyEnv === undefined ? null : bundleAccountProxy(bundle);
+        const result = exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]), chain });
+        return { code: 0, envelope: ok(proxyEnv === undefined || ap === null ? result : { ...result, proxyEnv: writeProxyEnv(proxyEnv, ap) }) };
       }
       case "check": {
         const rate = a["rate"];

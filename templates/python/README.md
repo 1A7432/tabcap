@@ -28,3 +28,4 @@ TABCAP_REPLAY=http://127.0.0.1:4500 .venv/bin/python -m pytest -q
 
 - 默认 `base_url` 是录制时的源；对真实站点调用前先想清楚账号风险（docs/03 §4 「离线回放优先」「会话会过期」）。
 - 会话值（`session.value(...)`）默认用录到的值，可以在 `Session(values={...})` 里覆盖。
+- 录制用的账号绑定了代理池里的代理时，客户端要经同一个代理出去：`tabcap replay export-python <证据包> -o <目录> --proxy-env proxy.env` 把 `TABCAP_PROXY_URL` 写进 `proxy.env`（0600，含代理凭据，不要提交），`set -a; . ./proxy.env; set +a` 后再跑；`Session` 读这个环境变量（没有就不走代理）。
