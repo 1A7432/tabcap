@@ -76,7 +76,7 @@ Example: `tabcap browser start --proxy none`
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--proxy <mode>` |  | system (default) \| none (block everything but 127.0.0.1/localhost) \| <url> |
+| `--proxy <mode>` |  | system (default) \| none (block everything but 127.0.0.1/localhost) \| <url> (loopback goes through the proxy too) |
 | `--foreground` |  | open new tabs as the active tab of the window (still never steals the macOS foreground) |
 | `--executable-path <path>` |  | Chrome for Testing binary (else $TABCAP_CHROME, config.json, cache) |
 
@@ -1111,7 +1111,7 @@ Example: `tabcap proxy add p1 --url http://127.0.0.1:8080 --user pool1 --passwor
 | `--url <scheme://host:port>` |  | scheme://host:port (http, https, socks4, socks5); never credentials (required) |
 | `--user <username>` |  | proxy username (not a secret: shown in listings); SOCKS with a username is refused (Chrome offers no-auth SOCKS only) |
 | `--password-stdin` |  | read the proxy password from stdin (else an interactive prompt when --user is given; never an argument) |
-| `--bypass <list>` |  | Chrome proxy bypass list for the account's browser context, e.g. "<-loopback>" to send loopback through the proxy too |
+| `--bypass <list>` |  | Chrome proxy bypass list for the account's browser context (default "<-loopback>": loopback goes through the proxy) |
 
 ### `tabcap proxy list`
 

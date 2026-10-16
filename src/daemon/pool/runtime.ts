@@ -205,7 +205,7 @@ export class Pool {
         throw new TabcapError("conflict", `proxy "${px.name}" has the same address as proxy "${c.proxy ?? ""}" (in use by session "${c.session}") but other credentials`, `Stop session "${c.session}" first; Chrome's auth challenge names only the proxy address.`);
       }
     }
-    const params = px === null ? { disposeOnDetach: false } : { proxyServer: chromeProxyServer(px), ...(px.bypass === null ? {} : { proxyBypassList: px.bypass }), disposeOnDetach: false };
+    const params = px === null ? { disposeOnDetach: false } : { proxyServer: chromeProxyServer(px), proxyBypassList: px.bypass ?? "<-loopback>", disposeOnDetach: false };
     const r = await t.send("Target.createBrowserContext", params, null, 10_000);
     const id = str(r, "browserContextId");
     if (id === null) throw new TabcapError("cdp", "Target.createBrowserContext returned no browserContextId", "Retry; if it persists restart the browser.");

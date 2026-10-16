@@ -468,6 +468,22 @@ describe("Pool on a fake browser: context, Fetch auth, cookies", () => {
     s.close();
   });
 
+  test("0.6-N: a context proxy without a stored bypass list gets <-loopback>; a stored list wins", async () => {
+    const { s } = poolHome();
+    s.addProxy({ name: "p3", scheme: "http", host: "127.0.0.1", port: 8081, username: null, password: null, bypass: null });
+    s.addProxy({ name: "p4", scheme: "http", host: "127.0.0.1", port: 8082, username: null, password: null, bypass: "example.org" });
+    const f = fakeBrowser({ "Target.createBrowserContext": () => ({ browserContextId: `CTX${Math.random()}` }) });
+    const pool = new Pool();
+    for (const [n, sess] of [["p3", "s1"], ["p4", "s2"]] as const) {
+      const row = s.proxy(n);
+      if (row === null) throw new Error("no proxy");
+      await pool.open(f.t, { session: sess, site: "example", account: n, proxy: row });
+    }
+    const lists = f.sent.filter((x) => x.method === "Target.createBrowserContext").map((x) => (x.params as Record<string, unknown>)["proxyBypassList"]);
+    expect(lists).toEqual(["<-loopback>", "example.org"]);
+    s.close();
+  });
+
   test("a second proxy on the same address with other credentials is refused (the challenge names the address only)", async () => {
     const { s } = poolHome();
     s.addProxy({ name: "p2", scheme: "http", host: "127.0.0.1", port: 8080, username: "pool2", password: "Other-pass-99", bypass: null });

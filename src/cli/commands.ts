@@ -130,7 +130,7 @@ export const COMMANDS: CommandSpec[] = [
     path: ["browser", "start"],
     pos: [],
     flags: [
-      { flag: "--proxy", key: "proxy", kind: "string", help: "system (default) | none (block everything but 127.0.0.1/localhost) | <url>", metavar: "mode" },
+      { flag: "--proxy", key: "proxy", kind: "string", help: "system (default) | none (block everything but 127.0.0.1/localhost) | <url> (loopback goes through the proxy too)", metavar: "mode" },
       { flag: "--foreground", key: "foreground", kind: "bool", help: "open new tabs as the active tab of the window (still never steals the macOS foreground)" },
       { flag: "--executable-path", key: "executablePath", kind: "string", help: "Chrome for Testing binary (else $TABCAP_CHROME, config.json, cache)", metavar: "path" },
     ],
@@ -164,7 +164,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--url", key: "url", kind: "string", help: "scheme://host:port (http, https, socks4, socks5); never credentials", required: true, metavar: "scheme://host:port" },
       { flag: "--user", key: "user", kind: "string", help: "proxy username (not a secret: shown in listings); SOCKS with a username is refused (Chrome offers no-auth SOCKS only)", metavar: "username" },
       { flag: "--password-stdin", key: "passwordStdin", kind: "bool", help: "read the proxy password from stdin (else an interactive prompt when --user is given; never an argument)" },
-      { flag: "--bypass", key: "bypass", kind: "string", help: "Chrome proxy bypass list for the account's browser context, e.g. \"<-loopback>\" to send loopback through the proxy too", metavar: "list" },
+      { flag: "--bypass", key: "bypass", kind: "string", help: "Chrome proxy bypass list for the account's browser context (default \"<-loopback>\": loopback goes through the proxy)", metavar: "list" },
     ],
     summary: "add a proxy to the local store (state.db, 0600) for the account pool: the password is typed at a prompt (recommended: by the human) or piped with --password-stdin, never passed as an argument, and never shown in tabcap output",
     example: "tabcap proxy add p1 --url http://127.0.0.1:8080 --user pool1 --password-stdin",

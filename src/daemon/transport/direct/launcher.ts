@@ -108,7 +108,7 @@ export function buildArgs(o: ArgsOptions): string[] {
   if (o.platform === "darwin") args.push("--use-mock-keychain");
   if (o.platform === "linux") args.push("--password-store=basic");
   if (o.proxy.kind === "none") args.push("--proxy-server=127.0.0.1:1", "--proxy-bypass-list=127.0.0.1;localhost");
-  if (o.proxy.kind === "url") args.push(`--proxy-server=${o.proxy.url}`);
+  if (o.proxy.kind === "url") args.push(`--proxy-server=${o.proxy.url}`, "--proxy-bypass-list=<-loopback>");
   if (o.extensionDir !== null) args.push(`--load-extension=${o.extensionDir}`);
   if (o.noStartupWindow) args.push("--no-startup-window");
   else args.push("about:blank");

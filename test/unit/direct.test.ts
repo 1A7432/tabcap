@@ -57,7 +57,8 @@ describe("launcher flags (docs/07 §1.2 采用 rows)", () => {
 
   test("proxy modes", () => {
     expect(buildArgs({ ...base, proxy: parseProxy("none") })).toEqual(expect.arrayContaining(["--proxy-server=127.0.0.1:1", "--proxy-bypass-list=127.0.0.1;localhost"]));
-    expect(buildArgs({ ...base, proxy: parseProxy("http://127.0.0.1:8888") })).toContain("--proxy-server=http://127.0.0.1:8888");
+    expect(buildArgs({ ...base, proxy: parseProxy("http://127.0.0.1:8888") })).toEqual(expect.arrayContaining(["--proxy-server=http://127.0.0.1:8888", "--proxy-bypass-list=<-loopback>"]));
+    expect(buildArgs({ ...base, proxy: parseProxy("system") }).some((x) => x.startsWith("--proxy-"))).toBe(false);
     expect(parseProxy(undefined)).toEqual({ kind: "system" });
     expect(() => parseProxy("not a proxy")).toThrow(TabcapError);
   });
