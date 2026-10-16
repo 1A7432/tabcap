@@ -19,6 +19,13 @@
 - **`fill --secret` 要求会话已绑站点**：没被 `session start --site` 绑过的会话（`net start`、`navigate` 建的，包括 `session start --site` 失败之后建的）里，`fill --secret` 在碰页面之前报 `not-found`，`next` 给 `tabcap session stop <name>`，再 `tabcap session start <name> --site <site>`。以前会悄悄填该站点的第一个账号。`net start`、`navigate` 仍隐式建会话。
 - **`session start --site` 失败不留残留**：错误里说明会话没有启动；账号的浏览器上下文开了之后再失败，上下文会被销毁，后来同名的隐式会话不会把标签开进去。
 
+### fetch 的 credentials 与 session export 的 origin（0.6-P）
+
+- **`tabcap fetch --credentials include|same-origin|omit`**（默认 `include`，即原行为）：就是页面 `fetch()` 的 credentials 选项。回 `Access-Control-Allow-Origin: *`、或发 `Access-Control-Allow-Credentials: true, true` 的 API 只能用 `omit` 读（不带 cookie；API 靠头认证时没问题）。`--batch` 每行可带 `credentials`（命令行的值是没写的行的默认），`POST /fetch` 收 `credentials` 字段，`_tabcap_fetch.py` 的 `fetch()` 多一个 `credentials` 参数。这次 fetch 录下的每个请求都记着所用模式（`fetchCredentials`），命令开始事件也记（`input.credentials`）。
+- **`fetch.blocked` 的 `next` 更准**：Chrome 的理由是通配源或 `Access-Control-Allow-Credentials` 不对、且模式是 `include` 时，提示先说改用 `--credentials omit`、那样不带 cookie；导航到 API 源的页面放第二条，并提醒 Origin / Referer 会跟着变（真实站点的后端因此回过 403）。不做 `--referrer`：页面 fetch 只能发同源 referrer。
+- **`tabcap session export --origin <url|host>`**：认证头取自录制里发往该源的最近一条请求（不论当前是哪个标签），cookie 在页面的之外加上该源的；标签上不再需要该源的 frame。不给 `--origin` 时，页面源没收到像认证的头，就改用录到的、带这类头最多的 host，并在输出里说明：`source.headers` 改成 `{request, origin, auto}`（原来是 `"r-N"` / `"none"`）。值照旧永不打印。
+- 靶场 s60（127.0.0.1 上两个源）与 `test/e2e/v06p.e2e.test.ts` 覆盖以上全部。
+
 ### README 重写
 
 - 两份 README 改回给人读的样子：是什么、为什么、快速开始、做什么、命令分组一览、同类对照、边界、平台、文档。生成的全量命令表从 README 里拿掉，完整参考只在 `skills/tabcap/references/commands.md`（`bun run gen:docs` 现在只写这一个文件）。

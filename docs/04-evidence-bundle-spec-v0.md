@@ -159,6 +159,8 @@
 
 `fetchId`（0.6-A，只在 `tabcap fetch` 发出的请求上有）：`"c-<N>:f-<K>"`，`c-N` 是发出它的命令窗口，`K` 是该命令里的第几个请求（`--batch` 的第 K 行，单条恒为 1）。带 `fetchId` 的请求，`cmd` 固定是 `c-N`，不取「当时最内层打开的命令窗口」，并发命令也不串（§26）。重定向的每一跳、CORS 预检都带同一个 `fetchId`。
 
+`fetchCredentials`（0.6-P，与 `fetchId` 同在）：这次 `tabcap fetch` 交给页面 `fetch()` 的 `credentials`：`"include"`（默认）/ `"same-origin"` / `"omit"`。同一 `fetchId` 的每一跳、预检都带同一个值；页面自己的请求没有这个字段（§34）。
+
 ### 5.2 正文的取法（录制器的硬规则）
 
 1. `Network.enable` 时把缓冲加大（建议 `maxTotalBufferSize` 256 MB、`maxResourceBufferSize` 64 MB、`maxPostDataSize` 1 MB）。`direct` 模式是标准 CDP 参数；【待验：`ext` 路径下是否生效；具体取值靠 s12 量】。
@@ -249,16 +251,16 @@
 
 ### 8.2 会话导出 `session export`（0.6-F，10-16 作者定设计；细节按实现定案，待作者审）
 
-`tabcap session export --for requests|httpx|playwright --out <file> [--origin <url>] [--tab t2]`：把会话当前标签（或 `--tab`）已登录的会话交给脚本。和 `replay session` 一样，**文件里就是活的凭据**，这是设计本身，不打码。
+`tabcap session export --for requests|httpx|playwright --out <file> [--origin <url 或 host>] [--tab t2]`：把会话当前标签（或 `--tab`）已登录的会话交给脚本。导出源默认是标签页面的源；`--origin` 可以是任意源（0.6-P：单页应用调用的 API 源，标签上不必有它的 frame），写裸 host（`api.example.com`、`127.0.0.1:4311`）时 scheme 取录制里发往该 host 的最近一条请求，没有就用 `https`。和 `replay session` 一样，**文件里就是活的凭据**，这是设计本身，不打码。
 
 - **写到哪**：`--out` 给的路径（CLI 按自己的工作目录解析）；`--for httpx` 没写 `.py` 时补上。文件 0600，新建的目录 0700（已有目录不改权限）；路径是目录则拒绝。不写进证据包，不进仓库（使用者自己负责）。
 - **装什么**：
-  - cookies：导出源的根 URL 和标签当前 URL（同源时）的 `Network.getCookies`；会话有自己的浏览器上下文（池账号，0.4-D）时再并上 `Storage.getCookies {browserContextId}`，名字 + 域 + 路径相同的后者覆盖。字段同 Playwright storageState 的 cookie。
-  - 头：本会话正在录或最近录完的包里，**发往导出源 host（含端口）的最近一条带选中头的请求**（都不带就取最近一条、头为空）；选中 = 敏感头（§8 的头规则，另加 `x-csrf*`、`x-xsrf*`、`*-token`、`*-auth*`、`api-key`）或页面自己设的头（不在浏览器默认头表里：Fetch 规范的禁止请求头、`sec-*`、客户端提示、缓存与条件请求头、`content-type` / `content-length` 等）。`cookie` 单独走 cookies；`proxy-*`（池代理凭据）和伪头永不导出。没有录制：`headers:{}`、`source.headers:"none"`，提示先 `net start`。
-  - storage：在导出源那个 frame 的 tabcap 隔离世界里读 localStorage / sessionStorage（与页面共享存储，不碰页面 JS）；UTF-8 超过 64 KB 的值跳过并在输出里列键名和大小。`--origin` 选标签里另一个能到的源（页面或其某个 frame 必须在那个源上，否则 `not-found`）。
-- **格式**：`requests` = JSON，schema `tabcap-session-export/0`：`{schema, origin, capturedAt (ms), cookies:[{name, value, domain, path, expires, httpOnly, secure, sameSite}], headers:{名:值}, storage:{localStorage:{}, sessionStorage:{}}, note}`；`httpx` = 可直接 import 的 Python 模块（`cookies` 名→值、`COOKIE_RECORDS` 带域和路径、`headers`、`storage`、`client(base_url)` 返回 `httpx.Client(cookies=…, headers=…)`，运行时只依赖 httpx）；`playwright` = `replay session` 的 storageState，不加字段，放不下的头和 sessionStorage 在输出 `omitted` 里报名字与数目。`replay export-python` 生成的包里附 `_tabcap_session.py`（读 `requests` 格式、建 httpx 客户端，不依赖 tabcap）。
-- **输出**：`{file, for, origin, mode:"0600", cookies:n, headers:[名字], storage:{localStorage:n, sessionStorage:n}, source:{headers:"r-N"|"none"}, skipped?, omitted?, note}`，只有路径、计数和头名，不出任何值；守护进程的已知秘密替换照常作用于输出。录制中照常写 `cmd` 事件（`outputSummary` 是计数），包里不写别的。
-- 验证：`test/unit/session-export.test.ts`（头选择表、64 KB 上限、文件权限、三种格式、生成的 httpx 客户端对本地服务器实际发出的 cookie 与头）、`test/e2e/v06f.e2e.test.ts`（s07 带 token 变体，对照靶场日志）。
+  - cookies：`Network.getCookies` 的 URL 是导出源的根 URL、标签页面的根 URL 与当前 URL（0.6-P 起总带上，`--origin` 的源与页面的并列）、读 storage 的那个 frame 的 URL、头取自的那个源的根 URL；会话有自己的浏览器上下文（池账号，0.4-D）时再并上 `Storage.getCookies {browserContextId}`，名字 + 域 + 路径相同的后者覆盖。字段同 Playwright storageState 的 cookie。
+  - 头：本会话正在录或最近录完的包里（不论哪个标签），**发往导出源 host（含端口）的最近一条带选中头的请求**（都不带就取最近一条、头为空）；0.6-P：没给 `--origin` 且这样选出的头里没有像认证的头（下句的敏感头类）时，改取「最近一条带敏感头的请求里敏感头最多」的那个录到的 host（并列取更晚的），输出 `source.headers.auto: true` 并在 `note` 里说明；给了 `--origin` 不做这个回退。选中 = 敏感头（§8 的头规则，另加 `x-csrf*`、`x-xsrf*`、`*-token`、`*-auth*`、`api-key`）或页面自己设的头（不在浏览器默认头表里：Fetch 规范的禁止请求头、`sec-*`、客户端提示、缓存与条件请求头、`content-type` / `content-length` 等）。`cookie` 单独走 cookies；`proxy-*`（池代理凭据）和伪头永不导出。没有录制：`headers:{}`、`source.headers:"none"`，提示先 `net start`。
+  - storage：在导出源那个 frame 的 tabcap 隔离世界里读 localStorage / sessionStorage（与页面共享存储，不碰页面 JS）；UTF-8 超过 64 KB 的值跳过并在输出里列键名和大小。标签上没有导出源的 frame 时（API 源），读页面的 storage 并在 `note` 里说明（0.6-P 起不再 `not-found`）；读的是哪个源记在 `storageOrigin` / `source.storage`。
+- **格式**：`requests` = JSON，schema `tabcap-session-export/0`：`{schema, origin, capturedAt (ms), cookies:[{name, value, domain, path, expires, httpOnly, secure, sameSite}], headers:{名:值}, headersFrom:{request, origin, auto}, storage:{localStorage:{}, sessionStorage:{}}, storageOrigin, note}`（`headersFrom`、`storageOrigin` 为 0.6-P 新增）；`httpx` = 可直接 import 的 Python 模块（`cookies` 名→值、`COOKIE_RECORDS` 带域和路径、`headers`、`storage`、`HEADERS_FROM` / `HEADERS_ORIGIN` / `STORAGE_ORIGIN`、`client(base_url)` 返回 `httpx.Client(cookies=…, headers=…)`，运行时只依赖 httpx）；`playwright` = `replay session` 的 storageState，不加字段（localStorage 记在实际读到它的源下），放不下的头和 sessionStorage 在输出 `omitted` 里报名字与数目。`replay export-python` 生成的包里附 `_tabcap_session.py`（读 `requests` 格式、建 httpx 客户端，不依赖 tabcap）。
+- **输出**：`{file, for, origin, mode:"0600", cookies:n, headers:[名字], storage:{localStorage:n, sessionStorage:n}, source:{headers:{request:"r-N"|null, origin:<源>|null, auto:bool}, storage:<源>|null}, skipped?, omitted?, note}`（0.6-P 起 `source.headers` 是对象，原来的 `"none"` 成了 `request:null`），只有路径、计数和头名，不出任何值；守护进程的已知秘密替换照常作用于输出。录制中照常写 `cmd` 事件（`outputSummary` 是计数），包里不写别的。
+- 验证：`test/unit/session-export.test.ts`（头选择表、64 KB 上限、文件权限、三种格式、生成的 httpx 客户端对本地服务器实际发出的 cookie 与头；0.6-P 的 `authSource` 回退、`originArg`）、`test/e2e/v06f.e2e.test.ts`（s07 带 token 变体，对照靶场日志）、`test/e2e/v06p.e2e.test.ts`（`05` s60：标签在 A 上 `--origin <B>` 拿到页面发往 B 的 `Authorization` 与 B 的 cookie；不给 `--origin` 自动回退到 B）。
 
 ### 8.3 实时输出脱敏（0.6-E，10-16 作者定；细节按实现定案，待作者审）
 
@@ -456,15 +458,15 @@
 
 ## 26. 0.6-A `tabcap fetch`（10-16 作者定设计；字段与下列细节按实现定案，待作者审）
 
-爬虫的请求由会话里已登录的标签发出并录进包：`tabcap fetch <url> …`（agent 用，`--batch <file.jsonl>` 按序跑多条）与守护进程的 `POST /fetch`（脚本用，`templates/python/_tabcap_fetch.py`）。机制（标记头、Request 阶段剥离、发起栈兜底）见 `07` §8。包格式只多 `request.fetchId`（§5.1）、`cmd` 结束事件的 `outputSummary.requests`（§4.1）与 `guard` 的 `fetch-stop`（§4.2），不加新 kind。
+爬虫的请求由会话里已登录的标签发出并录进包：`tabcap fetch <url> …`（agent 用，`--batch <file.jsonl>` 按序跑多条）与守护进程的 `POST /fetch`（脚本用，`templates/python/_tabcap_fetch.py`）。机制（标记头、Request 阶段剥离、发起栈兜底）见 `07` §8。包格式只多 `request.fetchId`（§5.1）、`cmd` 结束事件的 `outputSummary.requests`（§4.1）与 `guard` 的 `fetch-stop`（§4.2），0.6-P 再加 `request.fetchCredentials` 与 `cmd` 开始事件 `input.credentials`（§34），不加新 kind。
 
-- **前提**：会话正在录制（`net start`），否则 `not-found`、什么都不发。请求在会话当前标签（或 `--tab`）主帧的 tabcap 隔离世界里用 `fetch(url, {credentials:"include", …})` 发出：同源、cookie、CORS 规则都和页面自己的请求一样；相对 URL 按标签当前页面解析，只收 http(s)。请求体按页面 POST 的样子明文录下（§8.1，设计如此）。
+- **前提**：会话正在录制（`net start`），否则 `not-found`、什么都不发。请求在会话当前标签（或 `--tab`）主帧的 tabcap 隔离世界里用 `fetch(url, {credentials:"include", …})` 发出（0.6-P：`--credentials include|same-origin|omit` 换掉这个值，默认仍是 `include`，§34）：同源、cookie、CORS 规则都和页面自己的请求一样；相对 URL 按标签当前页面解析，只收 http(s)。请求体按页面 POST 的样子明文录下（§8.1，设计如此）。
 - **成功信封** `data`：`{id:"r-N", fetchId, status, statusText, mime, bytes, headers, body?|bodyFile?|bodyBase64?, bodyMissing?, timing:{startMono, endMono, ms}, waitedMs, stopped?}`。`headers` 只取 `content-type`、`content-length`、`content-encoding`、`content-disposition`、`location`、`cache-control`、`etag`、`last-modified`、`retry-after`（不带 `set-cookie`），值过秘密值替换、每个截到 1000 字符。正文：文本（按 `net body` 的规则解码）且 ≤ 8 KB 时内联 `body`（已脱敏）；更大或二进制写 `bodyFile`（与 `net body --file` 同一处 `exports/bodies/<r-N>.<ext>`，文本已脱敏、二进制原样）；`--out <file>` 改写到给定路径（同样脱敏）；`--raw` / `rawBody:true` 回 `bodyBase64`（文本是脱敏后 UTF-8 的 base64，二进制原样，≤ 16 MB，超过则落 `bodyFile` 并带 `note`）。没存正文（204、HEAD 等）时 `bytes:0` 加 `bodyMissing:<原因>`。`timing` 取自录下的 `request` 事件（CDP 单调毫秒）；`waitedMs` 是排队等本主机轮次的毫秒数。整个信封受 CLI 的输出预算约束（§24），按上面的上限不会超。
 - **限速**（`config.json`）：`fetch:{minIntervalMs:3000, concurrency:1, stopOn:[]}`，`sites.<站点名>.fetch` 按键覆盖（给了 `stopOn` 就替换全局的）。按 URL 的主机（含端口）排队，先到先发；一条请求在「在飞的少于 `concurrency`」且「距该主机上一条请求开始或结束（取较晚者）已过 `minIntervalMs`」时才发，`concurrency:1` 即上一条结束到下一条开始至少 3 s。命令行没有绕过它的开关（作者红线）。`--timeout`（默认 30000，最大 600000）包含排队时间：轮次会晚于时限时直接回 `timeout`，什么都不发。
 - **站点**：URL 属于哪个库站点——先看会话绑定的站点（`session start --site`），再看其余站点；入口网址的主机或 `domains` 里的域（含子域）命中即是；都不中时用 URL 的主机（`host:port`）当站点键。限速配置、停手状态、`guard resume --site` 都按这个键。
 - **停手规则**（`--stop-on` 可重复，加在 `fetch.stopOn` 之后，按序取第一条命中的）：`empty-body`（无正文、0 字节或只有空白）、`status>=<n>`、`status=<n>`、`json:<$.路径>=<值>`、`json:<$.路径>!=<值>`（路径 `$` 加 `.键` / `[下标]`；值能按 JSON 解析就按 JSON 比，否则按字符串；正文不是 JSON 或路径上没有值，算「无值」，与任何值都不相等）、`text:<正则>`（u 标志，≤ 256 字符，对脱敏后的文本）。命中时：响应照常录下；命令回 `ok:false`、`error.code:"fetch.stopped"`，带 `site`、`rule`、`detail`、`request`、`fetchId` 与完整信封 `result`（含 `stopped:{rule, detail}`）；写 `guard` breaker（§4.2）；此后该站点的 `fetch`（命令行与端点）一律 `guard.stopped`，直到 `tabcap guard resume --site <站点>`，或该会话恰在 `waiting` 时由 `handoff continue` 一并解除。会话不会因此自动进 `waiting`；停手状态只在守护进程内存里，重启守护进程即清。0.6-I 起站点另有自己的停手规则（`sites.<名>.guard`，对全部流量、命中进 `waiting`，见 §18 后的 0.6-I 段）；`--stop-on` 是对它的每次调用覆盖：给了 `--stop-on`，这次响应不跑站点的 `stopOn`。
-- **其他错误**：页面的 CORS 拦下 → `fetch.blocked`，`reason` 是 Chrome 写进控制台的那句（已脱敏），`request` 是录下的失败请求；页面里请求失败（连不上等）→ `page`；在页面里超时 → `timeout`。`fetch` 和其他动页面的命令一样受 `waiting`（§4.2）与账号小时预算约束。
-- **端点** `POST /fetch`：与 `/command` 同一监听、同一鉴权（POSIX 上 0600 的 Unix 套接字，Windows 上回环 TCP + 每次启动的 bearer token）；请求体 `{session, tab?, url, method?, headers?:{名:值}|[[名,值]…], body?(文本)|json?(任意 JSON 值)|form?:{字段:值}|[[字段,值]…], timeoutMs?, stopOn?, rawBody?}`，回与命令行相同的信封；不收 `batch`、`out`。请求体是不可信 JSON：形状不对一律 `usage`，不会让守护进程出错。每次调用一个命令窗口（`argv:null`）。
+- **其他错误**：页面的 CORS 拦下 → `fetch.blocked`，`reason` 是 Chrome 写进控制台的那句（已脱敏），`request` 是录下的失败请求，`credentials` 是这次的模式（0.6-P；`next` 的规则见 §34）；页面里请求失败（连不上等）→ `page`；在页面里超时 → `timeout`。`fetch` 和其他动页面的命令一样受 `waiting`（§4.2）与账号小时预算约束。
+- **端点** `POST /fetch`：与 `/command` 同一监听、同一鉴权（POSIX 上 0600 的 Unix 套接字，Windows 上回环 TCP + 每次启动的 bearer token）；请求体 `{session, tab?, url, method?, headers?:{名:值}|[[名,值]…], body?(文本)|json?(任意 JSON 值)|form?:{字段:值}|[[字段,值]…], credentials?("include"|"same-origin"|"omit"，0.6-P), timeoutMs?, stopOn?, rawBody?}`，回与命令行相同的信封；不收 `batch`、`out`。请求体是不可信 JSON：形状不对一律 `usage`，不会让守护进程出错。每次调用一个命令窗口（`argv:null`）。
 
 ## 27. 0.6-D 守护进程修补（10-16 作者定六条；字段按实现定案，待作者审）
 
@@ -771,3 +773,15 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 本格**不做**（留给 0.7 或后续）：请求侧加密（只观察响应；生成客户端仍靠解码插件或人写）；分块 / 流式解密（SSE、分页拼接，没有一次完整 `JSON.parse`）；Worker `postMessage` 对象（结构化克隆，主线程不再 parse）、WASM 自带 JSON、明文是 HTML / protobuf / JSON5——没有 `JSON.parse` 就看不见。靶场 s59 `mode=worker` 是「worker 回字符串、主线程再 parse」，已有 e2e；对象克隆仍【待验】。
 
 开销（spike-06l2，页面侧 500 次 1 KB parse）：不设断点 0.2 ms；只有 length condition 9 ms；log-point 26 ms；暂停后立即恢复（不含 walk）107 ms。诊断可接受，**录完就关**（`trace stop` / `--no-decode`）。
+
+## 34. 0.6-P `fetch --credentials` 与 `session export --origin`（10-17 主循环定需求；字段与下列细节按实现定案，待作者审）
+
+【实测】作者邻近项目 10-17 用 0.6.0 跑真实站点（站点匿名）：页面在一个源、API 在另一个源。网关回 `Access-Control-Allow-Origin: *`，`tabcap fetch` 写死 `credentials:"include"`，Chrome 拒读（"must not be the wildcard '*' when the request's credentials mode is 'include'"）、报 `fetch.blocked`；另一个后端发重复的 `Access-Control-Allow-Credentials: true, true`，同样被拒（"is 'true, true' which must be 'true'"）。页面自己的代码用 `withCredentials: false`，能通。旧提示「先导航到同源页面」让 Origin / Referer 变成 API 源，后端回 403；只有 `omit` 可行。同一个单页应用的 `session export` 给出 `headers: []`：它只看发往页面源的请求，认证头却发往 API 源。
+
+- **`--credentials include|same-origin|omit`**（默认 `include`，即原行为）：就是页面 `fetch()` 的 `credentials` 选项（Fetch 规范 RequestCredentials）。`--batch` 每行可带 `credentials`；命令行的 `--credentials` 是没写的行的默认值（与 `--timeout` 同）。`POST /fetch` 收 `credentials` 字段；`_tabcap_fetch.py` 的 `fetch(..., credentials=None)`（`None` = 守护进程默认）。值不在这三个里 → `usage`。
+- **记在包里**：这次 fetch 的每个 `request` 事件（含重定向跳、预检）带 `fetchCredentials`（§5.1）；`cmd` 开始事件的 `input.credentials` 总是写出所用模式（没给就是 `"include"`），`--batch` 写成 `input.batch:{requests:n, credentials:{<模式>:<行数>}}`。成功信封不加字段；`fetch.blocked` 的错误带 `credentials`。
+- **`fetch.blocked` 的 `next`**：模式是 `include`、且 Chrome 的理由以 "when the request's credentials mode is 'include'" 收尾并点名 `Access-Control-Allow-Origin` 的通配 `*` 或 `Access-Control-Allow-Credentials`（缺失、重复如 `true, true`）时，`next` 先给「改用 `--credentials omit`（`POST /fetch`：`"credentials": "omit"`）；那样不带 cookie，API 用头认证（如 `Authorization`）时没问题」，再给「或先把标签导航到目标源的页面再发，那样请求的 Origin / Referer 变成目标源，有的后端会拒」。其余 CORS 理由（如没有 ACAO）只给导航那条。【实测：s60 两种理由的 Chrome 原文，CfT 155】ACAC 缺失那一种的原文没有靶场对照【推断：同一模板】。
+- **不做 `--referrer`**：页面 `fetch()` 的 `referrer` 只能是同源 URL（或 `about:client` / 空串），跨源值被浏览器忽略换成 `about:client`（Fetch 规范 Request 构造步骤）【推断：读规范，未实测】；想要别的 Referer 只能导航到那个源，这就回到上面的第二条。理由写进 NOTES（待作者审）。
+- **`session export --origin <url 或 host>`**（§8.2）：头取自录制里发往该源的最近一条带选中头的请求（不论哪个标签），cookie 加上该源的（`Network.getCookies` 带它的根 URL），与页面的并列；标签上没有该源的 frame 时 storage 读页面的。裸 host 的 scheme 取录制里的，没有用 `https`。
+- **不给 `--origin` 的回退**：照旧选页面源；选出的头里没有敏感头时，改取录到的「最近一条带敏感头的请求里敏感头最多」的 host（并列取更晚），`source.headers:{request, origin, auto:true}`，`note` 说明并建议 `--origin`；那个源的 cookie 也一并取（`--origin` 同理）【按实现定案，待作者审：需求只说回退头】。值永不打印（原规则）。
+- 验证：`test/unit/fetch06a.test.ts`（规格、CLI、helper、`cmd` 输入、提示规则、假浏览器上逐请求的 `fetchCredentials`）、`test/unit/session-export.test.ts`、`test/e2e/v06p.e2e.test.ts`（`05` s60）。
