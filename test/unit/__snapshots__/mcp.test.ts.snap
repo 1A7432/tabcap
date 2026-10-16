@@ -51,6 +51,7 @@ exports[`tools/list --all-tools: generated from the command table tool names (sn
   "tabcap_session_start",
   "tabcap_session_stop",
   "tabcap_session_list",
+  "tabcap_session_export",
   "tabcap_navigate",
   "tabcap_tab_list",
   "tabcap_tab_select",

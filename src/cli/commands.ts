@@ -233,6 +233,21 @@ export const COMMANDS: CommandSpec[] = [
   { path: ["session", "stop"], pos: ["name"], flags: [], summary: "close the session's own tabs (never tabs it did not open) and finish its recording", example: "tabcap session stop example", action: "session.stop" },
   { path: ["session", "list"], pos: [], flags: [], summary: "list sessions", example: "tabcap session list", action: "session.list" },
   {
+    path: ["session", "export"],
+    pos: [],
+    flags: [
+      ...TT,
+      { flag: "--for", key: "for", kind: "string", help: "requests (JSON, schema tabcap-session-export/0) | httpx (a Python module <file>.py with cookies, headers, storage and client()) | playwright (storageState: cookies and localStorage only)", required: true, metavar: "requests|httpx|playwright" },
+      { flag: "--out", key: "out", kind: "string", help: "file to write, mode 0600 (new directories 0700); --for httpx adds .py when missing", required: true, metavar: "file" },
+      { flag: "--origin", key: "origin", kind: "string", help: "export this origin instead of the tab's (the tab's page or one of its frames must be on it)", metavar: "url" },
+    ],
+    summary:
+      "hand the logged-in tab's session to a script: its cookies, the authentication headers the page sent (sensitive or page-set headers of the latest recorded request to the origin's host; needs net start) and its localStorage / sessionStorage (values over 64 KB skipped), written to a 0600 file; prints the path, counts and header names, never a value",
+    example: "tabcap session export --for httpx --out ./example_session.py",
+    action: "session.export",
+    localPaths: ["out"],
+  },
+  {
     path: ["navigate"],
     pos: ["url"],
     flags: [...TT, { flag: "--new-tab", key: "newTab", kind: "bool", help: "open a new background tab (it becomes the session's current tab)" }, NO_WAIT],

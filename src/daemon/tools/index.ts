@@ -12,6 +12,7 @@ import { netBody, netGrepTool, netList, netShow, netStart, netStop } from "./net
 import { html } from "./html.ts";
 import { dialog, evaluate, screenshot } from "./page.ts";
 import { sessionList, sessionStart, sessionStop, tabClose, tabUse, tabsList } from "./session.ts";
+import { sessionExport } from "./sessionexport.ts";
 import { find, snapshot } from "./snapshot.ts";
 import { outline } from "./outline.ts";
 import { netWait, wait } from "./wait.ts";
@@ -30,6 +31,7 @@ export const TOOLS: Record<string, Tool> = {
   "session.start": (d, a) => sessionStart(d, a),
   "session.stop": (d, a) => sessionStop(d, a),
   "session.list": (d) => sessionList(d),
+  "session.export": sessionExport,
   navigate,
   tabs: tabsList,
   "tab.close": tabClose,

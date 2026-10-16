@@ -45,6 +45,7 @@ import CONFTEST from "../../templates/python/conftest.py" with { type: "text" };
 import TEST_REPLAY from "../../templates/python/test_replay.py" with { type: "text" };
 import PYPROJECT from "../../templates/python/pyproject.toml" with { type: "text" };
 import README from "../../templates/python/README.md" with { type: "text" };
+import SESSION_HELPER from "../../templates/python/_tabcap_session.py" with { type: "text" };
 
 export const TODO_MARK = "TODO: computed in the page; see docs/03 §6";
 export const TODO_UNRECORDED = "TODO: not in the recording";
@@ -971,6 +972,8 @@ export function exportPython(opts: ExportOptions): ExportResult {
   files.push("fixtures/index.json");
   write("conftest.py", CONFTEST);
   write("test_replay.py", TEST_REPLAY);
+  // 0.6-F: loads a `tabcap session export --for requests` file into an httpx client (no tabcap at runtime).
+  write("_tabcap_session.py", SESSION_HELPER);
   if (chainMode && chain !== null && graph !== null) {
     const expected = verifyExpected(chain, graph, planned, ctx, byRef, skipped);
     write("verify_expected.json", JSON.stringify(expected, null, 2) + "\n");

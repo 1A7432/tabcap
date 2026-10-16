@@ -57,6 +57,7 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap session start <name> [--site site] [--account user\|auto]` | create a session (navigate also creates it); --site binds a stored site → entryUrl, the secret references, account and proxy (names only) |
 | `tabcap session stop <name>` | close the session's own tabs (never tabs it did not open) and finish its recording |
 | `tabcap session list` | list sessions |
+| `tabcap session export [--tab t2] --for <requests\|httpx\|playwright> --out <file> [--origin url]` | hand the logged-in tab's session to a script: its cookies, the authentication headers the page sent (sensitive or page-set headers of the latest recorded request to the origin's host; needs net start) and its localStorage / sessionStorage (values over 64 KB skipped), written to a 0600 file; prints the path, counts and header names, never a value |
 | `tabcap navigate <url> [--tab t2] [--new-tab] [--no-wait]` | load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav |
 | `tabcap tab list` | list the session's tabs (never other tabs): tab id, url, title, owned, popup opener, current |
 | `tabcap tab select <tab> [--bring-to-front]` | make one of the session's tabs (e.g. a popup) its current tab for later commands; never brings it to the front unless --bring-to-front |

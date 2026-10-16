@@ -19,6 +19,16 @@ TABCAP_REPLAY=http://127.0.0.1:4500 uv run --group test pytest -q
 
 When the session cookies are needed, first `tabcap replay session <bundle> -o storage-state.json` (mode 0600, a real session: do not commit it), then add `TABCAP_STORAGE_STATE=storage-state.json`.
 
+## Using the live browser session
+
+To call the real site with the session the browser is logged in with (its cookies, the authentication headers its page sends, its localStorage / sessionStorage tokens), export it from the open tab while tabcap records (`tabcap net start` before the page makes its requests):
+
+```sh
+tabcap session export --for requests --out session.json   # mode 0600, LIVE credentials: never commit it
+```
+
+`_tabcap_session.py` (httpx only, no tabcap at runtime) turns the file into a client: `from _tabcap_session import load, client; s = load("session.json"); c = client(s)`; `s["storage"]["localStorage"]` holds the page's tokens. `tabcap session export --for httpx --out example_session.py` writes the same as a ready-to-import module instead. The export is a snapshot and expires with the session; small volumes are better left to the browser itself.
+
 ## What this client looks like on the wire
 
 `tabcap wire probe --client <this directory>` compares what this client sends (TLS ClientHello, HTTP/2 settings, header order) with the Chrome for Testing tabcap launches, on a local echo at 127.0.0.1. It runs

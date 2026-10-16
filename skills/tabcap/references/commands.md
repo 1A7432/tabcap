@@ -190,6 +190,23 @@ tabcap session list
 
 Example: `tabcap session list`
 
+### `tabcap session export`
+
+hand the logged-in tab's session to a script: its cookies, the authentication headers the page sent (sensitive or page-set headers of the latest recorded request to the origin's host; needs net start) and its localStorage / sessionStorage (values over 64 KB skipped), written to a 0600 file; prints the path, counts and header names, never a value
+
+```
+tabcap session export [--session name] [--timeout ms] [--tab t2] --for <requests|httpx|playwright> --out <file> [--origin url]
+```
+
+Example: `tabcap session export --for httpx --out ./example_session.py`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--for <requests\|httpx\|playwright>` |  | requests (JSON, schema tabcap-session-export/0) \| httpx (a Python module <file>.py with cookies, headers, storage and client()) \| playwright (storageState: cookies and localStorage only) (required) |
+| `--out <file>` |  | file to write, mode 0600 (new directories 0700); --for httpx adds .py when missing (required) |
+| `--origin <url>` |  | export this origin instead of the tab's (the tab's page or one of its frames must be on it) |
+
 ### `tabcap tab list`
 
 list the session's tabs (never other tabs): tab id, url, title, owned, popup opener, current
