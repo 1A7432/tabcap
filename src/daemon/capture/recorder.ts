@@ -1086,6 +1086,19 @@ export class Recorder {
 
   signalCount = 0;
 
+  /**
+   * A `state` event {what:"env", source, origin, count, reason, fields}
+   * (docs/04 §4.3; `fingerprint probe`, 0.4-G): the fields are inline, there
+   * is no blob. `tabId` is the daemon tab the probe page ran in. Returns the
+   * seq, or null when the bundle is closed.
+   */
+  envState(tabId: string, fields: Record<string, unknown>): number | null {
+    if (this.writerClosed || this.stopping) return null;
+    const ev = this.writer.append({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(), ...fields });
+    this.stateCount++;
+    return ev.seq;
+  }
+
   /** Store text as a blob (trace `signal.value` over 1 KB); null when the bundle is closed or the blob was refused. */
   async putText(text: string): Promise<{ blob: string; size: number } | null> {
     if (this.writerClosed) return null;

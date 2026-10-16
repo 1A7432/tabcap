@@ -28,7 +28,8 @@ import { variantsOf } from "../daemon/secrets.ts";
 import { BUNDLE_USAGE, COMMANDS, flagNames, helpAll, helpFor, helpGroup, matchCommand, parseCommand, schema, specOf, usageOf, type CommandSpec } from "./commands.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
 import { renderTraceText } from "../daemon/trace/table.ts";
-import { fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
+import { renderFingerprintText } from "../fingerprint/fields.ts";
+import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -289,6 +290,10 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
     case "fingerprint ref remove":
       data = fingerprintRefRemove(p, parsed.args);
       break;
+    case "fingerprint diff": {
+      const r = fingerprintDiff(p, parsed.args);
+      return parsed.args["text"] === true ? { code: 0, envelope: ok(r), text: renderFingerprintText(r) } : { code: 0, envelope: ok(r) };
+    }
     case "daemon stop":
       data = await stopDaemon(p);
       break;
@@ -317,6 +322,8 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       }
       // `trace list --text`: the report is rendered here from the daemon's JSON.
       if (key === "trace list" && parsed.args["text"] === true && env.ok) return { code, envelope: env, text: renderTraceText(env.data) };
+      // `fingerprint probe --text`: the table is rendered here from the daemon's JSON.
+      if (key === "fingerprint probe" && parsed.args["text"] === true && env.ok) return { code, envelope: env, text: renderFingerprintText(env.data) };
       return { code, envelope: env };
     }
   }

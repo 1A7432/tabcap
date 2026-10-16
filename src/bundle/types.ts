@@ -152,14 +152,25 @@ export type ScreenshotEvent = Envelope & {
   nav: string | null;
 };
 
-export type StateEvent = Envelope & {
-  kind: "state";
-  what: "cookies" | "localStorage" | "sessionStorage" | "env";
-  origin: string | null;
-  blob: string;
-  count: number;
-  reason: "session-start" | "nav" | "session-stop" | "manual";
-};
+export type StateEvent =
+  | (Envelope & {
+      kind: "state";
+      what: "cookies" | "localStorage" | "sessionStorage";
+      origin: string | null;
+      blob: string;
+      count: number;
+      reason: "session-start" | "nav" | "session-stop" | "manual";
+    })
+  | (Envelope & {
+      /** docs/04 §4.3: a read-only environment snapshot; `fingerprint probe` (0.4-G) writes source "fingerprint-probe" with the fields inline. */
+      kind: "state";
+      what: "env";
+      source: string;
+      origin: string | null;
+      count: number;
+      reason: "session-start" | "nav" | "session-stop" | "manual";
+      fields: { name: string; value?: unknown; hash?: string; error?: string }[];
+    });
 
 export type FindingEvidence = { request: string; path?: string } | { ws: string; frame: number } | { blob: string } | { console: number };
 
