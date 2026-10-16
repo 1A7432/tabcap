@@ -6,6 +6,11 @@
 
 ### 变更
 
+- **输出预算**（0.5-C）：命令的 `data` 超过 `TABCAP_OUTPUT_LIMIT` 字节（默认 16384；`0` 关闭）时，整份 `data` 写进文件，回答变成 `{summary, file, bytes, truncated: true}`。文件在会话当前录制包的 `exports/<command>-<seq>.json`，没有在录时是 `<cache>/outputs/<时间>-<command>.json`（0600）。摘要保留顶层的全部标量字段，数组、对象与长字符串只给长度；`analyze deps` 另给每个请求的输入数与未解析数，`recon` 给档案摘要块，`trace list` 给 API × 脚本计数，`where` 给前 5 个候选。`--full` 原样全打。`net list`、`console list`、`snapshot` 与 `schema` 不受此限。
+- **所有命令都有输出过滤**：`--select <path>`（点号键、`[n]`、`[*]`）、`--grep <regex>`（数组里 JSON 文本匹配的元素；长文本或多行字段按行匹配，带 `line` 行号与前后 `--context n` 行；最多 `--max-matches 50` 条；正则不超过 256 字符、`u` 标志）、`--fields a,b,c`（数组元素只留这些键）。在 CLI 里按此顺序执行、先于预算；信封多一个 `filter: {select, grep, fields, matches, total, capped}`（用 `--select` 时还有 `selected`）。`tabcap schema --json` 在 `sharedFlags` 里列一次。
+- **`tabcap --help` 改为索引**：每条命令一行，分组同命令参考，摘要截到 60 字符，总量不到 6 KB。`tabcap help <命令>` 打该命令的完整帮助（同 `tabcap <命令> --help`）；`tabcap help <组>`（如 `network`，或命令词 `net`）打组内每条命令的完整帮助。
+- 默认值：`net list` 与 `console list` 每页 30 条（原 100；`--page-size 0` 仍是全部）；`snapshot`（以及动作命令的 `--snapshot`）截到 12000 字符（原 60000），`snapshot` / `outline` 被截时说明怎么拿更多（`--max-chars`、`--interactive`、`--frame`）。
+- skill：`SKILL.md` 控制在 8 KB 以内（规则、录 → 析 → 回放的流程、凭据、交接、输出预算与 10 行速查）；其余内容按主题移到 `references/`（`recording.md`、`analysis.md`、`pools.md`、`trace-and-probes.md`、`replay.md`、`mcp.md`）。`bun run validate:skill` 检查 8 KB。
 - 凭据规则：推荐由人录入密码（`site add` / `account add` 在提示符下输入或 `--password-stdin`），但不再只限于人：用户把值交给 agent 的，agent 可以用 `--password-stdin` 存一次（不需要终端），此后只用 `<secret:…>` 引用。`site add`、`account add`、`proxy add` 的帮助、skill、docs/04 §8.1 与 README 都改成这样写；代码原本就允许。
 - README：五点不同改写为 0.4 的样子（凭据存一次、之后只用引用；「不带任何解法」旁加上用户自己写挑战处理程序的插件接口；`where`、`analyze deps` / `chain`、`export-python` 的 `verify()`、`recon`、追踪模式与两个探针），中文版与英文版信息一致。
 

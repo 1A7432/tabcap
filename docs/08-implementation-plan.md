@@ -91,3 +91,59 @@ wire 工具并入 `native/wireprint/`（10-16 作者定）：基准画像为集�
 | 交互命令 | 加 `--snapshot`，操作后顺手带回新快照 |
 
 不改：`navigate`、`go`、`find`、`click`、`fill`、`evaluate`、`dialog`、`wait`、`net show / body` 及全部独有命令。帮助与 SKILL.md 必须写明三处语义差异：ref 来自 `snapshot` 且文档一变即失效（不是 uid）；`net list` 默认藏失败与 `data:`，`--all` 全列；`--snapshot` 是可选的。
+
+### 5.1 上下文预算（0.5-C，10-16 作者定：「先排一格上下文预算吧。现在做。」；数字作者以后再调）
+
+CLI 契约的输出层（`src/cli/main.ts`，命令跑完、打印之前；经 MCP `tabcap_run` 走同一层）按这个顺序处理 `data`：
+
+1. **输出过滤**（作者 10-16 追加：「想让 agent 少读输出、直接在命令里过滤搜索需要的信息」）：所有命令共用 `--select <path>`（点号键、`[n]`、`[*]`，路径 ≤ 256 字符、≤ 32 段；无 `[*]` 时取不到报 `not-found`）、`--grep <regex>`（≤ 256 字符、`u` 标志，坏正则报 `usage`；数组按元素的 JSON 文本筛，顶层字符串或对象里含换行 / ≥ 1000 字符的字符串字段按行筛，给 `{line, text, match}`，`--context n` ≤ 20，`--max-matches` 默认 50、≤ 1000）、`--fields a,b,c`（数组元素只留这些顶层键）。顺序 select → grep → fields；信封多 `filter: {select, grep, fields, matches, total, capped}`，用 `--select` 时还多 `selected`。CLI 在任何命令解析器之前把它们从 argv 里取走（`--` 之后不动），所以 schema 里只在顶层 `sharedFlags` 列一次，不进各命令的 `flags`；`screenshot` 不收 `--full`（0.4 把旧 `--full` 改名 `--full-page`，仍是未知选项）。打印文本的命令（`--text`、`schema --json`）带过滤参数报 `usage`。
+2. **输出预算**：`data` 序列化后超过 `TABCAP_OUTPUT_LIMIT`（默认 16384 字节；`0` 关闭）时改为 `{summary, file, bytes, truncated:true}`，文件与摘要见 `04` §24；`--full` 原样全打；`net list`、`console list`、`snapshot`、`schema` 不受此限。
+3. **默认值**：`net list` / `console list` 每页 30（0.4 补充里的 100 作废；`--page-size 0` 仍是全部）；`snapshot` 与动作命令的 `--snapshot` 默认 `--max-chars 12000`（原 60000），被截时 `note` 写明 `--max-chars`、`--interactive`、`--frame`、`--file-path`；`outline` 保持 6000，被截时也带 `note`。
+4. **帮助**：`tabcap --help` 是索引（每命令一行、分组同 gen:docs、摘要取第一分句截 60 字符，≤ 6 KB）；`tabcap help <命令>` 同 `tabcap <命令> --help`（不变），`tabcap help <组>` 打组内每条命令的完整帮助（组名为索引里的 `[id]`，或命令词如 `net`）。`schema --json` 形式不变，只多 `sharedFlags`。
+5. **skill**：`SKILL.md` ≤ 8 KB（`validate:skill` 检查），只留规则、录 → 析 → 回放、凭据、交接、输出预算一段和 10 行速查；其余按主题放 `references/`（`recording.md`、`analysis.md`、`pools.md`、`trace-and-probes.md`、`replay.md`、`mcp.md` 占位），`commands.md` 仍由 gen:docs 生成。
+
+10-16 实测（本机 macOS arm64、CfT 155，e2e 靶场 `test/e2e/site.ts`，默认参数；token 按字节 / 3.5 估；「后」= 本格改完同一路径重跑）：
+
+| 命令 | 场景 | 前：JSON 字节（≈token） | 后：JSON 字节（≈token） | `--text` 字节 |
+|---|---|---|---|---|
+| `session start` | s07 | 207 (59) | 同左 | – |
+| `navigate` | s07 | 233 (67) | 同左 | – |
+| `snapshot --interactive` | s07 | 446 (127) | 同左 | – |
+| `fill` | s07 | 258 (74) | 同左 | – |
+| `click` | s07 | 412 (118) | 同左 | – |
+| `net wait` | s07 | 568 (162) | 同左 | – |
+| `net list` | s07 | 1147 (328) | 1146 (327) | – |
+| `net show` | s07 | 1874 (535) | 1873 (535) | – |
+| `net body` | s07 (html) | 1496 (427) | 同左 | – |
+| `snapshot` | s07 | 604 (173) | 同左 | – |
+| `outline` | s07 | 282 (81) | 同左 | – |
+| `navigate` | list (s20 noise) | 227 (65) | 同左 | – |
+| `net list` | list (s20 noise) | 1859 (531) | 同左 | – |
+| `net list --all` | list (s20 noise) | 15559 (4445) | 7118 (2034) | – |
+| `snapshot` | list (s20 noise) | 536 (153) | 同左 | – |
+| `net list` | s20 + 40 fetches | 10464 (2990) | 6841 (1955) | – |
+| `snapshot` | s40 de-DE | 1087 (311) | 同左 | – |
+| `where` | s40 de-DE | 465 (133) | 同左 | 250 |
+| `snapshot` | s41 | 856 (245) | 同左 | – |
+| `where` | s41 | 842 (241) | 同左 | – |
+| `evaluate` | s41 | 121 (35) | 同左 | – |
+| `screenshot` | s41 | 263 (75) | 同左 | – |
+| `tab list` | popup | 403 (115) | 同左 | – |
+| `snapshot` | popup | 327 (93) | 同左 | – |
+| `snapshot` | s22 frames | 1750 (500) | 同左 | – |
+| `snapshot --frames` | s22 frames | 3122 (892) | 同左 | – |
+| `outline` | s22 frames | 1876 (536) | 同左 | – |
+| `trace list` | all pages | 259 (74) | 同左 | 84 |
+| `recon` | all pages | 770 (220) | 同左 | 4620 |
+| `handoff status` | - | 92 (26) | 同左 | – |
+| `fingerprint probe` | - | 5734 (1638) | 同左 | 4626 |
+| `analyze find` | bundle 1 | 1991 (569) | 同左 | 931 |
+| `analyze diff` | bundle 1+2 | 43957 (12559) | 289 (83) 摘要+文件 | 26125 |
+| `analyze deps` | bundle 1 | 169451 (48415) | 1725 (493) 摘要+文件 | 35366 |
+| `analyze chain` | bundle 1 | 729 (208) | 同左 | 375 |
+| `wire probe` | s40 client | 8711 (2489) | 同左 | 3472 |
+| `tabcap --help` | - | – | – | 21716 → 6066（索引） |
+| `schema --json`（只给机器） | - | – | – | 140102 → 142148（加 `sharedFlags`） |
+| `skills/tabcap/SKILL.md`（触发时整份载入） | - | – | – | 29649 → 7507 |
+
+「list 页」取 s20 noise 页（60 个端口扫描失败请求 + 10 张 `data:` 图，默认被藏，所以默认 `net list` 本来就小）；「+ 40 fetches」是在同页用 `evaluate` 再发 40 个 `/api/look`，让默认可见行数超过 30。`--text` 输出不算 `data`，不受预算限制（`analyze deps --text` 35 KB、`analyze diff --text` 26 KB 照旧）。

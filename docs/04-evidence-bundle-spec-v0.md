@@ -26,7 +26,7 @@
   events.jsonl                    事件流，append-only，seq 单调递增
   blobs/sha256/<xx>/<64 位十六进制>  正文、截图、cookie 快照等所有大块内容；无扩展名；xx = 哈希前两位
   raw/cdp.jsonl                   可选：原始 CDP 事件（Network / Page 域原样）；用于复核录制器本身
-  exports/                        导出产物（HAR、脱敏副本、侦查档案 dossier.json / dossier.md）；不参与分析
+  exports/                        导出产物（HAR、脱敏副本、侦查档案 dossier.json / dossier.md、超出输出预算的回答 <command>-<seq>.json，§24）；不参与分析
 ```
 
 - 包完整的判定：`manifest.json` 有 `finished`。没有就是录制中或异常中断，分析命令照样读，但在输出里标明（警告 `bundle is not finished: …`，文本报告里 `(unfinished)`）。
@@ -388,3 +388,11 @@
 ## 23. 0.4-I 按实现定案（10-16，待作者审）
 
 帧路径 ref 实现时按字面解的几处：录制器至今不写 `action` 事件（0.3-B 起的现状，见 NOTES），所以「`action` 事件带 `frame`」落在动作命令自己身上：`click` / `hover` / `fill` / `upload`（以及带帧 ref 参数的 `evaluate --function`）的输出多一个 `frame`（帧路径，根文档不写），因而进了该命令 `cmd` 结束事件的 `outputSummary.frame`；`cmd` 开始事件的 `input.ref` 保留原样的 ref 字符串（`f2/f1/e7`）。将来真正写 `action` 事件时，`target.frame` 就填这个帧路径。帧头里的 same-origin / cross-origin 相对父帧的 security origin（s22 的 `f2/f1/f1` 与它的父帧同在 B 源，所以是 same-origin）。只有带子帧的页面在 `snapshot` / `outline` 的 JSON 里有 `frames` 字段、头里有 `frames` 行；遮挡项在帧里时带 `frame`，含 iframe 的遮挡项带那个 iframe 的帧路径 `layerFrame`（iframe 里的关闭按钮并进 `close`，choices 不并，0.3-D 的 `OVERLAY_EXPECTED` 不变）；根文档 ref 的动作输出不带 `frame`。没有子帧的页面，输出的字段和行与 0.4-I 之前相同。
+
+## 24. 0.5-C 输出预算的导出文件（10-16 作者定规则；文件名与摘要按实现定案，待作者审）
+
+作者定：命令回答的 `data` 序列化后超过 `TABCAP_OUTPUT_LIMIT` 字节（默认 16384，环境变量可改）时，整份 `data` 写进文件，回答的 `data` 换成 `{summary, file, bytes, truncated:true}`；命令带 `--full` 时原样全打。`net list` / `console list`（分页）与 `snapshot`（`--max-chars`）有自己的机制，不受此限。
+
+- 文件：会话正在录制时写进该包的 `exports/<command>-<seq>.json`（`<command>` 为命令词连字符，如 `analyze-deps`；`<seq>` 为该目录里同名文件的最大序号加一，从 1 起）；没有在录（含所有离线命令）时写 `<cache>/outputs/<YYYYMMDD-HHMMSS>-<command>.json`（同秒重名加 `-2`、`-3`…）。0600，目录 0700。内容是整份 `data` 的 JSON（2 空格缩进），守护进程命令的 `data` 已过已知秘密值替换（§8.1）。和 HAR、侦查档案一样不参与分析，`bundle redact` 的副本不带。
+- `summary`：顶层每个标量字段原样（字符串 200 字符以内），数组、对象与更长的字符串换成长度；非对象的 `data` 记 `{type, length}`。命令自带的摘要叠加在上面：`analyze deps` 加 `inputs`（每个请求的输入数）与 `unresolved`（未解析数），`recon` / `analyze recon` 加档案的 `summary` 块与 `page`，`trace list` 加 `rows: [{api, script, count}]` 与 `totals`，`where` 加前 5 个 `candidates`、`candidateCount` 与 `query`。
+- 按实现定案：`TABCAP_OUTPUT_LIMIT=0` 关闭预算，非整数的值按默认；`schema` 也不受此限（CLI 契约整份输出；`schema --json` 本来就是文本）；`screenshot` 不收 `--full`（0.4 已把旧 `--full` 改名 `--full-page`，仍是未知选项），它的回答只有路径，不会超；预算在 CLI 输出层做（过滤之后，见 `08` §5），超限时 CLI 向守护进程问一次当前会话的录制包位置；`cmd` 结束事件的 `outputSummary` 照旧取自完整结果。
