@@ -12,10 +12,14 @@
 // `link` of a row ("strong" scope-string / "weak" single-suspect) and its
 // way into find's hits, the log-point pairing by position (spike E10's
 // "the log's caller frame is the pause's top frame"), the bounded raw-body set.
+// 0.6-Q (docs/04 §33 0.6-Q; evidence: the owner's real-site test of 10-17,
+// 76 of 91 bodies MIME-wrapped): the four hash forms of a candidate and the
+// matched form, the per-suspect plaintext bound (no-fit), the settle of
+// unattributed rows and the raw-body drop of settling / held entries.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { find } from "../../src/analyze/find.ts";
@@ -46,11 +50,14 @@ import {
   UNATTRIBUTED_CAP,
   type ArmedSuspect,
   type LoggedPlain,
+  type SuspectHash,
   type Attribution,
   type ObserveMatch,
   type PageEvidence,
 } from "../../src/daemon/trace/observe.ts";
 import { latestViews, overlayEvent, parseSidecarText } from "../../src/bundle/decoded.ts";
+import { dropRawBody, fits, formsOf, settleOutcome, tokenBound, tokenCore, utf8Bytes, type Settling } from "../../src/daemon/trace/observe.ts";
+import { decodedEntry, noDecodedView } from "../../src/daemon/tools/net.ts";
 
 const sha = (s: string): string => createHash("sha256").update(s, "utf8").digest("hex");
 /** Deterministic pseudo-random high-entropy body (LCG top bits; entropy ~7.85
@@ -68,7 +75,8 @@ const hot = (): Uint8Array => {
 const LEAF = "QmFzZTY0bG9va2luZy1sZWFmLW9mLWF0LWxlYXN0LTY0LWNoYXJhY3RlcnMtbG9uZw==";
 const PLAIN_ROWS = '{"rows":[{"id":"S59-0001","amount":12},{"id":"S59-0002","amount":7}]}';
 
-const suspect = (request: string, shas: string[], at = 1000): ArmedSuspect => ({ request, url: "https://t/api", at, expiresAt: at + SUSPECT_WINDOW_MS, shas });
+const raws = (shas: string[]): SuspectHash[] => shas.map((h) => ({ sha: h, form: "raw" as const }));
+const suspect = (request: string, shas: string[], at = 1000, bound: number | null = null): ArmedSuspect => ({ request, url: "https://t/api", at, expiresAt: at + SUSPECT_WINDOW_MS, hashes: raws(shas), bound });
 const frames: PageEvidence["frames"] = [{ url: "https://t/s59.js", line: 10, column: 2, function: "render" }];
 const match = (over: Partial<ObserveMatch>): ObserveMatch => ({
   attribution: { kind: "armed-empty" },
@@ -88,12 +96,15 @@ describe("suspectOf (docs/04 §33 D3)", () => {
     const bytes = hot();
     const text = Buffer.from(bytes).toString("utf8");
     const s = suspectOf(bytes, text);
-    expect(s !== null && s.candidates.whole === sha256Text(text) && s.candidates.leaves.length === 0).toBe(true);
+    expect(s?.candidates.map((c) => c.kind)).toEqual(["whole"]);
+    // raw last (0.6-Q: transformed forms first); the bound is the byte length.
+    expect(s?.candidates[0]?.hashes.at(-1)).toEqual({ sha: sha256Text(text), form: "raw" });
+    expect(s?.bound).toBe(1200);
   });
   test("a base64 JSON leaf of 60+ chars is (not the whole body)", () => {
     const body = `{"data":"${LEAF}","n":1}`;
     const s = suspectOf(new TextEncoder().encode(body), body);
-    expect(s?.candidates).toEqual({ whole: null, leaves: [sha(LEAF)] });
+    expect(s?.candidates).toEqual([{ kind: "leaf", hashes: [{ sha: sha(LEAF), form: "raw" }], bound: Math.floor((LEAF.length * 3) / 4) }]);
     expect(s?.jsonLeaf).toBe(true);
   });
   test("short leaves are not", () => {
@@ -102,7 +113,7 @@ describe("suspectOf (docs/04 §33 D3)", () => {
   });
   test("a bare base64 / hex token body is a suspect on its trimmed token (0.6-L2 item 6)", () => {
     const s = suspectOf(new TextEncoder().encode(`  ${LEAF}  `), `  ${LEAF}  `);
-    expect(s?.candidates).toEqual({ whole: sha(LEAF), leaves: [] });
+    expect(s?.candidates).toEqual([{ kind: "bare", hashes: [{ sha: sha(LEAF), form: "raw" }], bound: Math.floor((LEAF.length * 3) / 4) }]);
     expect(s?.jsonLeaf).toBe(false);
     // A bare token under 64 chars does not arm.
     expect(suspectOf(new TextEncoder().encode("QmFzZTY0bG9va2luZw=="), "QmFzZTY0bG9va2luZw==")).toBeNull();
@@ -122,8 +133,8 @@ describe("0.6-L2 additions", () => {
     expect(lp).toContain('console.dirxml("NONCE-123", arguments[0].length <= 42 ? arguments[0] : null)');
   });
   test("looksBareToken: 64+ base64 / hex token (trimmed) or null", () => {
-    expect(looksBareToken(LEAF)).toBe(sha(LEAF));
-    expect(looksBareToken(`\n${"ab".repeat(40)}\n`)).toBe(sha("ab".repeat(40))); // 80 hex chars
+    expect(looksBareToken(LEAF)).toEqual({ token: LEAF, bound: Math.floor((LEAF.length * 3) / 4) });
+    expect(looksBareToken(`\n${"ab".repeat(40)}\n`)).toEqual({ token: "ab".repeat(40), bound: 40 }); // 80 hex chars: /2
     expect(looksBareToken('{"rows":[]}')).toBeNull();
   });
   test("rawBodyExcluded: a plaintext that is a recorded raw body (envelope, control) is dropped", () => {
@@ -137,8 +148,8 @@ describe("0.6-L2 additions", () => {
 describe("Armed: window and lookup", () => {
   test("arm, live, expire, forget, clear", () => {
     const a = new Armed();
-    a.arm({ request: "r-1", url: "u", at: 1000, shas: ["h1"] });
-    a.arm({ request: "r-2", url: "u", at: 3000, shas: ["h2", "h3"] });
+    a.arm({ request: "r-1", url: "u", at: 1000, hashes: raws(["h1"]), bound: null });
+    a.arm({ request: "r-2", url: "u", at: 3000, hashes: raws(["h2", "h3"]), bound: null });
     a.expire(1000 + SUSPECT_WINDOW_MS - 1);
     expect(a.live().map((s) => s.request)).toEqual(["r-1", "r-2"]);
     a.expire(1000 + SUSPECT_WINDOW_MS);
@@ -147,7 +158,7 @@ describe("Armed: window and lookup", () => {
     expect(a.bySha(["nope"])).toBeNull();
     a.forget("r-2");
     expect(a.live()).toEqual([]);
-    a.arm({ request: "r-3", url: "u", at: 100, shas: ["h"] });
+    a.arm({ request: "r-3", url: "u", at: 100, hashes: raws(["h"]), bound: null });
     expect(a.clear("why")).toBe(1);
     expect(a.live()).toEqual([]);
   });
@@ -310,18 +321,19 @@ describe("0.6-L2: the raw body text is a suspect hash too", () => {
     const body = '{"code":0,"data":"' + LEAF + '"}';
     const s = suspectOf(new TextEncoder().encode(body), body);
     if (s === null) throw new Error("not a suspect");
-    expect(suspectShas(s, body)).toEqual([sha(LEAF), sha(body)]);
+    expect(suspectShas(s, body)).toEqual(raws([sha(LEAF), sha(body)]));
     // a whole-body candidate that is the raw text itself is listed once
     const t = new TextDecoder("latin1").decode(hot());
     const w = suspectOf(hot(), t);
     if (w === null) throw new Error("not a suspect");
-    expect(suspectShas(w, t)).toEqual([sha(t)]);
+    expect(suspectShas(w, t).filter((h) => h.sha === sha(t))).toEqual(raws([sha(t)]));
+    expect(suspectShas(w, t).filter((h) => h.form === "raw").length).toBe(1);
   });
   test("an axios-style scope holding the raw envelope is a scope-string match", () => {
     const body = '{"code":0,"data":"' + LEAF + '"}';
     const s = suspectOf(new TextEncoder().encode(body), body);
     if (s === null) throw new Error("not a suspect");
-    const a = attribute([suspect("r-3", suspectShas(s, body)), suspect("r-4", ["other"])], [sha(body)]);
+    const a = attribute([{ ...suspect("r-3", []), hashes: suspectShas(s, body) }, suspect("r-4", ["other"])], [sha(body)]);
     expect(a.kind === "scope-string" && a.suspect.request).toBe("r-3");
   });
 });
@@ -387,5 +399,207 @@ describe("0.6-L2: a page view's link reaches find's hits", () => {
     expect(hits.length).toBe(1);
     expect(hits[0]?.decode[0]).toBe("page");
     expect(hits[0]?.link).toBe("weak");
+  });
+});
+
+// ------------------------------------------------------------ 0.6-Q
+
+/** Deterministic bytes (the LCG of `hot`, another seed) as MIME base64: "\r\n" every 76 chars. */
+const mimeOf = (n: number): { flat: string; mime: string } => {
+  let x = 42;
+  const b = Buffer.alloc(n);
+  for (let i = 0; i < n; i++) {
+    x = (x * 1664525 + 1013904223) >>> 0;
+    b[i] = x >>> 24;
+  }
+  const flat = b.toString("base64");
+  return { flat, mime: (flat.match(/.{1,76}/g) ?? []).join("\r\n") };
+};
+
+describe("0.6-Q A: the forms of a candidate (raw, stripped, unquoted, urldecoded)", () => {
+  test("formsOf: transformed forms that differ come first, raw last, at most 4", () => {
+    const { flat, mime } = mimeOf(120);
+    expect(formsOf(mime)).toEqual([
+      { text: flat, form: "stripped" },
+      { text: mime, form: "raw" },
+    ]);
+    expect(formsOf(`"${LEAF}"`)).toEqual([
+      { text: LEAF, form: "unquoted" },
+      { text: `"${LEAF}"`, form: "raw" },
+    ]);
+    const enc = encodeURIComponent(flat);
+    expect(formsOf(enc)).toEqual([
+      { text: flat, form: "urldecoded" },
+      { text: enc, form: "raw" },
+    ]);
+    expect(formsOf(LEAF)).toEqual([{ text: LEAF, form: "raw" }]);
+    // a stray "%" is not URL encoding
+    expect(formsOf("abc%zz").map((f) => f.form)).toEqual(["raw"]);
+    const all = formsOf(` "a%2Bb" `);
+    expect(all.map((f) => f.form)).toEqual(["stripped", "unquoted", "urldecoded", "raw"]);
+  });
+  test("a MIME-wrapped leaf is a suspect: hashes stripped then raw, bound from the stripped length", () => {
+    const { flat, mime } = mimeOf(300);
+    const body = JSON.stringify({ code: 0, data: mime });
+    const s = suspectOf(new TextEncoder().encode(body), body);
+    expect(s?.candidates).toEqual([
+      {
+        kind: "leaf",
+        hashes: [
+          { sha: sha(flat), form: "stripped" },
+          { sha: sha(mime), form: "raw" },
+        ],
+        bound: Math.floor((flat.length * 3) / 4),
+      },
+    ]);
+  });
+  test("a MIME-wrapped, a quoted and a URL-encoded bare body are suspects (0.6-L2 missed all three)", () => {
+    const { flat, mime } = mimeOf(300);
+    const m = suspectOf(new TextEncoder().encode(mime + "\r\n"), mime + "\r\n");
+    expect(m?.candidates[0]?.kind).toBe("bare");
+    expect(m?.candidates[0]?.hashes.map((h) => h.form)).toEqual(["stripped", "raw"]);
+    expect(m?.candidates[0]?.hashes[0]?.sha).toBe(sha(flat));
+    const q = suspectOf(new TextEncoder().encode(`"${flat}"`), `"${flat}"`);
+    expect(q?.candidates[0]?.hashes[0]).toEqual({ sha: sha(flat), form: "unquoted" });
+    const enc = encodeURIComponent(flat);
+    expect(enc).not.toBe(flat);
+    const u = suspectOf(new TextEncoder().encode(enc), enc);
+    expect(u?.candidates[0]?.hashes[0]).toEqual({ sha: sha(flat), form: "urldecoded" });
+  });
+  test("a strong row names the matched form; with stripped and raw both in scope the stripped form wins", () => {
+    const { flat, mime } = mimeOf(300);
+    const body = JSON.stringify({ code: 0, data: mime });
+    const s = suspectOf(new TextEncoder().encode(body), body);
+    if (s === null) throw new Error("not a suspect");
+    const armed = { ...suspect("r-9", []), hashes: suspectShas(s, body) };
+    const pt = { best: { text: PLAIN_ROWS, from: "console" as const }, oversize: false };
+    const only = (scope: string[]) => {
+      const r = observeRow(match({ attribution: attribute([armed], scope, utf8Bytes(PLAIN_ROWS)), scopeShas: scope, plaintext: pt }), 0);
+      return "row" in r ? [r.row.evidence.match, r.row.evidence.matchForm, r.row.evidence.link] : r;
+    };
+    expect(only([sha(flat)])).toEqual([sha(flat), "stripped", "strong"]);
+    expect(only([sha(mime)])).toEqual([sha(mime), "raw", "strong"]);
+    expect(only([sha(mime), sha(flat)])).toEqual([sha(flat), "stripped", "strong"]);
+    expect(only([sha(body)])).toEqual([sha(body), "raw", "strong"]); // the raw body text (axios)
+    // weak rows carry no matchForm
+    const w = observeRow(match({ attribution: attribute([armed], [], utf8Bytes(PLAIN_ROWS)), plaintext: pt }), 0);
+    expect("row" in w && w.row.evidence.link === "weak" && w.row.evidence.matchForm === undefined).toBe(true);
+  });
+});
+
+describe("0.6-Q B: the plaintext bound of a suspect", () => {
+  test("tokenCore / tokenBound: hex /2, base64 floor(stripped × 3 / 4)", () => {
+    const hex = "0a".repeat(40);
+    expect(tokenCore(hex, 64)).toEqual({ core: hex, hex: true });
+    expect(tokenBound({ core: hex, hex: true })).toBe(40);
+    const { flat, mime } = mimeOf(100);
+    expect(tokenCore(mime, 64)).toEqual({ core: flat, hex: false });
+    expect(tokenBound({ core: flat, hex: false })).toBe(Math.floor((flat.length * 3) / 4));
+    expect(Math.floor((flat.length * 3) / 4)).toBeGreaterThanOrEqual(100); // never below the true size
+    expect(tokenCore("not a token at all, it has spaces and commas, many of them really", 64)).toBeNull();
+  });
+  test("a suspect's bound is the largest of its candidates (whole-body byte length included)", () => {
+    const small = mimeOf(60).flat;
+    const big = mimeOf(200).flat;
+    const body = JSON.stringify({ a: small, b: big });
+    const s = suspectOf(new TextEncoder().encode(body), body);
+    expect(s?.bound).toBe(Math.floor((big.length * 3) / 4));
+    const bytes = hot();
+    const w = suspectOf(bytes, Buffer.from(bytes).toString("utf8"));
+    expect(w?.bound).toBe(bytes.length);
+  });
+  test("a plaintext over the only suspect's bound is no-fit (real site: 64-byte ciphertext, 895-byte localStorage parse)", () => {
+    const s = suspect("r-1", ["h"], 1000, 48);
+    expect(fits(s, 48)).toBe(true);
+    expect(fits(s, 49)).toBe(false);
+    expect(fits(s, null)).toBe(true);
+    expect(fits(suspect("r-2", ["h"], 1000, null), 10 ** 9)).toBe(true);
+    const a = attribute([s], ["zz"], 895);
+    expect(a).toEqual({ kind: "no-fit", live: ["r-1"] });
+    const pt = { best: { text: "x".repeat(895), from: "console" as const }, oversize: false };
+    expect(observeRow(match({ attribution: a, plaintext: pt }), 0)).toEqual({ skip: "no-fit" });
+  });
+  test("unfit suspects leave the weak and unattributed decisions; scope-string is not size-checked", () => {
+    const A = suspect("r-1", ["ha"], 1000, 40);
+    const B = suspect("r-2", ["hb"], 1000, 5000);
+    const C = suspect("r-3", ["hc"], 1000, 9000);
+    // two live, one fits: the fitting one is the only suspect left (weak)
+    expect(attribute([A, B], ["zz"], 1000)).toEqual({ kind: "single-suspect", suspect: B });
+    // three live, two fit: unattributed with the two as candidates
+    expect(attribute([A, B, C], ["zz"], 1000)).toEqual({ kind: "unattributed", candidates: ["r-2", "r-3"] });
+    // scope-string wins even over the bound (compressing sites keep their strong rows)
+    expect(attribute([A, B], ["ha"], 1000)).toEqual({ kind: "scope-string", suspect: A });
+    // unknown plaintext size: no filtering
+    expect(attribute([A, B], ["zz"], null)).toEqual({ kind: "unattributed", candidates: ["r-1", "r-2"] });
+  });
+});
+
+describe("0.6-Q C: settle of unattributed rows, the envelope race", () => {
+  const ENV = '{"code":0,"data":"' + LEAF + '"}';
+  const settling = (over: Partial<Settling>): Settling => ({ request: null, candidates: ["r-1", "r-2"], text: ENV, textSha: sha(ENV), at: 1, ...over });
+  test("settleOutcome: a raw body is dropped at flush, weak rows of a filed request too, unattributed rows respect the cap", () => {
+    const none = new Set<string>();
+    expect(settleOutcome(settling({}), new Set([sha(ENV)]), none, 0)).toBe("rawBody");
+    expect(settleOutcome(settling({}), none, none, 0)).toBe("file");
+    expect(settleOutcome(settling({}), none, none, UNATTRIBUTED_CAP)).toBe("capped");
+    expect(settleOutcome(settling({}), none, none, UNATTRIBUTED_CAP - 1)).toBe("file");
+    const weak = settling({ request: "r-7", candidates: null, text: PLAIN_ROWS, textSha: sha(PLAIN_ROWS) });
+    expect(settleOutcome(weak, none, new Set(["r-7"]), 0)).toBe("filed");
+    expect(settleOutcome(weak, none, none, UNATTRIBUTED_CAP)).toBe("file"); // the cap is for unattributed rows only
+  });
+  test("dropRawBody: a body indexed after the parse drops the settling / held entries that are its text", () => {
+    const list = [settling({}), settling({ text: PLAIN_ROWS, textSha: sha(PLAIN_ROWS) }), { ...settling({}), textSha: null }];
+    const r = dropRawBody(list, sha(ENV));
+    expect(r.dropped).toBe(1);
+    expect(r.kept.map((x) => x.textSha)).toEqual([sha(PLAIN_ROWS), null]);
+    expect(dropRawBody(list, sha("other")).dropped).toBe(0);
+  });
+});
+
+describe("0.6-Q D: net body resolves the page view like analyze find (D4 rank, through the sidecar)", () => {
+  let root = "";
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "tabcap-obs-netbody-"));
+  });
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  const pageView = (blob: string, bytes: number, link: "strong" | "weak") => ({ by: "page", version: "observe/0", direction: "response", mime: "application/json", blob, bytes, ok: true, evidence: { sink: "JSON.parse", match: null, link, frames: [], at: 1 } });
+
+  test("a page row is the view; an inline plugin view outranks it; a later plugin row too; none without a row", async () => {
+    const dir = join(root, "b1");
+    const store = new BlobStore(dir);
+    const plain = await store.put(PLAIN_ROWS);
+    const plug = await store.put('{"plugin":"view of the same body, longer than 32"}');
+    if (plain.outcome !== "stored" || plug.outcome !== "stored") throw new Error("blob not stored");
+    expect(decodedEntry({ id: "r-3" }, dir, store)).toBeNull();
+    appendSidecar(dir, { seq: 1, request: "r-3", direction: "response", decoded: pageView(plain.ref, plain.size, "weak"), at: 1 });
+    expect(decodedEntry({ id: "r-3" }, dir, store)).toEqual({ by: "page", version: "observe/0", mime: "application/json", blob: plain.ref, link: "weak" });
+    // another request's row is not this one's view
+    expect(decodedEntry({ id: "r-4" }, dir, store)).toBeNull();
+    // an ok plugin view recorded inline beats the later page row (D4)
+    const inline = { by: "xor-decode", version: "1", mime: "application/json", blob: plug.ref, bytes: plug.size };
+    expect(decodedEntry({ id: "r-3", decoded: inline }, dir, store)?.by).toBe("xor-decode");
+    // a plugin row in the sidecar (bundle decode) beats the page row whatever the order
+    appendSidecar(dir, { seq: 2, request: "r-3", direction: "response", decoded: { by: "xor-decode", version: "1", direction: "response", mime: "application/json", blob: plug.ref, bytes: plug.size, ok: true }, at: 2 });
+    appendSidecar(dir, { seq: 3, request: "r-3", direction: "response", decoded: pageView(plain.ref, plain.size, "strong"), at: 3 });
+    expect(decodedEntry({ id: "r-3" }, dir, store)?.by).toBe("xor-decode");
+  });
+  test("a page row whose blob is missing is no view (decodedPayload)", () => {
+    const dir = join(root, "b2");
+    const store = new BlobStore(dir);
+    mkdirSync(dir, { recursive: true });
+    appendSidecar(dir, { seq: 1, request: "r-1", direction: "response", decoded: pageView(`sha256:${"e".repeat(64)}`, 10, "strong"), at: 1 });
+    expect(decodedEntry({ id: "r-1" }, dir, store)).toBeNull();
+  });
+  test("no view: `next` names `trace start --decode` only for a body the observe mode would arm on", () => {
+    const enc = new TextEncoder().encode('{"code":0,"data":"' + LEAF + '"}');
+    const plain = new TextEncoder().encode(PLAIN_ROWS);
+    for (const recording of [true, false]) {
+      const e = noDecodedView("r-2", enc, recording);
+      expect([e.code, e.message]).toEqual(["not-found", "request r-2 has no decoded view"]);
+      expect(e.next).toContain("trace start --decode");
+      expect(e.next).toContain("plugin list");
+    }
+    expect(noDecodedView("r-2", plain, true).next).not.toContain("--decode");
+    expect(noDecodedView("r-2", null, false).next).not.toContain("--decode");
   });
 });

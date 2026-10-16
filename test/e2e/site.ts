@@ -1768,7 +1768,13 @@ document.getElementById("s55-load").addEventListener("click", () => {
 // bare (whole body is one base64 token), big (~1.2 MiB plaintext, not
 // rendered), deferred (the plaintext is parked in a script-level array and
 // parsed by a timer callback that is its only frame: no ciphertext is
-// reachable from the parse — the weak-link case of docs/04 §33). The page
+// reachable from the parse — the weak-link case of docs/04 §33). 0.6-Q:
+// mime (the envelope's data is MIME base64, "\r\n" every 76 chars; the page
+// strips whitespace before XOR-decrypting), noise (two small encrypted
+// responses armed while the page parses a ≥ 1 KB JSON string from its own
+// localStorage, in a frame that reaches no ciphertext), race (three encrypted
+// responses, each envelope JSON.parsed in the fetch chain as soon as its text
+// arrives — possibly before tabcap indexed it — then all decrypted). The page
 // fetches, decrypts in its own JS, JSON.parses, renders (except big), then
 // fetches /api/plain as the control. Rows and keys are literals here; no
 // plaintext value appears in any raw /api/enc body.
@@ -1799,6 +1805,25 @@ export const S59_ENC_GCM = JSON.stringify({ code: 0, data: s59Gcm(S59_PLAIN) });
 export const S59_ENC_GCM2 = JSON.stringify({ code: 0, data: s59Gcm(S59_PLAIN2, S59_AES_IV2_HEX) });
 /** Bare ciphertext: the body is one base64 token, no JSON envelope (0.6-L2 item 6). */
 export const S59_BARE_XOR = s59Xor(S59_PLAIN);
+
+// 0.6-Q: ?mode=mime / noise / race (docs/05 s59).
+/** base64 wrapped the MIME way: "\r\n" after every 76 characters. */
+export function s59Mime(b64: string): string {
+  return (b64.match(/.{1,76}/g) ?? []).join("\r\n");
+}
+export const S59_ENC_MIME = JSON.stringify({ code: 0, data: s59Mime(s59Xor(S59_PLAIN)) });
+/** Two small plaintexts (≈ 70 bytes; their base64 leaves are just over 64 chars). */
+export const S59_NOISE_PLAIN1 = JSON.stringify({ rows: [{ id: "S59-N001", qty: 3, amount: "7.25", note: "noise-1" }] });
+export const S59_NOISE_PLAIN2 = JSON.stringify({ rows: [{ id: "S59-N002", qty: 5, amount: "9.75", note: "noise-2" }] });
+export const S59_ENC_NOISE1 = JSON.stringify({ code: 0, data: s59Xor(S59_NOISE_PLAIN1) });
+export const S59_ENC_NOISE2 = JSON.stringify({ code: 0, data: s59Xor(S59_NOISE_PLAIN2) });
+/** The page's own localStorage JSON (≥ 1 KB), parsed while both noise suspects are armed. */
+export const S59_NOISE_LOCAL = JSON.stringify({ user: { name: "s59-noise-user", prefs: Array.from({ length: 40 }, (_, i) => ({ key: `pref-${String(i).padStart(2, "0")}`, value: i * 3 })) } });
+/** Race: two large plaintexts (40 rows) and the regular S59_PLAIN as slot 3. */
+export const S59_RACE_PLAIN1 = JSON.stringify({ rows: Array.from({ length: 40 }, (_, i) => ({ id: `S59-R${String(i + 1).padStart(3, "0")}`, qty: (i % 9) + 1, amount: `${(i + 3) * 11}.10` })) });
+export const S59_RACE_PLAIN2 = JSON.stringify({ rows: Array.from({ length: 40 }, (_, i) => ({ id: `S59-R${String(i + 101).padStart(3, "0")}`, qty: (i % 7) + 2, amount: `${(i + 5) * 13}.40` })) });
+export const S59_ENC_RACE1 = JSON.stringify({ code: 0, data: s59Xor(S59_RACE_PLAIN1) });
+export const S59_ENC_RACE2 = JSON.stringify({ code: 0, data: s59Xor(S59_RACE_PLAIN2) });
 /** Plaintext just over the old 1 MiB cap (0.6-L2 item 3). Built lazily so
  * importing this module does not allocate it on every other range. */
 export const S59_BIG_MARKER = "S59-BIG-0001";
@@ -1853,7 +1878,29 @@ function s59Worker(data) {
     w.postMessage({ key: S59_KEY, data });
   });
 }
+function s59NoiseUser() {
+  return JSON.parse(localStorage.getItem("s59-noise-user"));
+}
 async function s59Enc(mode) {
+  if (mode === "mime") {
+    const env = JSON.parse(await (await fetch("/api/enc?mode=mime", { cache: "no-store" })).text());
+    s59Render(s59Xor(env.data.replace(/\\s+/g, "")).rows);
+    return;
+  }
+  if (mode === "noise") {
+    localStorage.setItem("s59-noise-user", ${JSON.stringify(S59_NOISE_LOCAL)});
+    const texts = await Promise.all([1, 2].map((n) => fetch("/api/enc?mode=noise&slot=" + n, { cache: "no-store" }).then((r) => r.text())));
+    // both responses are recorded (armed) by now; the page reads its own user info
+    await new Promise((r) => setTimeout(r, 400));
+    document.getElementById("status").dataset.user = s59NoiseUser().user.name;
+    for (const t of texts) s59Render(s59Xor(JSON.parse(t).data).rows);
+    return;
+  }
+  if (mode === "race") {
+    const envs = await Promise.all([1, 2, 3].map((n) => fetch("/api/enc?mode=race&slot=" + n, { cache: "no-store" }).then((r) => r.text().then((t) => JSON.parse(t)))));
+    for (const env of envs) s59Render(s59Xor(env.data).rows);
+    return;
+  }
   if (mode === "bare") {
     const data = (await (await fetch("/api/enc?mode=bare", { cache: "no-store" })).text()).trim();
     s59Render(s59Xor(data).rows);
@@ -1907,7 +1954,7 @@ async function s59Main(mode) {
   document.getElementById("status").textContent = "ready " + c.control;
 }
 const s59Mode = new URLSearchParams(location.search).get("mode");
-s59Main(["webcrypto", "worker", "axios", "inline", "bare", "big", "deferred"].includes(s59Mode) ? s59Mode : "xor");
+s59Main(["webcrypto", "worker", "axios", "inline", "bare", "big", "deferred", "mime", "noise", "race"].includes(s59Mode) ? s59Mode : "xor");
 </script>`;
 
 // ?mode=worker: the XOR runs in a dedicated worker, which posts the plaintext
@@ -1940,6 +1987,10 @@ export function startInPageDecodeSite(): Site {
         const mode = u.searchParams.get("mode");
         if (mode === "bare") return send(key, S59_BARE_XOR, "text/plain; charset=utf-8");
         if (mode === "big") return send(key, JSON.stringify({ code: 0, data: s59Xor(s59BigPlain()) }), "application/json");
+        const slot = u.searchParams.get("slot");
+        if (mode === "mime") return send(key, S59_ENC_MIME, "application/json");
+        if (mode === "noise") return send(key, slot === "2" ? S59_ENC_NOISE2 : S59_ENC_NOISE1, "application/json");
+        if (mode === "race") return send(key, slot === "1" ? S59_ENC_RACE1 : slot === "2" ? S59_ENC_RACE2 : S59_ENC_XOR, "application/json");
         const body = mode === "webcrypto" ? (u.searchParams.get("slot") === "2" ? S59_ENC_GCM2 : S59_ENC_GCM) : S59_ENC_XOR;
         return send(key, body, "application/json");
       }

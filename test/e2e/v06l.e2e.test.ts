@@ -17,6 +17,11 @@
 // object's property one level down — read off the range page's source) and
 // "weak" when it cannot (s59 deferred: the parse runs in a timer callback that
 // is its only frame); `--decode` installs no signal breakpoints.
+// 0.6-Q (docs/04 §33 0.6-Q, docs/05 s59 mime / noise / race): a MIME-wrapped
+// leaf matches in its whitespace-stripped form (`evidence.matchForm`), a
+// ≥ 1 KB localStorage parse is not filed under two small armed suspects
+// (`drops.noFit`), no row is an envelope the page parsed early; `net body`
+// reads the page view (default and --decoded, during and after recording).
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -26,7 +31,28 @@ import { createHash } from "node:crypto";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { parseSidecarText } from "../../src/bundle/decoded.ts";
 import { isRecord } from "../../src/shared/json.ts";
-import { S59_BARE_XOR, S59_BIG_MARKER, S59_ENC_GCM, S59_ENC_GCM2, S59_ENC_XOR, S59_PLAIN, S59_PLAIN2, s59BigPlain, startInPageDecodeSite, type Site } from "./site.ts";
+import {
+  S59_BARE_XOR,
+  S59_BIG_MARKER,
+  S59_ENC_GCM,
+  S59_ENC_GCM2,
+  S59_ENC_MIME,
+  S59_ENC_NOISE1,
+  S59_ENC_NOISE2,
+  S59_ENC_RACE1,
+  S59_ENC_RACE2,
+  S59_ENC_XOR,
+  S59_NOISE_LOCAL,
+  S59_NOISE_PLAIN1,
+  S59_NOISE_PLAIN2,
+  S59_PLAIN,
+  S59_PLAIN2,
+  S59_RACE_PLAIN1,
+  S59_RACE_PLAIN2,
+  s59BigPlain,
+  startInPageDecodeSite,
+  type Site,
+} from "./site.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -93,7 +119,7 @@ const viewText = (reader: BundleReader, view: Record<string, unknown> | undefine
   view === undefined || typeof view["blob"] !== "string" ? null : new TextDecoder().decode(reader.readBlob(view["blob"]) ?? new Uint8Array());
 
 /** One walk of a /s59 variant in a fresh session, trace started with the given flags. */
-async function runPage(session: string, path: string, flags: string[] = []): Promise<{ bundle: string; enc: Array<{ id: string; query: string }>; tr: Record<string, unknown> }> {
+async function runPage(session: string, path: string, flags: string[] = [], queries?: string[]): Promise<{ bundle: string; enc: Array<{ id: string; query: string }>; tr: Record<string, unknown> }> {
   const S = ["--session", session];
   const started = await ok("net", "start", ...S);
   const bundle = s(started["bundle"]);
@@ -102,7 +128,7 @@ async function runPage(session: string, path: string, flags: string[] = []): Pro
   await ok("navigate", `${site.origin}${path}`, ...S);
   await ok("wait", "--text", "ready s59-plain-control", ...S);
   const enc: Array<{ id: string; query: string }> = [];
-  for (const query of path.includes("two=1") ? ["slot=1", "slot=2"] : ["/api/enc"]) {
+  for (const query of queries ?? (path.includes("two=1") ? ["slot=1", "slot=2"] : ["/api/enc"])) {
     const waited = await ok("net", "wait", "--url", query, ...S);
     enc.push({ id: s(waited["id"]), query });
   }
@@ -230,13 +256,17 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     expect(tr["decode"]).toBeUndefined();
     await ok("navigate", `${site.origin}/s59`, ...S);
     await ok("wait", "--text", "ready s59-plain-control", ...S);
-    await ok("net", "wait", "--url", "/api/enc", ...S);
+    const encId = s((await ok("net", "wait", "--url", "/api/enc", ...S))["id"]);
     await Bun.sleep(400);
     const stopped = await ok("trace", "stop", ...S);
     expect(stopped["decode"]).toBeUndefined();
     await ok("net", "stop", ...S);
     expect(sidecarRows(bundle)).toEqual([]);
     expect(existsSync(join(bundle, "decoded.jsonl"))).toBe(false);
+    // 0.6-Q: `net body --decoded` without a view points an encrypted body to the observe mode.
+    const nb = await tabcap(["net", "body", encId, "--decoded", ...S]);
+    expect([nb.ok, nb.error["code"]]).toEqual([false, "not-found"]);
+    expect(s(nb.error["next"])).toContain("trace start --decode");
     // The plaintext exists only inside the page; the bundle has the ciphertext only.
     const out = await ok("analyze", "find", bundle, "S59-0001");
     expect(recs(out["hits"])).toEqual([]);
@@ -329,5 +359,89 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     const rows = await until("the reloaded page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
     expect(rows.map((r) => [r.request, viewText(BundleReader.open(bundle), r.decoded), rec(r.decoded["evidence"])["link"]])).toEqual([[encId, S59_PLAIN, "strong"]]);
     await stopBoth("s59l");
+  }, 120_000);
+
+  // ------------------------------------------------------------ 0.6-Q
+
+  /** `net body` of a request: the view it answers with and the preview text. */
+  const body = async (id: string, S: string[], ...flags: string[]) => {
+    const d = await ok("net", "body", id, ...flags, ...S);
+    return { view: d["view"], by: rec(d["decoded"])["by"], link: rec(d["decoded"])["link"], text: d["textPreview"] };
+  };
+
+  test("s59 mime: the MIME-wrapped leaf matches stripped (matchForm); net body reads the page view during and after recording", async () => {
+    const S = ["--session", "s59m"];
+    const { bundle, enc } = await runPage("s59m", "/s59?mode=mime", ["--decode"], ["mode=mime"]);
+    const encId = enc[0]?.id ?? "";
+    // The oracle: the served envelope's data has line breaks; stripped, it is the plain XOR base64.
+    const mimeData = s59Data(S59_ENC_MIME);
+    expect(mimeData).toContain("\r\n");
+    expect(mimeData.replace(/\s+/g, "")).toBe(XOR_DATA);
+    const rows = await until("the mime page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
+    expect(rows.length).toBe(1);
+    const r = rows[0] as SidecarRow;
+    expect(r.request).toBe(encId);
+    expect(viewText(BundleReader.open(bundle), r.decoded)).toBe(S59_PLAIN);
+    const ev = rec(r.decoded["evidence"]);
+    expect([ev["link"], ev["match"], ev["matchForm"]]).toEqual(["strong", sha(XOR_DATA), "stripped"]);
+
+    // net body while recording: the page view is the default and the --decoded answer; --raw the envelope.
+    const live = { by: "page", link: "strong", text: S59_PLAIN, view: "decoded" };
+    expect(await body(encId, S)).toEqual(live);
+    expect(await body(encId, S, "--decoded")).toEqual(live);
+    expect(await body(encId, S, "--raw")).toEqual({ view: "raw", by: undefined, link: undefined, text: S59_ENC_MIME });
+    // the control has no view and is no ciphertext: the hint does not point to --decode
+    const ctl = recs((await ok("net", "list", "--filter", "/api/plain", ...S))["requests"])[0]?.["id"];
+    const nb = await tabcap(["net", "body", s(ctl), "--decoded", ...S]);
+    expect([nb.ok, nb.error["code"]]).toEqual([false, "not-found"]);
+    expect(s(nb.error["next"])).not.toContain("--decode");
+
+    await stopBoth("s59m");
+    // after the recording: the same answers off the finished bundle
+    expect(await body(encId, S)).toEqual(live);
+    expect(await body(encId, S, "--decoded")).toEqual(live);
+  }, 120_000);
+
+  test("s59 noise: a >= 1 KB localStorage parse under two small armed suspects is no row (noFit); both plaintexts still filed", async () => {
+    const S = ["--session", "s59n"];
+    const { bundle, enc } = await runPage("s59n", "/s59?mode=noise", ["--decode"], ["noise&slot=1", "noise&slot=2"]);
+    const bySlot = new Map(enc.map((e) => [e.query, e.id]));
+    // The oracle: the localStorage text is over both suspects' plaintext bounds (base64 × 3 / 4).
+    for (const env of [S59_ENC_NOISE1, S59_ENC_NOISE2]) expect(new TextEncoder().encode(S59_NOISE_LOCAL).length).toBeGreaterThan(Math.floor((s59Data(env).length * 3) / 4));
+    const rows = await until("both noise rows", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 2);
+    const reader = BundleReader.open(bundle);
+    const got = rows.map((row) => [row.request, viewText(reader, row.decoded), rec(row.decoded["evidence"])["link"]]);
+    expect(got.sort()).toEqual(
+      [
+        [bySlot.get("noise&slot=1") ?? "", S59_NOISE_PLAIN1, "strong"],
+        [bySlot.get("noise&slot=2") ?? "", S59_NOISE_PLAIN2, "strong"],
+      ].sort(),
+    );
+    const { decode } = await stopBoth("s59n");
+    expect(sidecarRows(bundle).some((row) => viewText(BundleReader.open(bundle), row.decoded) === S59_NOISE_LOCAL)).toBe(false);
+    expect(decode?.["rows"]).toMatchObject({ attributed: 2, weak: 0, unattributed: 0 });
+    expect(Number(rec(decode?.["drops"])["noFit"] ?? 0)).toBeGreaterThanOrEqual(1);
+  }, 120_000);
+
+  test("s59 race: envelopes parsed as soon as they arrive are never a row; the three plaintexts are filed strong", async () => {
+    const S = ["--session", "s59r"];
+    const { bundle, enc } = await runPage("s59r", "/s59?mode=race", ["--decode"], ["race&slot=1", "race&slot=2", "race&slot=3"]);
+    const bySlot = new Map(enc.map((e) => [e.query, e.id]));
+    const rows = await until("the three race rows", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.filter((r) => r.request !== null).length >= 3);
+    const { decode } = await stopBoth("s59r");
+    const reader = BundleReader.open(bundle);
+    const all = sidecarRows(bundle);
+    const envelopes = [S59_ENC_RACE1, S59_ENC_RACE2, S59_ENC_XOR];
+    for (const row of all) expect(envelopes).not.toContain(viewText(reader, row.decoded));
+    expect(all.filter((row) => row.request === null)).toEqual([]);
+    const got = rows.filter((r) => r.request !== null).map((row) => [row.request, viewText(reader, row.decoded), rec(row.decoded["evidence"])["link"]]);
+    expect(got.sort()).toEqual(
+      [
+        [bySlot.get("race&slot=1") ?? "", S59_RACE_PLAIN1, "strong"],
+        [bySlot.get("race&slot=2") ?? "", S59_RACE_PLAIN2, "strong"],
+        [bySlot.get("race&slot=3") ?? "", S59_PLAIN, "strong"],
+      ].sort(),
+    );
+    expect(decode?.["rows"]).toMatchObject({ attributed: 3, weak: 0, unattributed: 0 });
   }, 120_000);
 });
