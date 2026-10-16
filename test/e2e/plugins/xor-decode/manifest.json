@@ -1,0 +1,10 @@
+{
+  "name": "xor-decode",
+  "kind": "decode",
+  "version": "1",
+  "description": "range decode plugin (docs/05 s42): base64, then XOR with the key in config.json; test only",
+  "match": { "host": ["127.0.0.1"], "path": ["/s42/api/*"], "contentTypes": ["text/plain"], "direction": "both" },
+  "command": ["bun", "./decode.ts"],
+  "timeoutMs": 5000,
+  "maxBytes": 1048576
+}

@@ -1440,3 +1440,97 @@ ${captcha}
   });
   return { origin: `http://127.0.0.1:${server.port}`, hits, posts, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.6-B: s42 decode plugins
+// An API whose bodies are encoded: every /s42/api/* response and the one POST
+// body are the UTF-8 JSON XORed with S42_KEY, then base64, sent as text/plain
+// with `x-enc: xor`. The page decodes in JS and renders the items table; the
+// order button posts the token and the first item, encoded the same way. The
+// range decode plugin (test/e2e/plugins/xor-decode, key in its config.json)
+// undoes the encoding. Every plaintext below is written by hand; none of its
+// values appears in any raw body.
+export const S42_KEY = "tabcap-s42-key";
+export const S42_TOKEN = "S42-TOKEN-5e1f9a3c7b2d4e60";
+export const S42_TOKEN_JSON = JSON.stringify({ token: S42_TOKEN, ttl: 600 });
+export const S42_ITEMS_JSON = JSON.stringify({
+  items: [
+    { id: "S42-ITEM-0001", name: "甲号商品", price: "1288.50" },
+    { id: "S42-ITEM-0002", name: "乙号商品", price: "66.00" },
+  ],
+});
+export const S42_ORDER = "S42-ORDER-0077";
+export const S42_ORDER_JSON = JSON.stringify({ ok: true, order: S42_ORDER });
+/** The POST body the page sends, before encoding (the page builds the same string). */
+export const S42_POST_JSON = JSON.stringify({ token: S42_TOKEN, item: "S42-ITEM-0001", qty: 2 });
+
+export function xorEncode(plain: string, key: string = S42_KEY): string {
+  const k = new TextEncoder().encode(key);
+  const b = new TextEncoder().encode(plain);
+  return Buffer.from(b.map((x, i) => x ^ (k[i % k.length] ?? 0))).toString("base64");
+}
+
+export function xorDecode(b64: string, key: string = S42_KEY): string {
+  const k = new TextEncoder().encode(key);
+  const b = new Uint8Array(Buffer.from(b64, "base64"));
+  return new TextDecoder().decode(b.map((x, i) => x ^ (k[i % k.length] ?? 0)));
+}
+
+const S42_PAGE = `<!doctype html><meta charset=utf-8><title>s42 decode</title>
+<h1>s42 decode</h1>
+<table id=items><thead><tr><th>id</th><th>name</th><th>price</th></tr></thead><tbody></tbody></table>
+<button type=button id=order>order</button>
+<p id=status>loading</p>
+<script>
+const KEY = new TextEncoder().encode(${JSON.stringify(S42_KEY)});
+const dec = (b64) => { const b = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); return JSON.parse(new TextDecoder().decode(b.map((x, i) => x ^ KEY[i % KEY.length]))); };
+const enc = (s) => { const b = new TextEncoder().encode(s).map((x, i) => x ^ KEY[i % KEY.length]); let t = ""; for (const x of b) t += String.fromCharCode(x); return btoa(t); };
+let token = "";
+(async () => {
+  token = dec(await (await fetch("/s42/api/token")).text()).token;
+  const items = dec(await (await fetch("/s42/api/items", { headers: { "x-auth": token } })).text()).items;
+  const tb = document.querySelector("#items tbody");
+  for (const it of items) { const tr = document.createElement("tr"); for (const k of ["id", "name", "price"]) { const td = document.createElement("td"); td.textContent = it[k]; tr.appendChild(td); } tb.appendChild(tr); }
+  document.getElementById("status").textContent = "ready";
+})();
+document.getElementById("order").addEventListener("click", async () => {
+  const body = enc(JSON.stringify({ token, item: "S42-ITEM-0001", qty: 2 }));
+  const r = await fetch("/s42/api/order", { method: "POST", headers: { "content-type": "text/plain", "x-enc": "xor", "x-auth": token }, body });
+  document.getElementById("status").textContent = "ordered " + dec(await r.text()).order;
+});
+</script>`;
+
+export type DecodeSite = Site & { orders: string[] };
+
+export function startDecodeSite(): DecodeSite {
+  const served = new Map<string, string>();
+  const hits: string[] = [];
+  const orders: string[] = [];
+  const send = (key: string, body: string, type: string, extra: Record<string, string> = {}) => {
+    const bytes = new TextEncoder().encode(body);
+    served.set(key, createHash("sha256").update(bytes).digest("hex"));
+    return new Response(bytes, { headers: { "content-type": type, "cache-control": "no-store", ...extra } });
+  };
+  const encoded = (key: string, plain: string) => send(key, xorEncode(plain), "text/plain; charset=utf-8", { "x-enc": "xor" });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const u = new URL(req.url);
+      hits.push(`${req.method} ${u.pathname}`);
+      if (u.pathname === "/s42") return send(u.pathname, S42_PAGE, "text/html; charset=utf-8");
+      if (u.pathname === "/s42/api/token") return encoded(u.pathname, S42_TOKEN_JSON);
+      if (u.pathname === "/s42/api/items") {
+        if (req.headers.get("x-auth") !== S42_TOKEN) return new Response("forbidden", { status: 403 });
+        return encoded(u.pathname, S42_ITEMS_JSON);
+      }
+      if (u.pathname === "/s42/api/order" && req.method === "POST") {
+        const plain = xorDecode(await req.text());
+        orders.push(plain);
+        if (req.headers.get("x-auth") !== S42_TOKEN || plain !== S42_POST_JSON) return new Response("bad order", { status: 400 });
+        return encoded(u.pathname, S42_ORDER_JSON);
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served, hits, orders, stop: () => server.stop(true) };
+}

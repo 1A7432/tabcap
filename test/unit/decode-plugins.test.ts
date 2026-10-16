@@ -1,0 +1,405 @@
+// 0.6-B decode plugins: manifest validation (untrusted input), the
+// tabcap-decode/1 protocol against a fake plugin process (framing, timeouts,
+// crashes, oversized answers, disable after MAX_FAILURES), the recorder's
+// `decoded` field and blob (fake CDP transport, the range plugin), and
+// `bundle decode` on a bundle recorded without a plugin.
+// Oracles: docs/04 §26 (shapes, written before the code in the brief), the
+// fake plugin's documented behaviour (test/fixtures/plugins/fake-decode), and
+// the s42 plaintexts written by hand in test/e2e/site.ts.
+
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { BundleReader } from "../../src/bundle/reader.ts";
+import { decodeBundle } from "../../src/bundle/decode.ts";
+import { Tabs } from "../../src/daemon/browser/targets.ts";
+import { Recorder } from "../../src/daemon/capture/recorder.ts";
+import { DecodeHost, DecodeSession, MAX_FAILURES, decodeMatches, parseDecodeReply, resolveDecodeCommand, type DecodeJob, type DecodePlugin } from "../../src/daemon/hooks/decode.ts";
+import { MAX_PLUGIN_MANIFEST_BYTES, decodePlugins, listPlugins, parseManifest, pluginsFor, setEnabled } from "../../src/daemon/hooks/plugins.ts";
+import type { AttachedTarget, CdpEvent, Transport } from "../../src/daemon/transport/types.ts";
+import { S42_ITEMS_JSON, S42_ORDER_JSON, S42_POST_JSON, S42_TOKEN_JSON, xorEncode } from "../e2e/site.ts";
+import { tmp } from "./_analyze.ts";
+import { S42_ORIGIN as ORIGIN, installXor, s42Bundle } from "./_decode.ts";
+
+const FAKE = join(import.meta.dir, "..", "fixtures", "plugins", "fake-decode");
+
+const GOOD = {
+  name: "dec",
+  kind: "decode",
+  version: "2",
+  description: "d",
+  match: { host: ["127.0.0.1", "*.example.test"], path: ["/api/*"], contentTypes: ["text/plain", "application/*"], direction: "both" },
+  command: ["./run.sh", "--flag"],
+  timeoutMs: 800,
+  maxBytes: 4096,
+};
+
+describe("decode manifests (untrusted input)", () => {
+  test("the documented shape parses; defaults for path / contentTypes / direction / timeoutMs / maxBytes", () => {
+    expect(parseManifest(GOOD, "dec")).toEqual({
+      name: "dec",
+      version: "2",
+      description: "d",
+      hooks: [],
+      command: ["./run.sh", "--flag"],
+      timeoutMs: 800,
+      decode: { match: { host: ["127.0.0.1", "*.example.test"], path: ["/api/*"], contentTypes: ["text/plain", "application/*"], direction: "both" }, maxBytes: 4096 },
+    });
+    const min = parseManifest({ name: "dec", kind: "decode", version: "1", match: { host: ["127.0.0.1"] }, command: ["uv", "run", "runner.py"] }, "dec");
+    expect(min.decode).toEqual({ match: { host: ["127.0.0.1"], path: ["/**"], contentTypes: ["*/*"], direction: "response" }, maxBytes: 8 * 1024 * 1024 });
+    expect(min.timeoutMs).toBe(5000);
+  });
+
+  test("unknown keys, bad values and commands outside the directory are refused", () => {
+    const bad: Record<string, unknown>[] = [
+      { ...GOOD, extra: 1 },
+      { ...GOOD, hooks: ["challenge"] },
+      { ...GOOD, version: undefined },
+      { ...GOOD, version: "x".repeat(65) },
+      { ...GOOD, match: { ...GOOD.match, method: ["GET"] } },
+      { ...GOOD, match: { ...GOOD.match, host: [] } },
+      { ...GOOD, match: { path: ["/x"] } },
+      { ...GOOD, match: { ...GOOD.match, host: ["exa mple"] } },
+      { ...GOOD, match: { ...GOOD.match, path: ["api/*"] } },
+      { ...GOOD, match: { ...GOOD.match, path: ["/a?b=1"] } },
+      { ...GOOD, match: { ...GOOD.match, contentTypes: ["text/plain; charset=utf-8"] } },
+      { ...GOOD, match: { ...GOOD.match, direction: "sideways" } },
+      { ...GOOD, match: { ...GOOD.match, host: Array.from({ length: 33 }, () => "a") } },
+      { ...GOOD, command: [] },
+      { ...GOOD, command: ["sub/run"] },
+      { ...GOOD, command: ["./a\0b"] },
+      { ...GOOD, timeoutMs: 50 },
+      { ...GOOD, timeoutMs: 60_001 },
+      { ...GOOD, maxBytes: 0 },
+      { ...GOOD, maxBytes: 33 * 1024 * 1024 },
+      { ...GOOD, kind: "encode" },
+      { ...GOOD, description: "x".repeat(501) },
+    ];
+    bad.forEach((b) => expect(() => parseManifest(b, "dec")).toThrow("plugin manifest"));
+  });
+
+  test("argv: ./ elements resolve inside the directory, never outside; bare program names go to PATH", () => {
+    expect(resolveDecodeCommand("/p/x", ["./run.sh", "./conf/a.json", "-v"])).toEqual([resolve("/p/x/run.sh"), resolve("/p/x/conf/a.json"), "-v"]);
+    expect(resolveDecodeCommand("/p/x", ["uv", "run", "--project", ".", "runner.py"])).toEqual(["uv", "run", "--project", ".", "runner.py"]);
+    expect(() => resolveDecodeCommand("/p/x", ["./run.sh", "../y/key"])).toThrow("outside");
+    expect(() => resolveDecodeCommand("/p/x", ["../y/run"])).toThrow("outside");
+  });
+
+  test("listing: oversized manifests are refused unread; decode plugins are not challenge handlers; only enabled ones decode", () => {
+    const config = join(tmp("tabcap-decm-"), "config");
+    const install = (name: string, text: string) => {
+      mkdirSync(join(config, "plugins", name), { recursive: true, mode: 0o700 });
+      writeFileSync(join(config, "plugins", name, "manifest.json"), text);
+    };
+    install("dec", JSON.stringify(GOOD));
+    install("huge", JSON.stringify({ ...GOOD, name: "huge", description: "x".repeat(MAX_PLUGIN_MANIFEST_BYTES) }));
+    expect(listPlugins(config).find((p) => p.name === "huge")?.error).toBe(`manifest.json is over ${MAX_PLUGIN_MANIFEST_BYTES} bytes`);
+    expect(decodePlugins(config)).toEqual([]);
+    setEnabled(config, "dec", true);
+    expect(decodePlugins(config).map((p) => [p.name, p.version, p.timeoutMs])).toEqual([["dec", "2", 800]]);
+    expect(pluginsFor(config, "challenge")).toEqual([]);
+  });
+});
+
+describe("matching by host / path / content type / direction", () => {
+  const m = { host: ["127.0.0.1", "*.example.test"], path: ["/s42/api/*", "/v2/**"], contentTypes: ["text/plain", "application/*"], direction: "response" as const };
+  test("globs and media types", () => {
+    expect(decodeMatches(m, "http://127.0.0.1:9/s42/api/token?x=1", "text/plain; charset=utf-8", "response")).toBe(true);
+    expect(decodeMatches(m, "http://a.b.example.test/v2/x/y", "application/octet-stream", "response")).toBe(true);
+    expect(decodeMatches(m, "http://127.0.0.1:9/s42/api/a/b", "text/plain", "response")).toBe(false); // * stays in one segment
+    expect(decodeMatches(m, "http://localhost/s42/api/token", "text/plain", "response")).toBe(false);
+    expect(decodeMatches(m, "http://127.0.0.1/s42/api/token", "text/html", "response")).toBe(false);
+    expect(decodeMatches(m, "http://127.0.0.1/s42/api/token", null, "response")).toBe(false);
+    expect(decodeMatches(m, "http://127.0.0.1/s42/api/token", "text/plain", "request")).toBe(false);
+    expect(decodeMatches({ ...m, direction: "both" }, "http://127.0.0.1/s42/api/token", "text/plain", "request")).toBe(true);
+    expect(decodeMatches(m, "not a url", "text/plain", "response")).toBe(false);
+  });
+});
+
+const fake = (o: Partial<DecodePlugin> = {}): DecodePlugin => ({
+  name: "fake",
+  dir: FAKE,
+  version: "0",
+  command: [process.execPath, "./fake.ts"],
+  timeoutMs: 1500,
+  decode: { match: { host: ["127.0.0.1"], path: ["/**"], contentTypes: ["*/*"], direction: "both" }, maxBytes: 1024 * 1024 },
+  ...o,
+});
+
+const job = (text: string, o: Partial<DecodeJob> = {}): DecodeJob => ({
+  direction: "response",
+  id: "r-7",
+  url: `${ORIGIN}/api/x`,
+  method: "GET",
+  requestHeaders: { accept: "*/*", cookie: "sid=s3cret", authorization: "Bearer t0ken", "x-enc": "xor" },
+  response: { status: 200, headers: { "content-type": "text/plain", "set-cookie": ["a=1"], "x-enc": "xor" } },
+  body: new TextEncoder().encode(text),
+  mime: "text/plain",
+  ...o,
+});
+
+const text = (b: Uint8Array) => new TextDecoder().decode(b);
+
+describe("protocol tabcap-decode/1 against a fake plugin process", () => {
+  let host: DecodeHost;
+  beforeEach(() => {
+    host = new DecodeHost();
+  });
+  afterEach(() => host.close());
+
+  test("one long-lived process answers line by line; credentials are never sent", async () => {
+    const s = new DecodeSession(host, [fake()]);
+    const a = await s.decode(job("hello"));
+    const b = await s.decode(job("world"));
+    expect(a).toMatchObject({ by: "fake", version: "0", direction: "response", ok: true, mime: "text/plain" });
+    expect(a?.ok === true ? text(a.body) : null).toBe("HELLO");
+    expect(b?.ok === true ? text(b.body) : null).toBe("WORLD");
+    expect(a?.ok === true && b?.ok === true ? a.note === b.note : false).toBe(true); // same pid
+    expect(host.starts("fake")).toBe(1);
+    const h = await s.decode(job("headers"));
+    expect(h?.ok === true ? JSON.parse(text(h.body)) : null).toEqual({ request: ["accept", "x-enc"], response: ["content-type", "x-enc"] });
+  });
+
+  test("ok:false is an answer, not a failure: the plugin stays enabled", async () => {
+    const disabled: string[] = [];
+    const s = new DecodeSession(host, [fake()], { onDisabled: (n) => disabled.push(n) });
+    for (let i = 0; i < MAX_FAILURES + 1; i++) expect(await s.decode(job("fail"))).toMatchObject({ ok: false, error: "cannot decode this one" });
+    expect(disabled).toEqual([]);
+    expect(host.starts("fake")).toBe(1);
+  });
+
+  test("timeout, crash, garbage, wrong id and an oversized line each kill the process; the next call restarts it", async () => {
+    const s = new DecodeSession(host, [fake()], { maxFailures: 99 });
+    expect(await s.decode(job("hang"))).toMatchObject({ ok: false, error: "timed out after 1500 ms" });
+    expect(await s.decode(job("crash"))).toMatchObject({ ok: false, error: "exited with code 3" });
+    expect(await s.decode(job("garbage"))).toMatchObject({ ok: false, error: "answer is not one JSON line" });
+    expect(await s.decode(job("wrongid"))).toMatchObject({ ok: false });
+    const big = await s.decode(job("big"));
+    expect(big?.ok === false ? big.error : "").toContain("answer line over");
+    const after = await s.decode(job("fine"));
+    expect(after?.ok === true ? text(after.body) : null).toBe("FINE");
+    expect(host.starts("fake")).toBe(6);
+  }, 20_000);
+
+  test(`${MAX_FAILURES} failures disable the plugin for the session (once), later bodies are not offered`, async () => {
+    const disabled: Array<[string, string]> = [];
+    const s = new DecodeSession(host, [fake()], { onDisabled: (n, r) => disabled.push([n, r]) });
+    for (let i = 0; i < MAX_FAILURES; i++) await s.decode(job("crash"));
+    expect(disabled).toEqual([["fake", "3 failures, last: exited with code 3"]]);
+    expect(s.isDisabled("fake")).toBe(true);
+    expect(await s.decode(job("hello"))).toBeNull();
+    // another session of the same daemon still uses it
+    const other = await new DecodeSession(host, [fake()]).decode(job("hello"));
+    expect(other?.ok).toBe(true);
+  }, 20_000);
+
+  test("bodies over maxBytes are not sent; a plugin that cannot start fails without throwing; no match is null", async () => {
+    const s = new DecodeSession(host, [fake({ decode: { match: { host: ["127.0.0.1"], path: ["/**"], contentTypes: ["*/*"], direction: "both" }, maxBytes: 3 } })]);
+    expect(await s.decode(job("hello"))).toMatchObject({ ok: false, error: "body of 5 bytes is over maxBytes 3; not sent" });
+    expect(host.starts("fake")).toBe(0);
+    const missing = await new DecodeSession(host, [fake({ name: "gone", command: ["./no-such-file"] })]).decode(job("x"));
+    expect(missing?.ok).toBe(false);
+    expect(await s.decode(job("hello", { url: "http://localhost/api/x" }))).toBeNull();
+  });
+
+  test("answers are validated", () => {
+    expect(parseDecodeReply(null, 1, 10)).toBe("answer is not a JSON object");
+    expect(parseDecodeReply({ id: 2, ok: true }, 1, 10)).toContain("is not 1");
+    expect(parseDecodeReply({ id: 1, ok: "yes" }, 1, 10)).toBe("answer has no boolean ok");
+    expect(parseDecodeReply({ id: 1, ok: true, body: { encoding: "hex", data: "00" } }, 1, 10)).toContain("encoding");
+    expect(parseDecodeReply({ id: 1, ok: true, body: { encoding: "base64", data: "%%%" } }, 1, 10)).toBe("answer body is not base64");
+    expect(parseDecodeReply({ id: 1, ok: true, body: { encoding: "utf8", data: "x".repeat(11) } }, 1, 10)).toContain("over maxBytes 10");
+    expect(parseDecodeReply({ id: 1, ok: true, mime: "a\nb", body: { encoding: "utf8", data: "x" } }, 1, 10)).toMatchObject({ ok: true, mime: null, note: null });
+    expect(parseDecodeReply({ id: 1, ok: false }, 1, 10)).toEqual({ ok: false, error: "the plugin reported a failure" });
+  });
+});
+
+// ------------------------------------------------------------ recorder
+
+function fakeChrome(bodies: Record<string, string>) {
+  const listeners = new Set<(e: CdpEvent) => void>();
+  const target = (): AttachedTarget => ({ targetId: "T1", sessionId: "S1", type: "page", url: "about:blank", title: "", parentSessionId: null, openerId: null });
+  const t: Transport = {
+    kind: "direct",
+    closed: new Promise<string>(() => undefined),
+    send: async (method, params = {}) => {
+      if (method === "Target.createTarget") return { targetId: "T1" };
+      if (method === "Network.getResponseBody") {
+        const id = typeof params["requestId"] === "string" ? params["requestId"] : "";
+        return { body: Buffer.from(bodies[id] ?? "").toString("base64"), base64Encoded: true };
+      }
+      return {};
+    },
+    onEvent: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    onAttach: () => () => undefined,
+    onDetach: () => () => undefined,
+    attach: async () => target(),
+    detach: async () => undefined,
+    waitAttached: async () => target(),
+    targets: () => [],
+  };
+  const emit = (method: string, params: Record<string, unknown>) => {
+    for (const l of [...listeners]) l({ method, params, sessionId: "S1" });
+  };
+  return { t, emit };
+}
+
+
+describe("recorder: decoded views beside the original bodies", () => {
+  test("the range plugin's plaintext is a blob referenced as request.decoded / response.decoded; the originals are untouched", async () => {
+    const config = join(tmp("tabcap-decr-"), "config");
+    installXor(config);
+    const host = new DecodeHost();
+    const notes: string[] = [];
+    const session = new DecodeSession(host, decodePlugins(config), { onDisabled: (n) => notes.push(n) });
+    const encOrder = xorEncode(S42_ORDER_JSON);
+    const encPost = xorEncode(S42_POST_JSON);
+    const { t, emit } = fakeChrome({ R1: encOrder, R2: "<p>plain</p>" });
+    const tabs = new Tabs(t, false);
+    await tabs.createTab("dec");
+    const dir = join(tmp("tabcap-decb-"), "b");
+    const rec = await Recorder.start({ session: "dec", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, decode: session });
+    emit("Network.requestWillBeSent", {
+      requestId: "R1",
+      loaderId: "L1",
+      type: "Fetch",
+      timestamp: 10,
+      wallTime: 1760600000,
+      request: { url: `${ORIGIN}/s42/api/order`, method: "POST", headers: { "content-type": "text/plain", "x-enc": "xor" }, postData: encPost, hasPostData: true },
+    });
+    emit("Network.responseReceived", { requestId: "R1", type: "Fetch", timestamp: 10.1, response: { status: 200, headers: { "content-type": "text/plain; charset=utf-8", "x-enc": "xor" }, mimeType: "text/plain" } });
+    emit("Network.loadingFinished", { requestId: "R1", timestamp: 10.2 });
+    emit("Network.requestWillBeSent", { requestId: "R2", loaderId: "L1", type: "Fetch", timestamp: 11, wallTime: 1760600001, request: { url: `${ORIGIN}/s42/page`, method: "GET", headers: {} } });
+    emit("Network.responseReceived", { requestId: "R2", type: "Fetch", timestamp: 11.1, response: { status: 200, headers: { "content-type": "text/html" }, mimeType: "text/html" } });
+    emit("Network.loadingFinished", { requestId: "R2", timestamp: 11.2 });
+    await Bun.sleep(50);
+    await rec.stop();
+    host.close();
+
+    const reader = BundleReader.open(dir);
+    // the page body is written first: the order waits for the plugin
+    const order = reader.requests().find((r) => r.url.endsWith("/s42/api/order"));
+    const page = reader.requests().find((r) => r.url.endsWith("/s42/page"));
+    const blobText = (ref: unknown) => (typeof ref === "string" ? new TextDecoder().decode(reader.readBlob(ref) ?? new Uint8Array()) : null);
+    const raw = reader.events.find((e) => e.kind === "request" && e["url"] === `${ORIGIN}/s42/api/order`);
+    const side = (k: string): Record<string, unknown> => {
+      const v = raw?.[k];
+      return typeof v === "object" && v !== null && !Array.isArray(v) ? Object.fromEntries(Object.entries(v)) : {};
+    };
+    const rawResp = side("response");
+    const rawReq = side("request");
+    // shapes exactly as docs/04 §26
+    expect(rawResp["decoded"]).toEqual({ by: "xor-decode", version: "1", direction: "response", mime: "application/json", blob: expect.stringMatching(/^sha256:[0-9a-f]{64}$/), bytes: S42_ORDER_JSON.length, ok: true });
+    expect(rawReq["decoded"]).toEqual({ by: "xor-decode", version: "1", direction: "request", mime: "application/json", blob: expect.stringMatching(/^sha256:[0-9a-f]{64}$/), bytes: S42_POST_JSON.length, ok: true });
+    expect(blobText(order?.response?.decoded?.blob)).toBe(S42_ORDER_JSON);
+    expect(blobText(order?.request.decoded?.blob)).toBe(S42_POST_JSON);
+    // the originals stay what the page saw
+    expect(blobText(order?.response?.body?.blob)).toBe(encOrder);
+    expect(order?.request.postData).toEqual({ inline: encPost });
+    // a body no plugin takes has no decoded field at all
+    expect(page?.response?.decoded).toBeUndefined();
+    expect(Object.keys(page?.request ?? {})).not.toContain("decoded");
+    expect(notes).toEqual([]);
+    // the live index carries the response view (net body)
+    expect(rec.index.find((e) => e.url.endsWith("/order"))?.decoded).toMatchObject({ by: "xor-decode", mime: "application/json" });
+  }, 20_000);
+
+  test("a plugin disabled after repeated failures leaves a note event and failed views say why", async () => {
+    const host = new DecodeHost();
+    let rec: Recorder | null = null;
+    const session = new DecodeSession(host, [fake({ timeoutMs: 300 })], { onDisabled: (n, r) => void rec?.note(`decode plugin ${n} disabled for this session: ${r}`, { plugin: n }) });
+    const bodies: Record<string, string> = {};
+    for (let i = 0; i < MAX_FAILURES + 1; i++) bodies[`R${i}`] = "crash";
+    const { t, emit } = fakeChrome(bodies);
+    const tabs = new Tabs(t, false);
+    await tabs.createTab("dis");
+    const dir = join(tmp("tabcap-decn-"), "b");
+    rec = await Recorder.start({ session: "dis", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, decode: session });
+    for (let i = 0; i < MAX_FAILURES + 1; i++) {
+      emit("Network.requestWillBeSent", { requestId: `R${i}`, loaderId: "L1", type: "Fetch", timestamp: 10 + i, wallTime: 1760600000 + i, request: { url: `${ORIGIN}/api/${i}`, method: "GET", headers: {} } });
+      emit("Network.responseReceived", { requestId: `R${i}`, type: "Fetch", timestamp: 10.1 + i, response: { status: 200, headers: { "content-type": "text/plain" }, mimeType: "text/plain" } });
+      emit("Network.loadingFinished", { requestId: `R${i}`, timestamp: 10.2 + i });
+      await Bun.sleep(400);
+    }
+    await rec.stop();
+    host.close();
+    const reader = BundleReader.open(dir);
+    const views = reader.requests().map((r) => r.response?.decoded ?? null);
+    expect(views.slice(0, MAX_FAILURES).map((v) => [v?.ok, v?.error])).toEqual(Array.from({ length: MAX_FAILURES }, () => [false, "exited with code 3"]));
+    expect(views[MAX_FAILURES]).toBeNull();
+    const notes = reader.byKind("note").filter((e) => e["plugin"] === "fake");
+    expect(notes.map((e) => e["text"])).toEqual([`decode plugin fake disabled for this session: ${MAX_FAILURES} failures, last: exited with code 3`]);
+  }, 30_000);
+});
+
+// ------------------------------------------------------------ bundle decode
+
+describe("bundle decode: views for a bundle recorded before the plugin existed", () => {
+  test("adds request / response views in place; seq, ids and every other line unchanged; rerun is stable; unfinished bundles refused", async () => {
+    const root = tmp("tabcap-decbd-");
+    const config = join(root, "config");
+    installXor(config);
+    const dir = await s42Bundle(join(root, "b"));
+    const before = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n");
+    const host = new DecodeHost();
+    try {
+      const res = await decodeBundle(dir, new DecodeSession(host, decodePlugins(config)));
+      expect([res.requests, res.decoded, res.failed, res.kept]).toEqual([4, 4, 0, 0]);
+      expect(res.rows.map((r) => [r.request, r.direction, r.ok])).toEqual([
+        ["r-3", "response", true],
+        ["r-4", "response", true],
+        ["r-5", "request", true],
+        ["r-5", "response", true],
+      ]);
+      const after = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n");
+      expect(after.length).toBe(before.length);
+      const changed = after.map((l, i) => (l === before[i] ? null : i)).filter((i) => i !== null);
+      expect(changed.map((i) => (JSON.parse(after[i ?? 0] ?? "{}") as Record<string, unknown>)["id"])).toEqual(["r-3", "r-4", "r-5"]);
+      const reader = BundleReader.open(dir);
+      expect(reader.issues).toEqual([]);
+      const view = (id: string, side: "request" | "response") => {
+        const r = reader.requests().find((x) => x.id === id);
+        const d = side === "request" ? r?.request.decoded : r?.response?.decoded;
+        return d?.blob ? new TextDecoder().decode(reader.readBlob(d.blob) ?? new Uint8Array()) : null;
+      };
+      expect([view("r-3", "response"), view("r-4", "response"), view("r-5", "request"), view("r-5", "response")]).toEqual([S42_TOKEN_JSON, S42_ITEMS_JSON, S42_POST_JSON, S42_ORDER_JSON]);
+      expect(reader.manifest.counts.blobBytes).toBeGreaterThan(0);
+      // a second run produces the same file
+      const again = await decodeBundle(dir, new DecodeSession(host, decodePlugins(config)));
+      expect(again.decoded).toBe(4);
+      expect(readFileSync(join(dir, "events.jsonl"), "utf8")).toBe(after.join("\n"));
+    } finally {
+      host.close();
+    }
+    const open = join(root, "open");
+    mkdirSync(open);
+    cpSync(dir, open, { recursive: true });
+    const m = JSON.parse(readFileSync(join(open, "manifest.json"), "utf8")) as Record<string, unknown>;
+    delete m["finished"];
+    writeFileSync(join(open, "manifest.json"), JSON.stringify(m));
+    await expect(decodeBundle(open, { decode: async () => null })).rejects.toThrow("not finished");
+    rmSync(root, { recursive: true, force: true });
+  }, 20_000);
+
+  test("a failure never replaces an ok view", async () => {
+    const root = tmp("tabcap-deckeep-");
+    const config = join(root, "config");
+    installXor(config);
+    const dir = await s42Bundle(join(root, "b"));
+    const host = new DecodeHost();
+    try {
+      await decodeBundle(dir, new DecodeSession(host, decodePlugins(config)));
+      const failing = { decode: async (j: DecodeJob) => ({ by: "xor-decode", version: "1", direction: j.direction, ok: false as const, error: "key rotated" }) };
+      const res = await decodeBundle(dir, failing);
+      // the stub fails every body: the document (no view before) gets a failed one, the four ok views are kept
+      expect([res.decoded, res.failed, res.kept]).toEqual([0, 1, 4]);
+      expect(BundleReader.open(dir).requests().find((r) => r.id === "r-3")?.response?.decoded?.ok).toBe(true);
+    } finally {
+      host.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+});
