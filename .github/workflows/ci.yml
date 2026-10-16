@@ -1,6 +1,8 @@
 # L0 + typecheck + skill validation on Linux, Windows and macOS; L2 e2e on
 # Linux (Xvfb) and Windows only (macOS e2e stays local to save minutes).
 # Chrome for Testing comes from `tabcap setup` and is cached by its version.
+# Python (the generated replay client) only through uv: a warm-up step fills the
+# uv cache with network, the tests then run uv offline.
 name: ci
 
 on:
@@ -36,6 +38,20 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: templates/python/pyproject.toml
+      - name: uv cache warm-up (network; the Python runs in the tests are offline)
+        run: |
+          uv python install 3.13
+          # Lock and install a throwaway package with the generated pyproject.toml, so the
+          # tests' offline `uv sync` of each generated package finds every wheel and index
+          # entry in the cache (a `uv pip install` warm-up does not serve an offline lock).
+          mkdir .uv-warm
+          sed 's/{{[A-Za-z]*}}/uv-warm/g' templates/python/pyproject.toml > .uv-warm/pyproject.toml
+          uv sync --project .uv-warm --group test
+          rm -rf .uv-warm
       - name: L0 unit tests
         run: bun test test/unit
       - name: typecheck
@@ -101,6 +117,20 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: templates/python/pyproject.toml
+      - name: uv cache warm-up (network; the Python runs in the tests are offline)
+        run: |
+          uv python install 3.13
+          # Lock and install a throwaway package with the generated pyproject.toml, so the
+          # tests' offline `uv sync` of each generated package finds every wheel and index
+          # entry in the cache (a `uv pip install` warm-up does not serve an offline lock).
+          mkdir .uv-warm
+          sed 's/{{[A-Za-z]*}}/uv-warm/g' templates/python/pyproject.toml > .uv-warm/pyproject.toml
+          uv sync --project .uv-warm --group test
+          rm -rf .uv-warm
       - name: Linux display and sandbox
         if: runner.os == 'Linux'
         run: |
