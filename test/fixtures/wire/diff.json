@@ -1,0 +1,511 @@
+{
+  "normalized": true,
+  "labels": [],
+  "ignored": [
+    {
+      "path": "connection",
+      "reason": "per-connection metadata"
+    },
+    {
+      "path": "wireprint",
+      "reason": "producer version"
+    },
+    {
+      "path": "echo",
+      "reason": "annotations of the echo that captured the connection"
+    },
+    {
+      "path": "role",
+      "reason": "request role the echo derived from the path"
+    },
+    {
+      "path": "tls.client_hello.random",
+      "reason": "per-connection value"
+    },
+    {
+      "path": "tls.client_hello.session_id",
+      "reason": "per-connection value"
+    },
+    {
+      "path": "tls.client_hello.message_length",
+      "reason": "varies with the ECH GREASE padding"
+    },
+    {
+      "path": "tls.client_hello.extensions[].length",
+      "reason": "varies with the ECH GREASE padding"
+    },
+    {
+      "path": "tls.client_hello.extensions_order",
+      "reason": "order is compared by check against a profile; Chrome permutes it per connection"
+    },
+    {
+      "path": "tls.client_hello.extension_grease_positions",
+      "reason": "positions in the permuted order; extension_grease_count is compared"
+    },
+    {
+      "path": "tls.ja3",
+      "reason": "covers the extension order"
+    },
+    {
+      "path": "tls.ja4.ja4_o",
+      "reason": "covers the extension order"
+    },
+    {
+      "path": "tls.ja4.ja4_ro",
+      "reason": "covers the extension order"
+    },
+    {
+      "path": "http2.frames[].length",
+      "reason": "HEADERS length follows the request target"
+    },
+    {
+      "path": "http.headers.:path",
+      "reason": "names the echo's request target"
+    },
+    {
+      "path": "http.headers.:authority",
+      "reason": "names the echo's host and port"
+    },
+    {
+      "path": "http.headers.host",
+      "reason": "names the echo's host and port"
+    }
+  ],
+  "differences": [
+    {
+      "path": "tls.handshake.cipher",
+      "kind": "changed",
+      "a": "TLS_AES_128_GCM_SHA256",
+      "b": "TLS_AES_256_GCM_SHA384"
+    },
+    {
+      "path": "tls.client_hello.cipher_suites",
+      "kind": "changed",
+      "a": [
+        "1301",
+        "1302",
+        "1303",
+        "c02b",
+        "c02f",
+        "c02c",
+        "c030",
+        "cca9",
+        "cca8",
+        "c013",
+        "c014",
+        "009c",
+        "009d",
+        "002f",
+        "0035"
+      ],
+      "b": [
+        "1302",
+        "1303",
+        "1301",
+        "c02c",
+        "c030",
+        "c02b",
+        "c02f",
+        "cca9",
+        "cca8",
+        "c024",
+        "c028",
+        "c023",
+        "c027",
+        "009f",
+        "009e",
+        "006b",
+        "0067"
+      ]
+    },
+    {
+      "path": "tls.client_hello.cipher_grease_positions",
+      "kind": "changed",
+      "a": [
+        0
+      ],
+      "b": []
+    },
+    {
+      "path": "tls.client_hello.extension_count",
+      "kind": "changed",
+      "a": 17,
+      "b": 12
+    },
+    {
+      "path": "tls.client_hello.extensions",
+      "kind": "changed",
+      "a": [
+        "0000",
+        "0005",
+        "000a",
+        "000b",
+        "000d",
+        "0010",
+        "0012",
+        "0017",
+        "001b",
+        "0023",
+        "002b",
+        "002d",
+        "0033",
+        "44cd",
+        "ca34",
+        "fe0d",
+        "ff01"
+      ],
+      "b": [
+        "0000",
+        "000a",
+        "000b",
+        "000d",
+        "0010",
+        "0016",
+        "0017",
+        "0023",
+        "002b",
+        "002d",
+        "0033",
+        "ff01"
+      ]
+    },
+    {
+      "path": "tls.client_hello.alpn",
+      "kind": "reordered",
+      "a": [
+        "h2",
+        "http/1.1"
+      ],
+      "b": [
+        "http/1.1",
+        "h2"
+      ]
+    },
+    {
+      "path": "tls.client_hello.supported_groups",
+      "kind": "changed",
+      "a": [
+        "11ec",
+        "001d",
+        "0017",
+        "0018"
+      ],
+      "b": [
+        "11ec",
+        "001d",
+        "0017",
+        "001e",
+        "0018",
+        "0019",
+        "0100",
+        "0101"
+      ]
+    },
+    {
+      "path": "tls.client_hello.signature_algorithms",
+      "kind": "changed",
+      "a": [
+        "0904",
+        "0905",
+        "0906",
+        "0403",
+        "0804",
+        "0401",
+        "0503",
+        "0805",
+        "0501",
+        "0806",
+        "0601"
+      ],
+      "b": [
+        "0905",
+        "0906",
+        "0904",
+        "0403",
+        "0503",
+        "0603",
+        "0807",
+        "0808",
+        "081a",
+        "081b",
+        "081c",
+        "0809",
+        "080a",
+        "080b",
+        "0804",
+        "0805",
+        "0806",
+        "0401",
+        "0501",
+        "0601",
+        "0303",
+        "0301",
+        "0302",
+        "0402",
+        "0502",
+        "0602"
+      ]
+    },
+    {
+      "path": "tls.client_hello.ec_point_formats",
+      "kind": "changed",
+      "a": [
+        "00"
+      ],
+      "b": [
+        "00",
+        "01",
+        "02"
+      ]
+    },
+    {
+      "path": "tls.client_hello.has_encrypted_client_hello",
+      "kind": "changed",
+      "a": true,
+      "b": false
+    },
+    {
+      "path": "tls.client_hello.has_trust_anchors",
+      "kind": "changed",
+      "a": true,
+      "b": false
+    },
+    {
+      "path": "tls.client_hello.has_application_settings",
+      "kind": "changed",
+      "a": true,
+      "b": false
+    },
+    {
+      "path": "tls.client_hello.extension_grease_count",
+      "kind": "changed",
+      "a": 2,
+      "b": 0
+    },
+    {
+      "path": "tls.ja4.ja4",
+      "kind": "changed",
+      "a": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+      "b": "t13d1712h1_ab0a1bf427ad_8e6e362c5eac"
+    },
+    {
+      "path": "tls.ja4.ja4_r",
+      "kind": "changed",
+      "a": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+      "b": "t13d1712h1_0067,006b,009e,009f,1301,1302,1303,c023,c024,c027,c028,c02b,c02c,c02f,c030,cca8,cca9_000a,000b,000d,0016,0017,0023,002b,002d,0033,ff01_0905,0906,0904,0403,0503,0603,0807,0808,081a,081b,081c,0809,080a,080b,0804,0805,0806,0401,0501,0601,0303,0301,0302,0402,0502,0602"
+    },
+    {
+      "path": "http2.frames[2].flags",
+      "kind": "changed",
+      "a": "25",
+      "b": "05"
+    },
+    {
+      "path": "http2.settings",
+      "kind": "changed",
+      "a": [
+        [
+          1,
+          65536
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          4,
+          6291456
+        ],
+        [
+          6,
+          262144
+        ]
+      ],
+      "b": [
+        [
+          1,
+          4096
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          4,
+          65535
+        ],
+        [
+          5,
+          16384
+        ],
+        [
+          3,
+          100
+        ],
+        [
+          6,
+          65536
+        ]
+      ]
+    },
+    {
+      "path": "http2.window_update",
+      "kind": "changed",
+      "a": 15663105,
+      "b": 16777216
+    },
+    {
+      "path": "http2.akamai",
+      "kind": "changed",
+      "a": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+      "b": "1:4096;2:0;4:65535;5:16384;3:100;6:65536|16777216|0|m,a,s,p"
+    },
+    {
+      "path": "http.header_count",
+      "kind": "changed",
+      "a": 17,
+      "b": 7
+    },
+    {
+      "path": "http.headers_order",
+      "kind": "changed",
+      "a": [
+        ":method",
+        ":authority",
+        ":scheme",
+        ":path",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "upgrade-insecure-requests",
+        "user-agent",
+        "accept",
+        "sec-fetch-site",
+        "sec-fetch-mode",
+        "sec-fetch-user",
+        "sec-fetch-dest",
+        "accept-encoding",
+        "accept-language",
+        "priority"
+      ],
+      "b": [
+        ":method",
+        ":authority",
+        ":scheme",
+        ":path",
+        "accept",
+        "accept-encoding",
+        "user-agent"
+      ]
+    },
+    {
+      "path": "http.headers.sec-ch-ua",
+      "kind": "removed",
+      "a": "\"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\"",
+      "b": null
+    },
+    {
+      "path": "http.headers.sec-ch-ua-mobile",
+      "kind": "removed",
+      "a": "?0",
+      "b": null
+    },
+    {
+      "path": "http.headers.sec-ch-ua-platform",
+      "kind": "removed",
+      "a": "\"macOS\"",
+      "b": null
+    },
+    {
+      "path": "http.headers.upgrade-insecure-requests",
+      "kind": "removed",
+      "a": "1",
+      "b": null
+    },
+    {
+      "path": "http.headers.user-agent",
+      "kind": "changed",
+      "a": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "b": "python-httpx/0.28.1"
+    },
+    {
+      "path": "http.headers.accept",
+      "kind": "changed",
+      "a": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+      "b": "*/*"
+    },
+    {
+      "path": "http.headers.sec-fetch-site",
+      "kind": "removed",
+      "a": "none",
+      "b": null
+    },
+    {
+      "path": "http.headers.sec-fetch-mode",
+      "kind": "removed",
+      "a": "navigate",
+      "b": null
+    },
+    {
+      "path": "http.headers.sec-fetch-user",
+      "kind": "removed",
+      "a": "?1",
+      "b": null
+    },
+    {
+      "path": "http.headers.sec-fetch-dest",
+      "kind": "removed",
+      "a": "document",
+      "b": null
+    },
+    {
+      "path": "http.headers.accept-encoding",
+      "kind": "changed",
+      "a": "gzip, deflate, br, zstd",
+      "b": "gzip, deflate"
+    },
+    {
+      "path": "http.headers.accept-language",
+      "kind": "removed",
+      "a": "zh-CN,zh;q=0.9",
+      "b": null
+    },
+    {
+      "path": "http.headers.priority",
+      "kind": "removed",
+      "a": "u=0, i",
+      "b": null
+    },
+    {
+      "path": "http.user_agent",
+      "kind": "changed",
+      "a": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "b": "python-httpx/0.28.1"
+    },
+    {
+      "path": "http.sec_ch_ua",
+      "kind": "changed",
+      "a": "\"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\"",
+      "b": null
+    },
+    {
+      "path": "http.sec_ch_ua_platform",
+      "kind": "changed",
+      "a": "\"macOS\"",
+      "b": null
+    },
+    {
+      "path": "http.accept_language",
+      "kind": "changed",
+      "a": "zh-CN,zh;q=0.9",
+      "b": null
+    }
+  ],
+  "summary": {
+    "changed": 27,
+    "reordered": 1,
+    "added": 0,
+    "removed": 10,
+    "unchanged": 35
+  }
+}

@@ -1,0 +1,314 @@
+{
+  "wireprint": "0.1.0",
+  "connection": {
+    "peer": "127.0.0.1:63817",
+    "record_bytes": 1534
+  },
+  "tls": {
+    "handshake": {
+      "version": "TLSv1.3",
+      "cipher": "TLS_AES_256_GCM_SHA384",
+      "alpn": "h2",
+      "sni": "localhost",
+      "session_reused": false,
+      "hello_retry": null
+    },
+    "client_hello": {
+      "legacy_version": "0303",
+      "random": "8a0b56b682d1c1ac4457d08185337d4f464736cad563ccbcb91b29022b91e436",
+      "session_id": "3645615b5cc598569beefdcdf2069919165bc426443c24eaa18dbed3e04a7fcf",
+      "session_id_length": 32,
+      "cipher_suites": [
+        "1302",
+        "1303",
+        "1301",
+        "c02c",
+        "c030",
+        "c02b",
+        "c02f",
+        "cca9",
+        "cca8",
+        "c024",
+        "c028",
+        "c023",
+        "c027",
+        "009f",
+        "009e",
+        "006b",
+        "0067"
+      ],
+      "cipher_grease_positions": [],
+      "compression_methods": [
+        "00"
+      ],
+      "extension_count": 12,
+      "extensions": [
+        {
+          "type": "ff01",
+          "length": 1
+        },
+        {
+          "type": "0000",
+          "length": 14
+        },
+        {
+          "type": "000b",
+          "length": 4
+        },
+        {
+          "type": "000a",
+          "length": 18
+        },
+        {
+          "type": "0023",
+          "length": 0
+        },
+        {
+          "type": "0010",
+          "length": 14
+        },
+        {
+          "type": "0016",
+          "length": 0
+        },
+        {
+          "type": "0017",
+          "length": 0
+        },
+        {
+          "type": "000d",
+          "length": 54
+        },
+        {
+          "type": "002b",
+          "length": 5
+        },
+        {
+          "type": "002d",
+          "length": 2
+        },
+        {
+          "type": "0033",
+          "length": 1258
+        }
+      ],
+      "extensions_order": [
+        "ff01",
+        "0000",
+        "000b",
+        "000a",
+        "0023",
+        "0010",
+        "0016",
+        "0017",
+        "000d",
+        "002b",
+        "002d",
+        "0033"
+      ],
+      "extension_grease_positions": [],
+      "server_name": "localhost",
+      "alpn": [
+        "http/1.1",
+        "h2"
+      ],
+      "supported_versions": [
+        "0304",
+        "0303"
+      ],
+      "supported_groups": [
+        "11ec",
+        "001d",
+        "0017",
+        "001e",
+        "0018",
+        "0019",
+        "0100",
+        "0101"
+      ],
+      "signature_algorithms": [
+        "0905",
+        "0906",
+        "0904",
+        "0403",
+        "0503",
+        "0603",
+        "0807",
+        "0808",
+        "081a",
+        "081b",
+        "081c",
+        "0809",
+        "080a",
+        "080b",
+        "0804",
+        "0805",
+        "0806",
+        "0401",
+        "0501",
+        "0601",
+        "0303",
+        "0301",
+        "0302",
+        "0402",
+        "0502",
+        "0602"
+      ],
+      "key_share_groups": [
+        "11ec",
+        "001d"
+      ],
+      "key_shares": [
+        {
+          "group": "11ec",
+          "key_exchange_length": 1216
+        },
+        {
+          "group": "001d",
+          "key_exchange_length": 32
+        }
+      ],
+      "ec_point_formats": [
+        "00",
+        "01",
+        "02"
+      ],
+      "has_pre_shared_key": false,
+      "has_encrypted_client_hello": false,
+      "has_trust_anchors": false,
+      "has_application_settings": false,
+      "message_length": 1529
+    },
+    "ja3": {
+      "string": "771,4866-4867-4865-49196-49200-49195-49199-52393-52392-49188-49192-49187-49191-159-158-107-103,65281-0-11-10-35-16-22-23-13-43-45-51,4588-29-23-30-24-25-256-257,0-1-2",
+      "hash": "37f7d09ced1a845dc48872abc1a29d7b"
+    },
+    "ja4": {
+      "ja4": "t13d1712h1_ab0a1bf427ad_8e6e362c5eac",
+      "ja4_r": "t13d1712h1_0067,006b,009e,009f,1301,1302,1303,c023,c024,c027,c028,c02b,c02c,c02f,c030,cca8,cca9_000a,000b,000d,0016,0017,0023,002b,002d,0033,ff01_0905,0906,0904,0403,0503,0603,0807,0808,081a,081b,081c,0809,080a,080b,0804,0805,0806,0401,0501,0601,0303,0301,0302,0402,0502,0602",
+      "ja4_o": "t13d1712h1_fd0eb050439a_ec3b10441c8f",
+      "ja4_ro": "t13d1712h1_1302,1303,1301,c02c,c030,c02b,c02f,cca9,cca8,c024,c028,c023,c027,009f,009e,006b,0067_ff01,0000,000b,000a,0023,0010,0016,0017,000d,002b,002d,0033_0905,0906,0904,0403,0503,0603,0807,0808,081a,081b,081c,0809,080a,080b,0804,0805,0806,0401,0501,0601,0303,0301,0302,0402,0502,0602"
+    }
+  },
+  "http2": {
+    "frames": [
+      {
+        "type": 4,
+        "type_name": "settings",
+        "length": 36,
+        "flags": "00",
+        "stream_id": 0
+      },
+      {
+        "type": 8,
+        "type_name": "window_update",
+        "length": 4,
+        "flags": "00",
+        "stream_id": 0
+      },
+      {
+        "type": 1,
+        "type_name": "headers",
+        "length": 44,
+        "flags": "05",
+        "stream_id": 1
+      }
+    ],
+    "settings": [
+      [
+        1,
+        4096
+      ],
+      [
+        2,
+        0
+      ],
+      [
+        4,
+        65535
+      ],
+      [
+        5,
+        16384
+      ],
+      [
+        3,
+        100
+      ],
+      [
+        6,
+        65536
+      ]
+    ],
+    "window_update": 16777216,
+    "priority_frames": [],
+    "pseudo_header_order": [
+      ":method",
+      ":authority",
+      ":scheme",
+      ":path"
+    ],
+    "headers_stream_id": 1,
+    "akamai": "1:4096;2:0;4:65535;5:16384;3:100;6:65536|16777216|0|m,a,s,p"
+  },
+  "http": {
+    "version": "2",
+    "header_count": 7,
+    "headers_order": [
+      ":method",
+      ":authority",
+      ":scheme",
+      ":path",
+      "accept",
+      "accept-encoding",
+      "user-agent"
+    ],
+    "headers": [
+      {
+        "name": ":method",
+        "value": "GET"
+      },
+      {
+        "name": ":authority",
+        "value": "localhost:63813"
+      },
+      {
+        "name": ":scheme",
+        "value": "https"
+      },
+      {
+        "name": ":path",
+        "value": "/client"
+      },
+      {
+        "name": "accept",
+        "value": "*/*"
+      },
+      {
+        "name": "accept-encoding",
+        "value": "gzip, deflate"
+      },
+      {
+        "name": "user-agent",
+        "value": "python-httpx/0.28.1"
+      }
+    ],
+    "user_agent": "python-httpx/0.28.1",
+    "sec_ch_ua": null,
+    "sec_ch_ua_platform": null,
+    "accept_language": null,
+    "checks": []
+  },
+  "role": "client",
+  "echo": {
+    "conn": 1,
+    "path": "/client",
+    "role": "client",
+    "alpn": "h2",
+    "sni": "localhost",
+    "psk": false,
+    "sessionReused": false,
+    "protocol": "h2",
+    "receivedAt": "2026-10-16T04:31:53.002Z"
+  }
+}
