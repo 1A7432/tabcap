@@ -133,6 +133,8 @@ type Pending = {
   startedLocal: number;
   nav: string | null;
   redirectFrom: string | null;
+  /** 0.6-D: the hop before this one is still storing its request body; resolves to its id (null: not written). */
+  redirectPending: Promise<string | null> | null;
   response: Record<string, unknown> | null;
   responseMono: number | null;
   /** 0.6-A: the `tabcap fetch` (c-N:f-K) and its command window, when attributed. */
@@ -519,6 +521,7 @@ export class Recorder {
       startedLocal: performance.now(),
       nav: c.nav,
       redirectFrom: null,
+      redirectPending: null,
       response: c.response,
       responseMono: c.responseMono,
       fetchId: null,
@@ -621,6 +624,7 @@ export class Recorder {
     const key = `${sid}|${rid}`;
     const req = isRecord(p["request"]) ? p["request"] : {};
     let redirectFrom: string | null = null;
+    let redirectPending: Promise<string | null> | null = null;
     const prev = this.pending.get(key);
     // 0.6-A: a redirect hop stays with the fetch it belongs to.
     let fetch: { fetchId: string; cmd: string | null } | null = prev !== undefined && prev.fetchId !== null ? { fetchId: prev.fetchId, cmd: prev.fetchCmd } : null;
@@ -632,6 +636,10 @@ export class Recorder {
       const respExtra = this.extraResp.get(key);
       this.extraReq.delete(key);
       this.extraResp.delete(key);
+      // 0.6-D (docs/05 s49): the redirected hop keeps its own request body, under the same rules as any
+      // request (write()): inline up to INLINE_POST_MAX, else a blob; Network.getRequestPostData when the
+      // event only said hasPostData. Before, this event was built without postData (a 302 answered POST
+      // was recorded with postData null).
       const ev = this.buildEvent(prev, {
         outcome: "finished",
         endMono: msOf(num(p, "timestamp")),
@@ -640,9 +648,24 @@ export class Recorder {
         error: null,
         extraReq: reqHeadersExtra ?? null,
         extraResp: respExtra ?? null,
+        postData: prev.postData !== null && prev.postData.length <= INLINE_POST_MAX ? { inline: prev.postData } : null,
       });
-      const written = this.appendRequest(prev, ev);
-      redirectFrom = written;
+      const inlineOnly = prev.postData === null ? !prev.hasPostData : prev.postData.length <= INLINE_POST_MAX;
+      if (inlineOnly && prev.redirectPending === null) redirectFrom = this.appendRequest(prev, ev);
+      else {
+        // The body goes to blob storage (or is asked for) first; the next hop waits for this hop's id.
+        const before = prev.redirectPending;
+        redirectPending = (async () => {
+          if (before !== null) prev.redirectFrom = await before;
+          const post = inlineOnly ? null : await this.postOf(prev);
+          if (this.writerClosed) return null;
+          const req = isRecord(ev["request"]) ? ev["request"] : {};
+          const request = post === null ? req : { ...req, postData: post.postData, ...(post.postDataMissing === null ? {} : { postDataMissing: post.postDataMissing }) };
+          return this.appendRequest(prev, { ...ev, request, redirect: prev.redirectFrom === null ? null : { from: prev.redirectFrom } });
+        })();
+        const tracked = redirectPending;
+        this.track(tracked.then(() => undefined));
+      }
     }
     const url = str(req, "url") ?? "";
     const frag = str(req, "urlFragment");
@@ -673,6 +696,7 @@ export class Recorder {
       startedLocal: performance.now(),
       nav: this.navOf.get(tab.id) ?? null,
       redirectFrom,
+      redirectPending,
       response: null,
       responseMono: null,
       fetchId: fetch?.fetchId ?? null,
@@ -880,6 +904,28 @@ export class Recorder {
       if (put.outcome === "stored") bodyRef = { blob: put.ref, size: put.size };
       else missing = { reason: "too-large", detail: `${put.size} bytes > ${put.cap}` };
     }
+    const { postData, postDataMissing } = await this.postOf(q);
+    if (q.redirectPending !== null) q.redirectFrom = await q.redirectPending;
+    if (this.writerClosed) return;
+    const ev = this.buildEvent(q, {
+      outcome: o.outcome,
+      endMono: o.endMono,
+      body: bodyRef,
+      missing,
+      error: o.error,
+      extraReq: this.extraReq.get(q.key) ?? null,
+      extraResp: this.extraResp.get(q.key) ?? null,
+      postData,
+      postDataMissing,
+      unreadByPage: o.unreadByPage === true && bodyRef !== null,
+    });
+    this.extraReq.delete(q.key);
+    this.extraResp.delete(q.key);
+    this.appendRequest(q, ev, missing?.reason ?? null);
+  }
+
+  /** The request body of `q` as the bundle stores it (docs/04 §5.2): inline up to INLINE_POST_MAX, else a blob. */
+  private async postOf(q: Pending): Promise<{ postData: InlineOrBlob | null; postDataMissing: { reason: string; detail: string | null } | null }> {
     let postData: InlineOrBlob | null = null;
     let postDataMissing: { reason: string; detail: string | null } | null = null;
     let post = q.postData;
@@ -898,22 +944,7 @@ export class Recorder {
         else postDataMissing = { reason: "too-large", detail: null };
       }
     }
-    if (this.writerClosed) return;
-    const ev = this.buildEvent(q, {
-      outcome: o.outcome,
-      endMono: o.endMono,
-      body: bodyRef,
-      missing,
-      error: o.error,
-      extraReq: this.extraReq.get(q.key) ?? null,
-      extraResp: this.extraResp.get(q.key) ?? null,
-      postData,
-      postDataMissing,
-      unreadByPage: o.unreadByPage === true && bodyRef !== null,
-    });
-    this.extraReq.delete(q.key);
-    this.extraResp.delete(q.key);
-    this.appendRequest(q, ev, missing?.reason ?? null);
+    return { postData, postDataMissing };
   }
 
   private writerClosed = false;

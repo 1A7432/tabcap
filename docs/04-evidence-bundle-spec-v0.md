@@ -173,7 +173,7 @@
 
 ### 5.3 请求体
 
-`requestWillBeSent` 带 `postData` 就内联（≤ 64 KB），否则 `Network.getRequestPostData` 取后存 blob；取不到写 `postDataMissing`。表单、JSON、multipart 都存原样字节，解析留给分析命令。
+`requestWillBeSent` 带 `postData` 就内联（≤ 64 KB），否则 `Network.getRequestPostData` 取后存 blob；取不到写 `postDataMissing`。表单、JSON、multipart 都存原样字节，解析留给分析命令。重定向链上的每一跳照同一规则存自己的请求体（0.6-D，s49）：被 302 回答的 POST 那一跳带它的 `postData`，下一跳的 `redirect.from` 指回它。
 
 ### 5.4 未完成的请求
 
@@ -435,3 +435,4 @@
 - **DOM 支撑的 ref**：`snapshot --css` / `--xpath` 命中、却没有无障碍行的元素（UI 库把输入框、按钮从无障碍树里藏掉），现在也铸 ref：同一张 ref 表、同样绑 `backendNodeId` + 帧 + loaderId、同样随文档失效，打印成 `- (no accessible node) <input#id.class> [e31]`（文本节点等拿不到 backendNodeId 的仍无 ref）。`click`、`fill`、`hover`、`upload`、`html`、`screenshot --ref` 照收（盒模型走 `DOM.getBoxModel`，焦点走元素自己的 `focus()`，与无障碍 ref 同一条路）；`type` 打进 `fill` / `click` 聚焦后的它。`search` 多 `domRefs`（铸了 ref 的无障碍外节点数），`refs` 把它们算进去。`snapshot --ref <DOM ref>` 没有行可展开，`not-found` 并提示 `html <ref>`。
 - **点击效果**：默认（DOM）`click` 从点击前到点击后的等待结束，只观察三件事：DOM 变动（目标所在文档的 MutationObserver，开在 tabcap 的隔离世界；外加目标自身的 checked / value / selectedIndex / open，它们变了不一定有 DOM 变动）、导航（该标签与目标文档会话的 Page 帧导航事件，同文档跳转也算）、新请求（`Network.requestWillBeSent`，`data:` 不算；没在录制时为这次观察临时开 Network，与 `wait --idle` 同一个引用计数开关）。输出加 `effect:"dom"|"navigation"|"request"`（最先看到的那个；同一时刻按这个顺序），什么都没看到是 `effect:"none"` 加 `note`（建议 `--trusted`）。退出码不变；`--trusted`（含降级）与 `--no-wait` 不报 `effect`；等待中弹出对话框时不读 DOM 观察。
 - **`find` 搜帧**：根文档之后按帧树（0.4-I）顺序搜每个子帧的无障碍树，帧里的命中带 `frame`（帧路径）与帧路径 ref；有子帧时输出带 `frames`（搜了几个帧），读不到的帧计入 `framesSkipped`。可点的排前面跨所有文档算。`where` 用来判日期顺序的页面文字也取自根文档加全部子帧（隔离世界里读 `body.innerText`，合计至多 1000000 字符）。
+- **重定向丢请求体**：根因【实测 s49 的 raw/cdp.jsonl】：POST 的 `Network.requestWillBeSent` 带 `postData`；302 之后 Chrome 用同一 `requestId` 再发一条带 `redirectResponse` 的 `requestWillBeSent`（新的 GET，没有 `postData`），录制器在这里就地写出上一跳，写的时候没带请求体，于是 `postData:null`。现在上一跳按 §5.3 的同一规则存：能内联的照旧同步写出；要进 blob（> 64 KB）或只有 `hasPostData` 的，先存 / 先取再写，下一跳等它的 id 再写 `redirect.from`。Fetch 拦截路径（Response 阶段）不涉及请求体，没改。

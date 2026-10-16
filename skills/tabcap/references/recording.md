@@ -57,6 +57,7 @@ On timeout the error is `timeout` and `next` says what was still outstanding. Lo
 - While recording, action commands return a `cmd` id (`"cmd":"c-41"`) and every request row carries the window it fell in: `tabcap net list --since c-41` shows what that click caused (the window includes the wait after the action).
 - `tabcap net show r-12` is one request in full: headers, `postData` (over 2 KB: a file `path` plus the first 2 KB), the body `path`, timing, initiator `url:line:col`, nav epoch, outcome. `tabcap net body r-12` gives the body as a file plus up to 10000 chars of text preview; `--grep <token> --context 2` keeps only the matching lines of that preview, with line numbers. `r-12:34` is a WebSocket frame (`net list --kind ws`).
 - A response the page never reads is written 1 s after it arrived, from the intercepted body: `"unreadByPage":true`.
+- A POST answered with a redirect keeps its `postData`; the request it was redirected to has `redirect.from` pointing at it.
 
 ## Sending a scraper's requests from the tab (`fetch`)
 

@@ -244,6 +244,10 @@
 - 页面 `/s48`：子菜单标题 `#s48-sub` 与表格格子 `#s48-cell` 的 click 处理只认 `isTrusted`；`#s48-count` 改计数（DOM 变动）；`#s48-link` 到 `/s48/next`（导航）；`#s48-ping` 只发 `fetch('/s48/ping')`（请求，不改 DOM）。
 - expected（不录制）：DOM `click` 子菜单与格子都是 `effect:"none"`、`note` 提 `--trusted`、退出码 0，子菜单仍 `display:none`、格子文字不变；计数 `dom`、ping `request`（服务端日志多一条 `GET /s48/ping`）、链接 `navigation`；`click --trusted` 子菜单后它展开（`display:block`），输出没有 `effect`；`--no-wait` 不报 `effect`。
 
+### s49 post-redirect（P1；0.6-D，重定向链上的请求体）
+- 页面 `/s49`：表单 `POST /s49/submit`（`user` / `note` 两个字段，`note` 含中文与 `&` `=`）→ 302 → `GET /s49/done`；按钮 `fetch POST /s49/api`（JSON）→ 302 → `GET /s49/api/done`（JSON `{done:"s49-api-done"}`）。服务端 `posts` 记下收到的原样请求体（oracle）。
+- expected：包里两条 POST 的 `response.status` 是 302、`request.postData` 等于 `{inline: <服务端收到的正文>}`；跳到的 GET 的 `redirect.from` 指向那条 POST。
+
 ### s52 frame-dates（P1；0.6-D，`where` 读帧里的页面文字）
 - 页面 `/s52`：根文档 `p#s52-date` 写 `03/04/2026`（日月顺序不定），iframe `/s52/frame` 写 `截止 25/04/2026`（日 > 12，只能是 DD/MM）。
 - expected：录制中 `where <#s52-date 的 ref>` 没有 `ambiguous`，`normalized` 含 `2026-04-03`、不含 `2026-03-04`。

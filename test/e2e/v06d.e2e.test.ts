@@ -229,4 +229,33 @@ describe.skipIf(!enabled)("tabcap 0.6-D L2 (docs/05 s22, s47–s52: DOM-backed r
     expect(rec(w["query"])).toMatchObject({ kind: "ref", text: S52_ROOT_DATE });
     await ok("net", "stop", ...W);
   }, 120_000);
+
+  test("D4 s49: a POST answered with 302 keeps its body in the bundle (form and fetch), the GET it was redirected to points back at it", async () => {
+    const S = ["--session", "d4"];
+    const bundle = s((await ok("net", "start", ...S))["bundle"]);
+    await ok("navigate", `${site.origin}/s49`, ...S);
+    await ok("click", (await cssRef("#s49-go", S)).ref, ...S);
+    await ok("wait", "--text", "已提交", ...S);
+    await ok("navigate", `${site.origin}/s49`, ...S);
+    await ok("click", (await cssRef("#s49-fetch", S)).ref, ...S);
+    await ok("wait", "--text", "s49-api-done", ...S);
+    await ok("net", "stop", ...S);
+    const reqs = BundleReader.open(bundle).requests();
+    for (const [post, done] of [
+      ["/s49/submit", "/s49/done"],
+      ["/s49/api", "/s49/api/done"],
+    ] as const) {
+      const sent = site.posts.get(post);
+      expect(sent).toBeDefined();
+      const p = reqs.find((r) => r.method === "POST" && r.url === `${site.origin}${post}`);
+      expect(p?.response?.status).toBe(302);
+      expect(rec(p?.request)["postData"]).toEqual({ inline: sent });
+      const g = reqs.find((r) => r.method === "GET" && r.url === `${site.origin}${done}`);
+      expect(rec(g?.["redirect"])["from"]).toBe(p?.id);
+    }
+    expect(site.posts.get("/s49/api")).toBe(S49_FETCH_BODY);
+    // what CDP said (raw/cdp.jsonl): the POST's requestWillBeSent carried the body; the redirect hop reuses its requestId
+    const raw = readFileSync(join(bundle, "raw", "cdp.jsonl"), "utf8");
+    expect(raw).toContain('"redirectResponse"');
+  }, 120_000);
 });
