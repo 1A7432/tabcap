@@ -183,6 +183,11 @@
 - `/api/key` 明文返回密钥，`/api/secret` 返回 AES-GCM 密文 JSON，页面解密后渲染（与 s05 同构，用真实站点里见到的字段形状：`{code:0, data:"<base64 密文>"}`）。
 - 证明：`find` 0 命中并把 `/api/secret` 列进 `suspectEncrypted`；`net show` 能看到请求头里的签名类字段。
 
+### s40 locale-numbers（P1，验收：`where` 对回同一 JSON 值）
+- 列表页：同一份 `GET /api/rows` 返回 `[{id, amount, qty, date, code, dir}]`（`amount` 为浮点、`date` 为 `YYYY-MM-DD`、`code` 为 `100101`、`dir` 为 `1`/`-1`）。页面按 `?locale=` 用五种方式渲染同一数据：`en-US`（`1,234.56`）、`de-DE`（`1.234,56`）、`fr-FR`（窄空格千分位）、`en-IN`（`1,23,456.00`）、`accounting`（负数 `(1,234.56)` 与尾随负号 `1234.56-`）；`date` 渲染为 `2026-09` / `202609` / `09/2026`；`code` 渲染为带点 `1001.01`；`dir` 渲染为 `DR`/`CR`。另一列用全角数字与 `&nbsp;` 填充。
+- 走法：`net start` → 依次导航五个 locale → `snapshot` 取每格 ref → 对每格 `where <ref>`；再 `where "1.234,56"`（文字入参）。
+- expected：每个 `where` 的首个候选都是 `r(rows)` 的 `$[i].amount|qty|date|code|dir` 同一路径；`normalized` 字段给出归一化后的值与所用规则名（`thousands-sep` / `decimal-comma` / `accounting-negative` / `trailing-minus` / `fullwidth` / `nbsp` / `date-yyyymm` / `dotted-code` / `dr-cr`）；DD/MM 与 MM/DD 歧义的格子只有当同页另一个值能消歧时才给候选，否则返回 `ambiguous` 并列出两种解释；文字入参命中与 ref 入参一致。
+
 ## 6. 输入保真（作者定 10-15；提案 `docs/10`，0.3-E 落地）
 
 ### s46 input-fidelity（P1；`--trusted` 的拟真点击与逐键输入）
