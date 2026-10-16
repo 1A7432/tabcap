@@ -13,9 +13,10 @@ import { findRequestEvent, frameDetail, materialize, notFound, requestDetail } f
 import { inlineBytes } from "../capture/ws.ts";
 import type { Daemon } from "../state.ts";
 import { noteAccountRequest } from "./pool.ts";
-import { checkSessionName, optStr, reqStr, type Args } from "./args.ts";
+import { checkSessionName, optBool, optStr, reqStr, type Args } from "./args.ts";
 import { bodySearchOf, charsetOf, decodeBody, netGrep, prettify, requestByUrl, searchBody } from "./netsearch.ts";
 import { splitLines } from "./textsearch.ts";
+import { exportBody, fileFlagOf } from "./bodyexport.ts";
 
 export async function netStart(d: Daemon, _a: Args, session: string): Promise<unknown> {
   checkSessionName(session);
@@ -134,7 +135,7 @@ function wsList(dir: string, frames: WsFrameEntry[], recording: boolean, session
 }
 
 /** `net body r-12:34`: a frame payload as a file (inline payloads are materialised under exports/ws/). */
-function frameBody(dir: string, frames: WsFrameEntry[], id: string, out: string | null, search: SearchCtx | null): unknown {
+function frameBody(dir: string, frames: WsFrameEntry[], id: string, out: string | null, search: SearchCtx | null, exp: FileCtx | null = null): unknown {
   const f = frames.find((x) => x.id === id);
   if (f === undefined) throw new TabcapError("not-found", `no WebSocket frame ${id} in ${dir}`, "Run `tabcap net list --kind ws` for frame ids.");
   if (f.phase !== "frame") throw new TabcapError("not-found", `${id} is a ${f.phase} event, not a frame (reason: ${f.reason ?? "none"})`, "Pick a frame id from `tabcap net list --kind ws`.");
@@ -142,16 +143,21 @@ function frameBody(dir: string, frames: WsFrameEntry[], id: string, out: string 
   if (f.blob !== null) path = new BlobStore(dir).pathOf(f.blob);
   else if (f.inline !== null) path = materialize(dir, "ws", `${id}.bin`, inlineBytes(f.opcode ?? 1, f.inline));
   if (path === null || !existsSync(path)) throw new TabcapError("not-found", `frame ${id} has no stored payload (${f.reason ?? "missing"})`, "The payload was too large to store; see the ws event in the bundle.");
+  if (exp !== null) return exp.write({ id, url: f.url, bytes: readFileSync(path), mime: f.opcode === 1 ? "text/plain" : null, resourceType: null, charset: () => null });
   return bodyResult({ id, url: f.url, path, blob: f.blob, mime: f.opcode === 1 ? "text/plain" : null, out, extra: { ws: f.ws, direction: f.direction, opcode: f.opcode } }, search);
 }
 
 /** 0.5-F search flags of `net body`, with what decoding needs. */
 type SearchCtx = { s: NonNullable<ReturnType<typeof bodySearchOf>>; scrub: (text: string) => string; charset: () => string | null; resourceType: string | null };
 
+/** 0.5-F2 `--file`: where and how the body file is written. */
+type FileCtx = { write: (b: { id: string; url: string; bytes: Uint8Array; mime: string | null; resourceType: string | null; charset: () => string | null }) => unknown };
+
 export async function netBody(d: Daemon, a: Args, session: string): Promise<unknown> {
   const idArg = optStr(a, "id");
   const url = optStr(a, "url");
-  const s = bodySearchOf(a);
+  const toFile = fileFlagOf(a);
+  const s = toFile ? null : bodySearchOf(a);
   if ((idArg === null || idArg === "") === (url === null || url === "")) {
     throw new TabcapError("usage", url === null ? "missing id" : "give either an id or --url, not both", "Usage: tabcap net body <id> [--out path], or tabcap net body --url <script url> --at line:col");
   }
@@ -165,7 +171,10 @@ export async function netBody(d: Daemon, a: Args, session: string): Promise<unkn
     byUrl = { resolvedBy: "url", sameUrl: hit.count };
   }
   const scrub = (text: string) => d.secrets.scrub(text);
-  if (id.includes(":")) return frameBody(dir, frames, id, optStr(a, "out"), s === null ? null : { s, scrub, charset: () => null, resourceType: null });
+  const exp: FileCtx | null = toFile
+    ? { write: (b) => exportBody({ ...b, scrub, pretty: optBool(a, "pretty"), where: rec.recording ? { bundle: dir } : { cache: d.paths.cache } }) }
+    : null;
+  if (id.includes(":")) return frameBody(dir, frames, id, optStr(a, "out"), s === null ? null : { s, scrub, charset: () => null, resourceType: null }, exp);
   const e = index.find((x) => x.id === id);
   if (e === undefined) throw new TabcapError("not-found", `no request ${id} in ${dir}`, "Run `tabcap net list` for request ids.");
   if (e.blob === null) {
@@ -175,6 +184,10 @@ export async function netBody(d: Daemon, a: Args, session: string): Promise<unkn
   const path = store.pathOf(e.blob);
   if (path === null || !existsSync(path)) throw new TabcapError("not-found", `blob ${e.blob} is missing from ${dir}`, "The bundle is damaged; record again.");
   if (s !== null) await rec.flushEvents();
+  if (exp !== null) {
+    await rec.flushEvents();
+    return exp.write({ id, url: e.url, bytes: readFileSync(path), mime: e.mime, resourceType: e.type, charset: () => charsetOf(dir, e.id) });
+  }
   const search = s === null ? null : { s, scrub, charset: () => charsetOf(dir, e.id), resourceType: e.type };
   return bodyResult({ id, url: e.url, path, blob: e.blob, mime: e.mime, out: optStr(a, "out"), extra: byUrl }, search);
 }

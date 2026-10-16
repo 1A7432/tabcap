@@ -2787,6 +2787,17 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": false,
+          "flag": "--file",
+          "help": "write the whole decoded body (charset-decoded, secret-scrubbed; with --pretty line-broken) to exports/bodies/<id>.<ext> of the open recording (else <cache>/outputs/bodies/), 0600, and answer {id, url, mime, bytes, lines, pretty, file, scrubbed}: for \`rg\` / grep on the path; not with --grep / --lines / --at / --out",
+          "key": "file",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": false,
           "flag": "--pretty",
           "help": "JavaScript / JSON bodies up to 8 MB: break minified JS into lines (newlines only, never inside strings, templates, regexes, comments), re-indent JSON; line numbers then refer to the pretty text",
           "key": "pretty",
@@ -2810,8 +2821,8 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first",
-      "usage": "tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--pretty]",
+      "summary": "a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)",
+      "usage": "tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--file] [--pretty]",
     },
     {
       "daemon": true,
