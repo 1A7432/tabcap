@@ -11,6 +11,8 @@
     "gen:docs": "bun scripts/gen-docs.ts",
     "validate:skill": "bun scripts/validate-skill.ts skills/tabcap",
     "typecheck": "tsc --noEmit -p .",
+    "test:native": "bun scripts/native.ts test",
+    "fmt:native": "bun scripts/native.ts fmt",
     "verify": "bun run test && echo 'matrix: A1-A6 not implemented (L0 only)'",
     "build": "bun build --compile src/cli/main.ts --outfile dist/tabcap",
     "build:darwin-arm64": "bun build --compile --target=bun-darwin-arm64 src/cli/main.ts --outfile dist/tabcap-darwin-arm64",

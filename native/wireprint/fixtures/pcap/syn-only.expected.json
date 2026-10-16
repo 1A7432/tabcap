@@ -1,0 +1,92 @@
+{
+  "name": "syn-only",
+  "purpose": "one SYN, no payload: reassembly records SynInfo but finds no client payload",
+  "generator": "tools/mkpcap.py",
+  "file_len": 108,
+  "file_sha256": "677689ab02ee361f9c8ffc625c087474b891cee0c24d994da8f6b6cec460b377",
+  "magic_bytes": "d4c3b2a1",
+  "endian": "little",
+  "nanosecond": false,
+  "version_major": 2,
+  "version_minor": 4,
+  "snaplen": 262144,
+  "linktype": 0,
+  "record_count": 1,
+  "trailing_error": null,
+  "records": [
+    {
+      "index": 0,
+      "offset": 24,
+      "ts_sec": 1790164800,
+      "ts_frac": 100000,
+      "incl_len": 68,
+      "orig_len": 68,
+      "note": "client SYN",
+      "parse_error": null,
+      "packet": {
+        "ip_version": 4,
+        "ip_ext_headers": [],
+        "link_header_len": 4,
+        "ip_len": 64,
+        "src": "127.0.0.1",
+        "dst": "127.0.0.1",
+        "src_hex": "7f000001",
+        "dst_hex": "7f000001",
+        "ttl": 64,
+        "src_port": 54325,
+        "dst_port": 8443,
+        "seq": 16909060,
+        "ack": 0,
+        "data_offset": 11,
+        "flags": 2,
+        "flag_names": [
+          "syn"
+        ],
+        "window": 65535,
+        "options_hex": "02043fd8010303060101080a0a0b0c0d0000000004020000",
+        "option_kinds": [
+          2,
+          1,
+          3,
+          1,
+          1,
+          8,
+          4,
+          0
+        ],
+        "mss": 16344,
+        "wscale": 6,
+        "payload_len": 0
+      }
+    }
+  ],
+  "client": {
+    "ip_version": 4,
+    "src_hex": "7f000001",
+    "dst_hex": "7f000001",
+    "src_port": 54325,
+    "dst_port": 8443,
+    "isn": 16909060,
+    "syn": {
+      "window": 65535,
+      "ttl": 64,
+      "options_hex": "02043fd8010303060101080a0a0b0c0d0000000004020000",
+      "option_kinds": [
+        2,
+        1,
+        3,
+        1,
+        1,
+        8,
+        4,
+        0
+      ],
+      "mss": 16344,
+      "wscale": 6
+    },
+    "payload_len": 0,
+    "payload_sha256": null,
+    "source_bin": null,
+    "source_sha256": null
+  }
+}

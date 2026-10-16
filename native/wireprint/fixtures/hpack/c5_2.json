@@ -1,0 +1,44 @@
+{
+  "rfc": "7541",
+  "section": "C.5.2",
+  "title": "Second Response",
+  "huffman": false,
+  "dynamic_table_max_size": 256,
+  "continues_from": "C.5.1",
+  "hex_file": "c5_2.hex",
+  "headers": [
+    [":status", "307"],
+    ["cache-control", "private"],
+    ["date", "Mon, 21 Oct 2013 20:13:21 GMT"],
+    ["location", "https://www.example.com"]
+  ],
+  "dynamic_table_after": {
+    "entries": [
+      {
+        "index": 62,
+        "name": ":status",
+        "value": "307",
+        "size": 42
+      },
+      {
+        "index": 63,
+        "name": "location",
+        "value": "https://www.example.com",
+        "size": 63
+      },
+      {
+        "index": 64,
+        "name": "date",
+        "value": "Mon, 21 Oct 2013 20:13:21 GMT",
+        "size": 65
+      },
+      {
+        "index": 65,
+        "name": "cache-control",
+        "value": "private",
+        "size": 52
+      }
+    ],
+    "size": 222
+  }
+}

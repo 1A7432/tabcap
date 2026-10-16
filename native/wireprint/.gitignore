@@ -1,0 +1,8 @@
+.zig-cache/
+zig-out/
+zig-pkg/
+*.pem
+*.key
+__pycache__/
+.venv/
+fixtures/**/*-full.json

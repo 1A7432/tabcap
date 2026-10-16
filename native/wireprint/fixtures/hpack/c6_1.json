@@ -1,0 +1,44 @@
+{
+  "rfc": "7541",
+  "section": "C.6.1",
+  "title": "First Response",
+  "huffman": true,
+  "dynamic_table_max_size": 256,
+  "continues_from": null,
+  "hex_file": "c6_1.hex",
+  "headers": [
+    [":status", "302"],
+    ["cache-control", "private"],
+    ["date", "Mon, 21 Oct 2013 20:13:21 GMT"],
+    ["location", "https://www.example.com"]
+  ],
+  "dynamic_table_after": {
+    "entries": [
+      {
+        "index": 62,
+        "name": "location",
+        "value": "https://www.example.com",
+        "size": 63
+      },
+      {
+        "index": 63,
+        "name": "date",
+        "value": "Mon, 21 Oct 2013 20:13:21 GMT",
+        "size": 65
+      },
+      {
+        "index": 64,
+        "name": "cache-control",
+        "value": "private",
+        "size": 52
+      },
+      {
+        "index": 65,
+        "name": ":status",
+        "value": "302",
+        "size": 42
+      }
+    ],
+    "size": 222
+  }
+}

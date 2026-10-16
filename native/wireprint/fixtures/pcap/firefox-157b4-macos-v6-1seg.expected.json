@@ -1,0 +1,179 @@
+{
+  "name": "firefox-157b4-macos-v6-1seg",
+  "purpose": "Ethernet + IPv6 + TCP; data packet carries Hop-by-Hop -> Destination Options -> TCP",
+  "generator": "tools/mkpcap.py",
+  "file_len": 2261,
+  "file_sha256": "d24cd001025e2ed1c0d63e896e5cb7ed8a8249c1ce6757d903d41f057947ea47",
+  "magic_bytes": "d4c3b2a1",
+  "endian": "little",
+  "nanosecond": false,
+  "version_major": 2,
+  "version_minor": 4,
+  "snaplen": 262144,
+  "linktype": 1,
+  "record_count": 3,
+  "trailing_error": null,
+  "records": [
+    {
+      "index": 0,
+      "offset": 24,
+      "ts_sec": 1790164800,
+      "ts_frac": 100000,
+      "incl_len": 98,
+      "orig_len": 98,
+      "note": "client SYN",
+      "parse_error": null,
+      "packet": {
+        "ip_version": 6,
+        "ip_ext_headers": [],
+        "link_header_len": 14,
+        "ip_len": 84,
+        "src": "2001:0db8:0000:0000:0000:0000:0000:0017",
+        "dst": "2001:0db8:0000:0000:0000:0000:0000:000a",
+        "src_hex": "20010db8000000000000000000000017",
+        "dst_hex": "20010db800000000000000000000000a",
+        "ttl": 64,
+        "src_port": 54323,
+        "dst_port": 8443,
+        "seq": 287454020,
+        "ack": 0,
+        "data_offset": 11,
+        "flags": 2,
+        "flag_names": [
+          "syn"
+        ],
+        "window": 65535,
+        "options_hex": "020405a0010303060101080a1a2b3c4d0000000004020000",
+        "option_kinds": [
+          2,
+          1,
+          3,
+          1,
+          1,
+          8,
+          4,
+          0
+        ],
+        "mss": 1440,
+        "wscale": 6,
+        "payload_len": 0
+      }
+    },
+    {
+      "index": 1,
+      "offset": 138,
+      "ts_sec": 1790164800,
+      "ts_frac": 112345,
+      "incl_len": 94,
+      "orig_len": 94,
+      "note": "server SYN-ACK",
+      "parse_error": null,
+      "packet": {
+        "ip_version": 6,
+        "ip_ext_headers": [],
+        "link_header_len": 14,
+        "ip_len": 80,
+        "src": "2001:0db8:0000:0000:0000:0000:0000:000a",
+        "dst": "2001:0db8:0000:0000:0000:0000:0000:0017",
+        "src_hex": "20010db800000000000000000000000a",
+        "dst_hex": "20010db8000000000000000000000017",
+        "ttl": 64,
+        "src_port": 8443,
+        "dst_port": 54323,
+        "seq": 1432778632,
+        "ack": 287454021,
+        "data_offset": 10,
+        "flags": 18,
+        "flag_names": [
+          "syn",
+          "ack"
+        ],
+        "window": 65535,
+        "options_hex": "020405a0010303070402080a5e6f70811a2b3c4d",
+        "option_kinds": [
+          2,
+          1,
+          3,
+          4,
+          8
+        ],
+        "mss": 1440,
+        "wscale": 7,
+        "payload_len": 0
+      }
+    },
+    {
+      "index": 2,
+      "offset": 248,
+      "ts_sec": 1790164800,
+      "ts_frac": 124690,
+      "incl_len": 1997,
+      "orig_len": 1997,
+      "note": "client ClientHello (whole TLS record)",
+      "parse_error": null,
+      "packet": {
+        "ip_version": 6,
+        "ip_ext_headers": [
+          0,
+          60
+        ],
+        "link_header_len": 14,
+        "ip_len": 1983,
+        "src": "2001:0db8:0000:0000:0000:0000:0000:0017",
+        "dst": "2001:0db8:0000:0000:0000:0000:0000:000a",
+        "src_hex": "20010db8000000000000000000000017",
+        "dst_hex": "20010db800000000000000000000000a",
+        "ttl": 64,
+        "src_port": 54323,
+        "dst_port": 8443,
+        "seq": 287454021,
+        "ack": 1432778633,
+        "data_offset": 8,
+        "flags": 24,
+        "flag_names": [
+          "psh",
+          "ack"
+        ],
+        "window": 6379,
+        "options_hex": "0101080a1a2b3c4e5e6f7081",
+        "option_kinds": [
+          1,
+          1,
+          8
+        ],
+        "mss": null,
+        "wscale": null,
+        "payload_len": 1887
+      }
+    }
+  ],
+  "client": {
+    "ip_version": 6,
+    "src_hex": "20010db8000000000000000000000017",
+    "dst_hex": "20010db800000000000000000000000a",
+    "src_port": 54323,
+    "dst_port": 8443,
+    "isn": 287454020,
+    "syn": {
+      "window": 65535,
+      "ttl": 64,
+      "options_hex": "020405a0010303060101080a1a2b3c4d0000000004020000",
+      "option_kinds": [
+        2,
+        1,
+        3,
+        1,
+        1,
+        8,
+        4,
+        0
+      ],
+      "mss": 1440,
+      "wscale": 6
+    },
+    "payload_len": 1887,
+    "payload_sha256": "2297a7d3cfe4bdefd21b7f00003ff434a7afd0def6f6b002fd56f0d898af0fb1",
+    "source_bin": "fixtures/clienthello/firefox-157b4-macos-1.bin",
+    "source_sha256": "2297a7d3cfe4bdefd21b7f00003ff434a7afd0def6f6b002fd56f0d898af0fb1"
+  }
+}

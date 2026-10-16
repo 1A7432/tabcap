@@ -1,0 +1,23 @@
+{
+  "rfc": "7541",
+  "section": "C.2.1",
+  "title": "Literal Header Field with Indexing",
+  "huffman": false,
+  "dynamic_table_max_size": 4096,
+  "continues_from": null,
+  "hex_file": "c2_1.hex",
+  "headers": [
+    ["custom-key", "custom-header"]
+  ],
+  "dynamic_table_after": {
+    "entries": [
+      {
+        "index": 62,
+        "name": "custom-key",
+        "value": "custom-header",
+        "size": 55
+      }
+    ],
+    "size": 55
+  }
+}

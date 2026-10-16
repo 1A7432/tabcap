@@ -1,0 +1,112 @@
+{
+  "_comment": "机器可读测试向量。ja4 段来自 FoxIO JA4.md 官方示例，哈希已用独立脚本复算确认。hpack 段来自 RFC 7541 附录 C（此处只收整数编码，附录 C.2–C.6 的完整头块请实现时从 RFC 原文抄入 fixtures/hpack/）。",
+
+  "ja4": {
+    "official_example": {
+      "input": {
+        "protocol": "t",
+        "supported_versions_highest": "0304",
+        "sni_present": true,
+        "cipher_suites_original": ["1301", "1302", "1303", "c02b", "c02f", "c02c", "c030", "cca9", "cca8", "c013", "c014", "009c", "009d", "002f", "0035"],
+        "extensions_original": ["001b", "0000", "0033", "0010", "4469", "0017", "002d", "000d", "0005", "0023", "0012", "002b", "ff01", "000b", "000a", "0015"],
+        "signature_algorithms_original": ["0403", "0804", "0401", "0503", "0805", "0501", "0806", "0601"],
+        "alpn_first": "h2"
+      },
+      "expected": {
+        "ja4_a": "t13d1516h2",
+        "ja4_b": "8daaf6152771",
+        "ja4_c": "e5627efa2ab1",
+        "ja4": "t13d1516h2_8daaf6152771_e5627efa2ab1",
+        "ja4_r": "t13d1516h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0015,0017,001b,0023,002b,002d,0033,4469,ff01_0403,0804,0401,0503,0805,0501,0806,0601",
+        "ja4_o": "t13d1516h2_acb858a92679_18f69afefd3d",
+        "ja4_ro": "t13d1516h2_1301,1302,1303,c02b,c02f,c02c,c030,cca9,cca8,c013,c014,009c,009d,002f,0035_001b,0000,0033,0010,4469,0017,002d,000d,0005,0023,0012,002b,ff01,000b,000a,0015_0403,0804,0401,0503,0805,0501,0806,0601",
+        "ja4_c_without_signature_algorithms": "6d807ffa2a79"
+      }
+    },
+    "alpn_rules": [
+      { "alpn_bytes_hex": "6832", "expected": "h2", "note": "h2" },
+      { "alpn_bytes_hex": "687474702f312e31", "expected": "h1", "note": "http/1.1" },
+      { "alpn_bytes_hex": null, "expected": "00", "note": "no ALPN extension / empty" },
+      { "alpn_bytes_hex": "61", "expected": "aa", "note": "single char repeated" },
+      { "alpn_bytes_hex": "ab", "expected": "ab", "note": "non-alnum → hex repr first/last" },
+      { "alpn_bytes_hex": "20", "expected": "20" },
+      { "alpn_bytes_hex": "abcd", "expected": "ad" },
+      { "alpn_bytes_hex": "2061", "expected": "21" },
+      { "alpn_bytes_hex": "30ab", "expected": "3b" },
+      { "alpn_bytes_hex": "6120", "expected": "60" },
+      { "alpn_bytes_hex": "3031abcd", "expected": "3d" },
+      { "alpn_bytes_hex": "30abcd31", "expected": "01" }
+    ],
+    "version_map": {
+      "0304": "13", "0303": "12", "0302": "11", "0301": "10", "0300": "s3", "0002": "s2",
+      "feff": "d1", "fefd": "d2", "fefc": "d3", "unknown": "00"
+    },
+    "empty_list_hash": "000000000000"
+  },
+
+  "grease": {
+    "values": ["0a0a", "1a1a", "2a2a", "3a3a", "4a4a", "5a5a", "6a6a", "7a7a", "8a8a", "9a9a", "aaaa", "baba", "caca", "dada", "eaea", "fafa"],
+    "not_grease": ["0a1a", "1301", "00ff", "5600", "fe00", "0000"]
+  },
+
+  "ja4_counting_rules": {
+    "count_as_cipher": ["00ff", "5600", "fe00", "feff"],
+    "exclude_from_ja4_c_but_count_in_ja4_a": ["0000", "0010"]
+  },
+
+  "hpack_integer": {
+    "_ref": "RFC 7541 §C.1",
+    "cases": [
+      { "prefix_bits": 5, "bytes_hex": "0a", "expected": 10 },
+      { "prefix_bits": 5, "bytes_hex": "1f9a0a", "expected": 1337 },
+      { "prefix_bits": 8, "bytes_hex": "2a", "expected": 42 }
+    ]
+  },
+
+  "hpack_static_table_spot_checks": {
+    "_ref": "RFC 7541 Appendix A",
+    "1": [":authority", ""],
+    "2": [":method", "GET"],
+    "3": [":method", "POST"],
+    "4": [":path", "/"],
+    "6": [":scheme", "http"],
+    "7": [":scheme", "https"],
+    "8": [":status", "200"],
+    "61": ["www-authenticate", ""]
+  },
+
+  "http2": {
+    "connection_preface_hex": "505249202a20485454502f322e300d0a0d0a534d0d0a0d0a",
+    "frame_types": { "DATA": 0, "HEADERS": 1, "PRIORITY": 2, "RST_STREAM": 3, "SETTINGS": 4, "PUSH_PROMISE": 5, "PING": 6, "GOAWAY": 7, "WINDOW_UPDATE": 8, "CONTINUATION": 9 },
+    "settings_ids": { "HEADER_TABLE_SIZE": 1, "ENABLE_PUSH": 2, "MAX_CONCURRENT_STREAMS": 3, "INITIAL_WINDOW_SIZE": 4, "MAX_FRAME_SIZE": 5, "MAX_HEADER_LIST_SIZE": 6, "ENABLE_CONNECT_PROTOCOL": 8, "NO_RFC7540_PRIORITIES": 9 },
+    "akamai_format_examples_shape_only": {
+      "_note": "仅示意格式，数值以语料库采集为准，不要作为断言。",
+      "chrome_like": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+      "firefox_like": "1:65536;2:0;4:131072;5:16384|12517377|3:0:0:201,5:0:0:101,7:0:0:1,9:0:7:1,11:0:3:1,13:0:0:241|m,p,a,s"
+    }
+  },
+
+  "pcap": {
+    "magic_le_usec": "d4c3b2a1",
+    "magic_be_usec": "a1b2c3d4",
+    "magic_le_nsec": "4d3cb2a1",
+    "magic_be_nsec": "a1b23c4d",
+    "global_header_len": 24,
+    "record_header_len": 16,
+    "linktype": { "NULL_BSD_LOOPBACK": 0, "ETHERNET": 1, "RAW_IP": 101, "LINUX_SLL": 113 }
+  },
+
+  "tls_extension_types": {
+    "server_name": "0000", "status_request": "0005", "supported_groups": "000a", "ec_point_formats": "000b",
+    "signature_algorithms": "000d", "alpn": "0010", "signed_certificate_timestamp": "0012", "padding": "0015",
+    "extended_master_secret": "0017", "compress_certificate": "001b", "record_size_limit": "001c",
+    "delegated_credentials": "0022", "session_ticket": "0023", "pre_shared_key": "0029", "supported_versions": "002b",
+    "psk_key_exchange_modes": "002d", "key_share": "0033", "application_settings_old": "4469",
+    "application_settings_new": "44cd", "encrypted_client_hello": "fe0d", "renegotiation_info": "ff01"
+  },
+
+  "tls_named_groups": {
+    "secp256r1": "0017", "secp384r1": "0018", "secp521r1": "0019", "x25519": "001d", "ffdhe2048": "0100",
+    "X25519Kyber768Draft00": "6399", "X25519MLKEM768": "11ec"
+  }
+}

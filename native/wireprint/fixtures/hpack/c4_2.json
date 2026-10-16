@@ -1,0 +1,33 @@
+{
+  "rfc": "7541",
+  "section": "C.4.2",
+  "title": "Second Request",
+  "huffman": true,
+  "dynamic_table_max_size": 4096,
+  "continues_from": "C.4.1",
+  "hex_file": "c4_2.hex",
+  "headers": [
+    [":method", "GET"],
+    [":scheme", "http"],
+    [":path", "/"],
+    [":authority", "www.example.com"],
+    ["cache-control", "no-cache"]
+  ],
+  "dynamic_table_after": {
+    "entries": [
+      {
+        "index": 62,
+        "name": "cache-control",
+        "value": "no-cache",
+        "size": 53
+      },
+      {
+        "index": 63,
+        "name": ":authority",
+        "value": "www.example.com",
+        "size": 57
+      }
+    ],
+    "size": 110
+  }
+}
