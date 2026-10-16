@@ -11,9 +11,9 @@
 //       replays that chain against `replay serve` of the bundle and must pass.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { MUST_RUN, need, packageReason, pyCompile, runInPackageAsync, syncPackage } from "../unit/_python.ts";
@@ -23,6 +23,8 @@ const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const SITE = "range-demo";
+/** CI diagnostics: copy this run's daemon / browser logs and bundles here before the temp home is removed. */
+const KEEP = process.env["TABCAP_E2E_KEEP"] ?? "";
 const SPELLINGS = [...new Set([LOGIN_PASSWORD, JSON.stringify(LOGIN_PASSWORD).slice(1, -1), encodeURIComponent(LOGIN_PASSWORD), new URLSearchParams({ p: LOGIN_PASSWORD }).toString().slice(2)])];
 
 let home = "";
@@ -98,6 +100,15 @@ async function timedDeps(bundle: string): Promise<{ data: Record<string, unknown
   return { data, ms: Math.round(performance.now() - t0) };
 }
 
+/** The *.log files of config/ and the bundles of a temp TABCAP_HOME (not the Chrome profile). */
+function keepHome(from: string, to: string): void {
+  for (const sub of ["config", join("data", "bundles")]) {
+    const src = join(from, sub);
+    if (!existsSync(src)) continue;
+    cpSync(src, join(to, sub), { recursive: true, filter: (f) => sub !== "config" || f === src || f.endsWith(".log") });
+  }
+}
+
 async function serve(dir: string): Promise<{ url: string; stop: () => Promise<void> }> {
   const proc = Bun.spawn(["bun", MAIN, "replay", "serve", dir, "--port", "0", "--once", "120", "--json"], { env: { ...process.env, TABCAP_HOME: home }, stdout: "pipe", stderr: "pipe" });
   const reader = proc.stdout.getReader();
@@ -134,6 +145,7 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     await tabcap(["daemon", "stop"]).catch(() => null);
     guard.stop();
     search.stop();
+    if (KEEP !== "") keepHome(home, join(KEEP, basename(home)));
     rmSync(home, { recursive: true, force: true });
   });
 
