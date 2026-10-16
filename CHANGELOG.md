@@ -8,6 +8,11 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 - macOS popup foreground hand-back now activates the previously frontmost app by bundle identifier (falling back to its name only when it has none). A process name can differ from the application name (Firefox Developer Edition reports `firefox`), which made `tell application "firefox" to activate` fail with -1728 and the hand-back never succeed. `browser status` `popupFocus` also reports `lastSeenBundleId`, and the launch `front` report `beforeBundleId`.
 
+### Decode plugins: declined exchanges, template shipped (0.6-T)
+
+- A decode plugin can now say "not my body": the wire answer `{"id":N,"declined":true}`. No view is written and it is not a failure (it no longer counts toward the three failures that disable a plugin). The Python runner sends it when `decode()` returns `None`; before, that was written as an `ok: false` view ("plugin.decode returned None"). Recording and `tabcap bundle decode` follow the same rule; `bundle decode` reports `declined` (sides every matching plugin declined) and `declinedBy` (per plugin) beside `decoded` / `failed`. Raise an exception for a body that is yours but broken: that stays a failed view.
+- `templates/plugins/decode-python/` now ships in the release archives and the npm package (`$(npm root -g)/tabcap/templates/plugins/decode-python/` after a global install), and the skill's analysis reference says where it is.
+
 ### README rewritten
 
 - Both READMEs are written for a reader again: what it is, why, a quick start, what it does, a one-table overview of the command groups, the comparison, boundaries, platforms, docs. The generated table of every command left the README; the full reference stays in `skills/tabcap/references/commands.md` (the only file `bun run gen:docs` writes now).

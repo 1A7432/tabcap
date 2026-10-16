@@ -406,3 +406,8 @@
 - 做了什么：前台应用读成 `{name, bundleId, pid}`（一次 osascript 读 System Events 的 name / bundle identifier / unix id，`missing value` 当没有 bundle id），交还按 `tell application id "<bundleId>" to activate`，没有才退回应用名，Chrome 应用仍永不激活；`restoreFront` / `FrontGuard` 行为不变，报告多 `beforeBundleId` / `lastSeenBundleId`；单测加解析、脚本选择（按 id / 退回名）；v02d s17 的前台断言改按 pid 对 `browser status` 的 `pid`（tabcap.e2e 的「never became the frontmost app」早已是 pid 比较，没改）。
 - 卡在哪：按 Firefox Developer Edition 在前台时的真机复测要作者自己跑（我不对作者的应用发 activate）；e2e 结果见交付报告。
 - 下一格从哪开始：作者在 Firefox Developer Edition 在前台时跑 `v02d.e2e.test.ts`，确认 s17 通过后合入并重打包 0.6.0。
+
+## 2026-10-17 · 0.6-T · decode 返回 None 不算失败、模板随包（分支 0.6-T-decode-none-templates）
+- 做了什么：线路新增 `{"id":N,"declined":true}`（docs/04 §28），runner 对 `plugin.decode()` 返回 None 发它；`DecodeSession.decode` 对放弃返回 null 并回调 `declined(plugin)`，录制器沿用「null = 无视图」，`bundle decode` 新增 `declined` / `declinedBy` 且不写视图、不进 `failed`；`templates/plugins/decode-python/` 进发布包（`PACKAGE_DIRS`）与 npm 主包（`templates/`），skill analysis 参考与 `packaging/npm/README.md` 写了路径；两条路径各有单测。
+- 卡在哪（待作者审）：放弃的线路形状选了「不带 `ok` 的 `declined:true`」（而非 `ok:false` 加标记），所以旧 runner 仍写 `ok:false`；`declined` 只数「所有匹配插件都放弃」的侧，一个放弃一个解出的只进 `declinedBy`；放弃的侧不列进 `rows`；`bundle decode` 的 schema summary（`tabcap schema` 快照，公共契约）没改，所以 `commands.md` 里没有 declined 一句，只在 docs/04 与 analysis 参考里写了；`plugin list` 的「none ship with tabcap」措辞未动（模板不是已装插件）。
+- 下一格从哪开始：作者审 §28 的放弃措辞与线路形状；合入后重打 0.6.0 包（模板才会进 dist）；隔壁项目重跑 `bundle decode` 看 `declined` 计数。

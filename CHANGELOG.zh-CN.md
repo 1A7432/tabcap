@@ -8,6 +8,11 @@
 
 - macOS 弹窗前台交还改按 bundle identifier 激活之前在前台的应用，没有 bundle id 才退回应用名。进程名可能和应用名不同（Firefox Developer Edition 的进程名是 `firefox`），`tell application "firefox" to activate` 会报 -1728，交还永远不成功。`browser status` 的 `popupFocus` 多了 `lastSeenBundleId`，启动时的 `front` 报告多了 `beforeBundleId`。
 
+### 解码插件：放弃的交换、模板随包（0.6-T）
+
+- 解码插件可以回答「不是我的正文」：线路上 `{"id":N,"declined":true}`。不写视图，也不算失败（不再计入让插件停用的三次失败）。Python runner 在 `decode()` 返回 `None` 时发这个回答；以前这会写成一条 `ok: false` 的视图（「plugin.decode returned None」）。录制与 `tabcap bundle decode` 规则相同；`bundle decode` 在 `decoded` / `failed` 旁边报 `declined`（所有匹配插件都放弃的侧数）和 `declinedBy`（按插件）。「是我的但解坏了」的正文请抛异常，那仍是失败视图。
+- `templates/plugins/decode-python/` 现在随发布包和 npm 包一起带（全局安装后在 `$(npm root -g)/tabcap/templates/plugins/decode-python/`），skill 的分析参考里写了它的位置。
+
 ### README 重写
 
 - 两份 README 改回给人读的样子：是什么、为什么、快速开始、做什么、命令分组一览、同类对照、边界、平台、文档。生成的全量命令表从 README 里拿掉，完整参考只在 `skills/tabcap/references/commands.md`（`bun run gen:docs` 现在只写这一个文件）。
