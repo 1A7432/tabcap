@@ -30,6 +30,7 @@ import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
 import { renderTraceText } from "../daemon/trace/table.ts";
 import { renderFingerprintText } from "../fingerprint/fields.ts";
 import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
+import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -306,6 +307,14 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
     case "schema":
       if (parsed.args["json"] === true) return { code: 0, envelope: ok(schema()), text: JSON.stringify(schema(), null, 2) };
       data = schema();
+      break;
+    case "wire serve":
+      return await wireServe(p, parsed.args);
+    case "wire version":
+      data = await wireVersion(p);
+      break;
+    case "wire ca-path":
+      data = wireCaPath(p);
       break;
     default: {
       if (c.action === undefined) throw new TabcapError("internal", `no handler for ${key}`, "This is a bug.");
