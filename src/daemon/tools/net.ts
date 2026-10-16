@@ -14,7 +14,7 @@ import { inlineBytes } from "../capture/ws.ts";
 import type { Daemon } from "../state.ts";
 import { noteAccountRequest } from "./pool.ts";
 import { checkSessionName, optStr, reqStr, type Args } from "./args.ts";
-import { bodySearchOf, charsetOf, decodeBody, prettify, requestByUrl, searchBody } from "./netsearch.ts";
+import { bodySearchOf, charsetOf, decodeBody, netGrep, prettify, requestByUrl, searchBody } from "./netsearch.ts";
 import { splitLines } from "./textsearch.ts";
 
 export async function netStart(d: Daemon, _a: Args, session: string): Promise<unknown> {
@@ -224,3 +224,9 @@ export async function netShow(d: Daemon, a: Args, session: string): Promise<unkn
   return { session, bundle: dir, recording, ...detail, ...ws };
 }
 
+/** `tabcap net grep <regex>`: raw-text search over every recorded response body (netsearch.ts). */
+export async function netGrepTool(d: Daemon, a: Args, session: string): Promise<unknown> {
+  const { dir, index, recording, rec } = current(d, session);
+  await rec.flushEvents();
+  return netGrep(d, a, session, { dir, index, recording });
+}

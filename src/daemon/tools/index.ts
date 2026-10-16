@@ -8,7 +8,7 @@ import { emulate, resize } from "./device.ts";
 import { click, fill, hover, press, typeText, upload } from "./input.ts";
 import { handoffContinue, handoffStatus } from "./handoff.ts";
 import { go, navigate, reload } from "./navigate.ts";
-import { netBody, netList, netShow, netStart, netStop } from "./net.ts";
+import { netBody, netGrepTool, netList, netShow, netStart, netStop } from "./net.ts";
 import { html } from "./html.ts";
 import { dialog, evaluate, screenshot } from "./page.ts";
 import { sessionList, sessionStart, sessionStop, tabClose, tabUse, tabsList } from "./session.ts";
@@ -56,6 +56,7 @@ export const TOOLS: Record<string, Tool> = {
   "net.list": netList,
   "net.body": netBody,
   "net.show": netShow,
+  "net.grep": netGrepTool,
   "console.list": consoleList,
   "console.show": consoleShow,
   wait,

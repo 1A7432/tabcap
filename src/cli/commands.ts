@@ -528,6 +528,21 @@ export const COMMANDS: CommandSpec[] = [
     action: "net.show",
   },
   {
+    path: ["net", "grep"],
+    pos: ["regex"],
+    flags: [
+      SESSION,
+      { flag: "--resource-types", key: "types", kind: "string", help: "comma list: script,xhr,fetch,document …", metavar: "script,xhr" },
+      { flag: "--max-matches", key: "maxMatches", kind: "number", help: "matches shown per request (max 200); count has them all", default: 20, metavar: "n" },
+      { flag: "--context", key: "context", kind: "number", help: "lines before and after each match (max 20)", default: 1, metavar: "n" },
+      { flag: "--pretty", key: "pretty", kind: "bool", help: "search JavaScript / JSON bodies as `net body --pretty` prints them (line numbers then refer to the pretty text)" },
+    ],
+    summary:
+      "raw-text regex search over every recorded response body of the session (decoded, secret-scrubbed): per request {request, url, resourceType, count, matches}; at most 50 requests (more: n), bodies over 8 MB listed under skipped. Not `analyze find`, which follows values through decode chains",
+    example: "tabcap net grep 'x-sign|signature' --resource-types script",
+    action: "net.grep",
+  },
+  {
     path: ["console", "list"],
     pos: [],
     flags: [
