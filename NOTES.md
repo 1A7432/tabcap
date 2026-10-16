@@ -219,3 +219,8 @@
 - 做了什么：`account add <站点> --user [--password-stdin] [--totp-stdin]`（重复报 conflict，输出无密码；`--totp-stdin` 须配 `--password-stdin`，stdin 两行：密码、种子）、`account remove`（顺带删已存 cookie 与计数；运行中的守护进程有会话在用就拒绝）、`proxy set-state active|disabled`（再启用回 `unknown`、失败计数清零）；单测、v04d e2e 改走 CLI、schema 快照、README / SKILL / CHANGELOG / docs/04 §8.1。
 - 卡在哪：「会话在用」只能问运行中的守护进程（`session.list`），守护进程没开则无从知道；`--totp-stdin` 的两行格式和「再启用回 `unknown`」是按字面读法定的，待作者确认；TOTP 种子目前只存、不被任何命令消费；`rotate` 模式下停用的绑定代理不会让账号不可分配（轮换会跳过它），只有 `fixed` 模式才拒。
 - 下一格从哪开始：作者审 PR 与上面三点；之后 0.4 其余格。
+
+## 2026-10-16 · 0.4-W1-spec · 线路层指纹组件规范（分支 0.4-W1-spec，草稿 PR #9，只动文档）
+- 做了什么：写 `docs/11-wire-fingerprint-spec.md`（318 行）：范围、输入与大小上限、每连接报告逐字段定义（GREASE / 同集合异序 / 跨连接稳定性）、画像结构（以 `profile.zig` 实际输出为准）与组画像算法、语料布局与只收 CfT 画像、check 规则 I0 / T1–T8 / A1–A4 / N1–N3 / H0–H5、diff 格式、算法出处与 oracle、fixture 来源表、CLI 与退出码、许可证；§9 列 12 处代码与学习材料 / 配套规范不一致（以代码为准）。初稿按源码写，0.4-W1 导入合入 main 后改为按 `native/wireprint/` 现状（JA4H / JA4T / C1 已删；按协调者通知写成没有 `serve` 子命令、不含 FoxIO License 代码的 Apache-2.0 组件，`serve` 由 0.4-W2 删）。【实测】`zig build -Dopenssl=false` 的二进制：解析失败打 `error:` 到 stdout 且退出码 0、缺参数与 `serve` 退出码 2；`check` 喂 `parse` 输出时 T1–T7 被跳过、T8 / N3 / H0 误报；serve 报告组出的画像 `tcp` 全为 null。
+- 卡在哪：tabcap 可用子命令产不出 `profile` / `check` 要的完整报告形状；扩展体畸形时报告写到一半退出码 1【推断】；CfT 画像的 `<browser>` 目录名【待验】；docs/03 §5 未动（并行格已在插件行指向 `native/wireprint/`）。
+- 下一格从哪开始：作者审 docs/11（尤其 §2、§3.2 的缺口与 §9）；0.4-W2 接原始 ClientHello / h2 流入口并补出完整报告。
