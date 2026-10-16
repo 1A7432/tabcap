@@ -17,6 +17,8 @@ import {
   type Producer,
   type RawEvent,
   type Redaction,
+  type TraceMode,
+  type TraceWindow,
 } from "./types.ts";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -122,10 +124,11 @@ export function parseManifest(raw: unknown): Manifest {
   const mode: Manifest["mode"] = {
     ...modeRaw,
     capture: oneOf(CAPTURE, capture) ? capture : "passive",
-    trace: modeRaw["trace"] === true,
+    trace: parseTraceMode(modeRaw["trace"]),
     raw: modeRaw["raw"] !== false,
     humanRecorder: modeRaw["humanRecorder"] === true,
   };
+  const windows = parseTraceWindows(raw["traceWindows"]);
 
   const countsRaw = rec(raw, "counts");
   const counts = emptyCounts();
@@ -179,7 +182,41 @@ export function parseManifest(raw: unknown): Manifest {
   };
   if (typeof finished === "number") m.finished = finished;
   else delete m.finished;
+  if (windows === null) delete m.traceWindows;
+  else m.traceWindows = windows;
   return m;
+}
+
+const TRACE_MECHANISMS = ["fn-breakpoint", "instrumentation"] as const;
+
+/**
+ * `mode.trace` (docs/04 §7, 0.4-F): false or {mechanism, apis, stack, firstN,
+ * maxHits}. Anything else (an old boolean, a damaged object) reads as false;
+ * unknown fields of a valid object are kept.
+ */
+export function parseTraceMode(v: unknown): false | TraceMode {
+  if (!isRecord(v)) return false;
+  const apis = str(v, "apis");
+  const stack = num(v, "stack");
+  const firstN = num(v, "firstN");
+  const maxHits = num(v, "maxHits");
+  const mech = Array.isArray(v["mechanism"]) ? v["mechanism"].filter((x): x is TraceMode["mechanism"][number] => oneOf(TRACE_MECHANISMS, x)) : [];
+  if (apis === null || stack === null || firstN === null || maxHits === null) return false;
+  return { ...v, mechanism: mech, apis, stack, firstN, maxHits };
+}
+
+/** `traceWindows` (docs/04 §7): null when absent; malformed entries are dropped. */
+export function parseTraceWindows(v: unknown): TraceWindow[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: TraceWindow[] = [];
+  for (const w of v) {
+    if (!isRecord(w)) continue;
+    const fromSeq = num(w, "fromSeq");
+    const toSeq = num(w, "toSeq");
+    if (fromSeq === null) continue;
+    out.push({ ...w, fromSeq, toSeq });
+  }
+  return out;
 }
 
 export function readManifest(dir: string): Manifest {
