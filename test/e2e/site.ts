@@ -1766,9 +1766,12 @@ document.getElementById("s55-load").addEventListener("click", () => {
 // thread JSON.parse of the posted string), axios (transformResponse parses
 // the envelope then the plaintext), inline (JSON.parse(decrypt(data))),
 // bare (whole body is one base64 token), big (~1.2 MiB plaintext, not
-// rendered). The page fetches, decrypts in its own JS, JSON.parses, renders
-// (except big), then fetches /api/plain as the control. Rows and keys are
-// literals here; no plaintext value appears in any raw /api/enc body.
+// rendered), deferred (the plaintext is parked in a script-level array and
+// parsed by a timer callback that is its only frame: no ciphertext is
+// reachable from the parse — the weak-link case of docs/04 §33). The page
+// fetches, decrypts in its own JS, JSON.parses, renders (except big), then
+// fetches /api/plain as the control. Rows and keys are literals here; no
+// plaintext value appears in any raw /api/enc body.
 export const S59_XOR_KEY = "s59-page-key-31";
 export const S59_AES_KEY_HEX = "5a59a1c3d2e1f00f1e2d3c4b5a697887";
 export const S59_AES_IV_HEX = "0f1e2d3c4b5a69788796a5b4";
@@ -1824,6 +1827,13 @@ function s59Axios(text) {
   const env = JSON.parse(text);
   return JSON.parse(s59XorPlain(env.data));
 }
+const s59Later = [];
+let s59LaterDone = null;
+function s59ParseLater() {
+  const t = s59Later.shift();
+  s59Render(JSON.parse(t).rows);
+  s59LaterDone();
+}
 async function s59Gcm(data) {
   const buf = s59Bytes(data);
   const keyBytes = new Uint8Array(S59_AES.match(/../g).map((h) => parseInt(h, 16)));
@@ -1864,6 +1874,12 @@ async function s59Enc(mode) {
     s59Render(JSON.parse(s59XorPlain(env.data)).rows);
     return;
   }
+  if (mode === "deferred") {
+    const env = JSON.parse(await (await fetch("/api/enc", { cache: "no-store" })).text());
+    s59Later.push(s59XorPlain(env.data));
+    await new Promise((r) => { s59LaterDone = r; setTimeout(s59ParseLater, 0); });
+    return;
+  }
   const two = mode === "webcrypto" && new URLSearchParams(location.search).get("two") === "1";
   if (!two) {
     const res = await fetch(mode === "webcrypto" ? "/api/enc?mode=webcrypto" : "/api/enc", { cache: "no-store" });
@@ -1891,7 +1907,7 @@ async function s59Main(mode) {
   document.getElementById("status").textContent = "ready " + c.control;
 }
 const s59Mode = new URLSearchParams(location.search).get("mode");
-s59Main(s59Mode === "webcrypto" || s59Mode === "worker" || s59Mode === "axios" || s59Mode === "inline" || s59Mode === "bare" || s59Mode === "big" ? s59Mode : "xor");
+s59Main(["webcrypto", "worker", "axios", "inline", "bare", "big", "deferred"].includes(s59Mode) ? s59Mode : "xor");
 </script>`;
 
 // ?mode=worker: the XOR runs in a dedicated worker, which posts the plaintext

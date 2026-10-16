@@ -11,6 +11,12 @@
 // served bodies, never off tabcap; the control /api/plain carries no view).
 // The pausing-scope attribution shape (spike exp3: the walk hits the data
 // local per JSON.parse pause) is asserted as the sha256 of that base64.
+// 0.6-L2 (owner decisions 10-16): the plaintext arrives through the
+// JSON.parse log-point; `evidence.link` is "strong" when the parsing frame
+// can reach the ciphertext (a local, a block / closure variable, or a plain
+// object's property one level down — read off the range page's source) and
+// "weak" when it cannot (s59 deferred: the parse runs in a timer callback that
+// is its only frame); `--decode` installs no signal breakpoints.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -87,7 +93,7 @@ const viewText = (reader: BundleReader, view: Record<string, unknown> | undefine
   view === undefined || typeof view["blob"] !== "string" ? null : new TextDecoder().decode(reader.readBlob(view["blob"]) ?? new Uint8Array());
 
 /** One walk of a /s59 variant in a fresh session, trace started with the given flags. */
-async function runPage(session: string, path: string, flags: string[] = []): Promise<{ bundle: string; enc: Array<{ id: string; query: string }> }> {
+async function runPage(session: string, path: string, flags: string[] = []): Promise<{ bundle: string; enc: Array<{ id: string; query: string }>; tr: Record<string, unknown> }> {
   const S = ["--session", session];
   const started = await ok("net", "start", ...S);
   const bundle = s(started["bundle"]);
@@ -100,7 +106,7 @@ async function runPage(session: string, path: string, flags: string[] = []): Pro
     const waited = await ok("net", "wait", "--url", query, ...S);
     enc.push({ id: s(waited["id"]), query });
   }
-  return { bundle, enc };
+  return { bundle, enc, tr };
 }
 
 const stopBoth = async (session: string): Promise<{ decode: Record<string, unknown> | undefined }> => {
@@ -126,8 +132,14 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
 
   test("s59 xor: the plaintext the page parses is filed by \"page\"; /api/plain stays raw; find reads the view, where resolves through it", async () => {
     const S = ["--session", "s59x"];
-    const { bundle, enc } = await runPage("s59x", "/s59", ["--decode"]);
+    const { bundle, enc, tr } = await runPage("s59x", "/s59", ["--decode"]);
     const encId = enc[0]?.id ?? "";
+    // 0.6-L2: the observe mode traces no signals — no API list, no API
+    // breakpoints, only the scriptFirstStatement install channel.
+    expect([tr["requested"], tr["active"]]).toEqual([0, []]);
+    const st = await ok("trace", "status", ...S);
+    expect(st["instrumentation"]).toEqual([]);
+    expect(recs(st["targets"]).every((t) => t["breakpoints"] === 0)).toBe(true);
 
     // The sidecar: one attributed response row (docs/04 §33).
     const rows = await until("the page row in decoded.jsonl", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
@@ -141,6 +153,7 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     const ev = rec(r.decoded["evidence"]);
     expect(ev["sink"]).toBe("JSON.parse");
     expect(ev["match"]).toBe(sha(XOR_DATA));
+    expect(ev["link"]).toBe("strong");
     expect(ev["candidates"]).toBeUndefined();
     expect(recs(ev["frames"]).length).toBeGreaterThanOrEqual(1);
     expect(s(r.decoded["blob"])).toMatch(/^sha256:[0-9a-f]{64}$/);
@@ -174,6 +187,7 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     expect(r.request).toBe(encId);
     expect(viewText(BundleReader.open(bundle), r.decoded)).toBe(S59_PLAIN);
     expect(rec(r.decoded["evidence"])["match"]).toBe(sha(GCM1_DATA));
+    expect(rec(r.decoded["evidence"])["link"]).toBe("strong");
 
     const { decode } = await stopBoth("s59w");
     // TextDecoder.decode and SubtleCrypto.decrypt paused and were counted, nothing read off them (D1).
@@ -240,6 +254,11 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
       const hit = rows.find((r) => viewText(reader, r.decoded) === S59_PLAIN);
       expect(hit?.request).toBe(enc[0]?.id);
       expect(hit?.decoded["by"]).toBe("page");
+      // 0.6-L2: each parsing frame reaches the ciphertext leaf — axios'
+      // s59Axios holds `env` (and the raw text), inline's s59Enc block holds
+      // `env`, worker's onmessage arrow closes over s59Worker's `data` (its
+      // executor uses it) — so the link is strong and the match is the leaf.
+      expect([mode, rec(hit?.decoded["evidence"])["link"], rec(hit?.decoded["evidence"])["match"]]).toEqual([mode, "strong", sha(XOR_DATA)]);
       // No sidecar row is the raw envelope (the axios-shape bug of 0.6-L).
       for (const r of rows) expect(viewText(reader, r.decoded)).not.toBe(S59_ENC_XOR);
       const { decode } = await stopBoth(session);
@@ -256,6 +275,7 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     const hit = rows.find((r) => viewText(reader, r.decoded) === S59_PLAIN);
     expect(hit?.request).toBe(enc[0]?.id);
     expect(rec(hit?.decoded["evidence"] ?? {})["match"]).toBe(sha(S59_BARE_XOR));
+    expect(rec(hit?.decoded["evidence"] ?? {})["link"]).toBe("strong");
     await stopBoth("s59b");
     expect(recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"]).length).toBe(1);
   }, 120_000);
@@ -274,4 +294,40 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     await stopBoth("s59g");
     expect(recs((await ok("analyze", "find", bundle, S59_BIG_MARKER))["hits"]).some((h) => JSON.stringify(h["decode"] ?? []).includes("page"))).toBe(true);
   }, 180_000);
+
+  test("s59 deferred: no ciphertext reachable from the parse — filed under the only armed suspect, link weak, and find says so", async () => {
+    const { bundle, enc } = await runPage("s59d", "/s59?mode=deferred", ["--decode"]);
+    const rows = await until("the deferred page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
+    expect(rows.length).toBe(1);
+    const r = rows[0] as SidecarRow;
+    expect(r.request).toBe(enc[0]?.id ?? "");
+    expect(viewText(BundleReader.open(bundle), r.decoded)).toBe(S59_PLAIN);
+    const ev = rec(r.decoded["evidence"]);
+    expect([ev["match"], ev["link"]]).toEqual([null, "weak"]);
+    const { decode } = await stopBoth("s59d");
+    expect(decode?.["rows"]).toMatchObject({ attributed: 1, weak: 1, unattributed: 0 });
+    const hits = recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"]);
+    expect(hits.map((h) => [h["ref"], h["decode"], h["link"]])).toEqual([[enc[0]?.id ?? "", ["page"], "weak"]]);
+  }, 120_000);
+
+  test("--decode with --apis is a usage error (the observe mode installs no signal breakpoints)", async () => {
+    const e = await tabcap(["trace", "start", "--decode", "--apis", join(home, "signals.json"), "--session", "s59u"]);
+    expect(e.ok).toBe(false);
+    expect(e.error["code"]).toBe("usage");
+  }, 60_000);
+
+  test("a page loaded before trace start --decode, recording started after it: the sinks are on the loaded page", async () => {
+    const S = ["--session", "s59l"];
+    await ok("navigate", `${site.origin}/s59`, ...S);
+    await ok("wait", "--text", "ready s59-plain-control", ...S);
+    // 0.6-L2: before the fix the sinks of an already loaded page came only with its next document.
+    await ok("trace", "start", "--decode", ...S);
+    const bundle = s((await ok("net", "start", ...S))["bundle"]);
+    // The page decrypts again from its own timer callback (s59Main is the page's function).
+    await ok("evaluate", 'setTimeout(s59Main, 0, "xor"), 1', ...S);
+    const encId = s((await ok("net", "wait", "--url", "/api/enc", ...S))["id"]);
+    const rows = await until("the reloaded page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
+    expect(rows.map((r) => [r.request, viewText(BundleReader.open(bundle), r.decoded), rec(r.decoded["evidence"])["link"]])).toEqual([[encId, S59_PLAIN, "strong"]]);
+    await stopBoth("s59l");
+  }, 120_000);
 });

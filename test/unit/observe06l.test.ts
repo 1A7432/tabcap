@@ -8,25 +8,44 @@
 // spike-06l logs (exp2's condition, exp3's scope strings, exp4's "the
 // callee argument is not reachable" conclusion); s59's literals live in
 // test/e2e/site.ts and are exercised by test/e2e/v06l.e2e.test.ts.
+// 0.6-L2 (owner decisions 10-16): the raw-body sha as a suspect hash, the
+// `link` of a row ("strong" scope-string / "weak" single-suspect) and its
+// way into find's hits, the log-point pairing by position (spike E10's
+// "the log's caller frame is the pause's top frame"), the bounded raw-body set.
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { find } from "../../src/analyze/find.ts";
+import { BlobStore } from "../../src/bundle/blobs.ts";
+import { appendSidecar } from "../../src/bundle/decoded.ts";
+import { S42_ITEMS_JSON } from "../e2e/site.ts";
+import { s42Bundle } from "./_decode.ts";
 import {
+  addBounded,
   Armed,
   attribute,
   bytesCsvToText,
+  consoleSites,
   JSON_PARSE_CONDITION,
   jsonParseLogpoint,
   looksBareToken,
+  LOGGED_MAX_AGE_MS,
   observeRow,
+  pauseSite,
   plaintextOf,
   PLAINTEXT_CAP,
   rawBodyExcluded,
   sha256Text,
   suspectOf,
+  suspectShas,
   SUSPECT_WINDOW_MS,
+  takeLogged,
   UNATTRIBUTED_CAP,
   type ArmedSuspect,
+  type LoggedPlain,
   type Attribution,
   type ObserveMatch,
   type PageEvidence,
@@ -195,13 +214,14 @@ describe("observeRow (docs/04 §33: the row and its drop reasons)", () => {
   test("single-suspect files under the request, no match, no candidates", () => {
     const r = observeRow(match({ attribution: { kind: "single-suspect", suspect: suspect("r-7", ["h"]) }, plaintext: pt }), 0);
     expect(r).toEqual({
-      row: { request: "r-7", direction: "response", mime: "application/json", text: PLAIN_ROWS, evidence: { sink: "JSON.parse", match: null, frames, at: 1_760_000_000_000 } },
+      row: { request: "r-7", direction: "response", mime: "application/json", text: PLAIN_ROWS, evidence: { sink: "JSON.parse", match: null, link: "weak", frames, at: 1_760_000_000_000 } },
     });
   });
-  test("scope-string records the sha that matched", () => {
+  test("scope-string records the sha that matched, link strong (0.6-L2)", () => {
     const s = suspect("r-7", ["h1", "h2"]);
     const r = observeRow(match({ attribution: { kind: "scope-string", suspect: s }, scopeShas: ["h9", "h2"], plaintext: pt }), 0);
     expect("row" in r && r.row.evidence.match === "h2").toBe(true);
+    expect("row" in r && r.row.evidence.link === "strong").toBe(true);
   });
   test("unattributed keeps the plaintext, request null, candidates listed", () => {
     const r = observeRow(match({ attribution: { kind: "unattributed", candidates: ["r-1", "r-2"] }, plaintext: pt }), 3);
@@ -282,5 +302,90 @@ describe("overlayEvent against a view recorded inline (D4)", () => {
   test("a non-request event is untouched", () => {
     const e = { kind: "note", id: "r-1" };
     expect(overlayEvent(e, new Map([["r-1\tresponse", view("page")]]))).toBe(e);
+  });
+});
+
+describe("0.6-L2: the raw body text is a suspect hash too", () => {
+  test("candidates first, the raw text last (evidence.match names the ciphertext when both are in scope)", () => {
+    const body = '{"code":0,"data":"' + LEAF + '"}';
+    const s = suspectOf(new TextEncoder().encode(body), body);
+    if (s === null) throw new Error("not a suspect");
+    expect(suspectShas(s, body)).toEqual([sha(LEAF), sha(body)]);
+    // a whole-body candidate that is the raw text itself is listed once
+    const t = new TextDecoder("latin1").decode(hot());
+    const w = suspectOf(hot(), t);
+    if (w === null) throw new Error("not a suspect");
+    expect(suspectShas(w, t)).toEqual([sha(t)]);
+  });
+  test("an axios-style scope holding the raw envelope is a scope-string match", () => {
+    const body = '{"code":0,"data":"' + LEAF + '"}';
+    const s = suspectOf(new TextEncoder().encode(body), body);
+    if (s === null) throw new Error("not a suspect");
+    const a = attribute([suspect("r-3", suspectShas(s, body)), suspect("r-4", ["other"])], [sha(body)]);
+    expect(a.kind === "scope-string" && a.suspect.request).toBe("r-3");
+  });
+});
+
+describe("0.6-L2: addBounded keeps the newest", () => {
+  test("evicts the oldest at the cap, ignores repeats", () => {
+    const set = new Set<string>();
+    for (const k of ["a", "b", "c"]) addBounded(set, k, 3);
+    addBounded(set, "b", 3);
+    expect([...set]).toEqual(["a", "b", "c"]);
+    addBounded(set, "d", 3);
+    expect([...set]).toEqual(["b", "c", "d"]);
+  });
+});
+
+describe("0.6-L2: pairing a pause with its log-point line (spike E6 order, E10 position)", () => {
+  const L = (text: string, at: number, sites: string[]): LoggedPlain => ({ text, oversize: false, at, sites });
+  test("sites: the console stack's first frames, the pause's top frame", () => {
+    const params = { stackTrace: { callFrames: [{ scriptId: "90", lineNumber: 0, columnNumber: 5 }, { scriptId: "12", lineNumber: 14, columnNumber: 36 }, { scriptId: "12", lineNumber: 41 }] } };
+    expect(consoleSites(params)).toEqual(["90:0:5", "12:14:36"]);
+    expect(consoleSites({})).toEqual([]);
+    expect(pauseSite({ location: { scriptId: "12", lineNumber: 14, columnNumber: 36 } })).toBe("12:14:36");
+    expect(pauseSite(undefined)).toBeNull();
+  });
+  test("the line of this site is taken; lines before it lost their pause (stale)", () => {
+    const q = [L("old", 100, ["9:1:1"]), L("mine", 110, ["9:2:2"]), L("next", 120, ["9:3:3"])];
+    const r = takeLogged(q, "9:2:2", 200);
+    expect(r.hit?.text).toBe("mine");
+    expect(r.stale).toBe(1);
+    expect(r.rest.map((x) => x.text)).toEqual(["next"]);
+  });
+  test("no line for this site: null, the queue is kept (the guard failed for this parse)", () => {
+    const q = [L("other", 100, ["9:1:1"])];
+    const r = takeLogged(q, "9:2:2", 200);
+    expect(r.hit).toBeNull();
+    expect(r.rest).toEqual(q);
+    expect(r.stale).toBe(0);
+  });
+  test("a line without stack frames pairs in order; old lines expire", () => {
+    expect(takeLogged([L("bare", 100, [])], "9:2:2", 200).hit?.text).toBe("bare");
+    const r = takeLogged([L("ancient", 0, ["9:2:2"])], "9:2:2", LOGGED_MAX_AGE_MS + 1);
+    expect(r.hit).toBeNull();
+    expect(r.stale).toBe(1);
+  });
+});
+
+describe("0.6-L2: a page view's link reaches find's hits", () => {
+  let root = "";
+  let dir = "";
+  beforeAll(async () => {
+    root = mkdtempSync(join(tmpdir(), "tabcap-obs-link-"));
+    dir = await s42Bundle(join(root, "b"));
+    // The s42 items response (r-4) is XOR-encoded on the wire; plant the
+    // plaintext as an observe row, as the tracer files it.
+    const put = await new BlobStore(dir).put(S42_ITEMS_JSON);
+    if (put.outcome !== "stored") throw new Error("blob not stored");
+    const decoded = (link: "strong" | "weak") => ({ by: "page", version: "observe/0", direction: "response", mime: "application/json", blob: put.ref, bytes: put.size, ok: true, evidence: { sink: "JSON.parse", match: null, link, frames: [], at: 1 } });
+    appendSidecar(dir, { seq: 1, request: "r-4", direction: "response", decoded: decoded("weak"), at: 1 });
+  });
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  test("a hit in a weak page view says link: weak", () => {
+    const hits = find(dir, "甲号商品").hits.filter((h) => h.ref === "r-4");
+    expect(hits.length).toBe(1);
+    expect(hits[0]?.decode[0]).toBe("page");
+    expect(hits[0]?.link).toBe("weak");
   });
 });
