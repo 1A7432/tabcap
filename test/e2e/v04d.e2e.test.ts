@@ -79,10 +79,10 @@ describe.skipIf(!enabled)("tabcap 0.4-D L2 (account pool, proxy pool, per-accoun
     px2 = startForwardProxy(P2);
     const add = await tabcap(["site", "add", SITE, "--url", `${site.origin}/pool/me`, "--user", "alice", "--password-stdin"], SITE_PW + "\n");
     if (!add.ok) throw new Error(`site add failed: ${add.raw}`);
-    // a second account of the same site (store level: the CLI has one account per site add)
-    const st = Store.open(paths({ TABCAP_HOME: home }).config);
-    st.addAccount({ site: SITE, username: "bob", password: "Site-pass-e2e-0043" });
-    st.close();
+    // a second account of the same site, through the CLI
+    const bob = await tabcap(["account", "add", SITE, "--user", "bob", "--password-stdin"], "Site-pass-e2e-0043\n");
+    if (!bob.ok) throw new Error(`account add failed: ${bob.raw}`);
+    if (bob.raw.includes("Site-pass-e2e-0043")) throw new Error("account add printed the password");
     await ok("daemon", "start");
     await ok("browser", "start", "--proxy", "none", "--executable-path", CHROME);
   }, 60_000);

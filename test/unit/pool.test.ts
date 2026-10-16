@@ -34,7 +34,7 @@ import { cookieParam, extContextError, Pool } from "../../src/daemon/pool/runtim
 import { Daemon } from "../../src/daemon/state.ts";
 import { MIGRATIONS, SCHEMA_VERSION, Store, storePath, type AccountRow, type ProxyCheckPatch, type ProxyRow } from "../../src/daemon/store/db.ts";
 import type { AttachedTarget, CdpEvent, CdpParams, Transport } from "../../src/daemon/transport/types.ts";
-import { accountBind, accountList, accountSetState, parseAccountRef, proxyAdd, proxyCheck, proxyList, proxyRemove } from "../../src/cli/pool.ts";
+import { accountAdd, accountBind, accountList, accountRemove, accountSetState, parseAccountRef, proxyAdd, proxyCheck, proxyList, proxyRemove, proxySetState } from "../../src/cli/pool.ts";
 import { parsePoolConfig, readConfig, writeConfig } from "../../src/shared/config.ts";
 import { TabcapError, ok } from "../../src/shared/envelope.ts";
 import { paths } from "../../src/shared/paths.ts";
@@ -595,5 +595,105 @@ describe("downstream: the generated client's proxy and replay check --live", () 
     expect(JSON.stringify(r)).not.toContain(encodeURIComponent(PASS));
     expect(r.rows[0]?.error).toContain("<secret:proxy.p1>");
     expect(existsSync(bundle)).toBe(true);
+  });
+});
+
+describe("tabcap account add / remove and proxy set-state (CLI side)", () => {
+  const BOBPW = "Bob-pass-Zq81x";
+  const SEED = "JBSWY3DPEHPK3PXP";
+  const none = () => Promise.resolve<string[]>([]);
+
+  test("account add: password from stdin, never in output; duplicate and unknown site refused; --totp-stdin reads two lines", async () => {
+    const { p, s } = poolHome();
+    s.close();
+    const out = await accountAdd(p, { site: "example", user: "bob", passwordStdin: true }, () => Promise.resolve(BOBPW + "\n"));
+    expect(out).toMatchObject({ account: "example.bob", site: "example", user: "bob", state: "active", proxy: null });
+    expect(JSON.stringify(out)).not.toContain(BOBPW);
+    const st = Store.open(p.config);
+    expect(st.account("example", "bob")).toMatchObject({ username: "bob", state: "active", proxy: null });
+    expect(st.knownSecrets().some((k) => k.value === BOBPW)).toBe(true); // stored, so scrubbed from daemon output
+    st.close();
+    expect(await codeOfAsync(() => accountAdd(p, { site: "example", user: "bob", passwordStdin: true }, () => Promise.resolve("other-pass-1\n")))).toBe("conflict");
+    expect(await codeOfAsync(() => accountAdd(p, { site: "nosuch", user: "bob", passwordStdin: true }, () => Promise.resolve("x-pass-123\n")))).toBe("not-found");
+    expect(await codeOfAsync(() => accountAdd(p, { site: "example", passwordStdin: true }, () => Promise.resolve("x-pass-123\n")))).toBe("usage");
+    expect(await codeOfAsync(() => accountAdd(p, { site: "example", user: "carol", passwordStdin: true }, () => Promise.resolve("\n")))).toBe("usage");
+    // no terminal in the test: without --password-stdin there is no prompt, and nothing is stored
+    expect(await codeOfAsync(() => accountAdd(p, { site: "example", user: "carol" }))).toBe("usage");
+    expect(await codeOfAsync(() => accountAdd(p, { site: "example", user: "carol", totpStdin: true }, () => Promise.resolve("a\nb\n")))).toBe("usage");
+    const t = await accountAdd(p, { site: "example", user: "dave", passwordStdin: true, totpStdin: true }, () => Promise.resolve(`Dave-pass-9x1\n${SEED}\n`));
+    expect(JSON.stringify(t)).not.toContain(SEED);
+    expect(JSON.stringify(t)).not.toContain("Dave-pass-9x1");
+    expect(await codeOfAsync(() => accountAdd(p, { site: "example", user: "erin", passwordStdin: true, totpStdin: true }, () => Promise.resolve("Erin-pass-9x1\n")))).toBe("usage");
+    const st2 = Store.open(p.config);
+    expect(st2.accounts("example").map((a) => a.username)).toEqual(["alice", "bob", "dave"]);
+    expect(st2.knownSecrets().some((k) => k.value === SEED)).toBe(true); // scrubbed from daemon output like any secret
+    st2.close();
+    const listed = JSON.stringify(accountList(p, { site: "example" }));
+    for (const secret of [BOBPW, SEED, "Dave-pass-9x1"]) expect(listed).not.toContain(secret);
+  });
+
+  test("account remove: gone with its cookies; unknown → not-found; in use by a session → conflict and nothing changes", async () => {
+    const { p, s } = poolHome();
+    s.addAccount({ site: "example", username: "bob", password: BOBPW });
+    s.saveSession("example", "bob", [], 5);
+    s.close();
+    expect(await codeOfAsync(() => accountRemove(p, { account: "example.bob" }, () => Promise.resolve(["main"])))).toBe("conflict");
+    expect(await codeOfAsync(() => accountRemove(p, { account: "example.zed" }, none))).toBe("not-found");
+    expect(await codeOfAsync(() => accountRemove(p, { account: "nodot" }, none))).toBe("usage");
+    const st0 = Store.open(p.config);
+    expect(st0.account("example", "bob")).not.toBeNull();
+    st0.close();
+    expect(await accountRemove(p, { account: "example.bob" }, none)).toEqual({ account: "example.bob", removed: true });
+    const st = Store.open(p.config);
+    expect(st.accounts("example").map((a) => a.username)).toEqual(["alice"]);
+    expect(st.site("example")).not.toBeNull();
+    expect(st.account("example", "bob")).toBeNull();
+    st.close();
+    // the inverse really is an inverse: the same user can be added again
+    await accountAdd(p, { site: "example", user: "bob", passwordStdin: true }, () => Promise.resolve(BOBPW));
+  });
+
+  test("account remove with no daemon running: the live lookup finds no session, so it removes", async () => {
+    const { p, s } = poolHome();
+    s.addAccount({ site: "example", username: "bob", password: BOBPW });
+    s.close();
+    expect(await accountRemove(p, { account: "example.bob" })).toEqual({ account: "example.bob", removed: true });
+  });
+
+  test("proxy set-state: {proxy, from, state}; disabled is skipped by auto, active makes it eligible again as unknown", () => {
+    const { p, s } = poolHome(); // alice is bound to p1
+    s.addAccount({ site: "example", username: "bob", password: BOBPW });
+    s.updateProxy("p1", { state: "up", failCount: 1, lastOkAt: 7 });
+    const H = 3_600_000;
+    const pool = new Pool(() => 10 * H);
+    expect(pool.pick(s, "example", "auto")?.username).toBe("alice");
+    s.close();
+    expect(proxySetState(p, { name: "p1", state: "disabled" })).toEqual({ proxy: "p1", from: "up", state: "disabled" });
+    const s2 = Store.open(p.config);
+    expect(pool.pick(s2, "example", "auto")?.username).toBe("bob"); // alice's proxy is disabled
+    expect(codeOf(() => pool.pick(s2, "example", "alice"))).toBe("conflict");
+    s2.patchAccount("example", "bob", { state: "disabled" });
+    expect(codeOf(() => pool.pick(s2, "example", "auto"))).toBe("conflict"); // nothing left
+    s2.close();
+    expect(proxySetState(p, { name: "p1", state: "active" })).toEqual({ proxy: "p1", from: "disabled", state: "unknown" });
+    const s3 = Store.open(p.config);
+    expect(s3.proxy("p1")).toMatchObject({ state: "unknown", failCount: 0, recheckAt: null });
+    expect(pool.pick(s3, "example", "auto")?.username).toBe("alice");
+    s3.close();
+    expect(codeOf(() => proxySetState(p, { name: "p1", state: "down" }))).toBe("usage");
+    expect(codeOf(() => proxySetState(p, { name: "nope", state: "active" }))).toBe("not-found");
+    expect(JSON.stringify(proxySetState(p, { name: "p1", state: "disabled" }))).not.toContain(PASS);
+  });
+
+  test("a hand-disabled proxy keeps `disabled` through a check and is never due for one", async () => {
+    const { p, s } = poolHome();
+    s.close();
+    proxySetState(p, { name: "p1", state: "disabled" });
+    const fake: HttpClient = async () => new Response("", { status: 200 });
+    expect(await proxyCheck(p, { name: "p1", url: "http://127.0.0.1:4310/" }, { fetch: fake, now: () => 1 })).toMatchObject({ state: "disabled" });
+    const st = Store.open(p.config);
+    const row = st.proxy("p1");
+    st.close();
+    expect(row !== null && proxyDue(row, 9e9, 1000)).toBe(false);
   });
 });
