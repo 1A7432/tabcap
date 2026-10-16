@@ -38,6 +38,15 @@
 - 非 UTF-8 的正文按声明的字符集解码（响应的 charset、content-type，否则 HTML `<meta charset>`），例如 GBK；不认识的字符集在无其它命中时给 reason `unsupported-charset`。
 - 端到端测试加入靶场场景 s40 locale-numbers（同一份 `/api/rows` 的 en-US、de-DE、fr-FR、en-IN、会计格式五种渲染）。
 
+### HTML 页面里的内嵌状态（0.4-H）
+
+- **解码链新增三个步骤**，解 HTML 文档里携带的状态，`analyze find`、`where`、`analyze deps` 共用（不执行页面脚本，只做有上限的文本扫描）：
+  - `script-json`：`<script type="application/json">` 与 `application/ld+json`（含 Next.js `__NEXT_DATA__`），节点地址 `script[<n>]`（n 是这类 script 的文档序号），路径接着写 `script[0].$.props.pageProps.rows[0].amount`。单个超过 4 MiB 不解（`truncated`）；JSON 坏了记 `unparsed`。
+  - `inline-assign`：内联脚本里顶层的 `window.X = <字面量>` / `var|let|const X = <字面量>`，字面量是对象或数组，按 JSON 或宽松超集解析（无引号的标识符键、单引号字符串、尾随逗号、`undefined` 当 null），节点地址 `assign[X]`，路径如 `assign[__STATE__].rows[0].amount`。函数调用、表达式、模板字符串、函数体内的赋值不解。每文档最多 64 个、每个字面量最多 1 MiB；解析失败记 `unparsed` 并引用前 80 个字符。
+  - `viewstate`：隐藏字段 `__VIEWSTATE`、`__VIEWSTATEGENERATOR`、`__EVENTVALIDATION`、`javax.faces.ViewState`，节点 `viewstate[<name>]` 是表单里的原值（`deps` 因此能把 POST 出去的 viewstate 对回携带它的页面），base64 解开后（每字段最多 2 MiB）是 `{bytes: {length, sha256}, strings}`，`strings` 为至少 4 个字符的可打印 ASCII 串与 UTF-16LE 串，按顺序、去重。不做 .NET LOS / Java 对象图解码。
+- 解开的节点认领它的原文，文档其余部分照常按字面量匹配，所以同一个值既在脚本里又显示在表格单元格里时，每处各报一次。`find` 落在节点里的命中带 `node`（步骤、地址、script 的 `id` / `type`）；没解开的节点列在 `searched.embedded`。`where` 把内嵌状态候选和 JSON 候选排在一起，排在页面自身的文本节点前面。
+- 端到端测试加入靶场场景 s41 embedded-state。
+
 ### 删除
 
 - 删除 0.3 的全部弃用别名，不保留兼容：命令 `tabs`（用 `tab list`）、`tab use`（`tab select`）、`press`（`press-key`）、裸 `console`（`console list`）；参数 `net list --type`（`--resource-types`）、`--limit`（`--page-size`）、`--offset`（`--page-idx`），`screenshot --out`（`--file-path`）、`--full`（`--full-page`）；`net list` 输出字段 `offset`、`limit`、`nextOffset`；`--help` 与生成文档里的「deprecated」行；`tabcap schema --json` 的 `deprecatedFor` / `deprecatedAliases` / `deprecated` 字段。旧名现在报普通的 `unknown command` / `unknown option` 用法错误。`console list --limit`（最后 N 条）和 `dialog --prompt-text`（`--text` 的普通别名）保留。
