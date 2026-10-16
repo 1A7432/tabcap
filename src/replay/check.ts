@@ -454,9 +454,8 @@ async function decodedBodies(
 
 /**
  * Both plaintexts when the recording has a decoded view and its plugin decodes
- * the answer too; else null with a note saying why the originals are compared.
- * (`replay serve` matching on decoded bodies is 0.6-C: analyze/views.ts
- * decodedPayload is the extension point.)
+ * the answer too; else null with a note saying why the originals are compared
+ * (compare "status+body", the default; "status+decoded-body" is decodedBodies above).
  */
 async function decodedPair(
   r: RequestEvent,
