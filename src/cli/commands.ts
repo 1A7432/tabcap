@@ -145,6 +145,27 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap proxy check p1 --url http://127.0.0.1:8080/",
   },
   {
+    path: ["proxy", "set-state"],
+    pos: ["name", "state"],
+    choices: { state: ["active", "disabled"] },
+    flags: [],
+    summary: "disable a proxy by hand (skipped by allocation and rotation, never checked) or set it active again (back to unknown until the next check)",
+    example: "tabcap proxy set-state p1 disabled",
+  },
+  {
+    path: ["account", "add"],
+    pos: ["site"],
+    quiet: true,
+    flags: [
+      { flag: "--user", key: "user", kind: "string", help: "account username (not a secret: shown in listings)", required: true, metavar: "username" },
+      { flag: "--password-stdin", key: "passwordStdin", kind: "bool", help: "read the password from stdin (else an interactive prompt; never an argument)" },
+      { flag: "--totp-stdin", key: "totpStdin", kind: "bool", help: "also store a TOTP seed: needs --password-stdin, stdin is two lines (password, then seed)" },
+    ],
+    summary: "add another account to a stored site (for the human, not the AI: the password is typed at a prompt or piped, never an argument, never shown); a duplicate <site>.<user> is refused",
+    example: "tabcap account add example --user bob --password-stdin",
+  },
+  { path: ["account", "remove"], pos: ["account"], flags: [], summary: "delete a stored account with its saved cookies and counters; refused while a session uses it", example: "tabcap account remove example.bob" },
+  {
     path: ["account", "bind"],
     pos: ["account"],
     flags: [{ flag: "--proxy", key: "proxy", kind: "string", help: "a proxy name: the account gets its own browser context through it; system / none: the browser's own context and proxy flags", required: true, metavar: "name|system|none" }],
