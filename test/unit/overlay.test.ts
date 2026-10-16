@@ -59,6 +59,25 @@ describe("overlay describe on recorded range pages", () => {
     if (!isRecord(script) || typeof script["act"] !== "function") throw new Error("no act()");
     expect((script["act"] as (op: string) => unknown).call(script, "close")).toEqual({ data: { error: "unknown op close" }, nodes: [] });
   });
+
+  test("act buttons (0.4-I): a whole document's visible buttons, close ones by the dialog rules, the rest as choices", () => {
+    if (!isRecord(script) || typeof script["act"] !== "function") throw new Error("no act()");
+    const btn = (text: string, label: string, visible = true) => ({
+      localName: "button",
+      innerText: text,
+      value: "",
+      getAttribute: (n: string) => (n === "aria-label" ? label : null),
+      getBoundingClientRect: () => ({ width: visible ? 24 : 0, height: visible ? 24 : 0 }),
+    });
+    // the s22 layer page's close button (site.ts: "×" with aria-label 关闭), a list entry, a hidden "x"
+    const els = [btn("条目甲", ""), btn("×", "关闭"), btn("x", "", false)];
+    const doc = { querySelectorAll: () => els, defaultView: { getComputedStyle: () => ({ display: "block", visibility: "visible", opacity: "1" }) } };
+    const act = script["act"] as (op: string, el: unknown) => unknown;
+    const r = act.call(script, "buttons", { ownerDocument: doc, isConnected: true });
+    expect(isRecord(r) ? r["data"] : null).toEqual({ close: [{ n: 0, label: "×" }], choices: [{ n: 1, label: "条目甲" }] });
+    expect(isRecord(r) ? r["nodes"] : null).toEqual([els[1], els[0]]);
+    expect(act.call(script, "buttons", { ownerDocument: doc, isConnected: false })).toEqual({ data: { close: [], choices: [] }, nodes: [] });
+  });
 });
 
 describe("overlay detect on recorded digests", () => {
@@ -81,8 +100,8 @@ describe("overlay detect on recorded digests", () => {
   test("shell page: the hidden dialog's markup is detected; describe decides visibility", () => {
     expect(run("shell").evidence).toEqual(["aria-modal element", "role=dialog element"]);
   });
-  test("builtins: overlay only (scope rule), category overlay, act op covered", () => {
-    expect(builtinAdapters().map((a) => [a.name, a.category, a.hooks.act?.ops])).toEqual([["overlay", "overlay", ["covered"]]]);
+  test("builtins: overlay only (scope rule), category overlay, act ops covered and buttons (0.4-I: an iframe layer's inner document)", () => {
+    expect(builtinAdapters().map((a) => [a.name, a.category, a.hooks.act?.ops])).toEqual([["overlay", "overlay", ["covered", "buttons"]]]);
   });
 });
 

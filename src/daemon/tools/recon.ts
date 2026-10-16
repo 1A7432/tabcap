@@ -15,6 +15,7 @@ import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
 import { builtinAdapters } from "../adapters/registry.ts";
 import { runDetect } from "../adapters/runtime.ts";
+import { rootDoc } from "../browser/worlds.ts";
 import type { Daemon } from "../state.ts";
 import type { Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
@@ -44,7 +45,7 @@ async function livePage(d: Daemon, session: string, a: Args, reader: BundleReade
       const o = isRecord(v) ? v : {};
       let adapters: AdapterDetection[] | null = null;
       try {
-        adapters = (await runDetect(t, tab, doc, builtinAdapters(), docHeaders(reader.requests(), doc.url))).map((x) => ({ adapter: x.adapter, category: x.category, confidence: x.confidence, evidence: x.evidence }));
+        adapters = (await runDetect(t, tab, rootDoc(tab, doc), builtinAdapters(), docHeaders(reader.requests(), doc.url))).map((x) => ({ adapter: x.adapter, category: x.category, confidence: x.confidence, evidence: x.evidence }));
       } catch {
         adapters = null;
       }

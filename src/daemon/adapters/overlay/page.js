@@ -3,7 +3,8 @@
 // layout, computed styles and text and never changes the page (no scrolling,
 // no focus, no events, no writes). collect() gathers plain data, classify() is
 // a pure function of that data (unit-tested on fixtures/dom/), describe() and
-// act("covered") combine both. Results are { data, nodes }: every `n` in data
+// act("covered") combine both; act("buttons") lists a whole document's close
+// buttons (an iframe layer's inner document, 0.4-I). Results are { data, nodes }: every `n` in data
 // indexes `nodes`, which the daemon turns into refs.
 ({
   collect() {
@@ -133,12 +134,10 @@
 
   classify(d) {
     const C = d.cands;
+    const { labelOf, strictClose, isClose } = this.buttonRules();
     const CONSENT = /cookie|consent|gdpr/i;
     const CONSENT_ID = /consent|cookie|gdpr|onetrust|cmp-|privacy-banner/i;
     const TIMEOUT = /(会话|登录|登陆|session).{0,10}(超时|过期|失效|expir|time[ds]? ?out)|即将(超时|退出|过期)|自动(退出|登出|注销)|长时间未操作|还在吗|are you still there|still there\?|inactiv/i;
-    const CLOSE_TEXT = /^(×|✕|✖|╳|x|X)$|^(关闭|關閉|取消|close|dismiss|稍后再说|以后再说|知道了|我知道了|cancel|no,? thanks|not now)$/i;
-    const CLOSE_STRICT = /^(×|✕|✖|╳|x|X|关闭|關閉|close)$/i;
-    const CLOSE_CLS = /(^|[\s_-])close|headerbtn/i;
     const kindOf = (c) => {
       if (c.ariaModal || c.nativeModal || c.dialogRole) return "dialog";
       if (!c.fixed) return null;
@@ -188,9 +187,6 @@
       const seen = new Set();
       const buttons = [];
       for (const j of [o.k, o.root, ...o.inner]) for (const b of C[j].buttons) if (!seen.has(b.n)) { seen.add(b.n); buttons.push(b); }
-      const labelOf = (b) => b.text || b.label || (CLOSE_CLS.test(b.cls) ? "close" : b.tag);
-      const strictClose = (b) => CLOSE_STRICT.test(b.text) || CLOSE_STRICT.test(b.label) || (b.text === "" && b.label === "" && CLOSE_CLS.test(b.cls));
-      const isClose = (b) => strictClose(b) || CLOSE_TEXT.test(b.text) || CLOSE_TEXT.test(b.label) || CLOSE_CLS.test(b.cls);
       let close = [];
       let choices = [];
       if (o.kind === "consent") choices = buttons.filter((b) => b.text || b.label);
@@ -221,6 +217,46 @@
     return { overlays: out };
   },
 
+  // Close-button rules shared by classify() and act("buttons").
+  buttonRules() {
+    const CLOSE_TEXT = /^(×|✕|✖|╳|x|X)$|^(关闭|關閉|取消|close|dismiss|稍后再说|以后再说|知道了|我知道了|cancel|no,? thanks|not now)$/i;
+    const CLOSE_STRICT = /^(×|✕|✖|╳|x|X|关闭|關閉|close)$/i;
+    const CLOSE_CLS = /(^|[\s_-])close|headerbtn/i;
+    const labelOf = (b) => b.text || b.label || (CLOSE_CLS.test(b.cls) ? "close" : b.tag);
+    const strictClose = (b) => CLOSE_STRICT.test(b.text) || CLOSE_STRICT.test(b.label) || (b.text === "" && b.label === "" && CLOSE_CLS.test(b.cls));
+    const isClose = (b) => strictClose(b) || CLOSE_TEXT.test(b.text) || CLOSE_TEXT.test(b.label) || CLOSE_CLS.test(b.cls);
+    return { labelOf, strictClose, isClose };
+  },
+
+  // act("buttons"): the visible buttons of the whole document `el` belongs to,
+  // split into close buttons and other choices by the dialog rules. Used for
+  // the document inside an iframe layer (0.4-I): its close button is not in
+  // the layer's own document.
+  docButtons(el) {
+    const doc = el.ownerDocument || el;
+    const view = doc.defaultView || window;
+    const clean = (s, n) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
+    const visible = (b) => {
+      const cs = view.getComputedStyle(b);
+      if (cs.display === "none" || cs.visibility === "hidden" || cs.visibility === "collapse" || Number(cs.opacity) === 0) return false;
+      const r = b.getBoundingClientRect();
+      return r.width >= 1 && r.height >= 1;
+    };
+    const BTN = "button, a[href], [role=button], input[type=button], input[type=submit], input[type=reset], [onclick], [class*=close], [class*=Close]";
+    const nodes = [];
+    const buttons = [];
+    for (const b of doc.querySelectorAll(BTN)) {
+      if (buttons.length >= 24) break;
+      if (!visible(b)) continue;
+      buttons.push({ n: nodes.length, tag: b.localName, text: clean(b.innerText || b.value || "", 40), label: clean(b.getAttribute("aria-label") || b.getAttribute("title") || "", 40), cls: clean(b.getAttribute("class"), 80) });
+      nodes.push(b);
+    }
+    const { labelOf, isClose } = this.buttonRules();
+    const close = buttons.filter(isClose).slice(0, 4).map((b) => ({ n: b.n, label: labelOf(b) }));
+    const choices = buttons.filter((b) => !isClose(b) && (b.text || b.label)).slice(0, 4).map((b) => ({ n: b.n, label: labelOf(b) }));
+    return this.pack({ close, choices }, nodes);
+  },
+
   pack(data, nodes) {
     const keep = [];
     const map = new Map();
@@ -246,6 +282,7 @@
   },
 
   act(op, el) {
+    if (op === "buttons") return el && el.isConnected ? this.docButtons(el) : { data: { close: [], choices: [] }, nodes: [] };
     if (op !== "covered") return { data: { error: "unknown op " + String(op) }, nodes: [] };
     if (!el || el.nodeType !== 1 || !el.isConnected) return { data: { covered: false, reason: "detached" }, nodes: [] };
     const col = this.collect();
