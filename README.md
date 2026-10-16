@@ -123,7 +123,7 @@ Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `
 
 | Command | What it does |
 |---|---|
-| `tabcap trace start [--apis file] [--stack n] [--first-n n] [--max-hits n]` | trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable |
+| `tabcap trace start [--apis file] [--stack n] [--first-n n] [--max-hits n] [--decode] [--no-decode]` | trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable; with --decode also in-page decoding: breakpoints pause JSON.parse, the plaintext is recovered from the pausing scope, never a CryptoKey |
 | `tabcap trace stop` | end trace mode: breakpoints removed, debugger off, open documents written to the recording |
 | `tabcap trace status` | trace mode state: on \| paused (handoff) \| off, active APIs, names skipped in this browser, per-document read counts |
 | `tabcap trace list [--api name] [--script url] [--text] [--reveal]` | API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded |

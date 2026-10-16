@@ -1301,13 +1301,13 @@ Example: `tabcap html e12 --inner`
 
 ### `tabcap trace start`
 
-trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable
+trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable; with --decode also in-page decoding: breakpoints pause JSON.parse, the plaintext is recovered from the pausing scope, never a CryptoKey
 
 ```
-tabcap trace start [--session name] [--apis file] [--stack n] [--first-n n] [--max-hits n]
+tabcap trace start [--session name] [--apis file] [--stack n] [--first-n n] [--max-hits n] [--decode] [--no-decode]
 ```
 
-Example: `tabcap trace start`
+Example: `tabcap trace start --decode`
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -1315,6 +1315,8 @@ Example: `tabcap trace start`
 | `--stack <n>` | `8` | stack frames kept per signal event |
 | `--first-n <n>` | `20` | signal events with a stack per (api, caller); later ones only count |
 | `--max-hits <n>` | `500` | reads of one API in one document before its breakpoint is removed (the event gets truncated: true) |
+| `--decode` |  | observe mode: a response that looks like ciphertext arms JSON.parse for 5 s and the plaintext the page itself parses is filed as a decoded view by "page" (config.json trace.decode sets the default; TextDecoder / SubtleCrypto pauses are evidence only) |
+| `--no-decode` |  | start without the observe mode, whatever config.json says |
 
 ### `tabcap trace stop`
 
