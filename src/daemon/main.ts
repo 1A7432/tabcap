@@ -48,7 +48,7 @@ export function summarize(data: unknown): unknown {
   if (!isRecord(data)) return null;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {
-    if (["tree", "value", "valueText", "textPreview", "hits", "requests"].includes(k)) continue;
+    if (["tree", "value", "valueText", "textPreview", "hits", "requests", "body", "bodyBase64"].includes(k)) continue;
     if (k === "receipt" && isRecord(v)) {
       const r = Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === "string" && x.length <= 200).slice(0, 8));
       if (Object.keys(r).length > 0) out[k] = r;
@@ -85,7 +85,7 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   // has looked at the field, so the start event defers it to the end event.
   const deferText = TEXT_ACTIONS.has(action) && typeof args["text"] === "string";
   const scrubbed = () => {
-    const input = scrubValue(d.secrets, { action, ...args });
+    const input = scrubValue(d.secrets, { action, ...(action === "fetch" ? fetchInput(args) : args) });
     return { argv: argv === null ? null : argv.map((a) => d.secrets.scrub(a)), input: isRecord(input) ? input : {} };
   };
   const startArgs = () => (deferText ? { argv: null, input: { ...scrubbed().input, text: DEFERRED } } : scrubbed());
@@ -96,7 +96,7 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   d.noteAction(session, { action, at: started, cmd: startId });
   let env: Envelope<unknown>;
   try {
-    const data = await tool(d, args, session);
+    const data = await tool(d, args, session, { cmd: startId });
     // While recording, action commands say which command window they were (`net list --since c-<n>`).
     const out = startId !== null && ACTION_COMMANDS.has(action) && isRecord(data) && !("cmd" in data) ? { ...data, cmd: startId } : data;
     const h = d.guard.get(session);
@@ -122,17 +122,38 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     // A recording this command started (net start) gets its window opened now.
     const id = rec === recAtStart && startId !== null ? startId : rec.cmdStart({ tab: currentTab(), ...startArgs() });
     if (id !== null) {
+      // 0.6-A: a fetch's end event lists the requests it sent (by fetchId), stopped or not.
+      const fetched = action === "fetch" ? rec.index.filter((e) => e.fetchId !== undefined && e.fetchId.startsWith(`${id}:`)).map((e) => e.id) : null;
+      const summary = env.ok ? summarize(env.data) : null;
       rec.cmdEnd(id, {
         tab: currentTab(),
         ok: env.ok,
-        error: env.ok ? null : scrubValue(d.secrets, env.error),
+        error: env.ok ? null : scrubValue(d.secrets, withoutResult(env.error)),
         durationMs,
-        outputSummary: env.ok ? scrubValue(d.secrets, summarize(env.data)) : null,
+        outputSummary: fetched === null ? (env.ok ? scrubValue(d.secrets, summary) : null) : scrubValue(d.secrets, { ...(isRecord(summary) ? summary : {}), requests: fetched }),
         ...(deferText ? scrubbed() : {}),
       });
     }
   }
   return env;
+}
+
+/** A fetch's request body can be megabytes: the `cmd` start event keeps text fields up to 4096 chars. */
+export function fetchInput(args: Record<string, unknown>): Record<string, unknown> {
+  const cut = (v: unknown): unknown => (typeof v === "string" && v.length > 4096 ? `${v.slice(0, 4096)}… (${v.length} chars)` : v);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (k === "batch" && Array.isArray(v)) out[k] = { requests: v.length };
+    else if (k === "json") out[k] = cut(JSON.stringify(v) ?? null);
+    else out[k] = cut(v);
+  }
+  return out;
+}
+
+/** The end event keeps a stopped fetch's error without the response it carries (the request event has it). */
+function withoutResult(e: Record<string, unknown>): Record<string, unknown> {
+  if (!("result" in e) || e["code"] !== "fetch.stopped") return e;
+  return Object.fromEntries(Object.entries(e).filter(([k]) => k !== "result"));
 }
 
 /**

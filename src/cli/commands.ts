@@ -625,6 +625,43 @@ export const COMMANDS: CommandSpec[] = [
     action: "net.wait",
   },
   {
+    path: ["fetch"],
+    pos: ["url"],
+    optional: 1,
+    localPaths: ["out"],
+    flags: [
+      SESSION,
+      { flag: "--timeout", key: "timeoutMs", kind: "number", help: "give up after this many ms, the wait for the host's turn included (max 600000); with --batch: per request", default: 30000, metavar: "ms" },
+      TAB,
+      { flag: "--method", key: "method", kind: "string", help: "HTTP method", default: "GET", metavar: "M" },
+      { flag: "--header", key: "header", kind: "string", repeat: true, help: "request header (name:value)", metavar: "k:v" },
+      { flag: "--body", key: "body", kind: "string", help: "request body text, or @<file> to read it from a file", metavar: "text|@file" },
+      { flag: "--json", key: "json", kind: "string", help: "JSON request body (checked; content-type application/json unless --header sets one), or @<file>", metavar: "text|@file" },
+      { flag: "--form", key: "form", kind: "string", repeat: true, help: "form field of an application/x-www-form-urlencoded body", metavar: "k=v" },
+      {
+        flag: "--stop-on",
+        key: "stopOn",
+        kind: "string",
+        repeat: true,
+        help: "stop rule, on top of config.json fetch.stopOn: empty-body | status>=<n> | status=<n> | json:<$.path>=<v> | json:<$.path>!=<v> | text:<regex>; when one fires the site's fetches are refused until `tabcap guard resume --site`",
+        metavar: "rule",
+      },
+      { flag: "--out", key: "out", kind: "string", help: "write the body (text secret-scrubbed) to this file instead of inline / bodyFile", metavar: "file" },
+      { flag: "--raw", key: "rawBody", kind: "bool", help: "the body as base64 inline (bodyBase64, up to 16 MB; text secret-scrubbed) instead of inline text / bodyFile" },
+      {
+        flag: "--batch",
+        key: "batch",
+        kind: "string",
+        help: "JSON lines file, one request per line {url, method?, headers?, body?|json?|form?, tab?, timeoutMs?, stopOn?}: sent in order under the same limits, one envelope printed per line",
+        metavar: "file.jsonl",
+      },
+    ],
+    summary:
+      "send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) | bodyFile, timing, waitedMs}",
+    example: "tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'",
+    action: "fetch",
+  },
+  {
     path: ["where"],
     pos: ["query..."],
     flags: [
@@ -662,6 +699,14 @@ export const COMMANDS: CommandSpec[] = [
     summary: "end a waiting state after the human finished in the browser (run it only when they say so)",
     example: "tabcap handoff continue",
     action: "handoff.continue",
+  },
+  {
+    path: ["guard", "resume"],
+    pos: [],
+    flags: [SESSION, { flag: "--site", key: "site", kind: "string", help: "the store site (or host) whose fetches a stop rule stopped", required: true, metavar: "site" }],
+    summary: "resume fetches: let `tabcap fetch` send to a site again after one of its stop rules fired (decide first: look at the stopped response)",
+    example: "tabcap guard resume --site example",
+    action: "guard.resume",
   },
   {
     path: ["trace", "start"],
@@ -1019,9 +1064,9 @@ export const COMMAND_GROUPS: ReadonlyArray<{ id: string; title: string; test: (c
   { id: "page", title: "Navigation and page reading", test: (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "") },
   { id: "input", title: "Input", test: (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "") },
   { id: "tools", title: "Page tools", test: (c) => ["evaluate", "screenshot", "resize", "emulate", "console"].includes(c.path[0] ?? "") },
-  { id: "network", title: "Network recording", test: (c) => c.path[0] === "net" || c.path[0] === "where" || c.path[0] === "recon" },
+  { id: "network", title: "Network recording", test: (c) => c.path[0] === "net" || c.path[0] === "where" || c.path[0] === "recon" || c.path[0] === "fetch" },
   { id: "trace", title: "Trace mode (signal reads)", test: (c) => c.path[0] === "trace" },
-  { id: "handoff", title: "Handoff and challenge handlers", test: (c) => ["handoff", "plugin"].includes(c.path[0] ?? "") },
+  { id: "handoff", title: "Handoff and challenge handlers", test: (c) => ["handoff", "plugin", "guard"].includes(c.path[0] ?? "") },
   { id: "offline", title: "Offline: bundles, analysis, replay", test: (c) => ["bundle", "analyze", "replay", "schema"].includes(c.path[0] ?? "") },
 ];
 

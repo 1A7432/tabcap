@@ -36,6 +36,7 @@ import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
 import { renderWireText, wireResultOf } from "../wire/probe.ts";
 import type { RunOptions } from "../mcp/tools.ts";
 import { hostConfig } from "../mcp/hosts.ts";
+import { fetchArgs, fetchClientTimeout } from "./fetch.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -335,8 +336,19 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       if (c.action === undefined) throw new TabcapError("internal", `no handler for ${key}`, "This is a bug.");
       // `opts`: an MCP tool's session / timeout for a command without the flag (src/mcp/tools.ts).
       const session = parsed.session ?? opts.session ?? envVar("SESSION") ?? "default";
-      const timeout = typeof parsed.args["timeoutMs"] === "number" ? parsed.args["timeoutMs"] : (opts.timeoutMs ?? 30_000);
-      const env = await send(p, c.action, withLocalPaths(c, parsed.args, process.cwd()), session, [...raw], timeout);
+      let timeout = typeof parsed.args["timeoutMs"] === "number" ? parsed.args["timeoutMs"] : (opts.timeoutMs ?? 30_000);
+      let args = withLocalPaths(c, parsed.args, process.cwd());
+      // 0.6-A `fetch`: @files and --batch are read here; a batch waits for all its requests.
+      if (key === "fetch") {
+        args = fetchArgs(args, process.cwd());
+        timeout = fetchClientTimeout(args, timeout);
+      }
+      const env = await send(p, c.action, args, session, [...raw], timeout);
+      if (key === "fetch" && env.ok && isRecord(env.data) && Array.isArray(env.data["batch"])) {
+        const lines = env.data["batch"];
+        const failed = lines.some((l) => !isRecord(l) || l["ok"] !== true);
+        return { code: failed ? 1 : 0, envelope: env, text: lines.map((l) => JSON.stringify(l)).join("\n") };
+      }
       const code = env.ok ? 0 : env.error.code === "usage" ? 2 : 1;
       // `where --text`: the daemon answers JSON as always; the human report is rendered here.
       if (key === "where" && parsed.args["text"] === true && env.ok) {

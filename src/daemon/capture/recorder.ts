@@ -41,6 +41,7 @@ import {
 } from "./cdpnet.ts";
 import { framePayload, WsBook, type WsConn } from "./ws.ts";
 import { cookieArray, cookieStateFields, navCookieParams, navWantsCookies, stateOrigin, type StateReason } from "./cookies.ts";
+import { continueHeaders, initiatorMatch, markerOf, withoutMarker, type FetchReg } from "./fetchmark.ts";
 
 const NETWORK_ENABLE = { maxTotalBufferSize: 256 * 1024 * 1024, maxResourceBufferSize: 64 * 1024 * 1024, maxPostDataSize: 1024 * 1024 };
 const FETCH_ENABLE = {
@@ -50,6 +51,12 @@ const FETCH_ENABLE = {
     { resourceType: "Document", requestStage: "Response" },
   ],
 };
+/**
+ * 0.6-A: while a `tabcap fetch` with the marker header is in flight on a tab,
+ * fetch() requests also pause at the Request stage, so the marker is removed
+ * before the request leaves Chrome (fetchmark.ts).
+ */
+const FETCH_REQUEST_STAGE = { urlPattern: "*", resourceType: "Fetch", requestStage: "Request" };
 const INLINE_POST_MAX = 64 * 1024;
 const NAV_GRACE_MS = 500;
 /** docs/04 §5.2 rule 9: how long after responseReceived a body the page never reads is written from Fetch. */
@@ -78,9 +85,14 @@ export type NetEntry = {
   cmd: string | null;
   /** Written from the Fetch body because the page never read it (docs/04 §5.2 rule 9). */
   unreadByPage?: boolean;
+  /** 0.6-A: the `tabcap fetch` this request belongs to (`c-N:f-K`). */
+  fetchId?: string;
   /** Daemon clock when the event was written. */
   at: number;
 };
+
+/** A request of a `tabcap fetch` as written: its index entry and the stored event. */
+export type FetchRecord = { entry: NetEntry; event: Record<string, unknown> };
 
 /** One `ws` event of the recording, for `net list --kind ws` / `net body <frame>`. */
 export type WsFrameEntry = {
@@ -123,6 +135,9 @@ type Pending = {
   redirectFrom: string | null;
   response: Record<string, unknown> | null;
   responseMono: number | null;
+  /** 0.6-A: the `tabcap fetch` (c-N:f-K) and its command window, when attributed. */
+  fetchId: string | null;
+  fetchCmd: string | null;
 };
 
 /** Body (and response line) captured at the Fetch Response stage. */
@@ -506,6 +521,8 @@ export class Recorder {
       redirectFrom: null,
       response: c.response,
       responseMono: c.responseMono,
+      fetchId: null,
+      fetchCmd: null,
     };
     const missing: { reason: BodyMissingReason; detail: string | null } =
       missingReason !== null
@@ -605,6 +622,8 @@ export class Recorder {
     const req = isRecord(p["request"]) ? p["request"] : {};
     let redirectFrom: string | null = null;
     const prev = this.pending.get(key);
+    // 0.6-A: a redirect hop stays with the fetch it belongs to.
+    let fetch: { fetchId: string; cmd: string | null } | null = prev !== undefined && prev.fetchId !== null ? { fetchId: prev.fetchId, cmd: prev.fetchCmd } : null;
     if (prev !== undefined && isRecord(p["redirectResponse"])) {
       this.pending.delete(key);
       this.disarmUnread(key);
@@ -632,6 +651,8 @@ export class Recorder {
       const parts = req["postDataEntries"].map((x) => (isRecord(x) && typeof x["bytes"] === "string" ? Buffer.from(x["bytes"], "base64") : Buffer.alloc(0)));
       if (parts.length > 0) postData = Buffer.concat(parts).toString("utf8");
     }
+    fetch ??= this.attribute(sid, req["headers"], p["initiator"]);
+    if (fetch !== null) this.fetchOfKey.set(key, fetch.fetchId);
     this.pending.set(key, {
       key,
       sessionId: sid,
@@ -654,7 +675,110 @@ export class Recorder {
       redirectFrom,
       response: null,
       responseMono: null,
+      fetchId: fetch?.fetchId ?? null,
+      fetchCmd: fetch?.cmd ?? null,
     });
+  }
+
+  // ---------------------------------------------------------------- 0.6-A tabcap fetch attribution
+
+  /** Fetches in flight, by fetchId. */
+  private fetchRegs = new Map<string, FetchReg>();
+  /** Request key → fetchId, for preflights of attributed requests. */
+  private fetchOfKey = new Map<string, string>();
+  /** Requests written per fetchId (redirect hops, preflights, the final one). */
+  private fetchWritten = new Map<string, FetchRecord[]>();
+  private fetchWaiters = new Map<string, Array<(r: FetchRecord) => void>>();
+  /** Request-stage interception holds per CDP session (refcount). */
+  private requestStage = new Map<string, number>();
+
+  /**
+   * Which fetch a new request belongs to (deterministic): the marker header
+   * the helper sent (same-origin), else the helper's function and scriptId on
+   * the initiator stack (cross-origin), else a preflight's initiator request.
+   */
+  private attribute(sid: string, headers: unknown, initiator: unknown): { fetchId: string; cmd: string | null } | null {
+    if (this.fetchRegs.size === 0) return null;
+    const marker = markerOf(headers);
+    const byMarker = marker === null ? undefined : this.fetchRegs.get(marker);
+    if (byMarker !== undefined && byMarker.sessionId === sid) return { fetchId: byMarker.fetchId, cmd: byMarker.cmd };
+    const byStack = initiatorMatch(initiator, this.fetchRegs.values(), sid);
+    if (byStack !== null) return { fetchId: byStack.fetchId, cmd: byStack.cmd };
+    if (isRecord(initiator) && initiator["type"] === "preflight" && typeof initiator["requestId"] === "string") {
+      const main = this.fetchOfKey.get(`${sid}|${initiator["requestId"]}`);
+      const reg = main === undefined ? undefined : this.fetchRegs.get(main);
+      if (reg !== undefined) return { fetchId: reg.fetchId, cmd: reg.cmd };
+    }
+    return null;
+  }
+
+  /** Register a fetch before its helper runs; `forgetFetch` when the command is done. */
+  expectFetch(reg: FetchReg): void {
+    this.fetchRegs.set(reg.fetchId, reg);
+  }
+
+  forgetFetch(fetchId: string): void {
+    this.fetchRegs.delete(fetchId);
+    this.fetchWritten.delete(fetchId);
+    this.fetchWaiters.delete(fetchId);
+    for (const [k, v] of this.fetchOfKey) if (v === fetchId) this.fetchOfKey.delete(k);
+  }
+
+  /** Requests written so far for a fetch (`r-N`, in order). */
+  fetchRequests(fetchId: string): string[] {
+    return (this.fetchWritten.get(fetchId) ?? []).map((r) => r.entry.id);
+  }
+
+  /** The fetch's final request once written (not a redirect hop, not a preflight), or null after `ms`. */
+  waitFetch(fetchId: string, ms: number): Promise<FetchRecord | null> {
+    const done = (this.fetchWritten.get(fetchId) ?? []).find(isFinalFetch);
+    if (done !== undefined) return Promise.resolve(done);
+    return new Promise((resolve) => {
+      const wake = (r: FetchRecord) => {
+        clearTimeout(timer);
+        resolve(r);
+      };
+      const timer = setTimeout(() => {
+        const list = (this.fetchWaiters.get(fetchId) ?? []).filter((w) => w !== wake);
+        if (list.length > 0) this.fetchWaiters.set(fetchId, list);
+        else this.fetchWaiters.delete(fetchId);
+        resolve(null);
+      }, Math.max(0, ms));
+      this.fetchWaiters.set(fetchId, [...(this.fetchWaiters.get(fetchId) ?? []), wake]);
+    });
+  }
+
+  private noteFetchWritten(fetchId: string, r: FetchRecord): void {
+    if (!this.fetchRegs.has(fetchId)) return;
+    this.fetchWritten.set(fetchId, [...(this.fetchWritten.get(fetchId) ?? []), r]);
+    if (!isFinalFetch(r)) return;
+    const ws = this.fetchWaiters.get(fetchId) ?? [];
+    this.fetchWaiters.delete(fetchId);
+    for (const w of ws) w(r);
+  }
+
+  /**
+   * Pause the tab's fetch() requests at the Request stage too while a marked
+   * fetch is in flight, so the recorder removes the marker before the request
+   * leaves Chrome; returns the release (the Response-stage patterns stay).
+   */
+  async holdRequestStage(sid: string): Promise<() => Promise<void>> {
+    const n = this.requestStage.get(sid) ?? 0;
+    this.requestStage.set(sid, n + 1);
+    if (n === 0) await this.t.send("Fetch.enable", { patterns: [...FETCH_ENABLE.patterns, FETCH_REQUEST_STAGE] }, sid, 10_000);
+    let released = false;
+    return async () => {
+      if (released) return;
+      released = true;
+      const left = (this.requestStage.get(sid) ?? 1) - 1;
+      if (left > 0) {
+        this.requestStage.set(sid, left);
+        return;
+      }
+      this.requestStage.delete(sid);
+      if (this.stopping) return;
+      await this.t.send("Fetch.enable", FETCH_ENABLE, sid, 10_000).catch((e: unknown) => log.warn("recorder: restoring the Fetch patterns failed", { error: String(e) }));
+    };
   }
 
   /** True while an XHR / fetch of this session (other than `except`) has neither body nor response yet. */
@@ -671,6 +795,15 @@ export class Recorder {
     if (interceptionId === null) return;
     const networkId = str(p, "networkId");
     const tab = this.sessions.get(sid);
+    if (num(p, "responseStatusCode") === null && str(p, "responseErrorReason") === null) {
+      // 0.6-A Request stage (only while a marked `tabcap fetch` is in flight): drop the marker header.
+      const req = isRecord(p["request"]) ? p["request"] : {};
+      const marked = markerOf(req["headers"]) !== null;
+      await this.t
+        .send("Fetch.continueRequest", marked ? { requestId: interceptionId, headers: continueHeaders(req["headers"]) } : { requestId: interceptionId }, sid, 10_000)
+        .catch((e: unknown) => log.debug("Fetch.continueRequest failed (tolerated)", { error: String(e) }));
+      return;
+    }
     try {
       if (p["resourceType"] === "Document" && tab !== undefined && str(p, "frameId") === tab.targetId) {
         const until = performance.now() + DOC_HOLD_MS;
@@ -830,7 +963,8 @@ export class Recorder {
       unreadByPage?: boolean;
     },
   ): UnsequencedEvent {
-    const reqH = mergeHeaders(q.headers, o.extraReq);
+    // 0.6-A: the marker of a `tabcap fetch` never reached the server (Request stage); the recorded headers say so.
+    const reqH = mergeHeaders(withoutMarker(q.headers), o.extraReq);
     const r = q.response;
     // docs/04 §14: never `response: null`. No response at all (cut by a navigation,
     // failed before headers, still open at stop) → status null, empty headers, why.
@@ -868,7 +1002,9 @@ export class Recorder {
       kind: "request",
       actor: this.actor(),
       tab: this.bundleTab.get(q.tab.id) ?? null,
-      cmd: this.cmdRef(),
+      // 0.6-A: a `tabcap fetch` request belongs to its own command window, whatever else is open.
+      cmd: q.fetchCmd ?? this.cmdRef(),
+      ...(q.fetchId === null ? {} : { fetchId: q.fetchId }),
       nav: q.nav,
       cdp: { requestId: q.requestId, loaderId: q.loaderId, frameId: q.frameId, sessionId: q.sessionId },
       type: q.type,
@@ -915,8 +1051,10 @@ export class Recorder {
       cmd: typeof stored["cmd"] === "string" ? stored["cmd"] : null,
       at: Date.now(),
       ...(stored["unreadByPage"] === true ? { unreadByPage: true } : {}),
+      ...(q.fetchId === null ? {} : { fetchId: q.fetchId }),
     });
     const entry = this.index[this.index.length - 1];
+    if (entry !== undefined && q.fetchId !== null) this.noteFetchWritten(q.fetchId, { entry, event: stored });
     if (entry !== undefined) {
       for (const fn of [...this.indexListeners]) {
         try {
@@ -1264,6 +1402,12 @@ export function initiatorOf(init: Record<string, unknown> | null): Record<string
     }
   }
   return { type: str(init, "type") ?? "other", url: url === "" ? null : url, line, col, stack: null };
+}
+
+/** The request a `tabcap fetch` answers with: not a redirect hop, not a CORS preflight. */
+function isFinalFetch(r: FetchRecord): boolean {
+  const init = r.event["initiator"];
+  return r.entry.bodyMissing !== "redirect" && !(isRecord(init) && init["type"] === "preflight");
 }
 
 function msOf(seconds: number | null): number | null {

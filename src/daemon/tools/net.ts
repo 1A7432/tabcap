@@ -55,7 +55,8 @@ export async function netStart(d: Daemon, _a: Args, session: string): Promise<un
     session,
     bundle: dir,
     alreadyRecording: false,
-    instrumentation: "Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied",
+    instrumentation:
+      "Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied; while a same-origin `tabcap fetch` runs, its tab's fetch() requests also pause at the Request stage (the x-tabcap-fetch marker is removed, nothing else changes)",
   };
 }
 

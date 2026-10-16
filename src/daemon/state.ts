@@ -12,6 +12,7 @@ import { Guard } from "./guard.ts";
 import { Secrets } from "./secrets.ts";
 import type { Store } from "./store/db.ts";
 import { Pool } from "./pool/runtime.ts";
+import { HostLimiter } from "./fetch/limiter.ts";
 
 export type BrowserInfo = {
   transport: "direct";
@@ -89,6 +90,9 @@ export class Daemon {
 
   /** Trace mode per session (0.4-F `tabcap trace start`). */
   readonly tracers = new Map<string, Tracer>();
+
+  /** Per-host pacing of `tabcap fetch` (0.6-A, config.json `fetch`). */
+  readonly fetchLimiter = new HostLimiter();
 
   /** Re-read the store's secrets so replacement covers sites added since (`tabcap site add` runs in the CLI). */
   refreshSecrets(): void {
