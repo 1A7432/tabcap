@@ -27,9 +27,12 @@ import { accountAdd, accountBind, accountList, accountRemove, accountSetState, p
 import { Store, storePath } from "../daemon/store/db.ts";
 import { Secrets, variantsOf } from "../daemon/secrets.ts";
 import { decodeBundle } from "../bundle/decode.ts";
+import { exportFixtures } from "../bundle/fixtures.ts";
 import { readRulesFile, rulesInfo } from "../replay/rules.ts";
+import { bundleRules } from "./replay.ts";
 import { DecodeHost, DecodeSession, type DecodePlugin } from "../daemon/hooks/decode.ts";
-import { asDecodePlugin, decodePlugins, listPlugins, pluginsDir } from "../daemon/hooks/plugins.ts";
+import { asDecodePlugin, asFixturePlugin, decodePlugins, listPlugins, pluginsDir } from "../daemon/hooks/plugins.ts";
+import type { FixturePlugin } from "../daemon/hooks/fixture.ts";
 import { BUNDLE_USAGE, COMMANDS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, flagNames, helpAll, helpFor, helpTopic, matchCommand, parseCommand, schema, specOf, spellingsOf, usageOf, type CommandSpec } from "./commands.ts";
 import { applyFilters, filterOptions, hasFilters, type FilterOptions } from "../shared/filter.ts";
 import { applyBudget, outputLimit } from "../shared/budget.ts";
@@ -51,6 +54,7 @@ const EXPORT_HAR = specOf("bundle export har");
 const IMPORT_HAR = specOf("bundle import har");
 const DECODE = specOf("bundle decode");
 const INFO = specOf("bundle info");
+const EXPORT_FIXTURES = specOf("bundle export fixtures");
 
 /** Flags that take a value; everything else starting with "-" is boolean. */
 const VALUE_FLAGS = new Set(
@@ -219,6 +223,38 @@ async function cmdDecode(p: Parsed): Promise<unknown> {
   } finally {
     host.close();
   }
+}
+
+/** `tabcap bundle export fixtures <bundle> --out <dir> [--rules f] [--format json|plugin] [--no-redact]` (0.6-C, bundle/fixtures.ts). */
+async function cmdExportFixtures(p: Parsed): Promise<unknown> {
+  const usage = USAGE[5] ?? "";
+  checkFlags(p, flagNames(EXPORT_FIXTURES), usage);
+  const [dir = ""] = need(p, 1, usage);
+  const out = flagStr(p, "--out");
+  if (out === undefined) throw new TabcapError("usage", "missing --out <dir>", `Usage: ${usage}`);
+  const reader = BundleReader.open(dir);
+  const config = paths().config;
+  const formatName = flagStr(p, "--format") ?? "json";
+  let format: "json" | FixturePlugin = "json";
+  if (formatName !== "json") {
+    const info = listPlugins(config).find((x) => x.name === formatName);
+    if (info === undefined) throw new TabcapError("not-found", `no plugin named "${formatName}" in ${pluginsDir(config)}`, 'Pass --format json, or install a fixture plugin (manifest.json with "kind": "fixture", docs/04 §31), then `tabcap plugin list`.');
+    if (info.manifest === null) throw new TabcapError("bad-input", `plugin "${formatName}" is not usable: ${info.error ?? "invalid"}`, "Fix its manifest.json; `tabcap plugin list` shows the error.");
+    const fp = asFixturePlugin(info)[0];
+    if (fp === undefined) throw new TabcapError("usage", `plugin "${formatName}" is not a fixture plugin`, 'Fixture plugins have "kind": "fixture" in manifest.json (docs/04 §31).');
+    format = fp;
+  }
+  const rules = bundleRules(dir, flagStr(p, "--rules"));
+  const redact = p.flags.get("--no-redact") !== true;
+  const salt = redact ? newSalt() : null;
+  const res = await exportFixtures(reader, { out, rules, format, redact: salt === null ? false : { salt, knownSecrets: storeSecrets() }, configDir: config });
+  const saltFile = salt === null ? null : writeSalt(dir, `fixtures-${compactStamp(nowMs())}`, salt);
+  return {
+    ...res,
+    saltFile,
+    complete: reader.isComplete(),
+    warnings: [...(reader.isComplete() ? [] : ["bundle is not finished: recording in progress or interrupted"]), ...(reader.truncatedLastLine ? ["events.jsonl ends with a truncated line; it was skipped"] : []), ...res.warnings],
+  };
 }
 
 function cmdInfo(p: Parsed): unknown {
@@ -627,6 +663,7 @@ async function runBundle(argv: readonly string[]): Promise<{ code: number; envel
     const rest = (n: number): Parsed => ({ positional: p.positional.slice(n), flags: p.flags, repeated: p.repeated });
     let data: unknown;
     if (group === "bundle" && sub === "export" && third === "har") data = await cmdExportHar(rest(3));
+    else if (group === "bundle" && sub === "export" && third === "fixtures") data = await cmdExportFixtures(rest(3));
     else if (group === "bundle" && sub === "import" && third === "har") data = await cmdImportHar(rest(3));
     else if (group === "bundle" && sub === "redact") data = await cmdRedact(rest(2));
     else if (group === "bundle" && sub === "info") data = cmdInfo(rest(2));

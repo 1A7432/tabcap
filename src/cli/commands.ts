@@ -842,6 +842,19 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap bundle decode ./b --plugin xor-decode",
   },
   {
+    path: ["bundle", "export", "fixtures"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--out", key: "out", kind: "string", help: "output directory (must be missing or empty)", required: true, metavar: "dir" },
+      { flag: "--rules", key: "rules", kind: "string", help: "replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay", metavar: "file" },
+      { flag: "--format", key: "format", kind: "string", help: "json (fixtures/<n>-<method>-<path>.json + index.json), or the name of a fixture plugin that writes its own files", default: "json", metavar: "json|plugin" },
+      { flag: "--no-redact", key: "noRedact", kind: "bool", help: "skip redaction (default: redacted like HAR export, with a per-export salt)" },
+    ],
+    summary:
+      "one fixture per recorded exchange: {key {method, path, query, body} as the replay rules read it, request {headers, body}, response {status, headers, body | bodyFile, decoded?}, meta {request, rule, recordedAt}}; --format <plugin> hands each fixture to a fixture plugin (tabcap-fixture/1) that returns the files to write",
+    example: "tabcap bundle export fixtures ./b --rules replay-rules.json --out ./fixtures",
+  },
+  {
     path: ["analyze", "find"],
     pos: ["bundle", "text..."],
     flags: [
@@ -1116,7 +1129,7 @@ export function currentCommands(): CommandSpec[] {
   return COMMANDS.filter((c) => c.internal !== true);
 }
 
-const BUNDLE_PATHS = ["bundle export har", "bundle import har", "bundle redact", "bundle info", "bundle decode"];
+const BUNDLE_PATHS = ["bundle export har", "bundle import har", "bundle redact", "bundle info", "bundle decode", "bundle export fixtures"];
 export const BUNDLE_USAGE: string[] = BUNDLE_PATHS.map((p) => usageOf(specOf(p)));
 
 function posName(c: CommandSpec, p: string): string {

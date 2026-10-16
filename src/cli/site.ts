@@ -5,8 +5,9 @@
 
 import { TabcapError } from "../shared/envelope.ts";
 import type { Paths } from "../shared/paths.ts";
-import { HOOK_PROTOCOL, listPlugins, pluginsDir, setEnabled } from "../daemon/hooks/plugins.ts";
+import { HOOK_PROTOCOL, listPlugins, pluginKind, pluginsDir, setEnabled } from "../daemon/hooks/plugins.ts";
 import { DECODE_PROTOCOL } from "../daemon/hooks/decode.ts";
+import { FIXTURE_PROTOCOL } from "../daemon/hooks/fixture.ts";
 import { Store, checkSiteName, type SiteListing } from "../daemon/store/db.ts";
 
 export function withStore<T>(p: Paths, fn: (s: Store) => T): T {
@@ -136,12 +137,14 @@ export function pluginList(p: Paths): unknown {
     protocol: HOOK_PROTOCOL,
     shipped: "none: tabcap ships the interface only; handlers are your own programs",
     decodeProtocol: DECODE_PROTOCOL,
+    fixtureProtocol: FIXTURE_PROTOCOL,
     plugins: listPlugins(p.config).map((x) => ({
       name: x.name,
       enabled: x.enabled,
-      kind: x.manifest === null ? null : x.manifest.decode !== undefined ? "decode" : "challenge",
+      kind: x.manifest === null ? null : pluginKind(x.manifest),
       hooks: x.manifest?.hooks ?? [],
       ...(x.manifest?.decode === undefined ? {} : { match: x.manifest.decode.match, maxBytes: x.manifest.decode.maxBytes }),
+      ...(x.manifest?.fixture === undefined ? {} : { maxBytes: x.manifest.fixture.maxBytes }),
       version: x.manifest?.version ?? null,
       description: x.manifest?.description ?? null,
       command: x.manifest?.command ?? null,
@@ -154,5 +157,6 @@ export function pluginList(p: Paths): unknown {
 export function pluginSet(p: Paths, args: Record<string, unknown>, on: boolean): unknown {
   const name = typeof args["name"] === "string" ? args["name"] : "";
   const x = setEnabled(p.config, name, on);
-  return { name: x.name, enabled: x.enabled, hooks: x.manifest?.hooks ?? [], ...(x.manifest?.decode === undefined ? {} : { kind: "decode" }) };
+  const kind = x.manifest === null ? "challenge" : pluginKind(x.manifest);
+  return { name: x.name, enabled: x.enabled, hooks: x.manifest?.hooks ?? [], ...(kind === "challenge" ? {} : { kind }) };
 }

@@ -190,10 +190,38 @@ export function decodeMatches(m: DecodeMatch, url: string, mime: string | null, 
 
 export type DecodePlugin = { name: string; dir: string; version: string; command: string[]; timeoutMs: number; decode: DecodeSpec };
 
-type Reply = { kind: "line"; value: unknown } | { kind: "failure"; error: string };
+export type Reply = { kind: "line"; value: unknown } | { kind: "failure"; error: string };
+
+/** What a line-protocol plugin process needs (decode plugins here, fixture plugins in bundle/fixtures.ts). */
+export type LineProcessSpec = { dir: string; command: string[]; timeoutMs: number; maxLine: number };
+
+/** The answer line cap for a payload cap: base64 of `maxBytes` plus 64 KB of JSON around it. */
+export const lineCapFor = (maxBytes: number): number => Math.ceil((maxBytes * 4) / 3) + 64 * 1024;
+
+/**
+ * The environment of a plugin process: PATH, HOME, LANG, the plugin directory,
+ * the protocol variable, Windows basics and where uv / Python keep their
+ * caches (a runner started with `uv run` must find the same cache and
+ * interpreters as the user's shell). No TABCAP_* setting.
+ */
+export function pluginEnv(dir: string, protocolVar: string, protocol: string): Record<string, string> {
+  const env: Record<string, string> = {
+    PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+    HOME: process.env["HOME"] ?? "",
+    LANG: process.env["LANG"] ?? "C.UTF-8",
+    TABCAP_PLUGIN_DIR: dir,
+    [protocolVar]: protocol,
+  };
+  for (const k of ["SYSTEMROOT", "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "XDG_CACHE_HOME", "XDG_DATA_HOME"]) {
+    const v = process.env[k];
+    if (v !== undefined) env[k] = v;
+  }
+  for (const [k, v] of Object.entries(process.env)) if (k.startsWith("UV_") && v !== undefined) env[k] = v;
+  return env;
+}
 
 /** A long-lived plugin process: one JSON line in, one JSON line out, one call at a time. */
-class PluginProcess {
+export class PluginProcess {
   private proc: ReturnType<typeof Bun.spawn<"pipe", "pipe", "pipe">> | null = null;
   private waiter: ((r: Reply) => void) | null = null;
   private buf: Uint8Array[] = [];
@@ -203,10 +231,10 @@ class PluginProcess {
   starts = 0;
 
   constructor(
-    private readonly p: DecodePlugin,
+    private readonly p: LineProcessSpec,
     private readonly env: Record<string, string>,
   ) {
-    this.maxLine = Math.ceil((p.decode.maxBytes * 4) / 3) + 64 * 1024;
+    this.maxLine = p.maxLine;
   }
 
   get alive(): boolean {
@@ -388,21 +416,8 @@ export class DecodeHost {
     let slot = this.procs.get(p.name);
     if (slot === undefined || slot.key !== key) {
       slot?.proc.kill();
-      const env: Record<string, string> = {
-        PATH: process.env["PATH"] ?? "/usr/bin:/bin",
-        HOME: process.env["HOME"] ?? "",
-        LANG: process.env["LANG"] ?? "C.UTF-8",
-        TABCAP_PLUGIN_DIR: p.dir,
-        TABCAP_DECODE_PROTOCOL: DECODE_PROTOCOL,
-      };
-      // Windows basics, and where uv / Python keep their caches (a runner started
-      // with `uv run` must find the same cache and interpreters as the user's shell).
-      for (const k of ["SYSTEMROOT", "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "XDG_CACHE_HOME", "XDG_DATA_HOME"]) {
-        const v = process.env[k];
-        if (v !== undefined) env[k] = v;
-      }
-      for (const [k, v] of Object.entries(process.env)) if (k.startsWith("UV_") && v !== undefined) env[k] = v;
-      slot = { key, proc: new PluginProcess(p, env), chain: Promise.resolve() };
+      const spec: LineProcessSpec = { dir: p.dir, command: p.command, timeoutMs: p.timeoutMs, maxLine: lineCapFor(p.decode.maxBytes) };
+      slot = { key, proc: new PluginProcess(spec, pluginEnv(p.dir, "TABCAP_DECODE_PROTOCOL", DECODE_PROTOCOL)), chain: Promise.resolve() };
       this.procs.set(p.name, slot);
     }
     const s = slot;

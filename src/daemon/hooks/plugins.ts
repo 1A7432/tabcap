@@ -17,7 +17,8 @@
 // A manifest with `kind: "decode"` is a decode plugin instead (0.6-B,
 // decode.ts): a long-lived process that turns encoded bodies into plaintext
 // views. Its manifest is validated strictly (unknown keys rejected) by
-// decode.ts; it declares no hooks.
+// decode.ts; it declares no hooks. `kind: "fixture"` (0.6-C, fixture.ts) is
+// an output format of `bundle export fixtures --format <name>`.
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
@@ -25,6 +26,7 @@ import { writeFileAtomic } from "../../bundle/manifest.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, tryParseJson } from "../../shared/json.ts";
 import { DECODE_KIND, parseDecodeManifest, type DecodePlugin, type DecodeSpec } from "./decode.ts";
+import { FIXTURE_KIND, parseFixtureManifest, type FixturePlugin, type FixtureSpec } from "./fixture.ts";
 
 export const HOOK_PROTOCOL = "tabcap-hook/1";
 export const HOOK_TYPES = ["challenge"] as const;
@@ -48,6 +50,8 @@ export type PluginManifest = {
   timeoutMs: number;
   /** Present only on `kind: "decode"` manifests (then `hooks` is empty). */
   decode?: DecodeSpec;
+  /** Present only on `kind: "fixture"` manifests (then `hooks` is empty). */
+  fixture?: FixtureSpec;
 };
 
 export type PluginInfo = { name: string; dir: string; enabled: boolean; manifest: PluginManifest | null; error: string | null };
@@ -68,7 +72,11 @@ export function parseManifest(raw: unknown, dirName: string): PluginManifest {
     const d = parseDecodeManifest(raw);
     return { name, version: d.version, description: d.description, hooks: [], command: d.command, timeoutMs: d.timeoutMs, decode: d.decode };
   }
-  if (raw["kind"] !== undefined) throw bad(`unknown kind ${JSON.stringify(raw["kind"])} (known: "decode"; challenge handlers have no kind)`);
+  if (raw["kind"] === FIXTURE_KIND) {
+    const f = parseFixtureManifest(raw);
+    return { name, version: f.version, description: f.description, hooks: [], command: f.command, timeoutMs: f.timeoutMs, fixture: f.fixture };
+  }
+  if (raw["kind"] !== undefined) throw bad(`unknown kind ${JSON.stringify(raw["kind"])} (known: "decode", "fixture"; challenge handlers have no kind)`);
   const version = typeof raw["version"] === "string" ? raw["version"] : "0";
   const description = typeof raw["description"] === "string" ? raw["description"].slice(0, 500) : "";
   const hooksRaw = raw["hooks"];
@@ -171,6 +179,18 @@ export function asDecodePlugin(p: PluginInfo): DecodePlugin[] {
   const m = p.manifest;
   if (m === null || m.decode === undefined) return [];
   return [{ name: m.name, dir: p.dir, version: m.version, command: m.command, timeoutMs: m.timeoutMs, decode: m.decode }];
+}
+
+/** A listed plugin as a fixture plugin, or [] when it is not a valid one. */
+export function asFixturePlugin(p: PluginInfo): FixturePlugin[] {
+  const m = p.manifest;
+  if (m === null || m.fixture === undefined) return [];
+  return [{ name: m.name, dir: p.dir, version: m.version, command: m.command, timeoutMs: m.timeoutMs, fixture: m.fixture }];
+}
+
+/** The kind of a valid manifest: "decode", "fixture" or "challenge". */
+export function pluginKind(m: PluginManifest): "decode" | "fixture" | "challenge" {
+  return m.decode !== undefined ? "decode" : m.fixture !== undefined ? "fixture" : "challenge";
 }
 
 /** argv with "./x" resolved inside the plugin directory (never outside it). */
