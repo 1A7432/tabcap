@@ -798,7 +798,17 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap bundle import har site.har -o ./site-bundle",
   },
   { path: ["bundle", "redact"], pos: ["in", "out"], flags: [], summary: "write a redacted copy of a bundle (the original is never changed)", example: "tabcap bundle redact ./b ./b-redacted" },
-  { path: ["bundle", "info"], pos: ["bundle"], flags: [], summary: "bundle summary: counts, event kinds, finished or not, issues", example: "tabcap bundle info ./b" },
+  {
+    path: ["bundle", "info"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--usage", key: "usage", kind: "bool", help: "account-usage report (tabcap-usage/0): logins per account, per host requests / intervals / bursts / statuses / empty bodies / business errors, guard stops, 10-minute windows; counts and names only" },
+      { flag: "--text", key: "text", kind: "bool", help: "with --usage: one-screen table for a run log" },
+      { flag: "--business-code", key: "businessCode", kind: "string", repeat: true, help: "with --usage: JSON bodies whose <$.path> is not this value count as business errors (e.g. $.code=0)", metavar: "$.path=ok" },
+    ],
+    summary: "bundle summary: counts, event kinds, finished or not, issues; --usage for the account-usage report",
+    example: "tabcap bundle info ./b --usage --text --business-code '$.code=0'",
+  },
   {
     path: ["bundle", "decode"],
     pos: ["bundle"],

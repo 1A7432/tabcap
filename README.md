@@ -107,7 +107,7 @@ Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `
 | `tabcap bundle export har <bundle> [--out file] [--tab t1] [--types xhr,fetch] [--embed-events] [--no-redact]` | export a bundle as HAR 1.2 (redacted by default) |
 | `tabcap bundle import har <file> -o <bundle>` | import a HAR (DevTools, Charles, mitmproxy …) as a bundle, so analyze works on it |
 | `tabcap bundle redact <in> <out>` | write a redacted copy of a bundle (the original is never changed) |
-| `tabcap bundle info <bundle>` | bundle summary: counts, event kinds, finished or not, issues |
+| `tabcap bundle info <bundle> [--usage] [--text] [--business-code $.path=ok]...` | bundle summary: counts, event kinds, finished or not, issues; --usage for the account-usage report |
 | `tabcap bundle decode <bundle> [--plugin name]` | run decode plugins over a finished bundle: plaintext views of matching request / response bodies are appended to the bundle's decoded.jsonl sidecar (events.jsonl never changes) and read as request.decoded / response.decoded by net body / find / where / deps / recon / replay check; a re-run appends only new or changed views |
 | `tabcap analyze find <bundle> <text> [--ignore-case] [--text] [--save]` | which request / WebSocket frame / console line carries this text, through a bounded decode chain (base64, gzip / br, urldecode, JSON, html entities …); 0 hits come with hints |
 | `tabcap analyze diff <bundle1> <bundle2> [<bundles>...] [--text] [--save]` | compare recordings of the same action: which parameters are constant, per session, timestamps or varying |

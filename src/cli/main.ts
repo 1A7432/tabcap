@@ -9,6 +9,7 @@ import { compactStamp, nowMs } from "../shared/time.ts";
 import { exportHar, importHar } from "../bundle/har.ts";
 import { computeCounts, writeFileAtomic } from "../bundle/manifest.ts";
 import { BundleReader } from "../bundle/reader.ts";
+import { parseBusinessRule, renderUsageText, usageReport, type UsageReport } from "../bundle/usage.ts";
 import { newSalt, redactBundle, writeSalt } from "../bundle/redact.ts";
 import { readConfig, writeConfig } from "../shared/config.ts";
 import { envVar } from "../shared/env.ts";
@@ -43,11 +44,12 @@ import { fetchArgs, fetchClientTimeout } from "./fetch.ts";
 
 const USAGE = BUNDLE_USAGE;
 
-type Parsed = { positional: string[]; flags: Map<string, string | true> };
+type Parsed = { positional: string[]; flags: Map<string, string | true>; repeated: Map<string, string[]> };
 
 const EXPORT_HAR = specOf("bundle export har");
 const IMPORT_HAR = specOf("bundle import har");
 const DECODE = specOf("bundle decode");
+const INFO = specOf("bundle info");
 
 /** Flags that take a value; everything else starting with "-" is boolean. */
 const VALUE_FLAGS = new Set(
@@ -57,23 +59,28 @@ const VALUE_FLAGS = new Set(
 function parseArgs(argv: readonly string[]): Parsed {
   const positional: string[] = [];
   const flags = new Map<string, string | true>();
+  const repeated = new Map<string, string[]>();
+  const setFlag = (name: string, v: string): void => {
+    flags.set(name, v);
+    repeated.set(name, [...(repeated.get(name) ?? []), v]);
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] ?? "";
     if (a.startsWith("-") && a !== "-") {
       const eq = a.indexOf("=");
       if (eq > 0) {
-        flags.set(a.slice(0, eq), a.slice(eq + 1));
+        setFlag(a.slice(0, eq), a.slice(eq + 1));
       } else if (VALUE_FLAGS.has(a)) {
         const v = argv[i + 1];
         if (v === undefined) throw new TabcapError("usage", `${a} needs a value`, `Usage: ${USAGE.join(" | ")}`);
-        flags.set(a, v);
+        setFlag(a, v);
         i++;
       } else {
         flags.set(a, true);
       }
     } else positional.push(a);
   }
-  return { positional, flags };
+  return { positional, flags, repeated };
 }
 
 function flagStr(p: Parsed, ...names: string[]): string | undefined {
@@ -210,9 +217,15 @@ async function cmdDecode(p: Parsed): Promise<unknown> {
 
 function cmdInfo(p: Parsed): unknown {
   const usage = USAGE[3] ?? "";
-  checkFlags(p, [], usage);
+  checkFlags(p, flagNames(INFO), usage);
   const [dir = ""] = need(p, 1, usage);
+  const wantUsage = p.flags.get("--usage") === true;
+  if (!wantUsage && (p.flags.has("--text") || p.flags.has("--business-code"))) throw new TabcapError("usage", "--text and --business-code belong to --usage", `Usage: ${usage}`);
   const r = BundleReader.open(dir);
+  if (wantUsage) {
+    const rules = (p.repeated.get("--business-code") ?? []).map(parseBusinessRule);
+    return usageReport(r, dir, rules);
+  }
   const kinds: Record<string, number> = {};
   for (const e of r.events) kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
   const recount = computeCounts(r.events, r.manifest.counts.blobBytes);
@@ -599,7 +612,7 @@ async function runBundle(argv: readonly string[]): Promise<{ code: number; envel
     }
     const p = parseArgs(argv);
     const [group, sub, third] = p.positional;
-    const rest = (n: number): Parsed => ({ positional: p.positional.slice(n), flags: p.flags });
+    const rest = (n: number): Parsed => ({ positional: p.positional.slice(n), flags: p.flags, repeated: p.repeated });
     let data: unknown;
     if (group === "bundle" && sub === "export" && third === "har") data = await cmdExportHar(rest(3));
     else if (group === "bundle" && sub === "import" && third === "har") data = await cmdImportHar(rest(3));
@@ -610,6 +623,7 @@ async function runBundle(argv: readonly string[]): Promise<{ code: number; envel
       const got = p.positional.slice(0, 3).join(" ");
       return { code: 2, envelope: fail("usage", got === "" ? "no command given" : `unknown command: ${got}`, `Available: ${USAGE.join(" | ")}`) };
     }
+    if (sub === "info" && p.flags.get("--text") === true && p.flags.get("--usage") === true) return { code: 0, envelope: ok(data), text: renderUsageText(data as UsageReport) };
     return { code: 0, envelope: ok(data) };
   } catch (e) {
     const env = toFail(e);

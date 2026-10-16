@@ -946,13 +946,19 @@ Example: `tabcap bundle redact ./b ./b-redacted`
 
 ### `tabcap bundle info`
 
-bundle summary: counts, event kinds, finished or not, issues
+bundle summary: counts, event kinds, finished or not, issues; --usage for the account-usage report
 
 ```
-tabcap bundle info <bundle>
+tabcap bundle info <bundle> [--usage] [--text] [--business-code $.path=ok]...
 ```
 
-Example: `tabcap bundle info ./b`
+Example: `tabcap bundle info ./b --usage --text --business-code '$.code=0'`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--usage` |  | account-usage report (tabcap-usage/0): logins per account, per host requests / intervals / bursts / statuses / empty bodies / business errors, guard stops, 10-minute windows; counts and names only |
+| `--text` |  | with --usage: one-screen table for a run log |
+| `--business-code <$.path=ok>` |  | with --usage: JSON bodies whose <$.path> is not this value count as business errors (e.g. $.code=0) (repeatable) |
 
 ### `tabcap bundle decode`
 
