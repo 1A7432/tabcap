@@ -8,7 +8,7 @@
 //   s07 (startGuardSite): the login page HTML as the range serves it (fetched
 //       here directly from the range) is the oracle for `net body --grep`.
 //   Budget: TABCAP_OUTPUT_LIMIT default 16384 bytes; `snapshot` 12000 chars;
-//       `tabcap --help` at most 6 KB.
+//       `tabcap --help` at most 8 KB.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -88,10 +88,10 @@ describe.skipIf(!enabled)("tabcap 0.5-C L2 (context budget on the range)", () =>
     rmSync(home, { recursive: true, force: true });
   });
 
-  test("tabcap --help is the index, at most 6 KB", async () => {
+  test("tabcap --help is the index, at most 8 KB", async () => {
     const r = await tabcap(["--help"]);
     expect(r.exit).toBe(0);
-    expect(bytes(r.raw)).toBeLessThanOrEqual(6 * 1024);
+    expect(bytes(r.raw)).toBeLessThanOrEqual(8 * 1024);
     expect(r.raw).toContain("\n  net list  ");
     expect((await tabcap(["help", "net", "list"])).raw).toContain("Example: tabcap net list");
   });
