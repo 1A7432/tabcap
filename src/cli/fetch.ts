@@ -89,7 +89,8 @@ export function fetchArgs(a: Record<string, unknown>, cwd: string, read: ReadTex
     if (clash.length > 0) throw usage(`--batch takes the requests from the file; leave out ${clash.join(", ")}`);
     const timeoutMs = typeof a["timeoutMs"] === "number" ? a["timeoutMs"] : undefined;
     const lines = batchLines(read(resolve(cwd, batchFile)));
-    return { batch: timeoutMs === undefined ? lines : lines.map((l) => ("timeoutMs" in l ? l : { ...l, timeoutMs })) };
+    const withTimeout = timeoutMs === undefined ? lines : lines.map((l) => ("timeoutMs" in l ? l : { ...l, timeoutMs }));
+    return { batch: a["reveal"] === true ? withTimeout.map((l) => ("reveal" in l ? l : { ...l, reveal: true })) : withTimeout };
   }
   if (typeof a["url"] !== "string" || a["url"] === "") throw usage("missing <url>");
   const out: Record<string, unknown> = { url: a["url"] };
@@ -106,6 +107,7 @@ export function fetchArgs(a: Record<string, unknown>, cwd: string, read: ReadTex
   if (stopOn.length > 0) out["stopOn"] = stopOn;
   for (const k of ["tab", "out", "timeoutMs"]) if (a[k] !== undefined) out[k] = a[k];
   if (a["rawBody"] === true) out["rawBody"] = true;
+  if (a["reveal"] === true) out["reveal"] = true;
   return out;
 }
 

@@ -255,6 +255,17 @@
 - **输出**：`{file, for, origin, mode:"0600", cookies:n, headers:[名字], storage:{localStorage:n, sessionStorage:n}, source:{headers:"r-N"|"none"}, skipped?, omitted?, note}`，只有路径、计数和头名，不出任何值；守护进程的已知秘密替换照常作用于输出。录制中照常写 `cmd` 事件（`outputSummary` 是计数），包里不写别的。
 - 验证：`test/unit/session-export.test.ts`（头选择表、64 KB 上限、文件权限、三种格式、生成的 httpx 客户端对本地服务器实际发出的 cookie 与头）、`test/e2e/v06f.e2e.test.ts`（s07 带 token 变体，对照靶场日志）。
 
+### 8.3 实时输出脱敏（0.6-E，10-16 作者定；细节按实现定案，待作者审）
+
+真实项目试用里 `net show` 明文打出 `access-token`、`Authorization: Bearer …` 和会话 cookie，`net list` 打出 URL 里的 token；只有 HAR 导出打了码。现在守护进程的实时输出也按 §8 的名字规则（`default@2`）显示成 `<redacted:<名字>>`：
+
+- **范围**：`net show`（URL、请求 / 响应头、postData 的内联文本与 blob 的 `head`；超过 2 KB 的内联正文落成 `exports/post/<id>.redacted.txt`；`size` 仍是录到的字节数）、`net list`（每行的 `url`，`--kind ws` 的帧 URL）、`net body`（答案里的 `url`；它不输出头）、`fetch` 与 `POST /fetch`（信封里选出的响应头；`location` 按 URL 规则）、`recon`（答案与 `exports/dossier.json` / `.md` 里的页面 URL、guard 检测的 URL）、`trace list`（每行的脚本 URL；行里不带参数值）。
+- **规则**：名字属于敏感头集合或命中名字规则的头，整值换成 `<redacted:头名小写>`；`cookie` / `set-cookie` 保留 cookie 名和属性，每个值都换（§8 的 state 规则：全部值）；`location` / `referer` / `content-location` 头与各处 URL 只换名字敏感的 query 参数，其余逐字不变（fragment 不动）；请求体：JSON（对象 / 数组）里任意深度名字敏感的键（有改动才紧凑重排，否则原文），表单体逐字段。值规则（邮箱、手机号等）不用在实时输出上。
+- **库里的秘密**：整值是库里已知秘密的，仍显示 `<secret:<站点>.<字段>>`（§8.1 的替换照常作用于所有输出，`--reveal` 也不例外）。
+- **`--reveal`**：上述命令都收（`POST /fetch` 收 `reveal: true`），打印录到的原值；只在人要求时用。
+- **不变**：证据包照原样记录（请求事件不改，它就是证据），HAR 导出照旧打码，`analyze` 系列命令读包、不受影响。
+- 验证：`test/unit/liveredact.test.ts`（规则表）、`test/e2e/v06e.e2e.test.ts`（`05` s07 token 变体：`x-csrf` 原样，`sid` cookie、`Authorization`、URL 的 `token` 参数打码，`--reveal` 还原，包里是原值）。
+
 ## 9. 与 HAR 互转
 
 ### 9.1 导出 `tabcap bundle export har <bundle> [--tab t1] [--types xhr,fetch,document] [--embed-events]`

@@ -1,6 +1,6 @@
 // The request a `tabcap fetch` sends (0.6-A). One shape for the CLI and the
 // daemon's `POST /fetch` endpoint: {url, method?, headers?, body?|json?|form?,
-// tab?, timeoutMs?, stopOn?, out?, rawBody?}. Everything here is untrusted
+// tab?, timeoutMs?, stopOn?, out?, rawBody?, reveal?}. Everything here is untrusted
 // JSON (a script on the machine sends it): malformed input is a usage error,
 // never a crash.
 
@@ -29,6 +29,8 @@ export type FetchSpec = {
   stopOn: string[];
   out: string | null;
   rawBody: boolean;
+  /** 0.6-E: print sensitive response header values as they are (docs/04 §8.3); default <redacted:name>. */
+  reveal: boolean;
 };
 
 const usage = (msg: string) => new TabcapError("usage", msg, `Usage: ${FETCH_USAGE}`);
@@ -123,6 +125,8 @@ export function parseFetchSpec(a: unknown): FetchSpec {
   const raw = a["rawBody"];
   if (raw !== undefined && raw !== null && typeof raw !== "boolean") throw usage("rawBody must be true or false");
   if (raw === true && typeof out === "string") throw usage("rawBody and out exclude each other: the body comes back inline, or goes to the file");
+  const reveal = a["reveal"];
+  if (reveal !== undefined && reveal !== null && typeof reveal !== "boolean") throw usage("reveal must be true or false");
   return {
     url: url.trim(),
     method,
@@ -133,6 +137,7 @@ export function parseFetchSpec(a: unknown): FetchSpec {
     stopOn,
     out: typeof out === "string" ? out : null,
     rawBody: raw === true,
+    reveal: reveal === true,
   };
 }
 

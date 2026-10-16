@@ -98,7 +98,7 @@ describe("CLI options → request (src/cli/fetch.ts)", () => {
 
 describe("request validation (fetch/spec.ts; the endpoint body is untrusted JSON)", () => {
   test("defaults, json / form bodies get their content-type unless given; method upper-cased", () => {
-    expect(parseFetchSpec({ url: "/x" })).toEqual({ url: "/x", method: "GET", headers: [], body: null, tab: null, timeoutMs: 30000, stopOn: [], out: null, rawBody: false });
+    expect(parseFetchSpec({ url: "/x" })).toEqual({ url: "/x", method: "GET", headers: [], body: null, tab: null, timeoutMs: 30000, stopOn: [], out: null, rawBody: false, reveal: false });
     const j = parseFetchSpec({ url: "/x", method: "post", json: { a: [1] } });
     expect([j.method, j.body, j.headers]).toEqual(["POST", '{"a":[1]}', [["content-type", "application/json"]]]);
     const f = parseFetchSpec({ url: "/x", method: "POST", form: { a: "1 2", b: "&" }, headers: { "Content-Type": "text/plain" } });

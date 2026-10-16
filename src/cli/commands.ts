@@ -94,6 +94,14 @@ export const OUTPUT_FLAGS_NOT_ON: Readonly<Record<string, readonly string[]>> = 
   "--max-matches": ["snapshot", "net body", "net grep"],
 };
 
+/** 0.6-E: live outputs show sensitive values as <redacted:name> (docs/04 §8.3); the human may ask for them. */
+const REVEAL: FlagSpec = {
+  flag: "--reveal",
+  key: "reveal",
+  kind: "bool",
+  help: "print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>)",
+};
+
 const NO_WAIT: FlagSpec = {
   flag: "--no-wait",
   key: "noWait",
@@ -514,6 +522,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--page-size", key: "pageSize", kind: "number", help: "requests per page (max 1000); 0 returns every match", default: 30, metavar: "n" },
       { flag: "--page-idx", key: "pageIdx", kind: "number", help: "page to return, 0-based; nextPageIdx names the next one", default: 0, metavar: "n" },
       { flag: "--kind", key: "kind", kind: "string", help: "http (requests) | ws (WebSocket frames: id, direction, opcode, size, ts)", default: "http", metavar: "http|ws" },
+      REVEAL,
     ],
     summary:
       "recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)",
@@ -537,6 +546,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--pretty", key: "pretty", kind: "bool", help: "JavaScript / JSON bodies up to 8 MB: break minified JS into lines (newlines only, never inside strings, templates, regexes, comments), re-indent JSON; line numbers then refer to the pretty text" },
       { flag: "--decoded", key: "decoded", kind: "bool", help: "the decode plugin's plaintext view of the body (the default when the request has one; an error when it has none); the answer says view: \"decoded\"" },
       { flag: "--raw", key: "raw", kind: "bool", help: "the original body even when a decoded view exists (view: \"raw\")" },
+      REVEAL,
     ],
     summary:
       "a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); a body with a decode plugin's view shows the view (--raw: the original); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)",
@@ -547,8 +557,9 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["net", "show"],
     pos: ["id"],
-    flags: [SESSION],
-    summary: "one request in full: method, url, status, request / response headers, postData (over 2 KB: path + first 2 KB), body path, timing, initiator, nav, tab, outcome; r-12:34 shows a WebSocket frame",
+    flags: [SESSION, REVEAL],
+    summary:
+      "one request in full: method, url, status, request / response headers, postData (over 2 KB: path + first 2 KB), body path, timing, initiator, nav, tab, outcome; r-12:34 shows a WebSocket frame; sensitive headers, cookie values and query / body fields read <redacted:name> unless --reveal",
     example: "tabcap net show r-12",
     action: "net.show",
   },
@@ -657,6 +668,7 @@ export const COMMANDS: CommandSpec[] = [
         help: "JSON lines file, one request per line {url, method?, headers?, body?|json?|form?, tab?, timeoutMs?, stopOn?}: sent in order under the same limits, one envelope printed per line",
         metavar: "file.jsonl",
       },
+      REVEAL,
     ],
     summary:
       "send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) | bodyFile, timing, waitedMs}",
@@ -687,7 +699,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["recon"],
     pos: [],
-    flags: [...T, { flag: "--text", key: "text", kind: "bool", help: "print the Markdown dossier instead of the JSON envelope" }],
+    flags: [...T, { flag: "--text", key: "text", kind: "bool", help: "print the Markdown dossier instead of the JSON envelope" }, REVEAL],
     summary:
       "recon dossier v0 of the session's recording and current page: tech stack (adapter detect results, header / session-cookie hints), data channels (method, path template, type, body class) with the share of the page's visible text found in recorded responses, cookie classification (origin, lifetime, flags, role, requiredBy from analyze deps), protection identification (guard detections, response signals; identification only). Writes exports/dossier.json (schema tabcap-dossier/0) and exports/dossier.md into the bundle; sends no request",
     example: "tabcap recon --text",
@@ -743,6 +755,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--api", key: "api", kind: "string", help: "only this API (exact name, e.g. Navigator.prototype.userAgent)", metavar: "name" },
       { flag: "--script", key: "script", kind: "string", help: "only scripts whose URL contains this text", metavar: "url" },
       { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON" },
+      REVEAL,
     ],
     summary: "API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded",
     example: "tabcap trace list --api Navigator.prototype.userAgent",

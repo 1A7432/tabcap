@@ -13,6 +13,7 @@ import { builtinSignalList, parseSignalList, type SignalList } from "../trace/si
 import { traceTable } from "../trace/table.ts";
 import { TRACE_NOTICE, Tracer } from "../trace/tracer.ts";
 import { checkSessionName, optNum, optStr, type Args } from "./args.ts";
+import { redactUrl, revealOf } from "./liveredact.ts";
 
 export const SIGNALS_FILE = "signals.json";
 
@@ -107,7 +108,10 @@ export async function traceList(d: Daemon, a: Args, session: string): Promise<un
   const written = reader.events.filter((e) => e.kind === "signal");
   // Documents still open have not been written yet; show them too (they are written when the document ends).
   const pending = tr !== undefined && d.recorders.get(session) === rec ? tr.pendingEvents() : [];
-  const rows = traceTable([...written, ...pending], { api: optStr(a, "api"), script: optStr(a, "script") });
+  const table = traceTable([...written, ...pending], { api: optStr(a, "api"), script: optStr(a, "script") });
+  // 0.6-E: a script URL's sensitive query parameters as <redacted:name> unless --reveal (rows carry no argument values)
+  const c = { scrub: (s: string) => d.secrets.scrub(s) };
+  const rows = revealOf(a) ? table : table.map((r) => ({ ...r, script: redactUrl(r.script, c) }));
   return {
     session,
     bundle: rec.dir,

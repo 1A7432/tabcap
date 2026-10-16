@@ -635,7 +635,7 @@ Example: `tabcap net stop`
 recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)
 
 ```
-tabcap net list [--session name] [--filter s] [--host s] [--status code] [--method M] [--resource-types xhr,fetch] [--tab t2] [--since c-12] [--failed] [--no-failed] [--all] [--page-size n] [--page-idx n] [--kind http|ws]
+tabcap net list [--session name] [--filter s] [--host s] [--status code] [--method M] [--resource-types xhr,fetch] [--tab t2] [--since c-12] [--failed] [--no-failed] [--all] [--page-size n] [--page-idx n] [--kind http|ws] [--reveal]
 ```
 
 Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
@@ -655,13 +655,14 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 | `--page-size <n>` | `30` | requests per page (max 1000); 0 returns every match |
 | `--page-idx <n>` | `0` | page to return, 0-based; nextPageIdx names the next one |
 | `--kind <http\|ws>` | `http` | http (requests) \| ws (WebSocket frames: id, direction, opcode, size, ts) |
+| `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ### `tabcap net body`
 
 a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); a body with a decode plugin's view shows the view (--raw: the original); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)
 
 ```
-tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--file] [--pretty] [--decoded] [--raw]
+tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--file] [--pretty] [--decoded] [--raw] [--reveal]
 ```
 
 Example: `tabcap net body r-12 --grep 'sign|token' --pretty`
@@ -679,16 +680,21 @@ Example: `tabcap net body r-12 --grep 'sign|token' --pretty`
 | `--pretty` |  | JavaScript / JSON bodies up to 8 MB: break minified JS into lines (newlines only, never inside strings, templates, regexes, comments), re-indent JSON; line numbers then refer to the pretty text |
 | `--decoded` |  | the decode plugin's plaintext view of the body (the default when the request has one; an error when it has none); the answer says view: "decoded" |
 | `--raw` |  | the original body even when a decoded view exists (view: "raw") |
+| `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ### `tabcap net show`
 
-one request in full: method, url, status, request / response headers, postData (over 2 KB: path + first 2 KB), body path, timing, initiator, nav, tab, outcome; r-12:34 shows a WebSocket frame
+one request in full: method, url, status, request / response headers, postData (over 2 KB: path + first 2 KB), body path, timing, initiator, nav, tab, outcome; r-12:34 shows a WebSocket frame; sensitive headers, cookie values and query / body fields read <redacted:name> unless --reveal
 
 ```
-tabcap net show <id> [--session name]
+tabcap net show <id> [--session name] [--reveal]
 ```
 
 Example: `tabcap net show r-12`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ### `tabcap net grep`
 
@@ -730,7 +736,7 @@ Example: `tabcap net wait --url /api/search --method POST`
 send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) | bodyFile, timing, waitedMs}
 
 ```
-tabcap fetch [<url>] [--session name] [--timeout ms] [--tab t2] [--method M] [--header k:v]... [--body text|@file] [--json text|@file] [--form k=v]... [--stop-on rule]... [--out file] [--raw] [--batch file.jsonl]
+tabcap fetch [<url>] [--session name] [--timeout ms] [--tab t2] [--method M] [--header k:v]... [--body text|@file] [--json text|@file] [--form k=v]... [--stop-on rule]... [--out file] [--raw] [--batch file.jsonl] [--reveal]
 ```
 
 Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
@@ -747,6 +753,7 @@ Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
 | `--out <file>` |  | write the body (text secret-scrubbed) to this file instead of inline / bodyFile |
 | `--raw` |  | the body as base64 inline (bodyBase64, up to 16 MB; text secret-scrubbed) instead of inline text / bodyFile |
 | `--batch <file.jsonl>` |  | JSON lines file, one request per line {url, method?, headers?, body?\|json?\|form?, tab?, timeoutMs?, stopOn?}: sent in order under the same limits, one envelope printed per line |
+| `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ### `tabcap where`
 
@@ -770,7 +777,7 @@ Example: `tabcap where e12`
 recon dossier v0 of the session's recording and current page: tech stack (adapter detect results, header / session-cookie hints), data channels (method, path template, type, body class) with the share of the page's visible text found in recorded responses, cookie classification (origin, lifetime, flags, role, requiredBy from analyze deps), protection identification (guard detections, response signals; identification only). Writes exports/dossier.json (schema tabcap-dossier/0) and exports/dossier.md into the bundle; sends no request
 
 ```
-tabcap recon [--session name] [--timeout ms] [--text]
+tabcap recon [--session name] [--timeout ms] [--text] [--reveal]
 ```
 
 Example: `tabcap recon --text`
@@ -778,6 +785,7 @@ Example: `tabcap recon --text`
 | Option | Default | Meaning |
 |---|---|---|
 | `--text` |  | print the Markdown dossier instead of the JSON envelope |
+| `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ## Trace mode (signal reads)
 
@@ -823,7 +831,7 @@ Example: `tabcap trace status`
 API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded
 
 ```
-tabcap trace list [--session name] [--api name] [--script url] [--text]
+tabcap trace list [--session name] [--api name] [--script url] [--text] [--reveal]
 ```
 
 Example: `tabcap trace list --api Navigator.prototype.userAgent`
@@ -833,6 +841,7 @@ Example: `tabcap trace list --api Navigator.prototype.userAgent`
 | `--api <name>` |  | only this API (exact name, e.g. Navigator.prototype.userAgent) |
 | `--script <url>` |  | only scripts whose URL contains this text |
 | `--text` |  | print a text report instead of JSON |
+| `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ## Handoff and challenge handlers
 

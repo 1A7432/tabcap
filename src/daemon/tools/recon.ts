@@ -7,10 +7,12 @@
 // a request: the page reads are Runtime.evaluate (body.innerText, title) and
 // the adapters' read-only detect. Its only writes are the two files under the
 // bundle's exports/ directory, both passed through known-secret replacement.
+// 0.6-E: URLs in the answer and the dossier (the page, guard detections) show
+// sensitive query parameters as <redacted:name> unless --reveal (docs/04 §8.3).
 
 import { BundleReader } from "../../bundle/reader.ts";
 import type { RequestEvent } from "../../bundle/types.ts";
-import { buildDossier, pageOf, reconOutput, writeDossier, type AdapterDetection, type ReconPage, recordedPage } from "../../analyze/recon.ts";
+import { buildDossier, pageOf, reconOutput, writeDossier, type AdapterDetection, type Dossier, type ReconPage, recordedPage } from "../../analyze/recon.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
 import { builtinAdapters } from "../adapters/registry.ts";
@@ -18,6 +20,7 @@ import { runDetect } from "../adapters/runtime.ts";
 import { rootDoc } from "../browser/worlds.ts";
 import type { Daemon } from "../state.ts";
 import type { Args } from "./args.ts";
+import { redactUrl, revealOf, type LiveCtx } from "./liveredact.ts";
 import { timeoutOf } from "./navigate.ts";
 import { callResult, docIdentity } from "./snapshot.ts";
 
@@ -32,6 +35,15 @@ function docHeaders(reqs: readonly RequestEvent[], url: string): Record<string, 
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(doc.response.headers)) out[k.toLowerCase()] = typeof v === "string" ? v : v.join(", ");
   return out;
+}
+
+/** The dossier with the URLs it carries (page, guard detections) redacted by the live rule. */
+export function redactDossier(d: Dossier, c: LiveCtx): Dossier {
+  return {
+    ...d,
+    page: { ...d.page, url: d.page.url === null ? null : redactUrl(d.page.url, c) },
+    protection: d.protection.map((p) => (p.source === "guard" && p.url !== null ? { ...p, url: redactUrl(p.url, c) } : p)),
+  };
 }
 
 async function livePage(d: Daemon, session: string, a: Args, reader: BundleReader): Promise<ReconPage> {
@@ -70,7 +82,8 @@ export async function recon(d: Daemon, a: Args, session: string): Promise<unknow
     warnings.push(`no current page (${e instanceof Error ? e.message : String(e)})`);
     page = recordedPage(reader);
   }
-  const dossier = buildDossier(reader, page, { session, warnings });
+  const built = buildDossier(reader, page, { session, warnings });
+  const dossier = revealOf(a) ? built : redactDossier(built, { scrub: (s) => d.secrets.scrub(s) });
   const paths = writeDossier(rec.dir, dossier, (s) => d.secrets.scrub(s));
   return reconOutput(dossier, paths);
 }

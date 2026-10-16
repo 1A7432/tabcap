@@ -21,6 +21,10 @@ import { DecodeSession } from "../hooks/decode.ts";
 import { parseDecoded } from "../../bundle/decoded.ts";
 import { isRecord } from "../../shared/json.ts";
 import { decodePlugins } from "../hooks/plugins.ts";
+import { redactedDetail, redactUrl, revealOf, withRedactedUrl, type LiveCtx } from "./liveredact.ts";
+
+/** 0.6-E: how a net command prints values (docs/04 §8.3); null with --reveal. */
+const liveCtx = (d: Daemon, a: Args): LiveCtx | null => (revealOf(a) ? null : { scrub: (s) => d.secrets.scrub(s) });
 
 export async function netStart(d: Daemon, _a: Args, session: string): Promise<unknown> {
   checkSessionName(session);
@@ -97,7 +101,9 @@ export function netList(d: Daemon, a: Args, session: string): unknown {
   const kind = optStr(a, "kind") ?? "http";
   if (kind !== "http" && kind !== "ws") throw new TabcapError("usage", `--kind ${kind}?`, "Use `--kind http` (requests, the default) or `--kind ws` (WebSocket frames).");
   const q = parseListQuery(a, (id) => rec.cmdStarts.get(id) ?? null);
-  if (kind === "ws") return wsList(dir, frames, recording, session, q);
+  const c = liveCtx(d, a);
+  const shownUrl = (u: string) => listUrl(c === null ? u : redactUrl(u, c));
+  if (kind === "ws") return wsList(dir, frames, recording, session, q, shownUrl);
   const r = selectNet(index, q);
   const notes: string[] = [];
   if (r.hidden.failed > 0) notes.push(`${r.hidden.failed} failed request(s) hidden: --failed shows only them, --all shows everything`);
@@ -112,7 +118,7 @@ export function netList(d: Daemon, a: Args, session: string): unknown {
     shown: r.shown,
     hidden: r.hidden,
     ...pagedFields(r),
-    requests: r.rows.map(({ blob: _b, at: _at, url, ...rest }) => ({ ...rest, ...listUrl(url) })),
+    requests: r.rows.map(({ blob: _b, at: _at, url, ...rest }) => ({ ...rest, ...shownUrl(url) })),
     ...(notes.length > 0 ? { note: notes.join("; ") } : {}),
   };
 }
@@ -129,7 +135,7 @@ export function pagedFields(p: Paged<unknown>): Record<string, unknown> {
   };
 }
 
-function wsList(dir: string, frames: WsFrameEntry[], recording: boolean, session: string, q: ListQuery): unknown {
+function wsList(dir: string, frames: WsFrameEntry[], recording: boolean, session: string, q: ListQuery, shownUrl: (u: string) => { url: string; urlTruncated?: true }): unknown {
   const all = frames
     .filter((f) => q.filter === null || f.url.includes(q.filter))
     .filter((f) => q.tab === null || f.tab === q.tab)
@@ -143,7 +149,7 @@ function wsList(dir: string, frames: WsFrameEntry[], recording: boolean, session
     matched: all.length,
     shown: page.rows.length,
     ...pagedFields(page),
-    frames: page.rows.map(({ url, ...rest }) => ({ ...rest, ...listUrl(url) })),
+    frames: page.rows.map(({ url, ...rest }) => ({ ...rest, ...shownUrl(url) })),
     ...(page.nextPageIdx !== null ? { note: `more: --page-idx ${page.nextPageIdx}` } : {}),
   };
 }
@@ -167,7 +173,14 @@ type SearchCtx = { s: NonNullable<ReturnType<typeof bodySearchOf>>; scrub: (text
 /** 0.5-F2 `--file`: where and how the body file is written. */
 type FileCtx = { write: (b: { id: string; url: string; bytes: Uint8Array; mime: string | null; resourceType: string | null; charset: () => string | null }) => unknown };
 
+/** `net body`: the body answer, its `url` with sensitive query parameters redacted unless --reveal (0.6-E). */
 export async function netBody(d: Daemon, a: Args, session: string): Promise<unknown> {
+  const c = liveCtx(d, a);
+  const res = await netBodyOf(d, a, session);
+  return c === null ? res : withRedactedUrl(res, c);
+}
+
+async function netBodyOf(d: Daemon, a: Args, session: string): Promise<unknown> {
   const idArg = optStr(a, "id");
   const url = optStr(a, "url");
   const toFile = fileFlagOf(a);
@@ -262,14 +275,19 @@ export async function netShow(d: Daemon, a: Args, session: string): Promise<unkn
   if (id.includes(":")) {
     const f = frames.find((x) => x.id === id);
     if (f === undefined) throw notFound(id, dir);
-    return { session, bundle: dir, recording, ...frameDetail(dir, f) };
+    const fc = liveCtx(d, a);
+    const fd = frameDetail(dir, f);
+    return { session, bundle: dir, recording, ...(fc === null ? fd : withRedactedUrl(fd, fc)) };
   }
   if (!/^r-\d+$/.test(id)) throw new TabcapError("usage", `not a request id: ${id}`, "Ids look like r-12 (request) or r-12:34 (WebSocket frame); see `tabcap net list`.");
   await rec.flushEvents();
   const ev = findRequestEvent(dir, id);
   if (ev === null) throw notFound(id, dir);
   const store = new BlobStore(dir);
-  const detail = requestDetail(ev, store, (text) => materialize(dir, "post", `${id}.txt`, text));
+  // 0.6-E: sensitive headers, cookie values, query / body fields shown as <redacted:name> unless --reveal
+  const c = liveCtx(d, a);
+  const detailOf = (e: Record<string, unknown>) => requestDetail(e, store, (text) => materialize(dir, "post", `${id}${c === null ? "" : ".redacted"}.txt`, text));
+  const detail = c === null ? detailOf(ev) : redactedDetail(ev, c, detailOf);
   const ws = ev["type"] === "websocket" ? { frames: frames.filter((f) => f.ws === id && f.phase === "frame").length, framesHint: "`tabcap net list --kind ws` lists them; `net show <id>:<seq>` shows one" } : {};
   return { session, bundle: dir, recording, ...detail, ...ws };
 }

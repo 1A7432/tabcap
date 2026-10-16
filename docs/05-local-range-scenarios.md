@@ -99,6 +99,7 @@
 - 走法：AI 经 CLI `session start --site range-demo`，用 `fill --secret range-demo.password` 登录（凭据在本地库，模型不见明文），再取数据。同一会话再次对登录表单 `fill --secret` 必须被拦下并要求 `--confirm`（最小 guard）。
 - 证明：ExtraInfo 的 cookie / set-cookie 都录到；`state` cookies 快照在 nav 边界更新；凭据不泄漏；P2：`deps` 画出 `csrf` 链；`handoff` 处理 401。
 - expected：`r(login).response.headers["set-cookie"]` 非空；`r(data).request.headers.cookie` 含 `sid`；`state` 事件 ≥ 2 条且最后一条含 `sid`；`action.value` 为 `<secret:range-demo.password>`；填完密码后 `evaluate` 读密码框 `value` 和 `snapshot` 的输出里只有 `<secret:range-demo.password>`；守护进程日志与 CLI 输出 grep 不到密码明文（登录 POST 正文里的明文是事实，允许存在，导出脱敏后必须消失）；第二次登录尝试返回 `guard.login-limit` 错误且 journal 无新增；manifest 的 `session.site` 为 `range-demo`。
+- 0.6-E 实时输出打码（token 变体 `/s07/login?token=1`，`test/e2e/v06e.e2e.test.ts`）：`net show <data>` 的 `x-csrf` 等于靶场发的 csrf，`authorization` 是 `<redacted:authorization>`，`cookie` 是 `sid=<redacted:sid>`；`net show <login>` 的 URL 是 `…/api/login?token=<redacted:token>`，`set-cookie` 是 `sid=<redacted:sid>; Path=/; HttpOnly; SameSite=Lax`，postData 是 `user=demo-user&password=<secret:range-demo.password>`；`net list`、`net body`、`recon`（答案与 `dossier.json`）里登录页 URL 的 `token=<redacted:token>`；加 `--reveal` 回到 `Bearer <token>`、`sid=<sid>`、`token=1`（密码仍是 `<secret:…>`）；证据包里是原值。
 
 ### s08 popup-login（P1；`direct` 模式弹窗自动挂接已【实测】）
 

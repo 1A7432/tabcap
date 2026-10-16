@@ -31,6 +31,7 @@ import { firstStop, parseStopRule, type StopRule } from "../fetch/stoprules.ts";
 import { FETCH_USAGE, parseFetchSpec, targetUrl, type FetchSpec } from "../fetch/spec.ts";
 import { exportBody } from "./bodyexport.ts";
 import { decodeBody } from "./netsearch.ts";
+import { redactFlatHeaders } from "./liveredact.ts";
 import type { Args } from "./args.ts";
 
 /** Text bodies up to this size come back inline (`body`); larger or binary ones as a file (`bodyFile`). */
@@ -143,7 +144,8 @@ function buildEnvelope(
     statusText: str(resp, "statusText") ?? "",
     mime: r.entry.mime,
     bytes: bytes?.length ?? 0,
-    headers: envelopeHeaders(resp["headers"], scrub),
+    // 0.6-E: sensitive header values and URL query tokens shown as <redacted:name> unless reveal (docs/04 §8.3)
+    headers: o.spec.reveal ? envelopeHeaders(resp["headers"], scrub) : redactFlatHeaders(envelopeHeaders(resp["headers"], scrub), { scrub }),
   };
   if (bytes === null) {
     const m = isRecord(resp["bodyMissing"]) ? str(resp["bodyMissing"], "reason") : null;
