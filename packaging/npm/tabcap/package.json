@@ -1,6 +1,6 @@
 {
   "name": "tabcap",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Browser for AI agents: background tabs, accessibility-tree refs, recorded traffic.",
   "license": "Apache-2.0",
   "repository": {
@@ -18,9 +18,9 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@tabcap/darwin-arm64": "0.3.0",
-    "@tabcap/linux-x64": "0.3.0",
-    "@tabcap/linux-arm64": "0.3.0",
-    "@tabcap/win32-x64": "0.3.0"
+    "@tabcap/darwin-arm64": "0.4.0",
+    "@tabcap/linux-x64": "0.4.0",
+    "@tabcap/linux-arm64": "0.4.0",
+    "@tabcap/win32-x64": "0.4.0"
   }
 }

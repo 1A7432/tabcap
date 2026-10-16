@@ -4,7 +4,7 @@
 
 人机共驾的采集工作台（自用、准备开源）：程序员和 AI 共用同一个已登录的真实浏览器，AI 探路、放大，卡住或拿不准就交还给人，人给凭据、过验证、核结论；全程录下证据，每个结论都能回放验证。起点是把扩展式浏览器桥（挂 debugger、不弹框、不抢焦点）和 agent-browser（完整 CLI、抓包、HAR）的长处合起来。
 
-状态（2026-10-16）：0.3.0（alpha）。macOS arm64 日常使用、测试全过；Linux x64 与 Windows x64 在 CI 上跑，有已知缺口（见下方「平台」）；Linux arm64 只编译、未运行；Bun + TypeScript、Apache-2.0、守护进程直连自管的 Chrome for Testing（扩展通道阶段 2）。规范在 `docs/04`–`10`。
+状态（2026-10-16）：0.4.0（alpha）。macOS arm64 日常使用、测试全过；Linux x64 与 Windows x64 在 CI 上跑，有已知缺口（见下方「平台」）；Linux arm64 只编译、未运行；Bun + TypeScript、Apache-2.0、守护进程直连自管的 Chrome for Testing（扩展通道阶段 2）。规范在 `docs/04`–`10`。
 
 ## 快速开始
 

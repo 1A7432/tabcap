@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.4.0 (2026-10-16)
 
 ### Frames: frame-path refs (0.4-I)
 

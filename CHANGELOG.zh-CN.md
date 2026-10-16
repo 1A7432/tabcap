@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## 未发布
+## 0.4.0（2026-10-16）
 
 - **帧路径 ref（0.4-I）**：`snapshot` 与 `outline` 的头里列出所有子帧（iframe、`frameset` 的 `frame`，跨源的也算），每帧一行 `f2/f1  <url>  same-origin|cross-origin  depth 2  "<标题>"`，按深度缩进；`f<n>` 的 `n` 是该帧在父文档子帧里按文档顺序的序号（从 1 起），同源 / 跨源相对父帧。JSON 多一个 `frames` 列表。没有子帧的页面输出与以前相同。
 - **`snapshot --frames`** 展开每个帧的树，**`snapshot --frame f2/f1`** 只展开该帧及其后代（根文档只在头里）。帧里的元素是**帧路径 ref**：`f<n>/e<m>`，嵌套 `f<n>/f<k>/e<m>`；`--max-chars` 按帧算，超出的帧末尾一行 `(truncated)`。
