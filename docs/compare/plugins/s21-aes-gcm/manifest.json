@@ -1,0 +1,10 @@
+{
+  "name": "s21-aes-gcm",
+  "kind": "decode",
+  "version": "1",
+  "description": "local range s21 (docs/12 §4.1): AES-GCM body of GET /api/secret; the key and IV in config.json are range literals, not any site's",
+  "match": { "host": ["127.0.0.1"], "path": ["/api/secret"], "contentTypes": ["application/json"], "direction": "response" },
+  "command": ["bun", "./decode.ts"],
+  "timeoutMs": 5000,
+  "maxBytes": 1048576
+}

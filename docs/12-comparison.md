@@ -85,7 +85,7 @@
 | 给已有代码喂录到的响应（fixture） | ✓ `replay serve`，任何 HTTP 客户端可连 [tabcap] | – | – | – | ✓ 在测试进程里 [P1, V2] |
 | 对服务端逐字段回放比对 | ✓ `replay check`，s21、s22 共 12 条全 same [run] | – | 由 agent 调真实接口比对响应形状 [A5] | ✓ 托管侧 browserless replay 验证 [U3] | – |
 | 多层 / 跨源 iframe | ✓ 帧路径 ref，深 3 层的跨源帧里 fill、click、where [run] | – | 部分：同源帧展开，跨源帧要 `frame` 切入；录到的 HAR 缺第 3 层帧文档、跨源帧文档无正文 [run] | – | – |
-| 加密正文 | 标出（熵 + 解码链路径）[run]；明文靠用户写的 decode 插件【待验：0.6-B 合入后在本页补跑】 | – | – （HAR 里只有密文 [run]；签名参数「回到浏览器」[A6]） | – | – |
+| 加密正文 | 标出（熵 + 解码链路径）[run]；明文靠用户写的 decode 插件：s21 装上示例插件后 `find` / `where` 命中、`net body --decoded` 看到明文 [run] | – | – （HAR 里只有密文 [run]；签名参数「回到浏览器」[A6]） | – | – |
 | 登录 / 验证交给人 | ✓ 每站每会话只试一次登录，验证页进 `waiting` [tabcap] | 录制前由人完成 2FA [I8] | 录制前由人登录 [A3] | ✓ 一次性链接，人在 unbrowse.ai 完成 [U6] | – |
 | 线上请求按站点限速、计数 | ✓ `replay check --live` 按站点计数、默认 0.5 次/秒 [tabcap] | – | 文字建议加延迟 [A8] | – | – |
 | MCP | ✓ `tabcap mcp`（暴露 tabcap 自己的命令）[tabcap] | – | ✓ agent-browser 的 `mcp` [A10] | ✓ 托管 MCP，本地 stdio 代理 [U1, U8] | – |
@@ -107,6 +107,11 @@
   - `deps`：`header x-ts timestamp`，`header x-sign computed-in-page [looks-signature]`；`--write-findings` 写入的 finding 分级为 `推断`。
   - `replay check`：4 条全 same。
   - 早一次只有 2 行时密文 80 B，低于 `find` 判熵的下限 256 B（`ENTROPY_MIN_SIZE`），输出「Nothing looks encrypted or missing」——短密文不会被标出，这是 tabcap 的已知边界，原样留在同一文件末尾。
+- s21 + decode 插件（`docs/compare/tabcap-s21-decode.txt`，【实测】2026-10-16，同一靶场、同一守护进程）：`docs/compare/plugins/s21-aes-gcm/`（`manifest.json` + `decode.ts` + `config.json` 的 Bun 插件；用 WebCrypto `crypto.subtle` 的 AES-GCM 解 `/api/secret` 的响应正文；密钥与 IV 是本地靶场字面量，不是任何站点的解法）。先不装插件录一个包 A，再把插件拷进 `$TABCAP_HOME/config/plugins/`、`tabcap plugin enable s21-aes-gcm`，再录包 B。
+  - `net body r-10 --decoded`（包 B）：`view: "decoded"`，`by: s21-aes-gcm`，458 B，预览 `{"rows":[{"no":"S21-0001","amount":"1234.50"},…`。
+  - `where S21-0001`（会话 b21，插件生效）：命中 `r-10 $.rows[0].no`，`match: exact`，解码链 `["plugin:s21-aes-gcm"]`；无插件时同一问题是 `no-match`（上一条 s21）。`where` 只读会话自己的录制，没有对包路径的形式，所以只在录制会话里跑。
+  - `analyze find <包 B> S21-0001 --text`：1 命中，`decode [plugin:s21-aes-gcm] exact $.rows[0].no`，`decoders: plugin:s21-aes-gcm=1`。
+  - 离线补解：对无插件录的包 A，`find` 先是 0 命中加 `suspect`（同上）；`bundle decode <包 A>` 解出 1 条（`decoded: 1, failed: 0, appended: 1`），`events.jsonl` 不变，写入 `decoded.jsonl`；再 `find` 同样 1 命中；`bundle info` 报 `decodedSidecar: true`。
 - s22（`docs/compare/tabcap-s22.txt`）：docs/05 §s22 的走法。
   - 默认 `snapshot` 只有帧头（5 个帧，`f2/f1/f1` 深 3 层）；`snapshot --frames` 给出 `f1/e6`（栏目一）、`f2/f1/e13`（关键词）、`f2/f1/e14`（查询）、`f2/f1/f1/e21`（S22-0002）等 ref。
   - `fill f2/f1/e13 abc` + `click f2/f1/e14`：录到 `r-28 GET http://localhost:…/s22/search?q=abc`，动作帧 `f2/f1`。
@@ -141,7 +146,7 @@ agent-browser 0.39.0（本机已装）。为不碰作者自己的 agent-browser 
 - **Unbrowse**：未运行。靶场只监听 127.0.0.1，托管的云浏览器连不到；`unbrowse learn` 上传 HAR 会把数据发到托管服务，是否做由作者定。
 - **Playwright `routeFromHAR` / VCR.py**：只引文档，未在本机跑（不联网装依赖）。
 - **derive-client 第 4、5 步**：要一个 agent 按 skill 写客户端并调真实接口，未做。
-- **tabcap decode 插件**：0.6-B 并行开发中；合入后用 s21 补一次「插件解出明文 → `find` / `where` 命中」的运行，再把表里这一格的【待验】去掉。
+- ~~tabcap decode 插件~~：已跑，见 §4.1「s21 + decode 插件」。
 
 ## 5. tabcap 不做的事
 

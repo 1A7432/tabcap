@@ -1,0 +1,120 @@
+# --- tabcap on s21 with a decode plugin (docs/12 §4.1; range run 2026-10-16, macOS arm64, Chrome for Testing 155.0.8059.79; s21 http://127.0.0.1:47621; $K is a temp dir; the plugin is docs/compare/plugins/s21-aes-gcm)
+
+$ tabcap daemon start
+{"ok":true,"data":{"started":true,"alreadyRunning":false,"running":true,"pid":79084,"version":"0.5.0","listener":"unix","socket":"/var/folders/z2/c3rbwqj506n5lxs0w93gj0w40000gn/T/tabcap-501-174fdaba.sock","socketFallback":true,"startedAt":1792147686861,"store":"$K/home/config/state.db","handoffs":[],"browser":{"running":false},"recordings":[],"log":"$K/home/config/daemon.log"}}
+[exit 0]
+
+$ tabcap browser start --proxy none --executable-path $TABCAP_CHROME
+{"ok":true,"data":{"transport":"direct","channel":"pipe","pid":79097,"version":"Chrome/155.0.8059.79","userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36","executable":"$TABCAP_CHROME","executableSource":"flag","profile":"$K/home/config/profiles/default","proxy":"none","foreground":false,"front":{"before":"firefox","afterLaunch":"firefox","restored":null,"after":"firefox","noStartupWindow":true},"startedAt":1792147688968,"alreadyRunning":false,"extension":null}}
+[exit 0]
+
+# --- recording A: no plugin installed
+$ tabcap net start --session a21
+{"ok":true,"data":{"session":"a21","bundle":"$K/home/data/bundles/a21-20261016-184809","alreadyRecording":false,"instrumentation":"Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied; while a same-origin `tabcap fetch` runs, its tab's fetch() requests also pause at the Request stage (the x-tabcap-fetch marker is removed, nothing else changes)"}}
+[exit 0]
+
+$ tabcap navigate http://127.0.0.1:47621/s21 --session a21
+{"ok":true,"data":{"tab":"t1","url":"http://127.0.0.1:47621/s21","title":"s21 aes-json","readyState":"complete","nav":"n-6","wait":{"navigated":true,"domQuiet":true,"dialog":false,"timedOut":[],"ms":131},"cmd":"c-4"}}
+[exit 0]
+
+$ tabcap wait --text S21-0001 --session a21
+{"ok":true,"data":{"tab":"t1","matched":"text","text":"S21-0001","context":"订单\nS21-0001\t1234.50\nS21-0002\t2468.50\nS21-0003\t3702.","frame":"main","polls":1,"url":"http://127.0.0.1:47621/s21","waitedMs":1,"timeoutMs":10000}}
+[exit 0]
+
+$ tabcap net wait --url /api/secret --session a21
+{"ok":true,"data":{"id":"r-12","tab":"t1","method":"GET","url":"http://127.0.0.1:47621/api/secret","status":200,"mime":"application/json","size":652,"blob":"sha256:376283604c6024686ebfbd060dc57e52032482172c0dd7284e2dccb28fc2b9c5","path":"$K/home/data/bundles/a21-20261016-184809/blobs/sha256/37/376283604c6024686ebfbd060dc57e52032482172c0dd7284e2dccb28fc2b9c5","outcome":"finished","alreadyFinished":true,"lookBack":{"from":"action","cmd":"c-4","action":"navigate"},"waitedMs":0,"timeoutMs":10000}}
+[exit 0]
+
+$ tabcap net stop --session a21
+{"ok":true,"data":{"session":"a21","bundle":"$K/home/data/bundles/a21-20261016-184809","requests":4,"counts":{"events":21,"requests":4,"bodies":4,"blobBytes":1687,"bodyMissing":{}}}}
+[exit 0]
+
+# --- install and enable the plugin
+$ cp -R docs/compare/plugins/s21-aes-gcm $TABCAP_HOME/config/plugins/s21-aes-gcm
+$ tabcap plugin list
+{"ok":true,"data":{"dir":"$K/home/config/plugins","protocol":"tabcap-hook/1","shipped":"none: tabcap ships the interface only; handlers are your own programs","decodeProtocol":"tabcap-decode/1","plugins":[{"name":"s21-aes-gcm","enabled":false,"kind":"decode","hooks":[],"match":{"host":["127.0.0.1"],"path":["/api/secret"],"contentTypes":["application/json"],"direction":"response"},"maxBytes":1048576,"version":"1","description":"local range s21 (docs/12 §4.1): AES-GCM body of GET /api/secret; the key and IV in config.json are range literals, not any site's","command":["bun","./decode.ts"],"timeoutMs":5000,"error":null}]}}
+[exit 0]
+
+$ tabcap plugin enable s21-aes-gcm
+{"ok":true,"data":{"name":"s21-aes-gcm","enabled":true,"hooks":[],"kind":"decode"}}
+[exit 0]
+
+$ tabcap plugin list
+{"ok":true,"data":{"dir":"$K/home/config/plugins","protocol":"tabcap-hook/1","shipped":"none: tabcap ships the interface only; handlers are your own programs","decodeProtocol":"tabcap-decode/1","plugins":[{"name":"s21-aes-gcm","enabled":true,"kind":"decode","hooks":[],"match":{"host":["127.0.0.1"],"path":["/api/secret"],"contentTypes":["application/json"],"direction":"response"},"maxBytes":1048576,"version":"1","description":"local range s21 (docs/12 §4.1): AES-GCM body of GET /api/secret; the key and IV in config.json are range literals, not any site's","command":["bun","./decode.ts"],"timeoutMs":5000,"error":null}]}}
+[exit 0]
+
+# --- recording B: plugin enabled
+$ tabcap net start --session b21
+{"ok":true,"data":{"session":"b21","bundle":"$K/home/data/bundles/b21-20261016-184809","alreadyRecording":false,"instrumentation":"Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied; while a same-origin `tabcap fetch` runs, its tab's fetch() requests also pause at the Request stage (the x-tabcap-fetch marker is removed, nothing else changes)","decode":["s21-aes-gcm"]}}
+[exit 0]
+
+$ tabcap navigate http://127.0.0.1:47621/s21 --session b21
+{"ok":true,"data":{"tab":"t2","url":"http://127.0.0.1:47621/s21","title":"s21 aes-json","readyState":"complete","nav":"n-6","wait":{"navigated":true,"domQuiet":true,"dialog":false,"timedOut":[],"ms":117},"cmd":"c-4"}}
+[exit 0]
+
+$ tabcap wait --text S21-0001 --session b21
+{"ok":true,"data":{"tab":"t2","matched":"text","text":"S21-0001","context":"订单\nS21-0001\t1234.50\nS21-0002\t2468.50\nS21-0003\t3702.","frame":"main","polls":1,"url":"http://127.0.0.1:47621/s21","waitedMs":2,"timeoutMs":10000}}
+[exit 0]
+
+$ tabcap net wait --url /api/secret --session b21
+{"ok":true,"data":{"id":"r-10","tab":"t2","method":"GET","url":"http://127.0.0.1:47621/api/secret","status":200,"mime":"application/json","size":652,"blob":"sha256:376283604c6024686ebfbd060dc57e52032482172c0dd7284e2dccb28fc2b9c5","path":"$K/home/data/bundles/b21-20261016-184809/blobs/sha256/37/376283604c6024686ebfbd060dc57e52032482172c0dd7284e2dccb28fc2b9c5","outcome":"finished","alreadyFinished":true,"lookBack":{"from":"action","cmd":"c-4","action":"navigate"},"waitedMs":0,"timeoutMs":10000}}
+[exit 0]
+
+$ tabcap net body r-10 --decoded --session b21
+{"ok":true,"data":{"id":"r-10","url":"http://127.0.0.1:47621/api/secret","view":"decoded","decoded":{"by":"s21-aes-gcm","version":"1","mime":"application/json"},"path":"$K/home/data/bundles/b21-20261016-184809/blobs/sha256/58/582f853f4ac5024f00b5c6f206ed923fc9fad07b108b5131dd4a8d259906d216","blob":"sha256:582f853f4ac5024f00b5c6f206ed923fc9fad07b108b5131dd4a8d259906d216","size":458,"mime":"application/json","textPreview":"{\"rows\":[{\"no\":\"S21-0001\",\"amount\":\"1234.50\"},{\"no\":\"S21-0002\",\"amount\":\"2468.50\"},{\"no\":\"S21-0003\",\"amount\":\"3702.50\"},{\"no\":\"S21-0004\",\"amount\":\"4936.50\"},{\"no\":\"S21-0005\",\"amount\":\"6170.50\"},{\"no\":\"S21-0006\",\"amount\":\"7404.50\"},{\"no\":\"S21-0007\",\"amount\":\"8638.50\"},{\"no\":\"S21-0008\",\"amount\":\"9872.50\"},{\"no\":\"S21-0009\",\"amount\":\"11106.50\"},{\"no\":\"S21-0010\",\"amount\":\"12340.50\"},{\"no\":\"S21-0011\",\"amount\":\"13574.50\"},{\"no\":\"S21-0012\",\"amount\":\"14808.50\"}]}","previewTruncated":false}}
+[exit 0]
+
+$ tabcap where S21-0001 --session b21
+{"ok":true,"data":{"schema":"tabcap-where/0","query":{"input":"S21-0001","kind":"text","text":"S21-0001"},"normalized":[{"value":"S21-0001","rules":[]}],"candidates":[{"request":"r-10","path":"$.rows[0].no","chain":["plugin:s21-aes-gcm"],"match":"exact","score":1}]}}
+[exit 0]
+
+$ tabcap net stop --session b21
+{"ok":true,"data":{"session":"b21","bundle":"$K/home/data/bundles/b21-20261016-184809","requests":3,"counts":{"events":23,"requests":3,"bodies":3,"blobBytes":2143,"bodyMissing":{}}}}
+[exit 0]
+
+# --- offline, recording B (recorded with the plugin)
+$ tabcap analyze find $K/home/data/bundles/b21-20261016-184809 S21-0001 --text
+find "S21-0001" in $K/home/data/bundles/b21-20261016-184809
+1 hit(s)
+  r-10  GET http://127.0.0.1:47621/api/secret 200
+    decode [plugin:s21-aes-gcm] exact  $.rows[0].no
+    S21-0001
+searched: 3 bodies, 0 ws frames, 0 console lines (3 requests)
+skipped: none; no body: none
+decoders: plugin:s21-aes-gcm=1
+[exit 0]
+
+# --- offline, recording A (recorded before the plugin): find, bundle decode, find
+$ tabcap analyze find $K/home/data/bundles/a21-20261016-184809 S21-0001 --text
+find "S21-0001" in $K/home/data/bundles/a21-20261016-184809
+0 hit(s)
+searched: 4 bodies, 0 ws frames, 1 console lines (4 requests)
+skipped: none; no body: none
+decoders: base64=1
+hint: 0 hits. Suspect the query before concluding the text is not in the traffic. 1 payload(s) look encrypted (entropy > 7.3 bits/byte from 1024 B, > 7 from 256 B; not compressed or media): r-12; the page probably decrypts them in JS (consider trace mode).
+  suspect r-12 GET http://127.0.0.1:47621/api/secret 474 B entropy 7.56 decode [base64] $.data
+[exit 0]
+
+$ tabcap bundle decode $K/home/data/bundles/a21-20261016-184809
+{"ok":true,"data":{"bundle":"$K/home/data/bundles/a21-20261016-184809","requests":4,"decoded":1,"failed":0,"kept":0,"unchanged":0,"appended":1,"rows":[{"request":"r-12","direction":"response","by":"s21-aes-gcm","ok":true,"mime":"application/json","bytes":458}],"truncated":false,"plugins":[{"name":"s21-aes-gcm","version":"1"}],"disabled":[]}}
+[exit 0]
+
+$ tabcap analyze find $K/home/data/bundles/a21-20261016-184809 S21-0001 --text
+find "S21-0001" in $K/home/data/bundles/a21-20261016-184809
+1 hit(s)
+  r-12  GET http://127.0.0.1:47621/api/secret 200
+    decode [plugin:s21-aes-gcm] exact  $.rows[0].no
+    S21-0001
+searched: 4 bodies, 0 ws frames, 1 console lines (4 requests)
+skipped: none; no body: none
+decoders: plugin:s21-aes-gcm=1
+[exit 0]
+
+$ tabcap bundle info $K/home/data/bundles/a21-20261016-184809
+{"ok":true,"data":{"dir":"$K/home/data/bundles/a21-20261016-184809","format":"evidence-bundle/0","id":"01M52573HRS5EF9ETDHS8CCDF2","session":"a21","complete":true,"created":1792147689016,"finished":1792147689482,"counts":{"events":21,"requests":4,"bodies":4,"blobBytes":1687,"bodyMissing":{}},"events":21,"kinds":{"session":2,"cmd":10,"tab":1,"nav":1,"request":4,"state":2,"console":1},"imported":null,"redaction":null,"truncatedLastLine":false,"decodedSidecar":true,"issues":[],"warnings":[]}}
+[exit 0]
+
+$ tabcap daemon stop
+{"ok":true,"data":{"stopped":true,"pid":79084}}
+[exit 0]
+
