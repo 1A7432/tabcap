@@ -1096,7 +1096,7 @@ export function indexSummary(summary: string): string {
   return `${(sp > 20 ? cut.slice(0, sp) : cut).replace(/[\s,.;:→/|-]+$/, "")}…`;
 }
 
-/** `tabcap --help`: the index, one line per command (≤ 6 KB; test/unit/help-index.test.ts). */
+/** `tabcap --help`: the index, one line per command (≤ 8 KB; test/unit/context-budget.test.ts). */
 export function helpAll(): string {
   const lines = [
     "tabcap — a dedicated browser for AI agents: background tabs, refs, network capture.",

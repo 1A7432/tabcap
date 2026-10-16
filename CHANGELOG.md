@@ -11,8 +11,6 @@ English | [中文](CHANGELOG.zh-CN.md)
 - The file is mode 0600 (new directories 0700) and holds live credentials; the answer carries the path, counts and header names only (`{file, for, origin, mode, cookies, headers, storage, source, note}`), and the bundle gets the usual `cmd` events with counts.
 - `replay export-python` packages now ship `_tabcap_session.py` (load the JSON export, build an httpx client; no tabcap at runtime), and their README says how to use it.
 
-## Unreleased
-
 ### Requests through the logged-in tab (0.6-A)
 
 - **`tabcap fetch <url>`** sends a request from the session's tab and records it (needs `net start`): the page's own `fetch()` with `credentials: "include"`, run in a tabcap isolated world of the tab's main frame, so it carries the page's cookies and obeys the page's CORS rules. `--method`, `--header k:v` (repeatable), one of `--body <text|@file>`, `--json <text|@file>`, `--form k=v` (repeatable); `--tab`, `--timeout` (covers the wait for the host's turn). The answer: `{id: "r-N", fetchId: "c-N:f-K", status, statusText, mime, bytes, headers (content-type, content-length, content-encoding, content-disposition, location, cache-control, etag, last-modified, retry-after; scrubbed), body (text up to 8 KB) | bodyFile, timing: {startMono, endMono, ms}, waitedMs}`; `--out <file>` writes the body to that file, `--raw` returns it as `bodyBase64` (up to 16 MB). Text bodies are secret-scrubbed wherever they go.

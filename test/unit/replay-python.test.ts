@@ -33,8 +33,8 @@ describe("generated package", () => {
     expect(r.files).toEqual([
       ".gitignore",
       "README.md",
-      "_tabcap_session.py",
       "_tabcap_fetch.py",
+      "_tabcap_session.py",
       "client.py",
       "conftest.py",
       "fixtures/get_api_feed.json",
