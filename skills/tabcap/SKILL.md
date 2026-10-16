@@ -45,10 +45,8 @@ tabcap browser start               # add --proxy none to block everything except
 The command and option names follow the Chrome DevTools MCP tools, so most map one to one: `navigate_page` → `navigate` / `go` / `reload`, `new_page` → `tab new`, `list_pages` / `select_page` → `tab list` / `tab select`, `take_snapshot` → `snapshot`, `click` / `hover` / `fill` / `type_text` / `press_key` / `upload_file` → `click` / `hover` / `fill` / `type` / `press-key` / `upload`, `wait_for` → `wait --text`, `evaluate_script` → `evaluate`, `take_screenshot` → `screenshot`, `list_console_messages` / `get_console_message` → `console list` / `console show`, `list_network_requests` / `get_network_request` → `net list` / `net show`, `emulate`, `resize_page` → `resize`, `handle_dialog` → `dialog`. Three things differ:
 
 1. **Refs are not uids.** A ref (`e12`) comes from `snapshot` (or `find`) and is bound to one DOM node in one document: after a navigation, or when the page re-renders the element, it expires and the command fails with `stale-ref` — take a new snapshot. Nothing is clicked by a stale ref.
-2. **`net list` hides failed requests and `data:` URLs by default**, but always counts them in `hidden: {failed, data}`; `--failed` shows only the failed ones, `--all` everything. Without `--page-size` / `--page-idx` every match comes back; with them, `nextPageIdx` names the next page.
+2. **`net list` hides failed requests and `data:` URLs by default**, but always counts them in `hidden: {failed, data}`; `--failed` shows only the failed ones, `--all` everything. Results come 100 per page (page 0 unless `--page-idx`); `nextPageIdx` names the next page, and `--page-size 0` returns every match.
 3. **`--snapshot` is optional.** Interactive commands (`click`, `hover`, `fill`, `type`, `press-key`, `upload`) return a fresh snapshot only when you pass `--snapshot`.
-
-Old names still work until 0.4 (`tabs`, `tab use`, `press`, `console`, `net list --type / --limit / --offset`, `screenshot --out / --full`); `--help` marks them deprecated. Use the new ones.
 
 ## Sessions and tabs
 
@@ -67,7 +65,7 @@ tabcap tab select t2             # or make it the current tab; `tabcap tab selec
 
 - `tabcap snapshot --interactive` lists controls only; plain `snapshot` the whole tree; `--verbose` keeps every wrapper and adds descriptions and capability flags; `--file-path <f>` writes the tree to a file. Lines look like `- button "Save" [e12] disabled` or `- textbox "Name" [e5] value="bob" focused`: role, name, ref, then attributes (`value="…"`, `level="2"`, `description="…"`) and states as bare words (`checked`, `expanded`, `collapsed`, `disabled`, `required`, `focused`).
 - `tabcap find <text>` lists hits, clickable ones first. Click a hit's `clickable` ref (not its `ref`): for custom widgets (a styled `<span>` checkbox, a `div role=none` button) `find` picks the element with the click listener / `cursor:pointer` and says so in `clickableBy`.
-- **Overlays come first.** `snapshot` (and `tabcap outline`, the short page map) starts with a header: `遮挡` (overlays) lists dialogs, masks, iframe layers, session-timeout prompts and cookie / consent banners in front of the page, with their close-button refs; `识别到` (detected) lists recognised libraries with a confidence; `新窗口` lists popups. When an overlay covers the target, `click` / `fill` fail with `covered` and `error.next` names the overlay and its close buttons. tabcap never closes an overlay by itself: close it only if that is what the task needs; consent banners and session-timeout prompts are the user's call — ask them.
+- **Overlays come first.** `snapshot` (and `tabcap outline`, the short page map) starts with a header: `overlays` lists dialogs, masks, iframe layers, session-timeout prompts and cookie / consent banners in front of the page, with their close-button refs; `detected` lists recognised libraries with a confidence; `popups` lists popups (in `outline`). When an overlay covers the target, `click` / `fill` fail with `covered` and `error.next` names the overlay and its close buttons. tabcap never closes an overlay by itself: close it only if that is what the task needs; consent banners and session-timeout prompts are the user's call — ask them.
 
 ## Acting, and the wait after each action
 
@@ -83,19 +81,19 @@ After `click`, `hover`, `fill`, `type`, `press-key`, `navigate`, `tab new`, `go`
 The user keeps sites in a local store (`~/.config/tabcap/state.db`, mode 0600). They add them themselves; the password is typed at a prompt or piped, never given as an argument:
 
 ```sh
-tabcap site add shop --url https://shop.example/login --user alice          # the user runs this; it prompts for the password
+tabcap site add example --url https://example.com/login --user alice          # the user runs this; it prompts for the password
 tabcap site list                                                           # you see names, entry URLs, usernames and refs — never passwords
 ```
 
 You work with references only:
 
 ```sh
-tabcap session start shop --site shop            # binds the site → entryUrl, secrets ["shop.username","shop.password"]; recorded in the bundle manifest
-tabcap navigate https://shop.example/login --session shop
-tabcap snapshot --interactive --session shop
-tabcap fill e5 --secret shop.username --session shop
-tabcap fill e6 --secret shop.password --session shop     # the daemon fills the real value; you get "value":"<secret:shop.password>"
-tabcap click e7 --session shop
+tabcap session start example --site example            # binds the site → entryUrl, secrets ["example.username","example.password"]; recorded in the bundle manifest
+tabcap navigate https://example.com/login --session example
+tabcap snapshot --interactive --session example
+tabcap fill e5 --secret example.username --session example
+tabcap fill e6 --secret example.password --session example     # the daemon fills the real value; you get "value":"<secret:example.password>"
+tabcap click e7 --session example
 ```
 
 **One login attempt per site per session.** A second `fill --secret <site>.password` in the same session fails with `guard.login-limit` and touches nothing. Do not work around it: look at the page (`snapshot`, `screenshot`), tell the user what you see, and only if they say retry, run the same fill with `--confirm`.
@@ -140,6 +138,8 @@ On timeout the error is `timeout` and `next` says what was still outstanding. Lo
 - While recording, action commands return a `cmd` id (`"cmd":"c-41"`) and every request row carries the window it fell in: `tabcap net list --since c-41` shows what that click caused (the window includes the wait after the action).
 - `tabcap net show r-12` is one request in full: headers, `postData` (over 2 KB: a file `path` plus the first 2 KB), the body `path`, timing, initiator `url:line:col`, nav epoch, outcome. `tabcap net body r-12` gives the body as a file plus up to 10000 chars of text preview. `r-12:34` is a WebSocket frame (`net list --kind ws`).
 - A response the page never reads is written 1 s after it arrived, from the intercepted body: `"unreadByPage":true`.
+
+**Where does a shown value come from?** `tabcap where e12` (a ref from your latest snapshot; its visible text is used) or `tabcap where "1.234,56"` answers which recorded response carries that value: each candidate names the request (`r-N`), the JSON path (or an HTML selector), the decode chain as `analyze find` reports it, `match` (`exact`, or `normalized` with the rules used: thousands / decimal separators, accounting negatives, trailing minus, full-width digits, nbsp, `2026-09` / `202609` / `09/2026` months, dotted codes such as `1001.01`, `DR` / `CR`) and a `score`. It searches only the session's recording (start `net start` before loading the page) and never sends a request. An `04/03/2026`-style date gets candidates only when another date on the same page proves the day / month order; otherwise `ambiguous` lists both readings. Values such as `0`, `-` or empty are `too-common`. `--as text` forces a literal search for something that looks like a ref; `--text` prints a report; `--write-findings` records the candidates as findings in the bundle.
 
 ## Trace mode: which scripts read which browser signals
 
