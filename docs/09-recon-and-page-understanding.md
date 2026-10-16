@@ -39,6 +39,8 @@
 
 资深工程师接一个站点，动手写脚本前要先回答下面这些问题。工具应该自动给出答案，产出一份人能读的 `dossier.md` 加一份机器可读的 `dossier.json`，写进证据包，格式另议，改 `04` 要作者批。
 
+> 0.4-J 已实现 `recon` v0：只答第 1、2 问与第 4 问的 cookie 分类、第 8 问的防护识别（作者 10-16 定的四问），文件格式见 `04` §22；其余问题和 `--probe` 仍是本节草案。
+
 | # | 问题 | 现在靠人怎么查 | 工具该给出什么 |
 |---|---|---|---|
 | 1 | 技术栈 | 翻源码、装 Wappalyzer | 框架和版本：`__NEXT_DATA__`、`ng-version`、`__VUE__` / `__vue_app__`、`__NUXT__`、React 根容器、`Turbolinks` / `Turbo`、`Ext.versions`、`jQuery.fn.jquery`。UI 库从类名前缀认（§5）。服务端从响应头、cookie 名、URL 认：`.jsp`、`.do`、`.action`、`.aspx`、`JSESSIONID`、`ASP.NET_SessionId`、`_rails_session`、`laravel_session`、`PHPSESSID`。认出来就知道该用哪套打法 |
