@@ -1027,6 +1027,42 @@ Example: `tabcap proxy check p1 --url http://127.0.0.1:8080/`
 |---|---|---|
 | `--url <url>` |  | address to fetch through the proxy (else config.json pool.health.url; with neither nothing is contacted and the state is unchecked) |
 
+### `tabcap proxy set-state`
+
+disable a proxy by hand (skipped by allocation and rotation, never checked) or set it active again (back to unknown until the next check)
+
+```
+tabcap proxy set-state <name> active|disabled
+```
+
+Example: `tabcap proxy set-state p1 disabled`
+
+### `tabcap account add`
+
+add another account to a stored site (for the human, not the AI: the password is typed at a prompt or piped, never an argument, never shown); a duplicate <site>.<user> is refused
+
+```
+tabcap account add <site> --user <username> [--password-stdin] [--totp-stdin]
+```
+
+Example: `tabcap account add example --user bob --password-stdin`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--user <username>` |  | account username (not a secret: shown in listings) (required) |
+| `--password-stdin` |  | read the password from stdin (else an interactive prompt; never an argument) |
+| `--totp-stdin` |  | also store a TOTP seed: needs --password-stdin, stdin is two lines (password, then seed) |
+
+### `tabcap account remove`
+
+delete a stored account with its saved cookies and counters; refused while a session uses it
+
+```
+tabcap account remove <account>
+```
+
+Example: `tabcap account remove example.bob`
+
 ### `tabcap account bind`
 
 bind a stored account (<site>.<user>) to a proxy, or to the browser's own network (system / none)
