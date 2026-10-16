@@ -8,7 +8,7 @@
 //   - refs: a filtered snapshot must give an element the ref the full snapshot gave it.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
@@ -278,6 +278,28 @@ describe.skipIf(!enabled)("tabcap 0.5-F L2 (in-command search: snapshot filters,
     const both = await ok("net", "grep", "navigator\\.(userAgent|platform)", ...S);
     expect(recs(both["requests"]).map((h) => h["url"]).sort()).toEqual([docUrl, scriptUrl].sort());
     expect(both).toMatchObject({ more: 0, skipped: [] });
+
+    // 0.5-F2 net body --file: the decoded body as a file in the open recording's exports/bodies/, 0600
+    const bundle = s((await ok("net", "list", ...S))["bundle"]);
+    const fd = await ok("net", "body", "--url", docUrl, "--file", ...S);
+    expect(fd).toMatchObject({ mime: "text/html", pretty: false, scrubbed: true, bytes: SEARCH_MIN_HTML.length, lines: 2, url: docUrl });
+    expect(Object.keys(fd).filter((k) => k !== "trace").sort()).toEqual(["bytes", "file", "id", "lines", "mime", "pretty", "scrubbed", "url"]);
+    expect(fd["file"]).toBe(join(bundle, "exports", "bodies", `${s(fd["id"])}.html`));
+    expect(readFileSync(s(fd["file"]), "utf8")).toBe(SEARCH_MIN_HTML);
+    if (process.platform !== "win32") expect(statSync(s(fd["file"])).mode & 0o777).toBe(0o600);
+    const fj = await ok("net", "body", jsId, "--file", ...S);
+    expect(readFileSync(s(fj["file"]), "utf8")).toBe(SEARCH_MIN_JS);
+    expect(fj).toMatchObject({ lines: 1, pretty: false, bytes: SEARCH_MIN_JS.length });
+    const fjp = await ok("net", "body", jsId, "--file", "--pretty", ...S);
+    expect(fjp["file"]).toBe(join(bundle, "exports", "bodies", `${jsId}.pretty.js`));
+    expect(fjp["pretty"]).toBe(true);
+    const pt = readFileSync(s(fjp["file"]), "utf8");
+    expect(pt.split("\n").length).toBe(Number(fjp["lines"]));
+    expect(Number(fjp["lines"])).toBeGreaterThan(5);
+    expect(pt.replace(/\s+/g, "")).toBe(SEARCH_MIN_JS.replace(/\s+/g, "")); // whitespace insertions only
+    const clash = await tabcap(["net", "body", jsId, "--file", "--grep", "sign", ...S]);
+    expect(clash.ok).toBe(false);
+    expect(clash.error?.["code"]).toBe("usage");
     await ok("trace", "stop", ...S);
     await ok("net", "stop", ...S);
   }, 90_000);
