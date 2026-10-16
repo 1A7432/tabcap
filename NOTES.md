@@ -174,3 +174,8 @@
 - 做了什么：比对 9 次 windows-latest 单测日志（同一镜像 20261002.596）【实测】：每次超时的用例不同，共同点是建文件或起进程；一台慢 VM（release run 38790268901 第 1 次）全量 49 s（常态 ~19 s），读写包的用例慢 10–50 倍、建包的 beforeAll 被 5 s 杀掉、20 ms 后录制计数还是 1。修：`binaryVersion` 在 Windows 上文件不存在时直接返回 null，不再起 PowerShell（原 2.6–3.5 s、两次 >5 s，修后 0.3 ms，产品同时受益）；`_platform.ts` 加 `SLOW_IO_MS`（30 s）给所有建 / 删包的 beforeAll / afterAll 和 `ruby -c`，加 `until()` 在固定 sleep 后轮询录制器的后台写入（state、rule 9 两条）；断言不变。CI【实测】：ci run 38791775699 第 1、2 次 Windows 单测连绿（16.6 s / 15.5 s），release 试跑 38791769990、38792370197 Windows 构建连绿。
 - 卡在哪：【待验】慢的根因是 Defender 实时扫描新文件还是 VM 磁盘抖动——没在 runner 上查 `Get-MpComputerStatus`；`ruby -c` 在 050bfa6 时 0.5 s、之后稳定 2–3.7 s，`--disable-gems` 不改善，原因未明；main 上 input-fidelity / state 的固定 sleep 只修了出过错的三处。
 - 下一格从哪开始：作者审 PR #2（`SLOW_IO_MS` 取值与放在测试侧而非 CI `--timeout` 的选择）后合并；若再出新的 5 s 超时，先看是否是建文件 / 起进程，用 `SLOW_IO_MS` 或 `until()` 而不是加 sleep。
+
+## 2026-10-16 · 0.4-docs · 作者裁决落地（文案）
+- 做了什么：按作者 10-16 的裁决改文案：README 边界删去挑战处理一条；去掉仓库文本里的跨项目名（旧 NOTES 条目只替换名字本身）；docs/07 焦点阶梯补 `tab select --bring-to-front` 例外；docs/05 增 s40 locale-numbers；docs/04 `finding.tool` 加 `where`；docs/09 响应 schema 推断命令改名 `shape`；docs/08 §3 追加 0.4 补充。只动文档，未碰代码、测试、CHANGELOG。
+- 卡在哪：中文 README 没有独立的「边界」条目，对应内容是「站点与账号库」段末一句，按字面删了那一句；README.md 第 5、111 行的 captcha 字样不在指定条目内，原样保留。
+- 下一格从哪开始：0.4 各代码格；s40 与 `where` 的归一化规则随 `where` 实现时落地靶场页与 expected。
