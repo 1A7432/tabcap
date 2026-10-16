@@ -128,7 +128,13 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
     const before = frontmostApp();
     const hit = recs((await ok("find", "打开弹窗", ...P))["hits"])[0];
     expect(hit?.["clickable"]).toBeTruthy();
-    await ok("click", s(hit?.["clickable"]), ...P);
+    const clicked = await ok("click", s(hit?.["clickable"]), ...P);
+    // 0.6-R: the DOM click opened the popup: effect "popup" names the new tab (URL when known), no --trusted hint
+    expect(clicked["effect"]).toBe("popup");
+    expect(rec(clicked["popup"])["tab"]).toBe("t2");
+    const popUrl = rec(clicked["popup"])["url"];
+    if (popUrl !== undefined) expect(popUrl).toBe(`${site.origin}/popup-target`);
+    expect(s(clicked["note"])).not.toContain("--trusted");
     const tabs = await until("the popup tab", () => ok("tab", "list", ...P), (d) => recs(d["tabs"]).length === 2);
     const pop = recs(tabs["tabs"])[1];
     expect(pop).toMatchObject({ tab: "t2", owned: true, reason: "popup", opener: "t1", current: false });

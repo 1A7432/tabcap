@@ -563,7 +563,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
         const aim: InputNode = landing.kind === "descendant" ? { objectId: landing.node.objectId, backendNodeId: landing.node.backendNodeId, sessionId: node.sessionId, frame: node.frame } : node;
         const landed = landingFields(ref, landing);
         if (!trusted) {
-          if (!noWait) watched.w = await watchEffect(d, t, tab, node);
+          if (!noWait) watched.w = await watchEffect(d, t, tabs, tab, node);
           const v = liveOrStale(rec(callResult(await call(t, node.sessionId, aim.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
           return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), ...dbl, overlayCheck, ...landed, ...challenge };
         }

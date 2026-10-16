@@ -12,29 +12,58 @@
 //     target's document's session (cross-document or same-document);
 //   - request: Network.requestWillBeSent on those sessions. Without a recording
 //     Network is switched on for the tab's session for the watch only (the
-//     same ref-counted switch as `wait --idle`, tools/wait.ts).
-// The output gets `effect` = the first of them observed, or "none" with a
-// `note` suggesting `--trusted`. The exit code never changes.
+//     same ref-counted switch as `wait --idle`, tools/wait.ts);
+//   - popup (0.6-R): a new page target whose opener is the clicked tab
+//     (Target.targetCreated / attachedToTarget at the browser level; window.open,
+//     target=_blank). Tabs registers it into the opener's session (reason
+//     "popup"); the output names that tab.
+// The output gets `effect` = "popup" when a popup opened (it outranks the
+// others: the opener's own DOM change from the same handler is always seen
+// first, and the new tab is what the caller must act on), else the first of
+// the other three observed, or "none" with a `note` suggesting `--trusted`.
+// The exit code never changes.
 
 import { isRecord, num, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
-import type { Tab } from "../browser/targets.ts";
+import type { Tab, Tabs } from "../browser/targets.ts";
 import { inWorld, rootDoc, type FrameDoc } from "../browser/worlds.ts";
 import type { Daemon } from "../state.ts";
 import type { CdpEvent, Transport } from "../transport/types.ts";
 import { docIdentity } from "./snapshot.ts";
 import { netOff, netOn } from "./wait.ts";
 
-export type Effect = "none" | "dom" | "navigation" | "request";
+export type Effect = "none" | "dom" | "navigation" | "request" | "popup";
 
-/** When each kind of effect was first seen (ms, wall clock), or null. */
-export type EffectSeen = { dom: number | null; navigation: number | null; request: number | null };
+/** A page the click opened: the session's tab id (null: not registered in time) and its URL when known. */
+export type PopupSeen = { at: number; tab: string | null; url: string | null };
+
+/** When each kind of effect was first seen (ms, wall clock), or null; the first popup the click opened, or null. */
+export type EffectSeen = { dom: number | null; navigation: number | null; request: number | null; popup: PopupSeen | null };
+
+/** What classifyEffect adds to the click output. */
+export type EffectFields = { effect: Effect; note?: string; popup?: { tab: string | null; url?: string } };
 
 export const NO_EFFECT_NOTE =
   "the DOM click changed nothing within the post-action wait (no DOM mutation, no navigation, no request); the element may only react to trusted input: try `tabcap click <ref> --trusted`";
 
-/** Pure: the first effect observed (ties: dom, navigation, request), or none with the --trusted note. */
-export function classifyEffect(seen: EffectSeen): { effect: Effect; note?: string } {
+/** The note of a popup effect: where to go next (never --trusted: the click worked). */
+export function popupNote(tab: string | null): string {
+  return tab === null
+    ? "the click opened a new tab (popup) that has not joined the session yet; run `tabcap tab list`, then use `--tab <id>` or `tabcap tab select <id>`"
+    : `the click opened a new tab ${tab} (popup) in this session; the current tab is unchanged: use \`--tab ${tab}\` or \`tabcap tab select ${tab}\``;
+}
+
+/**
+ * Pure: "popup" when the click opened a page (it outranks the rest), else the
+ * first effect observed (ties: dom, navigation, request), else none with the
+ * --trusted note. A popup URL that is empty or still about:blank is left out.
+ */
+export function classifyEffect(seen: EffectSeen): EffectFields {
+  if (seen.popup !== null) {
+    const url = seen.popup.url;
+    const known = url !== null && url !== "" && url !== "about:blank";
+    return { effect: "popup", popup: { tab: seen.popup.tab, ...(known ? { url } : {}) }, note: popupNote(seen.popup.tab) };
+  }
   const order: Array<[Exclude<Effect, "none">, number | null]> = [
     ["dom", seen.dom],
     ["navigation", seen.navigation],
@@ -59,6 +88,21 @@ export function isNavigationEvent(e: Pick<CdpEvent, "method" | "params">): boole
   }
   return false;
 }
+
+/**
+ * The target id of a page the event says was opened by `openerTargetId`
+ * (Target.targetCreated / Target.attachedToTarget, browser level), else null.
+ */
+export function popupTargetOf(e: Pick<CdpEvent, "method" | "params" | "sessionId">, openerTargetId: string): string | null {
+  if (e.sessionId !== null) return null;
+  if (e.method !== "Target.targetCreated" && e.method !== "Target.attachedToTarget") return null;
+  const info = isRecord(e.params["targetInfo"]) ? e.params["targetInfo"] : null;
+  if (info === null || str(info, "type") !== "page" || str(info, "openerId") !== openerTargetId) return null;
+  return str(info, "targetId");
+}
+
+/** How long `stop` waits for a seen popup to be registered as a session tab (attach setup runs first). */
+export const POPUP_REGISTER_MS = 2000;
 
 /** A request worth counting: anything but data: URLs (inline images and the like). */
 export function isRequestEvent(e: Pick<CdpEvent, "method" | "params">): boolean {
@@ -93,11 +137,26 @@ export type EffectWatch = { stop: (skipDom: boolean) => Promise<EffectSeen> };
  * by `sessionId`; `frame` null: the root document). Never throws: a part that
  * cannot be set up is simply not watched.
  */
-export async function watchEffect(d: Daemon, t: Transport, tab: Tab, node: { backendNodeId: number; sessionId: string; frame: { frameId: string; loaderId: string } | null }): Promise<EffectWatch> {
+export async function watchEffect(
+  d: Daemon,
+  t: Transport,
+  tabs: Pick<Tabs, "byTarget">,
+  tab: Tab,
+  node: { backendNodeId: number; sessionId: string; frame: { frameId: string; loaderId: string } | null },
+): Promise<EffectWatch> {
   const started = Date.now();
-  const seen: EffectSeen = { dom: null, navigation: null, request: null };
+  const seen: EffectSeen = { dom: null, navigation: null, request: null, popup: null };
   const sessions = new Set([tab.sessionId, node.sessionId]);
+  let popupTarget: string | null = null;
   const off = t.onEvent((e) => {
+    if (popupTarget === null) {
+      const id = popupTargetOf(e, tab.targetId);
+      if (id !== null) {
+        popupTarget = id;
+        seen.popup = { at: Date.now(), tab: null, url: null };
+        return;
+      }
+    }
     if (e.sessionId === null || !sessions.has(e.sessionId)) return;
     if (seen.navigation === null && isNavigationEvent(e)) seen.navigation = Date.now();
     else if (seen.request === null && isRequestEvent(e)) seen.request = Date.now();
@@ -144,6 +203,16 @@ export async function watchEffect(d: Daemon, t: Transport, tab: Tab, node: { bac
       }
       if (doc !== null) await t.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }, doc.sessionId, 3000).catch(() => undefined);
       if (held) await netOff(d, t, tab).catch(() => undefined);
+      if (popupTarget !== null && seen.popup !== null) {
+        // Tabs registers the popup in an attach hook, which may still be running.
+        const end = Date.now() + POPUP_REGISTER_MS;
+        let pop = tabs.byTarget(popupTarget);
+        while (pop === undefined && Date.now() < end) {
+          await Bun.sleep(50);
+          pop = tabs.byTarget(popupTarget);
+        }
+        if (pop !== undefined) seen.popup = { at: seen.popup.at, tab: pop.id, url: pop.url };
+      }
       return seen;
     },
   };
