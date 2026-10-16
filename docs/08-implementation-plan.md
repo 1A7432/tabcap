@@ -4,7 +4,7 @@
 
 ## 1. 仓库
 
-- 在本目录 `git init`，与 wireprint 互不包含；本地第三方材料目录已忽略。定名后整个目录 `mv` 出去，历史不丢。
+- 在本目录 `git init`，独立 git 仓库；本地第三方材料目录已忽略。定名后整个目录 `mv` 出去，历史不丢。
 - 代码里一律用占位符 `bbl`（包名、二进制名、`~/.config/bbl/`、`~/.cache/bbl/`），改名只换常量。
 - 单包多入口；`bun build --compile` 出一个二进制同时充当 CLI 和守护进程（`tabcap daemon start` 自我派生）。
 - 依赖尽量零：Bun 自带 WebSocket、`Bun.serve`、`bun:sqlite`、测试器、gzip；HAR、解码链手写。类型可能要 `devtools-protocol`、`@types/chrome`，本机 npm 不稳是唯一风险。
@@ -54,7 +54,7 @@ browser-bridge-lab/
 | 8 | s03、s08–s14，HAR 导入夹具，skill 文件 | 补齐 P1 |
 
 0.3（10-15 作者定）：`store` + `fill --secret` + 最小 guard（含挑战识别：验证码、滑块、短信、JS 挑战、风控页，默认交人，并提供统一的外部插件接口，插件目录 `~/.config/tabcap/plugins/`，主仓库不含任何解法；接口要能承载作者自己研究项目的插件）→ `replay serve` → 适配器框架（注册表 + 第一批，顺序：弹窗 / 遮挡 → 日期 → 下拉 → 表格 → 帧与新标签），第一批只装真实需求里出现过的模式；`09` 其余内容为 backlog。
-0.4（10-15 作者定）：追踪模式 + wireprint 线路层诊断接法 + 指纹探测与分析（页面脚本读了哪些信号、谁读的、本浏览器呈现的值与参照值并排；只分析不改值）；`where`、`recon` v0 同版。账号池与代理池（10-15 作者定）：`store` 加 `proxies` 表与账号到代理的绑定，账号级 guard 预算、冷却与健康状态，分配策略固定 / 轮流 / 最久未用；`direct` 模式一账号一浏览器上下文（`Target.createBrowserContext` 的 `proxyServer`），storageState 与 Python 客户端带同一代理；健康检查只打用户指定地址，默认本机靶场回显。出口策略可配置：固定或轮换，轮换的触发条件由用户在配置里定义，默认固定且撞墙仍走 guard / handoff。
+0.4（10-15 作者定）：追踪模式 + 线路层诊断外部工具的接法（子进程、读其 JSON 输出） + 指纹探测与分析（页面脚本读了哪些信号、谁读的、本浏览器呈现的值与参照值并排；只分析不改值）；`where`、`recon` v0 同版。账号池与代理池（10-15 作者定）：`store` 加 `proxies` 表与账号到代理的绑定，账号级 guard 预算、冷却与健康状态，分配策略固定 / 轮流 / 最久未用；`direct` 模式一账号一浏览器上下文（`Target.createBrowserContext` 的 `proxyServer`），storageState 与 Python 客户端带同一代理；健康检查只打用户指定地址，默认本机靶场回显。出口策略可配置：固定或轮换，轮换的触发条件由用户在配置里定义，默认固定且撞墙仍走 guard / handoff。
 
 发布（10-15 作者定）：目标平台 mac arm64、linux x64、windows x64，三者都要有二进制和 CI；对外文案英文优先，中文并行；skill 适配 Claude Code、Hermes Agent、DeepSeek harness 三种宿主，同一仓库发布（WorkBuddy 不做，10-15 作者定）；0.3.0 发布时同步上 Claude Code 与 Hermes 的市场，标 alpha；0.5 为正式公开版，门槛清单另列。
 命令命名（10-15 作者定）：命令名与参数名对齐 Chrome DevTools MCP 的工具面（Google 官方，Apache-2.0），让用过它的 agent 零适应；对齐表由调研给出、作者审过后在 0.3 打包格一次改完，旧名保留一版别名。

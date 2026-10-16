@@ -101,7 +101,7 @@
 - 挑战相关的 cookie / storage 变化：在每条 `document` / `script` 请求完成后多取一次 `state`，让「哪段脚本跑完后多了哪个 cookie」能从时间线上读出来。
 - `manifest.sample`：`{challengeRequests:["r-…"], scripts:[{request:"r-…", sha256, inline:false}], env:"<state seq>"}` 索引，由录制器在 `session stop` 时生成。
 
-工具只录不析（`03` §6）；分析是作者自己的研究（jsvmp-lab 等），拿样本离线做。（已定 h：作为 profile，不另立格式）
+工具只录不析（`03` §6）；分析是作者自己的研究（作者自己的离线分析项目等），拿样本离线做。（已定 h：作为 profile，不另立格式）
 
 ## 5. `request` 事件
 
