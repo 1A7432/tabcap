@@ -114,7 +114,6 @@ Most agent browsers start from "give the agent a clean, isolated browser and let
 ## Boundaries
 
 - Not an unattended scraping platform and not a cloud browser.
-- No captcha, slider, SMS or 2FA solving, no bypassing of bot protection; challenges go to the human. The plugin directory only offers an interface for the user's own handlers.
 - Signature-like parameters and encrypted bodies are not reproduced: generated clients mark them as TODOs, and those requests stay in the real browser session.
 - Meant for analysing and debugging your own sessions on sites you are allowed to use; the repository's tests run only against local pages.
 - The credential store is plain text protected by file permissions (0600 file in a 0700 directory, like `~/.netrc`); prefer test accounts.

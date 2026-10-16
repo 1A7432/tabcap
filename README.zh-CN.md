@@ -99,7 +99,7 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 旧名别名（0.4 删除）: `tabs` → `tab list`, `tab use` → `tab select`, `press` → `press-key`, `console` → `console list`
 <!-- END GENERATED: commands -->
 
-**站点与账号库**：`tabcap site add <名> --url <入口> --user <账号>` 在提示符下输入密码（或 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。这是**明文**库，保护程度和 `~/.netrc` 一样（macOS / Linux 上文件 0600、目录 0700，权限更宽时守护进程拒绝启动；Windows 上沿用 `%LOCALAPPDATA%` 的用户默认 ACL），能用测试账号就别用主账号。AI 只看得到站点名、入口、账号名，命令里只写引用 `tabcap fill <ref> --secret <名>.password`；守护进程把所有输出、日志、证据包事件里的已知密码替换成 `<secret:<名>.password>`，只有登录请求本身的正文原样进包，导出 HAR 时会被打码。同一会话第二次用密码登录会被拦下（`guard.login-limit`），撞上验证页时会话进入 `waiting`、交给人处理。tabcap 不带任何验证码 / 挑战的解法；`~/.config/tabcap/plugins/` 只提供给你自己的处理程序用的接口（见 `skills/tabcap/SKILL.md`）。
+**站点与账号库**：`tabcap site add <名> --url <入口> --user <账号>` 在提示符下输入密码（或 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。这是**明文**库，保护程度和 `~/.netrc` 一样（macOS / Linux 上文件 0600、目录 0700，权限更宽时守护进程拒绝启动；Windows 上沿用 `%LOCALAPPDATA%` 的用户默认 ACL），能用测试账号就别用主账号。AI 只看得到站点名、入口、账号名，命令里只写引用 `tabcap fill <ref> --secret <名>.password`；守护进程把所有输出、日志、证据包事件里的已知密码替换成 `<secret:<名>.password>`，只有登录请求本身的正文原样进包，导出 HAR 时会被打码。同一会话第二次用密码登录会被拦下（`guard.login-limit`），撞上验证页时会话进入 `waiting`、交给人处理。
 
 **平台**（GitHub Actions runner，2026-10-16，Chrome for Testing 155）：
 
