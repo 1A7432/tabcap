@@ -12,9 +12,15 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **`replay export-python` sends fewer headers**: by default each function sends only the request headers a browser does not add itself: `content-type`, `authorization`, `accept` when it is not one Chrome sends by itself, `referer` when its origin differs from the request's, and every header outside the browser-default table (custom `x-*` …); `user-agent`, `accept-language`, `origin`, `sec-ch-ua*`, `sec-fetch-*`, `priority`, cache and conditional headers are left out, and no parameter is made for them. **`--browser-headers`** restores the previous output. The table is the one `session export` uses (now in `replay/common.ts`); `client.py` says which mode it was generated in.
 - **Help index**: the diagnostics (`trace`, `fingerprint`, `wire`) are a group `Diagnostics (optional)` (`tabcap help diagnostics`) at the end of `tabcap --help`, after `Other`; the generated README tables list them in a table of their own at the end, and `references/commands.md` has them as its last section. The MCP core set and SKILL.md already left them out (unchanged).
 
+### Proxies see loopback; mitmproxy imports get a type and timings (0.6-N)
+
+- **`tabcap browser start --proxy <url>` now passes `--proxy-bypass-list=<-loopback>`** next to `--proxy-server`, so 127.0.0.1, localhost and [::1] traffic also goes through the proxy (Chrome's default bypass is removed). `--proxy system` and `--proxy none` are unchanged. A pool proxy's browser context (`proxy add` / `account bind`) without its own `--bypass` list gets `proxyBypassList: "<-loopback>"` the same way; a stored list still wins. The daemon's own CDP pipe is not affected.
+- **HAR import infers `type` when `_resourceType` is absent** (mitmproxy, Charles): `sec-fetch-dest`, then the response `content-type`, as the fixed table in docs/04 section 9.2. Inferred events carry `typeInferred: "sec-fetch" | "content-type"`, and `bundle info` counts them (`typeInferred`). `replay export-python` and `analyze` now work on mitmproxy imports.
+- **HAR import keeps `time` and `timings`** in `timing` (start, responseStart, end and rebuilt `cdp` offsets); `bundle export har` reads them back. `timing` is no longer in `lossy` unless an entry has no numbers.
+
 ### Interop with mitmproxy and Burp (0.6-M)
 
-- Docs and a fixture only, no behaviour change: [docs/13](docs/13-interop-proxies.md) covers chaining mitmproxy / Burp behind `tabcap browser start --proxy <url>` (the Chrome flags passed; loopback targets such as 127.0.0.1 and localhost bypass the proxy, tested), importing a mitmproxy `hardump` HAR with its field-loss table (imported requests all get type `other`, so `replay export-python` finds nothing to generate), and mitmproxy's `response(flow)` next to tabcap's Python `decode(flow)`. New fixture `test/fixtures/har/mitmproxy-range.har` with import tests.
+- Docs and a fixture only, no behaviour change: [docs/13](docs/13-interop-proxies.md) covers chaining mitmproxy / Burp behind `tabcap browser start --proxy <url>` (the Chrome flags passed), importing a mitmproxy `hardump` HAR with its field-loss table, and mitmproxy's `response(flow)` next to tabcap's Python `decode(flow)`. New fixture `test/fixtures/har/mitmproxy-range.har` with import tests.
 
 ### Account-usage report (0.6-H)
 

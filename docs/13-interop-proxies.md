@@ -23,42 +23,32 @@ tabcap browser start --proxy http://127.0.0.1:8080
 |---|---|
 | `system` | 无 |
 | `none` | `--proxy-server=127.0.0.1:1 --proxy-bypass-list=127.0.0.1;localhost`（黑洞，外连全断） |
-| URL | `--proxy-server=<URL>`，**没有** `--proxy-bypass-list` |
+| URL | `--proxy-server=<URL> --proxy-bypass-list=<-loopback>`（0.6-N 起；loopback 也过代理） |
 
 其余固定参数：`--disable-background-networking`、`--disable-component-update`、`--disable-sync`、`--metrics-recording-only`、`--disable-field-trial-config`、`--disable-features=…,HttpsUpgrades,PreconnectToSearch,…`（完整表在 launcher.ts）。没有 `--ignore-certificate-errors`，也没有任何证书相关参数。账号绑了池代理（`proxy add` / `account bind`）走另一条路：那个账号的 browser context 自带 `proxyServer`，见 docs/07 §4 第 6 条，本页不展开。
 
-### 1.2 loopback 目标绕过代理【实测】
+### 1.2 loopback 目标也过代理【实测】
 
-Chrome 默认不对 `localhost`、`127.0.0.1`、`[::1]` 走代理，除非 bypass 列表写 `<-loopback>`。tabcap 对 URL 模式没写，所以本机靶场的流量**不经过**代理。实测过程：mitmdump 监听 `127.0.0.1:18081`，`tabcap browser start --proxy http://127.0.0.1:18081`，进程命令行里确有 `--proxy-server=http://127.0.0.1:18081`，然后依次 `navigate`：
+Chrome 默认不对 `localhost`、`127.0.0.1`、`[::1]` 走代理，除非 bypass 列表写 `<-loopback>`。0.6-M 的实测发现 tabcap 的 URL 模式没写这一项，本机靶场的流量不经过代理（历史结论，已改）。0.6-N 起 `browser start --proxy <url>` 一并传 `--proxy-bypass-list=<-loopback>`，账号池的 context 级代理（`proxyServer`）没有自带 bypass 列表时同样带 `proxyBypassList: "<-loopback>"`；`--proxy system` 与 `--proxy none` 不变（`none` 仍放行 127.0.0.1 / localhost）。实测（`test/e2e/v06n.e2e.test.ts`，代理是 `test/e2e/site.ts` 的 `startProxySite()`，以它自己的日志为准）：`tabcap browser start --proxy <代理>` 后依次 `navigate`：
 
-| 目标 | mitmdump 是否看到 |
+| 目标 | 代理是否看到 |
 |---|---|
-| `http://127.0.0.1:<port>/s06` | 没有（直连） |
-| `http://localhost:<port>/s06` | 没有（直连） |
-| `http://range.test:<port>/s06` | 有（`GET` 与 `favicon.ico`） |
+| `http://127.0.0.1:<port>/plain` | 有（并转发到靶场，靶场访问日志有 `GET /plain`） |
+| `http://localhost:<port>/plain` | 有 |
+| `http://[::1]:<port>/plain` | 有（只看日志，靶场不在 `[::1]` 上） |
 
-所以要在本地靶场上试串联，不能直接用 127.0.0.1：给靶场换一个**不是 loopback 的名字**，让代理把它改回本机。最小做法，mitmproxy addon（`rewrite.py`）：
-
-```python
-from mitmproxy import http
-
-def request(flow: http.HTTPFlow) -> None:
-    if flow.request.host == "range.test":      # not a real name
-        flow.request.host = "127.0.0.1"
-```
+换成 `--proxy none` 再 `navigate` 同一地址：代理日志不增加，靶场直接收到请求。因此靶场可以直接用 127.0.0.1 试串联，不需要把靶场换成非 loopback 的名字；守护进程自己的 CDP 连接是管道，不受影响（docs/07 §4 第 6 条）。mitmproxy 侧照旧：
 
 ```
-uvx --from mitmproxy mitmdump -s rewrite.py -p 18081
+uvx --from mitmproxy mitmdump -p 18081
 tabcap browser start --proxy http://127.0.0.1:18081
-tabcap navigate http://range.test:<port>/s06
+tabcap navigate http://127.0.0.1:<port>/s06
 ```
 
-两个坑【实测】：
+0.6-M 用非 loopback 名字绕过时碰到的两个坑【实测】：
 
 - `range.test` 是 http 且不是 loopback，所以页面**不是 secure context**：`window.isSecureContext` 为 `false`，`crypto.subtle` 是 `undefined`。靶场的 s06 页用 `crypto.subtle` 算签名，页面脚本在这里中途停止，不会发 `/api/search`。要走完整流程用不依赖 secure context 的页面（s07 登录页只用 `fetch`）。
 - 用 curl 从命令行打代理时，环境里的 `no_proxy=127.0.0.1,…` 会让 `curl -x` 也跳过代理；加 `--noproxy ''`。
-
-真要让 tabcap 让 loopback 也过代理，缺的是 `--proxy-bypass-list=<-loopback>`。这是代码改动，本格不做；【待验】提案（已写进 NOTES）：URL 模式加 `<-loopback>`，另给一个显式开关，避免改变默认行为；用法与 docs/07 §4 第 6 条里 context 级代理的 `<-loopback>` 一致。
 
 ### 1.3 HTTPS
 
@@ -95,14 +85,14 @@ tabcap analyze recon ./mitm-bundle --text
 
 | 命令 | 在导入包上 |
 |---|---|
-| `bundle import har` | 5 requests，`lossy` 为 `actor tab cmd mono cdp timing headersSource redirect initiator` |
+| `bundle import har` | 5 requests，`lossy` 为 `actor tab cmd mono cdp headersSource redirect initiator`；5 条的 `type` 是 content-type 推的（`document` 2、`xhr` 3），`typeInferred` 全是 `content-type`（curl 不发 `sec-fetch-*`） |
 | `analyze find` | 命中 `data-ok`（`r-5` 响应 `$.data`） |
 | `analyze deps` | 4 条边：`x-csrf` ← `r-4` 响应 `$.csrf`、`sid` ← `r-4` 的 `set-cookie`，`password` 标 `sensitive-name` |
 | `analyze diff`（同一文件导两份） | 按 `method + path` 归组，常量 / 变化参数照常给出 |
 | `analyze recon` | 数据通道表、cookie 表（`sid` 来源 `set-cookie r-4`）都有；`page` 与技术栈为空 |
-| `replay export-python` | **失败**：`no request to generate a client for` |
+| `replay export-python` | 0.6-N 起能生成客户端（0.6-M 时失败：`no request to generate a client for`，因为 `type` 全是 `other`） |
 
-`replay export-python` 失败的原因【实测】：它只用 `xhr` / `fetch` / `document` 类型的请求，而 mitmproxy 的 HAR 没有 `_resourceType`，导入后每条的 `type` 都是 `other`。不是靶场的问题：DevTools 导出的 HAR 带 `_resourceType`，没这个问题。绕法暂无；列为下一格（NOTES）。
+0.6-M 时 `replay export-python` 失败的原因【实测】：它只用 `xhr` / `fetch` / `document` 类型的请求，而 mitmproxy 的 HAR 没有 `_resourceType`，导入后每条的 `type` 都是 `other`。0.6-N 起导入按 docs/04 §9.2 的固定表推类型（`_resourceType` → `sec-fetch-dest` → 响应 `content-type`），推出来的标 `typeInferred`，`bundle info` 计数；这份样本推出 `document` 2 条、`xhr` 3 条，`replay export-python` 因此有请求可生成（`test/unit/har-import-type-timing.test.ts`）。
 
 ### 2.2 字段丢失表（以 `test/unit/har-mitmproxy.test.ts` 的 DROPPED 为准）
 
@@ -111,13 +101,12 @@ tabcap analyze recon ./mitm-bundle --text
 | 位置 | 丢弃的字段 | 后果 |
 |---|---|---|
 | `log` | `version`、`creator.comment`、空的 `pages[]` | 没有页面，`nav` 全是 `null`，包里没有 `nav` 事件 |
-| entry | `time`、`timings.{connect,ssl,send,wait,receive}` | `timing` 为 `null`：没有耗时（`timing` 在 `lossy` 里）。mitmproxy 的 `timings` 是有的，这是导入没读，不是文件没有 |
 | `request` | `httpVersion`、`cookies[]`、`queryString[]`、`headersSize`、`bodySize` | 无影响：cookie 在 `Cookie` 头里、query 在 URL 里；协议取响应的 `httpVersion` |
 | `request.postData` | `mimeType`、`params[]` | body 以 `text` 原文存；类型看请求头 `Content-Type` |
 | `response` | `cookies[]`、`headersSize`、`bodySize`、`redirectURL` | `Set-Cookie` 仍在响应头里；`redirectURL` 丢了，重定向链靠 `Location` 头 |
 | `response.content` | `size`、`compression` | 大小取实际字节数 |
 
-保留并进入 bundle 的：`startedDateTime`、`method`、`url`、请求 / 响应头（名字转小写）、`postData.text`、`status`、`statusText`、响应 `httpVersion`、`content.mimeType`、`content.text`、`serverIPAddress`（`remote.ip`，端口为 `null`），以及 `creator.name/version`（记在 `manifest.imported.creator`）。导入时固定补的：`actor: "human"`、`tab: "t1"`、`type: "other"`、`initiator: null`、`redirect: null`。导入的总规则见 docs/04 §9.2。
+保留并进入 bundle 的：`startedDateTime`、`time`、`timings.{connect,ssl,send,wait,receive}`（0.6-N 起，映射见 docs/04 §9.2；样本里没有 `blocked`、`dns`，按未知处理，导出时 `blocked` 读回 `0`、`dns` 读回 `-1`）、`method`、`url`、请求 / 响应头（名字转小写）、`postData.text`、`status`、`statusText`、响应 `httpVersion`、`content.mimeType`、`content.text`、`serverIPAddress`（`remote.ip`，端口为 `null`），以及 `creator.name/version`（记在 `manifest.imported.creator`）。导入时固定补的：`actor: "human"`、`tab: "t1"`、`initiator: null`、`redirect: null`；`type` 由 §9.2 的表推（没有 `_resourceType` 时）。导入的总规则见 docs/04 §9.2。
 
 ### 2.3 Burp
 

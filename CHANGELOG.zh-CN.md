@@ -4,9 +4,15 @@
 
 ## 未发布
 
+### 代理也看得到 loopback；mitmproxy 导入有类型和耗时（0.6-N）
+
+- **`tabcap browser start --proxy <url>` 现在在 `--proxy-server` 旁一并传 `--proxy-bypass-list=<-loopback>`**，127.0.0.1、localhost、[::1] 的流量也经过代理（去掉 Chrome 默认的 loopback 直连）。`--proxy system` 与 `--proxy none` 不变。账号池代理（`proxy add` / `account bind`）的 browser context 没有自带 `--bypass` 列表时同样带 `proxyBypassList: "<-loopback>"`，已存的列表仍优先。守护进程自己的 CDP 管道不受影响。
+- **HAR 导入在没有 `_resourceType` 时推 `type`**（mitmproxy、Charles）：先看 `sec-fetch-dest`，再看响应 `content-type`，是 docs/04 §9.2 里的固定表。推出来的事件带 `typeInferred: "sec-fetch" | "content-type"`，`bundle info` 计数（`typeInferred`）。`replay export-python` 与 `analyze` 现在能处理 mitmproxy 的导入包。
+- **HAR 导入保留 `time` 与 `timings`**，写进 `timing`（start、responseStart、end 和重建的 `cdp` 偏移）；`bundle export har` 读得回来。除非某条一个数都没有，`timing` 不再列在 `lossy` 里。
+
 ### 与 mitmproxy / Burp 互通（0.6-M）
 
-- 只有文档和样本，行为不变：[docs/13](docs/13-interop-proxies.md) 写了在 `tabcap browser start --proxy <url>` 后面串联 mitmproxy / Burp（传给 Chrome 的参数；127.0.0.1、localhost 这类 loopback 目标绕过代理，已实测）、导入 mitmproxy `hardump` 的 HAR 及字段丢失表（导入后请求类型全是 `other`，`replay export-python` 因此没有可生成的请求）、mitmproxy 的 `response(flow)` 与 tabcap 的 Python `decode(flow)` 对照。新增样本 `test/fixtures/har/mitmproxy-range.har` 与导入测试。
+- 只有文档和样本，行为不变：[docs/13](docs/13-interop-proxies.md) 写了在 `tabcap browser start --proxy <url>` 后面串联 mitmproxy / Burp（传给 Chrome 的参数）、导入 mitmproxy `hardump` 的 HAR 及字段丢失表、mitmproxy 的 `response(flow)` 与 tabcap 的 Python `decode(flow)` 对照。新增样本 `test/fixtures/har/mitmproxy-range.har` 与导入测试。
 
 ### 真实项目试用后的分析与输出脱敏（0.6-E）
 

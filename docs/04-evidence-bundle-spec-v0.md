@@ -150,7 +150,8 @@
   },
   "redirect": null,                               // 或 {"from": "r-56"}
                                                   // request / response 两侧可带 "decoded"：解码插件的明文视图（0.6-B，§28）
-  "timing": { "start": 88120.1, "responseStart": 88122.0, "end": 88123.4, "cdp": { /* Network.ResourceTiming 原样 */ } },
+  "timing": { "start": 88120.1, "responseStart": 88122.0, "end": 88123.4, "cdp": { /* Network.ResourceTiming 原样 */ } },   // HAR 导入的包 mono 为 null，start / responseStart / end 是 epoch 毫秒，cdp 为重建的偏移（§9.2）
+
   "outcome": "finished",                          // finished / failed / incomplete
   "error": null                                   // 或 {"text": "net::ERR_ABORTED", "canceled": true, "blockedReason": null}
 }
@@ -294,8 +295,18 @@
 - `entries` 按 `startedDateTime` 排序后分配 `seq`；`pages` → `nav`；`_webSocketMessages` → `ws`；有 `log._events` 就整体恢复。
 - 正文：`content.text` 存在时，`encoding:"base64"` 先解码；若 `content-encoding` 头存在且字节像压缩流（gzip 魔数 / 尝试 br 解码成功），解压后存、`wireEncoding` 记原值；解不开就原样存并 `bodyMissing:null`、`body.decodeFailed:true`，让 `find` 的解码链再试。
 - `manifest.imported` 记来源与 `lossy` 列表；`actor` 一律 `"human"`（外部包无法区分），`tab` 一律 `t1`。
+- **资源类型**（没有 `_resourceType` 时，0.6-N，作者 10-16 定；固定表，按序取第一个命中的）：
+
+  | 优先 | 来源 | 映射 |
+  |---|---|---|
+  | 1 | `_resourceType`（DevTools） | 照用，不标 `typeInferred` |
+  | 2 | 请求头 `sec-fetch-dest` | `document`、`iframe` → `document`；`script`；`style` → `stylesheet`；`image`；`font`；`audio`、`video` → `media`；`empty` → 有 `x-requested-with: XMLHttpRequest` 为 `xhr`，否则 `fetch`；其他值（`worker`、`frame` 等）落到第 3 步 |
+  | 3 | 响应 `content-type`（缺则取 `content.mimeType`） | `text/html` → `document`；含 `javascript` → `script`；`text/css` → `stylesheet`；`image/*` → `image`；`font/*` → `font`；`audio/*`、`video/*` → `media`；含 `json`、含 `xml`、`text/plain` → `xhr`；其他 → `other` |
+
+  推出来的类型在导入的 `request` 事件上带 `typeInferred: "sec-fetch" | "content-type"`（有 `_resourceType` 时没有这个字段），别把它当成浏览器自己的分类；`tabcap bundle info` 输出 `typeInferred: {"sec-fetch": n, "content-type": n}` 计数。状态 0（没有响应）的请求无从推，`type` 为 `other`、不标。默认 HAR 导出不写 `typeInferred`；`--embed-events` 经 `log._events` 原样保留。`replay export-python`、`analyze` 因此能处理 mitmproxy 的导入包。
+- **耗时**（0.6-N）：HAR `time` 与 `timings.{blocked,dns,connect,ssl,send,wait,receive}`（`-1` 或缺 = 未知，略去）映射到 `timing`：包里没有单调时钟（`mono:null`），`timing.start` 取 `startedDateTime` 的 epoch 毫秒，`end = start + time`，`responseStart = end - receive`（没有 `time` 或 `receive` 时取 `start` 加 blocked / dns / connect / send / wait 之和），`timing.cdp` 重建为自 `start` 起的偏移：`dnsStart/dnsEnd`（接在 blocked 之后）、`connectStart/connectEnd`、`sslStart/sslEnd`（HAR 1.2 的 ssl 含在 connect 内，放在 connect 末尾）、`sendStart/sendEnd`、`receiveHeadersEnd`；没有 `requestTime`。一条里一个数都没有时 `timing` 为 `null` 并在 `lossy` 里列 `timing`。往返：`bundle export har` 读回 `time` 与已知的各段（1 ms 内）；`blocked` 未知而后面的段已知时读回 `0`（`cdp` 的偏移从 0 起），`dns` 等未知的读回 `-1`。HAR 里没有对应物的字段（`_securityState`、`connection` 等）仍然丢弃并按 `lossy` 列出。
 - 验收用的来源：Chrome DevTools 导出、我们自己导出（往返）、mitmproxy `hardump`（若本机有）。Charles 没有样本就不承诺。
-- mitmproxy `hardump` 的实测样本在 `test/fixtures/har/mitmproxy-range.har`；它的字段丢失表与导入后各命令的行为见 [docs/13](13-interop-proxies.md) §2（导入后 `type` 全是 `other`，`replay export-python` 因此没有可生成的请求）。
+- mitmproxy `hardump` 的实测样本在 `test/fixtures/har/mitmproxy-range.har`；它的字段丢失表与导入后各命令的行为见 [docs/13](13-interop-proxies.md) §2（0.6-N 起导入后 `type` 由上表推出，`replay export-python` 能生成）。
 
 ### 9.3 往返性质（写成测试）
 
