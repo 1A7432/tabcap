@@ -293,7 +293,7 @@ describe("package layout (stand-in binary)", () => {
   test("tabcap package: package.json, the generated shim, LICENSE, NOTICE, README, the skill", () =>
     withTmp((dir) => {
       const out = assembleMain({ version: TOOL_VERSION, outDir: dir, scope: null });
-      expect(listFiles(out)).toEqual(["LICENSE", "NOTICE", "README.md", "bin/tabcap.js", "package.json", "skills/tabcap/SKILL.md", "skills/tabcap/references/analysis.md", "skills/tabcap/references/commands.md", "skills/tabcap/references/mcp.md", "skills/tabcap/references/pools.md", "skills/tabcap/references/recording.md", "skills/tabcap/references/replay.md", "skills/tabcap/references/trace-and-probes.md"]);
+      expect(listFiles(out)).toEqual(["LICENSE", "NOTICE", "README.md", "bin/tabcap.js", "package.json", "skills/tabcap/SKILL.md", "skills/tabcap/references/analysis.md", "skills/tabcap/references/commands.md", "skills/tabcap/references/mcp.md", "skills/tabcap/references/pools.md", "skills/tabcap/references/recording.md", "skills/tabcap/references/replay.md", "skills/tabcap/references/search.md", "skills/tabcap/references/trace-and-probes.md"]);
       expect(readFileSync(join(out, "bin", "tabcap.js"), "utf8")).toBe(shimSource(shimTemplate(), null));
       expect(readFileSync(join(out, "skills", "tabcap", "SKILL.md"), "utf8")).toBe(readFileSync(join(REPO_ROOT, "skills", "tabcap", "SKILL.md"), "utf8"));
     }));

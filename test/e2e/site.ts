@@ -1013,6 +1013,19 @@ export const TRACE_VISIBLE_JS = [
 
 const tracePage = (title: string, body: string) => `<!doctype html><meta charset=utf-8><title>${title}</title>\n${body}`;
 
+// 0.5-F search range: a document with an inline minified script on its line 2
+// (reads navigator.platform) and an external one-line minified script (reads
+// navigator.userAgent, fetches a JSON body). Every text the e2e expects is a
+// literal here; `trace list` points at both, `net body --at` reads around it.
+export const SEARCH_MIN_JS =
+  'var k="s05f-key";function sign(t){var u=navigator.userAgent;return t+":"+u.length}window.__sig=sign(k);fetch("/trace/min-api").then(function(r){return r.json()}).then(function(j){document.getElementById("out").textContent=j.token});';
+export const SEARCH_MIN_HTML = [
+  "<!doctype html><meta charset=utf-8><title>s05f min</title><p id=out>waiting</p>", // 1
+  '<script>var p=navigator.platform;window.__p=p.length;</script><script src="/trace/min.js"></script>', // 2
+].join("\n");
+export const SEARCH_MIN_TOKEN = "s05f-token-42";
+export const SEARCH_MIN_API = JSON.stringify({ token: SEARCH_MIN_TOKEN, rows: [{ id: 1, sku: "S05F-1" }, { id: 2, sku: "S05F-2" }] });
+
 export type TraceSite = { a: string; b: string; reports: Record<string, unknown>[]; hits: string[]; stop: () => void };
 
 export function startTraceSite(): TraceSite {
@@ -1062,6 +1075,9 @@ export function startTraceSite(): TraceSite {
       if (p === "/trace/canvas.js") return js(TRACE_CANVAS_JS);
       if (p === "/trace/visible.html") return html(tracePage("visible", '<script src="/trace/visible.js"></script>'));
       if (p === "/trace/visible.js") return js(TRACE_VISIBLE_JS);
+      if (p === "/trace/min.html") return html(SEARCH_MIN_HTML);
+      if (p === "/trace/min.js") return js(SEARCH_MIN_JS);
+      if (p === "/trace/min-api") return new Response(SEARCH_MIN_API, { headers: { "content-type": "application/json", "cache-control": "no-store" } });
       if (p === "/trace/report" && req.method === "POST") {
         const v: unknown = await req.json().catch(() => null);
         if (typeof v === "object" && v !== null) reports.push(Object.fromEntries(Object.entries(v)));
