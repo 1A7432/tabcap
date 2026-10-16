@@ -657,6 +657,8 @@ export const COMMANDS: CommandSpec[] = [
     path: ["analyze", "diff"],
     pos: ["bundle1", "bundle2", "bundles..."],
     optional: 1,
+    // A list of bundle directories (the MCP tool takes an array), not words joined with spaces.
+    restList: true,
     flags: [
       { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON" },
       { flag: "--save", key: "save", kind: "bool", help: "append the result as a finding event to the first bundle" },
@@ -829,6 +831,20 @@ export const COMMANDS: CommandSpec[] = [
     ],
     summary: "the last `state` env event of a bundle (from `fingerprint probe`) against a saved reference, offline: the same output as `fingerprint probe --ref`",
     example: "tabcap fingerprint diff ./b --ref daily",
+  },
+  {
+    path: ["mcp"],
+    pos: [],
+    flags: [
+      {
+        flag: "--all-tools",
+        key: "allTools",
+        kind: "bool",
+        help: "one tool per command with its full help (about 80 tools, ~58 KB of definitions in the model's context) instead of the core set",
+      },
+    ],
+    summary: "serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human",
+    example: "tabcap mcp",
   },
   {
     path: ["schema"],

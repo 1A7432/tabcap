@@ -32,6 +32,7 @@ import { renderFingerprintText } from "../fingerprint/fields.ts";
 import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
 import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
 import { renderWireText, wireResultOf } from "../wire/probe.ts";
+import type { RunOptions } from "../mcp/tools.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -215,7 +216,7 @@ async function cmdSetup(args: Record<string, unknown>): Promise<unknown> {
   return { ...r, platform: plat, config: p.configFile };
 }
 
-async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly string[]): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {
+async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly string[], opts: RunOptions): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {
   const parsed = parseCommand(c, argv);
   if (parsed.help) {
     const text = helpFor(c);
@@ -305,6 +306,12 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
     case "daemon run":
       await runDaemon(p);
       return { code: -1, envelope: ok({ running: true }) };
+    case "mcp": {
+      // stdout belongs to the protocol from here on; serveStdio exits the process when stdin closes.
+      const { serveStdio } = await import("../mcp/server.ts");
+      await serveStdio(async (a, o) => (await run(a, o)).envelope, parsed.args["allTools"] === true ? "all" : "core");
+      return { code: -1, envelope: ok({ stopped: true }) };
+    }
     case "schema":
       if (parsed.args["json"] === true) return { code: 0, envelope: ok(schema()), text: JSON.stringify(schema(), null, 2) };
       data = schema();
@@ -319,8 +326,9 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       break;
     default: {
       if (c.action === undefined) throw new TabcapError("internal", `no handler for ${key}`, "This is a bug.");
-      const session = parsed.session ?? envVar("SESSION") ?? "default";
-      const timeout = typeof parsed.args["timeoutMs"] === "number" ? parsed.args["timeoutMs"] : 30_000;
+      // `opts`: an MCP tool's session / timeout for a command without the flag (src/mcp/tools.ts).
+      const session = parsed.session ?? opts.session ?? envVar("SESSION") ?? "default";
+      const timeout = typeof parsed.args["timeoutMs"] === "number" ? parsed.args["timeoutMs"] : (opts.timeoutMs ?? 30_000);
       const env = await send(p, c.action, withLocalPaths(c, parsed.args, process.cwd()), session, [...raw], timeout);
       const code = env.ok ? 0 : env.error.code === "usage" ? 2 : 1;
       // `where --text`: the daemon answers JSON as always; the human report is rendered here.
@@ -383,7 +391,7 @@ export function helpRequest(argv: readonly string[]): { code: number; text: stri
   return null;
 }
 
-export async function run(argv: readonly string[]): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {
+export async function run(argv: readonly string[], opts: RunOptions = {}): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {
   try {
     const words = argv.filter((a) => !a.startsWith("-"));
     if (argv.length === 0) {
@@ -407,7 +415,7 @@ export async function run(argv: readonly string[]): Promise<{ code: number; enve
     // Drop the command words (first occurrences, in order) and keep everything else.
     const rest = [...argv];
     for (const w of c.path) rest.splice(rest.indexOf(w), 1);
-    return await runSpec(c, rest, argv);
+    return await runSpec(c, rest, argv, opts);
   } catch (e) {
     const env = toFail(e);
     return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
