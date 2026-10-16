@@ -34,7 +34,7 @@ const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
  * The `evidence` of an observe row (docs/04 §33; 0.6-L): where the plaintext
  * was read. Carried through to readers as is; untrusted like the rest.
  */
-export type DecodedEvidence = { sink: string; match: string | null; link?: "strong" | "weak"; frames: unknown[]; at: number; candidates?: string[] };
+export type DecodedEvidence = { sink: string; match: string | null; matchForm?: "raw" | "stripped" | "unquoted" | "urldecoded"; link?: "strong" | "weak"; frames: unknown[]; at: number; candidates?: string[] };
 
 const evidenceOf = (v: unknown): DecodedEvidence | undefined => {
   if (!isRecord(v) || typeof v["sink"] !== "string" || typeof v["at"] !== "number") return undefined;
@@ -42,6 +42,9 @@ const evidenceOf = (v: unknown): DecodedEvidence | undefined => {
   // 0.6-L2: "weak" = attributed only because it was the one armed suspect.
   const link = v["link"];
   if (link === "strong" || link === "weak") out.link = link;
+  // 0.6-Q: the form of the ciphertext the strong match was found in.
+  const form = v["matchForm"];
+  if (form === "raw" || form === "stripped" || form === "unquoted" || form === "urldecoded") out.matchForm = form;
   const c = v["candidates"];
   if (Array.isArray(c) && c.every((x) => typeof x === "string")) out.candidates = c as string[];
   return out;

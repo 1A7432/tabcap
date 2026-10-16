@@ -612,7 +612,7 @@ Example: `tabcap console show 3`
 
 ### `tabcap net start`
 
-record the session's traffic (requests with bodies, WebSocket frames, console) into a bundle under ~/.local/share/tabcap/bundles/
+record the session's traffic (requests with bodies, WebSocket frames, console) into a bundle under ~/.local/share/tabcap/bundles/; encrypted API responses: add `trace start --decode` for the plaintext the page parses
 
 ```
 tabcap net start [--session name] [--bodies mode]
@@ -663,7 +663,7 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 
 ### `tabcap net body`
 
-a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); a body with a decode plugin's view shows the view (--raw: the original); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)
+a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); a body with a decoded view (decode plugin, or the page view of `trace start --decode`) shows the view (--raw: the original); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)
 
 ```
 tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--file] [--pretty] [--decoded] [--raw] [--reveal]
@@ -682,7 +682,7 @@ Example: `tabcap net body r-12 --grep 'sign|token' --pretty`
 | `--max-matches <n>` | `50` | with --grep: matches shown (max 1000); total counts them all |
 | `--file` |  | write the whole decoded body (charset-decoded, secret-scrubbed; with --pretty line-broken) to exports/bodies/<id>.<ext> of the open recording (else <cache>/outputs/bodies/), 0600, and answer {id, url, mime, bytes, lines, pretty, file, scrubbed}: for `rg` / grep on the path; not with --grep / --lines / --at / --out |
 | `--pretty` |  | JavaScript / JSON bodies up to 8 MB: break minified JS into lines (newlines only, never inside strings, templates, regexes, comments), re-indent JSON; line numbers then refer to the pretty text |
-| `--decoded` |  | the decode plugin's plaintext view of the body (the default when the request has one; an error when it has none); the answer says view: "decoded" |
+| `--decoded` |  | the plaintext view of the body — a decode plugin's, else the page view of `trace start --decode` (the default when the request has one; an error when it has none); the answer says view: "decoded" |
 | `--raw` |  | the original body even when a decoded view exists (view: "raw") |
 | `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 

@@ -18,7 +18,9 @@ import { bodySearchOf, charsetOf, decodeBody, netGrep, prettify, requestByUrl, s
 import { splitLines } from "./textsearch.ts";
 import { exportBody, fileFlagOf } from "./bodyexport.ts";
 import { DecodeSession } from "../hooks/decode.ts";
-import { parseDecoded } from "../../bundle/decoded.ts";
+import { latestViews, overlayEvent, parseDecoded, readSidecar } from "../../bundle/decoded.ts";
+import { decodedPayload } from "../../analyze/views.ts";
+import { suspectOf } from "../trace/observe.ts";
 import { isRecord } from "../../shared/json.ts";
 import { decodePlugins } from "../hooks/plugins.ts";
 import { redactedDetail, redactUrl, revealOf, withRedactedUrl, type LiveCtx } from "./liveredact.ts";
@@ -238,17 +240,19 @@ async function netBodyOf(d: Daemon, a: Args, session: string): Promise<unknown> 
   if (e.blob === null) {
     throw new TabcapError("not-found", `request ${id} has no stored body (${e.bodyMissing ?? "none"})`, "Bodies are missing for redirects, 204/304, failures and navigated-away requests; see bodyMissing in the bundle.");
   }
-  // 0.6-B: the decode plugin's view is the default when there is one; --raw the original.
+  // 0.6-B: the decoded view is the default when there is one; --raw the original.
+  // 0.6-Q: the observe mode's page view counts too (D4 rank, as `analyze find`).
   const wantDecoded = optBool(a, "decoded");
   const wantRaw = optBool(a, "raw");
-  if (wantDecoded && wantRaw) throw new TabcapError("usage", "--decoded and --raw exclude each other", "Pick one: the decode plugin's view (the default when there is one) or the original body.");
-  const dv = decodedEntry(e, dir, recording);
-  if (wantDecoded && dv === null) throw new TabcapError("not-found", `request ${id} has no decoded view`, "Decoded views come from enabled decode plugins (`tabcap plugin list`); `tabcap bundle decode <bundle>` adds them to a finished bundle.");
+  if (wantDecoded && wantRaw) throw new TabcapError("usage", "--decoded and --raw exclude each other", "Pick one: the decoded view (the default when there is one) or the original body.");
+  const store = new BlobStore(dir);
+  const dv = decodedEntry(e, dir, store);
+  if (wantDecoded && dv === null) throw noDecodedView(id, store.tryRead(e.blob), recording);
   const useView = dv !== null && !wantRaw;
   const blob = useView && dv !== null ? dv.blob : e.blob;
   const mime = useView && dv !== null ? dv.mime : e.mime;
-  const viewExtra = dv === null ? {} : useView ? { view: "decoded", decoded: { by: dv.by, version: dv.version, mime: dv.mime } } : { view: "raw" };
-  const store = new BlobStore(dir);
+  const viewExtra =
+    dv === null ? {} : useView ? { view: "decoded", decoded: { by: dv.by, version: dv.version, mime: dv.mime, ...(dv.link === undefined ? {} : { link: dv.link }) } } : { view: "raw" };
   const path = store.pathOf(blob);
   if (path === null || !existsSync(path)) throw new TabcapError("not-found", `blob ${blob} is missing from ${dir}`, "The bundle is damaged; record again.");
   // A decoded view is the plugin's text: decoded as UTF-8, never with the original's charset.
@@ -263,14 +267,36 @@ async function netBodyOf(d: Daemon, a: Args, session: string): Promise<unknown> 
   return bodyResult({ id, url: e.url, path, blob, mime, out: optStr(a, "out"), extra: { ...byUrl, ...viewExtra } }, search);
 }
 
-/** The response's ok decoded view: from the index while recording, else from the event on disk (bundle decode may have added one). */
-function decodedEntry(e: NetEntry, dir: string, recording: boolean): { by: string; version: string; mime: string | null; blob: string } | null {
-  if (e.decoded !== undefined) return e.decoded;
-  if (recording) return null;
-  const ev = findRequestEvent(dir, e.id);
-  const resp = ev !== null && isRecord(ev["response"]) ? ev["response"] : null;
+/**
+ * The response's winning ok decoded view (0.6-Q): the inline view of the index
+ * (a decode plugin while recording) overlaid with the bundle's decoded.jsonl
+ * sidecar — `bundle decode` rows and the observe mode's `by:"page"` rows — by
+ * the D4 rank of docs/04 §33 (an ok plugin view over an ok page view, the
+ * later line within a rank), read through `decodedPayload` as `analyze find`
+ * reads it (a missing or oversized blob is no view). The same while recording
+ * and after.
+ */
+export function decodedEntry(e: Pick<NetEntry, "id" | "decoded">, dir: string, store: BlobStore): { by: string; version: string; mime: string | null; blob: string; link?: "strong" | "weak" } | null {
+  const inline = e.decoded === undefined ? {} : { decoded: { ...e.decoded, direction: "response", ok: true } };
+  const ev = overlayEvent({ kind: "request", id: e.id, response: inline }, latestViews(readSidecar(dir)));
+  const resp = isRecord(ev["response"]) ? ev["response"] : null;
   const d = resp === null ? undefined : parseDecoded(resp["decoded"]);
-  return d === undefined || !d.ok || d.blob === null ? null : { by: d.by, version: d.version, mime: d.mime, blob: d.blob };
+  const payload = decodedPayload({ readBlob: (ref) => store.tryRead(ref) }, d);
+  if (d === undefined || d.blob === null || payload === null) return null;
+  return { by: d.by, version: d.version, mime: d.mime, blob: d.blob, ...(payload.link === undefined ? {} : { link: payload.link }) };
+}
+
+/** `net body --decoded` without a view (0.6-Q): where views come from, and —
+ * when the body is one the observe mode would arm on (its suspect rule: the
+ * entropy rule of `find`, a ≥ 64-char base64 / hex leaf or a bare token) — the
+ * observe mode first. */
+export function noDecodedView(id: string, raw: Uint8Array | null, recording: boolean): TabcapError {
+  const encrypted = raw !== null && raw.length > 0 && suspectOf(raw, Buffer.from(raw).toString("utf8")) !== null;
+  const plugins = "Decoded views come from enabled decode plugins (`tabcap plugin list`; `tabcap bundle decode <bundle>` adds them to a finished bundle)";
+  const observe = recording
+    ? "the body looks encrypted: `tabcap trace start --decode` files the plaintext the page itself parses as a page view (reproduce the page action, then `net body` again)"
+    : "the body looks encrypted: record again with `tabcap trace start --decode` on, and the plaintext the page itself parses becomes a page view";
+  return new TabcapError("not-found", `request ${id} has no decoded view`, encrypted ? `${observe}. ${plugins}.` : `${plugins}.`);
 }
 
 function bodyResult(o: { id: string; url: string; path: string; blob: string | null; mime: string | null; out: string | null; extra: Record<string, unknown> }, search: SearchCtx | null = null): unknown {

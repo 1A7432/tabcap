@@ -38,7 +38,7 @@ import type { Tab, Tabs } from "../browser/targets.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../transport/types.ts";
 import { classifyPause, signalFields, TraceBook, type Aggregate, type BpInfo, type DocRef, type DocSummary, type PauseFrame, type ScriptInfo, type TraceLimits } from "./aggregate.ts";
 import { hashBulkData, INSTRUMENTATION_EVENTS, notRecorded, resolverExpression, SCRIPT_FIRST_STATEMENT, VALUE_INLINE_MAX, valueExpression, type SignalList } from "./signals.ts";
-import { addBounded, Armed, attribute, consoleSites, jsonParseLogpoint, OBJECT_PROBES, observeRow, OBSERVE_VERSION, PAGE_BY, pauseSite, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, sha256Text, SINKS, suspectOf, suspectShas, SUSPECT_WINDOW_MS, takeLogged, TEXT_DECODER_CONDITION, type LoggedPlain, type PageEvidence, type PlainCandidate, type SinkName } from "./observe.ts";
+import { addBounded, Armed, attribute, consoleSites, dropRawBody, jsonParseLogpoint, OBJECT_PROBES, observeRow, OBSERVE_VERSION, PAGE_BY, pauseSite, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, settleOutcome, sha256Text, SINKS, suspectOf, suspectShas, SUSPECT_WINDOW_MS, takeLogged, TEXT_DECODER_CONDITION, utf8Bytes, type LoggedPlain, type PageEvidence, type PlainCandidate, type Settling, type SinkName } from "./observe.ts";
 import type { NetEntry } from "../capture/recorder.ts";
 
 export const TRACE_NOTICE = "Trace mode installs debugger breakpoints in the page: scripts run slower and the timing is observable.";
@@ -165,7 +165,7 @@ export class Tracer {
   private sinksSkipped = 0;
   private walks = 0;
   private recovered = { console: 0, scope: 0 };
-  private drops = { plaintextMissing: 0, tooLarge: 0, afterStop: 0, unattributedCapped: 0, rawBody: 0, orphan: 0, unpaired: 0 };
+  private drops = { plaintextMissing: 0, tooLarge: 0, afterStop: 0, unattributedCapped: 0, rawBody: 0, orphan: 0, unpaired: 0, noFit: 0 };
   /** Requests that already have a page row (0.6-L2): one row per response. */
   private filedRequests = new Set<string>();
   /**
@@ -175,9 +175,11 @@ export class Tracer {
    * (s59's /api/plain control) could be mis-filed before that response's own
    * body reaches the raw-body set. Scope-string rows file at once; these wait
    * `SETTLE_MS`, then file only if still not a recorded raw body and the request
-   * has no row yet.
+   * has no row yet. 0.6-Q: unattributed rows settle too (`request` null, their
+   * candidates kept): an envelope parsed while other suspects are armed, before
+   * its own body was indexed, is dropped once that body arrives (item C).
    */
-  private settle: Array<{ request: string; text: string; from: PlainCandidate["from"]; frames: PageEvidence["frames"]; at: number }> = [];
+  private settle: Array<Settling & { from: PlainCandidate["from"]; frames: PageEvidence["frames"] }> = [];
   private static readonly SETTLE_MS = 500;
   /** 0.6-L2: the per-trace log-point marker (random); its console messages carry
    * the plaintext and are dropped by the recorder's console capture. */
@@ -208,7 +210,7 @@ export class Tracer {
    * only the timing gap is bridged. `consolePlain` is the log-point argument
    * when the guard was in force.
    */
-  private held: Array<{ scopeShas: string[]; strings: string[]; byteCsvs: string[]; consolePlain: { text: string | null; oversize: boolean } | null; evFrames: PageEvidence["frames"]; at: number }> = [];
+  private held: Array<{ scopeShas: string[]; strings: string[]; byteCsvs: string[]; consolePlain: { text: string | null; oversize: boolean } | null; evFrames: PageEvidence["frames"]; at: number; textSha: string | null }> = [];
   private static readonly HOLD_MS = 10_000;
   private static readonly HOLD_MAX = 8;
   /** matchHeld runs one at a time (an arm during its awaits asks for another pass). */
@@ -515,15 +517,24 @@ export class Tracer {
     // 0.6-L2: every recorded body text is a raw-body sha — a plaintext candidate
     // that equals one is the page parsing a raw body (the envelope, the plain
     // control), not a decrypted plaintext.
-    addBounded(this.rawShas, sha256Text(text), Tracer.RAW_SHAS_MAX);
+    const rawSha = sha256Text(text);
+    addBounded(this.rawShas, rawSha, Tracer.RAW_SHAS_MAX);
+    // 0.6-Q item C: a pause that parsed this very body before it was indexed
+    // (the envelope race) is waiting in the settle or the hold — drop it now.
+    const st = dropRawBody(this.settle, rawSha);
+    const hd = dropRawBody(this.held, rawSha);
+    if (st.dropped + hd.dropped > 0) {
+      this.settle = st.kept;
+      this.held = hd.kept;
+      this.drops.rawBody += st.dropped + hd.dropped;
+    }
     // A body the decode plugin already turned into a view has nothing to observe.
     if (e.decoded !== undefined) return;
     const s = suspectOf(bytes, text);
     if (s === null) return;
     // The ciphertext candidates, then the raw body text (0.6-L2: a page holding
     // the raw response text while it decrypts links its parse to it).
-    const shas = suspectShas(s, text);
-    this.armed.arm({ request: e.id, url: e.url, at: e.at, shas });
+    this.armed.arm({ request: e.id, url: e.url, at: e.at, hashes: suspectShas(s, text), bound: s.bound });
     this.sweepLater(SUSPECT_WINDOW_MS + 50);
     this.ensureSinks();
     // The arm may decide a hold (a pause that won the microtask race).
@@ -699,10 +710,11 @@ export class Tracer {
       const live = this.armed.live();
       if (live.length === 0) {
         if (this.held.length >= Tracer.HOLD_MAX) this.held.shift();
-        this.held.push({ scopeShas: w.scopeShas, strings: w.strings, byteCsvs: w.byteCsvs, consolePlain, evFrames, at: Date.now() });
+        const textSha = plaintext.best === null ? null : sha256Text(plaintext.best.text);
+        this.held.push({ scopeShas: w.scopeShas, strings: w.strings, byteCsvs: w.byteCsvs, consolePlain, evFrames, at: Date.now(), textSha });
         return;
       }
-      const attribution = attribute(live, w.scopeShas);
+      const attribution = attribute(live, w.scopeShas, plaintext.best === null ? null : utf8Bytes(plaintext.best.text));
       log.debug("observe: paused", { sink, frames: frames.length, console: consolePlain !== null, shas: w.scopeShas.length, attribution: attribution.kind, live: live.length });
       await this.decideRow(attribution, w.scopeShas, evFrames, plaintext, Date.now());
     } catch (e) {
@@ -748,15 +760,17 @@ export class Tracer {
     if (!("row" in decided)) {
       if (decided.skip === "plaintext-missing") this.drops.plaintextMissing++;
       else if (decided.skip === "plaintext-too-large") this.drops.tooLarge++;
+      else if (decided.skip === "no-fit") this.drops.noFit++;
       else this.drops.unattributedCapped++;
       return;
     }
     const row = decided.row;
-    // Single-suspect: weak link, settle it (see `settle`); the strong
-    // scope-string and the (kept) unattributed rows file at once.
-    if (attribution.kind === "single-suspect" && row.request !== null && plaintext.best !== null) {
-      if (this.filedRequests.has(row.request)) return;
-      this.settle.push({ request: row.request, text: plaintext.best.text, from: plaintext.best.from, frames: row.evidence.frames, at: now });
+    // Single-suspect (weak) and unattributed rows settle (see `settle`); the
+    // strong scope-string rows file at once.
+    if ((attribution.kind === "single-suspect" || attribution.kind === "unattributed") && plaintext.best !== null) {
+      if (row.request !== null && this.filedRequests.has(row.request)) return;
+      const candidates = attribution.kind === "unattributed" ? attribution.candidates : null;
+      this.settle.push({ request: row.request, candidates, text: plaintext.best.text, textSha: sha256Text(plaintext.best.text), from: plaintext.best.from, frames: row.evidence.frames, at: now });
       this.sweepLater(Tracer.SETTLE_MS + 50);
       return;
     }
@@ -799,24 +813,35 @@ export class Tracer {
     }
   }
 
-  /** File the single-suspect rows whose settle has elapsed (0.6-L2): drop those
-   * that turned out to be a recorded raw body, or whose request already has a
-   * row (a scope-string match won). `all` flushes every pending row (trace /
-   * recording stop) so a weak axios-style match is not lost on a quick stop. */
+  /** File the weak and unattributed rows whose settle has elapsed (0.6-L2;
+   * unattributed 0.6-Q): drop those that turned out to be a recorded raw body,
+   * whose request already has a row (a scope-string match won), or — for an
+   * unattributed row — that would pass the cap (`settleOutcome`). `all`
+   * flushes every pending row (trace / recording stop) so a weak axios-style
+   * match is not lost on a quick stop. */
   private async settleFlush(all = false): Promise<void> {
     if (this.settle.length === 0) return;
     const cut = Date.now() - Tracer.SETTLE_MS;
     const due = all ? this.settle : this.settle.filter((s) => s.at <= cut);
     this.settle = all ? [] : this.settle.filter((s) => s.at > cut);
     for (const s of due) {
-      if (this.filedRequests.has(s.request)) continue;
-      if (rawBodyExcluded(s.text, this.rawShas)) {
+      const out = settleOutcome(s, this.rawShas, this.filedRequests, this.unattributedKept);
+      if (out === "filed") continue;
+      if (out === "rawBody") {
         this.drops.rawBody++;
+        continue;
+      }
+      if (out === "capped") {
+        this.drops.unattributedCapped++;
         continue;
       }
       if (s.from === "console") this.recovered.console++;
       else this.recovered.scope++;
-      await this.fileDecidedRow({ request: s.request, direction: "response", mime: "application/json", text: s.text, evidence: { sink: "JSON.parse", match: null, link: "weak", frames: s.frames, at: s.at } }, s.at);
+      const evidence: PageEvidence =
+        s.request === null
+          ? { sink: "JSON.parse", match: null, frames: s.frames, at: s.at, candidates: s.candidates ?? [] }
+          : { sink: "JSON.parse", match: null, link: "weak", frames: s.frames, at: s.at };
+      await this.fileDecidedRow({ request: s.request, direction: "response", mime: "application/json", text: s.text, evidence }, s.at);
     }
   }
 
@@ -855,11 +880,11 @@ export class Tracer {
       this.armed.expire(Date.now());
       const live = this.armed.live();
       if (live.length === 0) return;
-      const attribution = attribute(live, h.scopeShas);
+      const plaintext = this.plaintextFrom(h.consolePlain, { strings: h.strings, byteCsvs: h.byteCsvs });
+      const attribution = attribute(live, h.scopeShas, plaintext.best === null ? null : utf8Bytes(plaintext.best.text));
       // No live suspect for this pause: keep it held for a later arm.
       if (attribution.kind === "armed-empty") continue;
       this.held = this.held.filter((x) => x !== h);
-      const plaintext = this.plaintextFrom(h.consolePlain, { strings: h.strings, byteCsvs: h.byteCsvs });
       await this.decideRow(attribution, h.scopeShas, h.evFrames, plaintext, h.at);
     }
   }
