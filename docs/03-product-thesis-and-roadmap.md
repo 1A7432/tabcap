@@ -64,7 +64,7 @@
 | `replay` | 从证据生成客户端（Python httpx / curl_cffi 优先），重放并逐项比对；离线回放服务器（按请求匹配吐出录到的响应），给爬虫做离线测试；多样本回归 | derive-client、私有笔记 |
 | `watch` | 定时重放，字段结构或签名方式变了就告警 | — |
 | 接口 | 命令行统一 JSON 信封；同时提供 MCP 和 skill；报错写成「下一步该做什么」 | 私有笔记 |
-| 插件 | hook 套件（fetch / XHR / crypto / WebSocket）、AST 反混淆、作者自己的 JS 分析研究项目、线路层（TLS / h2 指纹）诊断外部工具（复现被拒时指出是哪一层对不上）；已有的 JS 分析类 MCP 能接就接 | — |
+| 插件 | hook 套件（fetch / XHR / crypto / WebSocket）、AST 反混淆、作者自己的 JS 分析研究项目；已有的 JS 分析类 MCP 能接就接。线路层（TLS / h2 指纹）诊断工具（复现被拒时指出是哪一层对不上）现在是本仓库的原生组件 `native/wireprint/`（Zig），不再是外部工具 | — |
 
 ## 6. 不做什么
 

@@ -45,3 +45,20 @@ Copyright 2021 Google Inc. Read at commit
   The network presets in src/daemon/tools/emulatespec.ts are copied from
   packages/puppeteer-core/src/cdp/PredefinedNetworkConditions.ts, and the
   CDP calls that apply them follow packages/puppeteer-core/src/cdp/NetworkManager.ts.
+
+native/wireprint (wire-level fingerprint component, Zig)
+--------------------------------------------------------
+Licensed under the Apache License, Version 2.0 like the rest of tabcap.
+  JA3 (src/fp/ja3.zig) follows the salesforce/ja3 specification
+  (https://github.com/salesforce/ja3, BSD-3-Clause).
+  JA4 (src/fp/ja4.zig) is implemented from FoxIO's JA4 specification
+  (https://github.com/FoxIO-LLC/ja4, LICENSE-JA4, BSD-3-Clause); FoxIO states
+  it has no patent claims on JA4. The official JA4 test vectors in
+  spec/test-vectors.json come from that specification. "JA4" and "JA4+" are
+  trademarks of FoxIO, LLC; they are used here only to name the algorithms.
+  The HPACK Huffman table (spec/hpack-huffman.json, src/h2/huffman_table.zig),
+  the static table (src/h2/static_table.zig) and the fixtures in
+  fixtures/hpack/ are taken from RFC 7541 Appendices A, B and C, Copyright (c)
+  2015 IETF Trust and the persons identified as the document authors, subject
+  to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF Documents
+  (https://trustee.ietf.org/license-info).

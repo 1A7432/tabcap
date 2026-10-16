@@ -34,6 +34,10 @@
 - 默认最少打扰：会改页面行为的插桩（content script、`Fetch` 拦截、hook）默认关或显式模式，开了要在输出里标明。
 - 十六进制小写无前缀；哈希小写；文档中文、术语英文；代码注释英文；commit message 英文。
 
+## native/ 代码规则
+
+`native/`（目前是 `native/wireprint/`，Zig）：Zig 版本以 `build.zig.zon` 的 `minimum_zig_version` 为准，不升级；解析器零拷贝、slice 指向输入，越界返回 `error.Truncated`、自相矛盾返回 `error.Malformed`，解析路径上禁止 `unreachable` / `@panic` / `catch unreachable`；提交前 `zig fmt`（`bun run fmt:native`）；测试离线、确定性，输入用 `@embedFile`，`bun run test:native` 一条命令；expected 只来自 oracle（Wireshark、FoxIO 参考向量、RFC 附录、`spec/test-vectors.json`），不来自推理；十六进制小写无前缀（u16 为 4 位）；每个指纹算法文件顶部注释写规范链接、oracle 是什么、怎么复现。tabcap 只构建 `-Dopenssl=false`。
+
 ## 当作者卡住
 
 回 oracle（靶场日志、`raw/cdp.jsonl`）→ 缩小到单场景 → 读规范（CDP `protocol.json`、HAR 1.2）→ 带着 oracle 输出审代码 → 写三行 NOTES 收工。不要在第一步就给完整实现。
