@@ -43,6 +43,10 @@
 - **`net body`**：有解码视图时默认给视图（`view: "decoded"`），`--raw` 给原文（`view: "raw"`），没有视图时 `--decoded` 报错。`net show` 列出两侧的视图；`net start` 写出生效的解码插件；`plugin list` 显示 `kind` 与 `match`。
 - **Python runner 模板** `templates/plugins/decode-python/`（`manifest.json`、`pyproject.toml`、`runner.py`、示例 `plugin.py`）：拷进 `plugins/<名字>/`，按 mitmproxy 的形状写 `decode(flow)`（`flow.request.url / method / headers / content`、`flow.response.headers / content`）；用 `uv run --project . runner.py` 或 `python3 runner.py` 运行。mitmproxy addon 的 `response(flow)` 函数体通常可以原样搬过来。
 
+### 账号使用报告（0.6-H）
+
+- **`tabcap bundle info <bundle> --usage [--text] [--business-code <$.路径>=<ok 值>]...`** 离线数出一次录制做了什么（schema `tabcap-usage/0`）：`logins`（登录尝试次数、按账号分、`guard` 事件名单），按主机（`host:port`）的请求数、方法、状态码、首 / 末请求开始时刻、相邻请求开始的最短与平均间隔、任意 1 s 内最多请求数、空正文（有响应但没有正文、0 字节或只有空白，3xx 除外）、业务错误和已存正文字节数；`stops`（guard 熔断事件，如 `fetch-stop` 及其规则与请求）和 `windows`（按 UTC 10 分钟的请求数）。`--business-code` 可重复：JSON 正文里该路径的值不等于 ok 值（路径上没有值也算）记一次错误。只有计数与名字，没有任何值；`--text` 打一屏文本，可贴进运行记录。不带 `--usage` 的 `bundle info` 不变。
+
 ## 0.5.0（2026-10-16）
 
 ### 变更

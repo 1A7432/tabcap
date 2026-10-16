@@ -1,4 +1,4 @@
-// `bundle info --usage` (docs/04 §28). Expected values are computed by hand from the
+// `bundle info --usage` (docs/04 §30). Expected values are computed by hand from the
 // timestamps below (request start = mono = 1000 + ts - created), not from the implementation.
 
 import { describe, expect, test } from "bun:test";

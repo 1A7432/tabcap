@@ -516,3 +516,30 @@
 **Python runner 模板**（`templates/plugins/decode-python/`，用户整个目录拷到 `plugins/<name>/` 后改 `manifest.json` 的 `name` 与 `match`）：`manifest.json`（`command` 为 `["uv","run","--project",".","runner.py"]`；不用 uv 时改成 `["python3","runner.py"]`，两者都在插件目录里运行）、`pyproject.toml`（默认无依赖，`plugin.py` 要用的库写进 `dependencies`，`uv run` 首次启动时装进本目录的 `.venv`）、`runner.py`（读 JSON 行、解 base64、调用 `plugin.decode(flow)`）、示例 `plugin.py`（s42 的 XOR，密钥从同目录 `config.json` 读；`config.example.json` 是样板）。`flow` 仿 mitmproxy addon 的形状：`flow.request.url / method / headers / content`、`flow.response.status_code / headers / content`（content 是 bytes；问请求体时 `flow.response` 为 None，问响应体时 `flow.request.content` 为 None），`headers` 不分大小写、`get_all()` 取多值，`.text` 可读可写。`decode()` 返回 bytes / str 或 None；也可以像 mitmproxy 那样直接给 `flow.response.content`（或 `.text`）赋值，runner 认赋值后的内容。`plugin.MIME` 可选，没有就按内容猜 JSON / 文本。`plugin.py` 里的 `print()` 进 stderr（被丢弃），不会弄坏协议。
 
 **靶场**：s42（`docs/05`），插件 `test/e2e/plugins/xor-decode/`（Bun 脚本，密钥在它自己的 `config.json`）。【实测 10-16，本机 CfT 155：`test/e2e/v06b.e2e.test.ts` 5/5；`test/unit/decode-*.test.ts`，含 `uv run` 跑 Python runner】
+||||||| parent of fc1a356 (docs: bundle info --usage (spec 28, recording reference, changelog))
+
+## 30. 0.6-H 账号使用证据 `bundle info --usage`（10-16 作者定设计；字段与下列细节按实现定案，待作者审）
+
+作者的红线要求每次运行都有证据：每个账号登录几次、每个主机多少请求、最短间隔、空正文与业务错误码。以前靠手数。`tabcap bundle info <bundle> --usage [--text] [--business-code '<$.路径>=<ok 值>']...` 离线读包（不连守护进程、不发请求），输出 `tabcap-usage/0`；不带 `--usage` 的 `bundle info` 不变。`--text` 与 `--business-code` 只能和 `--usage` 同用，否则 `usage` 错误。**只有计数与名字，不含任何值**（不写 URL 路径、头值、正文、cookie、账号以外的凭据）。
+
+```jsonc
+{ "schema": "tabcap-usage/0", "bundle": "<目录>",
+  "session": { "name", "site", "account" },               // 取自 manifest.session
+  "logins": { "attempts": 2, "byAccount": { "alice": 1, "bob": 1 },
+              "guardEvents": [ { "seq", "event", "site", "account", "rule", "decision", "reason", "request" } ] },
+  "hosts": [ { "host": "127.0.0.1:4310", "requests", "byMethod": { "GET": 3 }, "firstMono", "lastMono",
+               "minIntervalMs", "meanIntervalMs", "maxBurst1s", "statuses": { "200": 5 },
+               "emptyBodies", "businessErrors", "bytesIn" } ],
+  "stops": [ { "kind": "fetch-stop", "request": "r-9", "rule": "empty-body" } ],
+  "windows": [ { "from": 1760500200000, "to": 1760500800000, "requests": 8 } ],
+  "businessRules": ["$.code=0"], "note": "…" }
+```
+
+- **登录**：`guard` 事件里 `event:"budget"`、`detail.rule:"login-limit"`、`detail.decision` 为 `allowed` 或 `confirmed` 的算一次登录尝试（被 `refused` 的不算，因为没有碰页面）；`byAccount` 按事件的 `account`（无则 `(none)`）。`guardEvents` 列出包里全部 `guard` 事件的名字字段（`rule` 取事件的或 `detail` 里的，`decision`、`reason`、`request` 同），不含 `detail` 其余内容。
+- **主机**：每条 `request` 事件一次，按 URL 的 `host:port` 分组（重定向的每一跳、CORS 预检、favicon 都算），按请求数降序。开始时刻取 `timing.start`（CDP 单调毫秒），缺失时取事件的 `mono`，两者都没有的计入 `requests` 但不进间隔统计。`minIntervalMs` / `meanIntervalMs` 是同主机按开始时刻排序后相邻两条的间隔（均值 = (最后 − 最先) ÷ (n − 1)，保留三位小数；少于两条为 `null`）；`maxBurst1s` 是任意 1000 ms 窗口 `[t, t+1000)` 内同主机的最多请求数；`firstMono` / `lastMono` 是最早 / 最晚的开始时刻。`statuses` 的键是状态码，没有响应的记 `failed`（`outcome:"failed"`）、`incomplete` 或 `none`。`bytesIn` 是已存正文的字节数之和（解码后，`response.body.size`），没存正文的算 0。
+- **空正文**：有响应、状态码不是 3xx，且（没有正文并且 `bodyMissing` 为空或 `no-content`，或正文 0 字节，或 ≤ 64 KiB 的文本正文去掉空白后为空）。其他没存正文的原因（过大、被导航、被驱逐…）是「不知道」，不算空。与 `fetch` 的 `empty-body` 停手规则一致。
+- **业务错误码**：`--business-code '$.code=0'` 可重复，路径写法同 `--stop-on json:`（`$`、`.键`、`[下标]`），`=` 之后能按 JSON 解析的按 JSON 比（`0` 是数字），否则按字符串。只判断能解析成 JSON 对象或数组的响应正文（≤ 8 MiB）：路径上的值与 ok 值不相等就算错误，**路径上没有值也算错误**（「其余一律算错」）；多条规则时，任一条不满足即算该响应一次错误。HTML、二进制、空正文不判断。
+- **停手**：`guard` 的 `breaker` 事件各一条：`kind` 是事件的 `reason`（`fetch-stop`、或 §4.2 的其他熔断原因，缺则 `breaker`），`request` 是事件的 `request`，`rule` 是事件的 `rule`。`resume` 不算。
+- **窗口**：每个请求的墙钟开始时刻（`ts − (mono − timing.start)`，缺失时取 `ts`）落入对齐到 UTC 整 10 分钟（600000 ms 的倍数）的窗口；只列有请求的窗口，按时间升序。
+- **`--text`**：一屏文本表（每主机一行：请求数、最短 / 平均间隔、1 s 突发、空正文、业务错误、字节），随后是各主机的方法与状态码分布、停手、窗口和 note，可直接贴进运行记录。
+- 退出：包缺失 `not-found`；包没收尾（录制中或中断）照常读，不报错（与 `bundle info` 一致）。

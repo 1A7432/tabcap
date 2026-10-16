@@ -1,8 +1,8 @@
-// Account-usage report of a bundle (docs/04 §28, 0.6-H): how many logins per
+// Account-usage report of a bundle (docs/04 §30, 0.6-H): how many logins per
 // account, requests per host, the shortest interval, empty bodies and business
 // error codes. Counts and names only, never values.
 //
-// Spec: docs/04 §28. Oracle: the range site's access log (e2e v06h) and
+// Spec: docs/04 §30. Oracle: the range site's access log (e2e v06h) and
 // literal expectations in test/unit/usage.test.ts. Reproduce:
 //   bun test test/unit/usage.test.ts
 //   TABCAP_E2E=1 bun run test:e2e   (v06h)
