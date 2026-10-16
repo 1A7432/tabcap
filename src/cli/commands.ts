@@ -847,6 +847,8 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--usage", key: "usage", kind: "bool", help: "account-usage report (tabcap-usage/0): logins per account, per host requests / intervals / bursts / statuses / empty bodies / business errors, guard stops, 10-minute windows; counts and names only" },
       { flag: "--text", key: "text", kind: "bool", help: "with --usage: one-screen table for a run log" },
       { flag: "--business-code", key: "businessCode", kind: "string", repeat: true, help: "with --usage: JSON bodies whose <$.path> is not this value count as business errors (e.g. $.code=0)", metavar: "$.path=ok" },
+      { flag: "--actor", key: "actor", kind: "string", help: "with --usage: only the rows of one actor: page (the page's own requests), fetch (sent by tabcap fetch), evaluate (during tabcap evaluate), other", metavar: "page|fetch|evaluate|other" },
+      { flag: "--all-hosts", key: "allHosts", kind: "bool", help: "with --usage: also list loopback hosts (127.0.0.1, localhost, ::1), left out by default with a one-line skipped summary" },
     ],
     summary: "bundle summary: counts, event kinds, finished or not, issues; --usage for the account-usage report",
     example: "tabcap bundle info ./b --usage --text --business-code '$.code=0'",
@@ -867,6 +869,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--rules", key: "rules", kind: "string", help: "replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay", metavar: "file" },
       { flag: "--format", key: "format", kind: "string", help: "json (fixtures/<n>-<method>-<path>.json + index.json), or the name of a fixture plugin that writes its own files", default: "json", metavar: "json|plugin" },
       { flag: "--no-redact", key: "noRedact", kind: "bool", help: "skip redaction (default: redacted like HAR export, with a per-export salt)" },
+      { flag: "--include-preflight", key: "includePreflight", kind: "bool", help: "also export CORS preflights (OPTIONS); default: skipped with reason preflight" },
     ],
     summary:
       "one fixture per recorded exchange: {key {method, path, query, body} as the replay rules read it, request {headers, body}, response {status, headers, body | bodyFile, decoded?}, meta {request, rule, recordedAt}}; --format <plugin> hands each fixture to a fixture plugin (tabcap-fixture/1) that returns the files to write",
@@ -936,6 +939,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--template", key: "template", kind: "string", help: "only this endpoint: method + path template as listed (key)", metavar: "'GET /path'" },
       { flag: "--text", key: "text", kind: "bool", help: "print one line per field instead of JSON (the envelope's data is schema tabcap-shape/0)" },
       { flag: "--write", key: "write", kind: "bool", help: "also store the result as exports/shape.json in the bundle" },
+      { flag: "--types", key: "types", kind: "string", help: "only exchanges of these resource types, or all; default: xhr, fetch, document and any response with a JSON content type", metavar: "xhr,fetch|all" },
     ],
     summary:
       "response and request shape per endpoint (method + path template, all its exchanges): a type tree of the decoded JSON bodies (kinds, unions, formats date / datetime / int / float / id / url / email, presence counts, optional, ≤ 8 enum literals of non-sensitive fields) plus query names and request body fields; never values",
@@ -948,6 +952,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--template", key: "template", kind: "string", help: "only this endpoint (method + path template)", metavar: "'GET /path'" },
       { flag: "--text", key: "text", kind: "bool", help: "print one line per change instead of JSON (the envelope's data is schema tabcap-schema-diff/0)" },
       { flag: "--write", key: "write", kind: "bool", help: "also store each bundle's shape as its exports/shape.json" },
+      { flag: "--types", key: "types", kind: "string", help: "only exchanges of these resource types on both sides, or all; default as analyze shape (diffing a HAR import: pass the --types it was exported with)", metavar: "xhr,fetch|all" },
     ],
     summary:
       "schema drift between two recordings: per endpoint the fields added, removed, changed type, changed optionality or enum, and endpoints only in one bundle; verdict same / drift / new / gone; exits 1 when any endpoint drifted (for cron)",
@@ -962,11 +967,12 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--strict", key: "strict", kind: "string", help: "also match these request headers", metavar: "h1,h2" },
       { flag: "--match-cookies", key: "matchCookies", kind: "bool", help: "also match the cookie header" },
       { flag: "--rules", key: "rules", kind: "string", help: "replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay", metavar: "file" },
+      { flag: "--prefer", key: "prefer", kind: "string", help: "which recordings of one key answer, for every key (overrides the rules' prefer): recorded (all, cycling in recorded order), 2xx (only the 2xx ones; all when there are none), latest (the last one)", metavar: "recorded|2xx|latest" },
       { flag: "--json", key: "json", kind: "bool", help: "print {port, bundle, routes} as one JSON envelope (else text, one log line per request on stderr)" },
       { flag: "--once", key: "once", kind: "number", help: "stop after this many seconds (tests)", metavar: "seconds" },
     ],
     summary:
-      "serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k[;rule=id]); no match → 404 with the nearest recordings and what differs",
+      "serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order, or only over the 2xx / the latest one with --prefer (header x-tabcap-replay: r-N;n=k[;rule=id][;prefer=p]); no match → 404 with the nearest recordings and what differs",
     example: "tabcap replay serve ./b --port 4500",
   },
   {
@@ -1020,6 +1026,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--headers", key: "headers", kind: "string", help: "response headers to compare when recorded", default: "content-type,location", metavar: "h1,h2" },
       { flag: "--with-cookies", key: "withCookies", kind: "bool", help: "also send the recorded cookie header" },
       { flag: "--rules", key: "rules", kind: "string", help: "replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay", metavar: "file" },
+      { flag: "--prefer", key: "prefer", kind: "string", help: "as replay serve --prefer: check only the recordings that answer each key; the others are listed in notPreferred and not sent", metavar: "recorded|2xx|latest" },
       { flag: "--json", key: "json", kind: "bool", help: "print one JSON envelope instead of the table" },
     ],
     summary: "send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference",

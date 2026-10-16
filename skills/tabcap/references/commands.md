@@ -908,7 +908,7 @@ Example: `tabcap bundle redact ./b ./b-redacted`
 bundle summary: counts, event kinds, finished or not, issues; --usage for the account-usage report
 
 ```
-tabcap bundle info <bundle> [--usage] [--text] [--business-code $.path=ok]...
+tabcap bundle info <bundle> [--usage] [--text] [--business-code $.path=ok]... [--actor page|fetch|evaluate|other] [--all-hosts]
 ```
 
 Example: `tabcap bundle info ./b --usage --text --business-code '$.code=0'`
@@ -918,6 +918,8 @@ Example: `tabcap bundle info ./b --usage --text --business-code '$.code=0'`
 | `--usage` |  | account-usage report (tabcap-usage/0): logins per account, per host requests / intervals / bursts / statuses / empty bodies / business errors, guard stops, 10-minute windows; counts and names only |
 | `--text` |  | with --usage: one-screen table for a run log |
 | `--business-code <$.path=ok>` |  | with --usage: JSON bodies whose <$.path> is not this value count as business errors (e.g. $.code=0) (repeatable) |
+| `--actor <page\|fetch\|evaluate\|other>` |  | with --usage: only the rows of one actor: page (the page's own requests), fetch (sent by tabcap fetch), evaluate (during tabcap evaluate), other |
+| `--all-hosts` |  | with --usage: also list loopback hosts (127.0.0.1, localhost, ::1), left out by default with a one-line skipped summary |
 
 ### `tabcap bundle decode`
 
@@ -938,7 +940,7 @@ Example: `tabcap bundle decode ./b --plugin xor-decode`
 one fixture per recorded exchange: {key {method, path, query, body} as the replay rules read it, request {headers, body}, response {status, headers, body | bodyFile, decoded?}, meta {request, rule, recordedAt}}; --format <plugin> hands each fixture to a fixture plugin (tabcap-fixture/1) that returns the files to write
 
 ```
-tabcap bundle export fixtures <bundle> --out <dir> [--rules file] [--format json|plugin] [--no-redact]
+tabcap bundle export fixtures <bundle> --out <dir> [--rules file] [--format json|plugin] [--no-redact] [--include-preflight]
 ```
 
 Example: `tabcap bundle export fixtures ./b --rules replay-rules.json --out ./fixtures`
@@ -949,6 +951,7 @@ Example: `tabcap bundle export fixtures ./b --rules replay-rules.json --out ./fi
 | `--rules <file>` |  | replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay |
 | `--format <json\|plugin>` | `json` | json (fixtures/<n>-<method>-<path>.json + index.json), or the name of a fixture plugin that writes its own files |
 | `--no-redact` |  | skip redaction (default: redacted like HAR export, with a per-export salt) |
+| `--include-preflight` |  | also export CORS preflights (OPTIONS); default: skipped with reason preflight |
 
 ### `tabcap analyze find`
 
@@ -1033,7 +1036,7 @@ Example: `tabcap analyze recon ./b --text`
 response and request shape per endpoint (method + path template, all its exchanges): a type tree of the decoded JSON bodies (kinds, unions, formats date / datetime / int / float / id / url / email, presence counts, optional, ≤ 8 enum literals of non-sensitive fields) plus query names and request body fields; never values
 
 ```
-tabcap analyze shape <bundle> [--request r-N] [--template 'GET /path'] [--text] [--write]
+tabcap analyze shape <bundle> [--request r-N] [--template 'GET /path'] [--text] [--write] [--types xhr,fetch|all]
 ```
 
 Example: `tabcap analyze shape ./b --template 'GET /api/list' --text`
@@ -1044,13 +1047,14 @@ Example: `tabcap analyze shape ./b --template 'GET /api/list' --text`
 | `--template <'GET /path'>` |  | only this endpoint: method + path template as listed (key) |
 | `--text` |  | print one line per field instead of JSON (the envelope's data is schema tabcap-shape/0) |
 | `--write` |  | also store the result as exports/shape.json in the bundle |
+| `--types <xhr,fetch\|all>` |  | only exchanges of these resource types, or all; default: xhr, fetch, document and any response with a JSON content type |
 
 ### `tabcap analyze schema-diff`
 
 schema drift between two recordings: per endpoint the fields added, removed, changed type, changed optionality or enum, and endpoints only in one bundle; verdict same / drift / new / gone; exits 1 when any endpoint drifted (for cron)
 
 ```
-tabcap analyze schema-diff <old> <new> [--template 'GET /path'] [--text] [--write]
+tabcap analyze schema-diff <old> <new> [--template 'GET /path'] [--text] [--write] [--types xhr,fetch|all]
 ```
 
 Example: `tabcap analyze schema-diff ./yesterday ./today --text`
@@ -1060,13 +1064,14 @@ Example: `tabcap analyze schema-diff ./yesterday ./today --text`
 | `--template <'GET /path'>` |  | only this endpoint (method + path template) |
 | `--text` |  | print one line per change instead of JSON (the envelope's data is schema tabcap-schema-diff/0) |
 | `--write` |  | also store each bundle's shape as its exports/shape.json |
+| `--types <xhr,fetch\|all>` |  | only exchanges of these resource types on both sides, or all; default as analyze shape (diffing a HAR import: pass the --types it was exported with) |
 
 ### `tabcap replay serve`
 
-serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k[;rule=id]); no match → 404 with the nearest recordings and what differs
+serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order, or only over the 2xx / the latest one with --prefer (header x-tabcap-replay: r-N;n=k[;rule=id][;prefer=p]); no match → 404 with the nearest recordings and what differs
 
 ```
-tabcap replay serve <bundle> [--port port] [--host host] [--strict h1,h2] [--match-cookies] [--rules file] [--json] [--once seconds]
+tabcap replay serve <bundle> [--port port] [--host host] [--strict h1,h2] [--match-cookies] [--rules file] [--prefer recorded|2xx|latest] [--json] [--once seconds]
 ```
 
 Example: `tabcap replay serve ./b --port 4500`
@@ -1078,6 +1083,7 @@ Example: `tabcap replay serve ./b --port 4500`
 | `--strict <h1,h2>` |  | also match these request headers |
 | `--match-cookies` |  | also match the cookie header |
 | `--rules <file>` |  | replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay |
+| `--prefer <recorded\|2xx\|latest>` |  | which recordings of one key answer, for every key (overrides the rules' prefer): recorded (all, cycling in recorded order), 2xx (only the 2xx ones; all when there are none), latest (the last one) |
 | `--json` |  | print {port, bundle, routes} as one JSON envelope (else text, one log line per request on stderr) |
 | `--once <seconds>` |  | stop after this many seconds (tests) |
 
@@ -1121,7 +1127,7 @@ Example: `tabcap replay export-python ./b -o ./client`
 send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference
 
 ```
-tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--rules file] [--json]
+tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--rules file] [--prefer recorded|2xx|latest] [--json]
 ```
 
 Example: `tabcap replay check ./b --against http://127.0.0.1:4500`
@@ -1136,6 +1142,7 @@ Example: `tabcap replay check ./b --against http://127.0.0.1:4500`
 | `--headers <h1,h2>` | `content-type,location` | response headers to compare when recorded |
 | `--with-cookies` |  | also send the recorded cookie header |
 | `--rules <file>` |  | replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay |
+| `--prefer <recorded\|2xx\|latest>` |  | as replay serve --prefer: check only the recordings that answer each key; the others are listed in notPreferred and not sent |
 | `--json` |  | print one JSON envelope instead of the table |
 
 ### `tabcap schema`
