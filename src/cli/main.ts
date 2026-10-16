@@ -33,6 +33,7 @@ import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintR
 import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
 import { renderWireText, wireResultOf } from "../wire/probe.ts";
 import type { RunOptions } from "../mcp/tools.ts";
+import { hostConfig } from "../mcp/hosts.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -307,6 +308,10 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       await runDaemon(p);
       return { code: -1, envelope: ok({ running: true }) };
     case "mcp": {
+      if (typeof parsed.args["printConfig"] === "string") {
+        data = hostConfig(parsed.args["printConfig"]);
+        break;
+      }
       // stdout belongs to the protocol from here on; serveStdio exits the process when stdin closes.
       const { serveStdio } = await import("../mcp/server.ts");
       await serveStdio(async (a, o) => (await run(a, o)).envelope, parsed.args["allTools"] === true ? "all" : "core");
