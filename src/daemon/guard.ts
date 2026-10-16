@@ -119,10 +119,87 @@ export type GuardDeps = {
 // hover and upload (0.3-F) act on the page like click, so they wait for the human too;
 // resize and emulate (0.4) change what the page sees (its size, device, network), so they wait as well;
 // fingerprint probe (0.4-G) opens and navigates a tab of the session like tab new.
-export const BLOCKED_WHILE_WAITING: ReadonlySet<string> = new Set(["navigate", "click", "fill", "type", "press", "go", "reload", "evaluate", "dialog", "hover", "upload", "resize", "emulate", "fingerprint.probe"]);
+// fetch (0.6-A) sends requests from the session's tab, so it waits as well.
+export const BLOCKED_WHILE_WAITING: ReadonlySet<string> = new Set(["navigate", "click", "fill", "type", "press", "go", "reload", "evaluate", "dialog", "hover", "upload", "resize", "emulate", "fingerprint.probe", "fetch"]);
+
+/**
+ * 0.6-A: a `tabcap fetch` stop rule fired. `site` is the store site the URL
+ * belongs to, or the URL's host when no store site matches; the human (or the
+ * agent, once the human said so) lifts it with `tabcap guard resume --site`.
+ */
+export type FetchStop = {
+  site: string;
+  session: string;
+  rule: string;
+  detail: string;
+  request: string;
+  fetchId: string;
+  url: string;
+  status: number | null;
+  since: number;
+};
+
+export const FETCH_RESUME_NEXT = (site: string) =>
+  `Look at the stopped response first (\`tabcap net body <r-N>\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${site}\`.`;
+
+export function fetchStoppedError(s: FetchStop): TabcapError {
+  return new TabcapError("guard.stopped", `fetches on ${s.site} are stopped: rule ${s.rule} fired on ${s.request} (${s.detail})`, FETCH_RESUME_NEXT(s.site), {
+    site: s.site,
+    rule: s.rule,
+    request: s.request,
+    fetchId: s.fetchId,
+    since: s.since,
+  });
+}
 
 export class Guard {
   private handoffs = new Map<string, Handoff>();
+  private fetchStops = new Map<string, FetchStop>();
+
+  /** The stop that refuses fetches on a site (store site name or host), or null. */
+  fetchStopOf(site: string): FetchStop | null {
+    return this.fetchStops.get(site) ?? null;
+  }
+
+  allFetchStops(): FetchStop[] {
+    return [...this.fetchStops.values()];
+  }
+
+  /** A stop rule fired: refuse the site's fetches from now on and write the `guard` breaker event. */
+  stopFetch(rec: GuardRecorder | undefined, s: FetchStop, o: { tab: string | null; account: string | null }): void {
+    this.fetchStops.set(s.site, s);
+    rec?.event(
+      "guard",
+      {
+        event: "breaker",
+        site: s.site,
+        account: o.account,
+        reason: "fetch-stop",
+        rule: s.rule,
+        request: s.request,
+        detail: { reason: "fetch-stop", rule: s.rule, detail: s.detail, request: s.request, fetchId: s.fetchId, url: s.url, status: s.status },
+      },
+      { tab: o.tab },
+    );
+    log.info("guard: fetches stopped", { site: s.site, rule: s.rule, request: s.request });
+  }
+
+  /** `tabcap guard resume --site` (or `handoff continue` of the session that stopped it). */
+  resumeFetch(site: string, by: string, rec: GuardRecorder | undefined): FetchStop {
+    const s = this.fetchStops.get(site);
+    if (s === undefined) {
+      const stopped = [...this.fetchStops.keys()];
+      throw new TabcapError("not-found", `fetches on ${site} are not stopped`, stopped.length === 0 ? "Nothing to resume." : `Stopped now: ${stopped.join(", ")}.`);
+    }
+    this.fetchStops.delete(site);
+    rec?.event("guard", { event: "resume", site, account: null, reason: "fetch-stop", rule: s.rule, request: s.request, by, detail: { reason: "fetch-stop", rule: s.rule, request: s.request, by } });
+    return s;
+  }
+
+  /** The fetch stops a session's fetches set off (handoff continue lifts them). */
+  fetchStopsBy(session: string): FetchStop[] {
+    return [...this.fetchStops.values()].filter((s) => s.session === session);
+  }
   /** Running trips (screenshots, handlers), awaited by tests and shutdown. */
   readonly pending = new Set<Promise<void>>();
 

@@ -119,3 +119,57 @@ export function parsePoolConfig(raw: unknown): PoolConfig {
 export function readPoolConfig(file: string): PoolConfig {
   return parsePoolConfig(readRaw(file)["pool"]);
 }
+
+// ------------------------------------------------------------ fetch (0.6-A)
+
+/**
+ * `config.json` `fetch` (owner design 10-16): pacing and stop rules of
+ * `tabcap fetch`, per host: {minIntervalMs: 3000, concurrency: 1, stopOn: []};
+ * `sites.<name>.fetch` overrides any of these keys for one store site.
+ * Stop rule syntax is checked when a fetch uses them (daemon/fetch/stoprules.ts).
+ */
+export type FetchConfig = { minIntervalMs: number; concurrency: number; stopOn: string[] };
+
+export const FETCH_DEFAULTS: FetchConfig = { minIntervalMs: 3000, concurrency: 1, stopOn: [] };
+
+const badFetch = (where: string, what: string, want: string) => new TabcapError("bad-input", `config.json ${where}.${what} is invalid`, `Set ${where}.${what} to ${want}, or remove it for the default.`);
+
+/** Parse one `fetch` object over `base`; a wrong value is an error (never silently replaced). */
+export function parseFetchConfig(raw: unknown, base: FetchConfig = FETCH_DEFAULTS, where = "fetch"): FetchConfig {
+  const out: FetchConfig = { ...base, stopOn: [...base.stopOn] };
+  if (raw === undefined || raw === null) return out;
+  if (!isRecord(raw)) throw new TabcapError("bad-input", `config.json ${where} is invalid`, `Set ${where} to an object, or remove it.`);
+  const iv = raw["minIntervalMs"];
+  if (iv !== undefined) {
+    if (typeof iv !== "number" || !Number.isInteger(iv) || iv < 0 || iv > 3_600_000) throw badFetch(where, "minIntervalMs", "an integer number of ms (0 to 3600000)");
+    out.minIntervalMs = iv;
+  }
+  const c = raw["concurrency"];
+  if (c !== undefined) {
+    if (typeof c !== "number" || !Number.isInteger(c) || c < 1 || c > 16) throw badFetch(where, "concurrency", "an integer from 1 to 16");
+    out.concurrency = c;
+  }
+  const s = raw["stopOn"];
+  if (s !== undefined) {
+    if (!Array.isArray(s) || !s.every((x) => typeof x === "string")) throw badFetch(where, "stopOn", "a list of stop rule strings");
+    out.stopOn = s.filter((x): x is string => typeof x === "string");
+  }
+  return out;
+}
+
+/** The fetch settings for a store site (null: none matched): `fetch`, then `sites.<site>.fetch` on top. */
+export function fetchConfigFrom(raw: Record<string, unknown>, site: string | null): FetchConfig {
+  const global = parseFetchConfig(raw["fetch"]);
+  if (site === null) return global;
+  const sites = raw["sites"];
+  if (sites === undefined || sites === null) return global;
+  if (!isRecord(sites)) throw new TabcapError("bad-input", "config.json sites is invalid", "Set sites to an object {<site>: {fetch: {...}}}, or remove it.");
+  const entry = sites[site];
+  if (entry === undefined || entry === null) return global;
+  if (!isRecord(entry)) throw new TabcapError("bad-input", `config.json sites.${site} is invalid`, `Set sites.${site} to an object, or remove it.`);
+  return parseFetchConfig(entry["fetch"], global, `sites.${site}.fetch`);
+}
+
+export function readFetchConfig(file: string, site: string | null): FetchConfig {
+  return fetchConfigFrom(readRaw(file), site);
+}

@@ -24,6 +24,9 @@ export type ErrorCode =
   | "waiting" // the session is handed to the human (guard / handoff); run `tabcap handoff continue` after they finish
   | "guard.login-limit" // a second login attempt in the same session (docs/06 A6.2); --confirm overrides
   | "guard.budget" // the account used its configured hourly request budget (config.json pool.budget); page commands wait for the next hour
+  | "guard.stopped" // a `tabcap fetch` stop rule fired on this site; further fetches wait for `tabcap guard resume --site <s>`
+  | "fetch.stopped" // this fetch's response tripped a stop rule (it is recorded; the site is now stopped)
+  | "fetch.blocked" // the page's CORS rules blocked this fetch (the console reason is attached)
   | "ext.no-context" // ext mode cannot give this account its own browser context (proxy-bound, or a second account): use the direct mode
   | "internal"; // bug
 
