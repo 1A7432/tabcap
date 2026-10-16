@@ -209,3 +209,8 @@
 - 做了什么：`trace start/stop/status/list`（按会话；Debugger 断点只读记录，`scriptFirstStatement` 暂停里装 `setBreakpointOnFunctionCall`，Worker 在等调试器时装），证据包新 kind `signal`、`mode.trace` 对象、`traceWindows`（两端是 note 事件），等人期间 `setSkipAllPauses`，命令输出带 `"trace":"on"/"paused"`。【实测】本机 e2e v04f 7/7：顶层 / 同源 iframe / OOPIF / Worker 的 (api, 脚本, 行) 与页面字面量一致，循环 1000 次计 500 并 truncated，等人期间计数 6→6、页面照跑，页面可见快照前后一致，canvas instrumentation 事件记到；每次命中约 0.12–0.15 ms（CI Windows 0.59 ms）；CfT 155 跳过 `Window.prototype.devicePixelRatio`（全局对象自有访问器）；隔离世界读 `getTimezoneOffset` 的值会命中内建函数断点，已过滤。全量 e2e 90/91，唯一失败是 tabcap.e2e「CfT 成为前台」，当时另一个 agent 的 CfT 在跑，单独重跑 15/15；CI run 38845113078 成功（Windows e2e 的失败是本分支基点上已有的，v04f 在 Windows / Linux 都过）。
 - 卡在哪：PR #7 与新 main 冲突（CHANGELOG、gen-docs、SKILL.md、references、cli/main.ts、recorder.ts、tools/index.ts、e2e/site.ts），按约定由主循环 rebase；docs/04 §21 列的按实现定案待作者审（firstN 按「带栈事件条数、跨文档」、get/call 无 args、Worker 不读 value、未录制也可开追踪）；Service / Shared Worker、导航开始后的读取仍是盲区【待验】。
 - 下一格从哪开始：作者审 docs/04 §21 与 PR #7；合入后 0.4-G 指纹探针可直接读 `signal` 事件与 `trace list`。
+
+## 2026-10-16 · 0.4-D2 · 池子命令补齐（account add / remove、proxy set-state）
+- 做了什么：`account add <站点> --user [--password-stdin] [--totp-stdin]`（重复报 conflict，输出无密码；`--totp-stdin` 须配 `--password-stdin`，stdin 两行：密码、种子）、`account remove`（顺带删已存 cookie 与计数；运行中的守护进程有会话在用就拒绝）、`proxy set-state active|disabled`（再启用回 `unknown`、失败计数清零）；单测、v04d e2e 改走 CLI、schema 快照、README / SKILL / CHANGELOG / docs/04 §8.1。
+- 卡在哪：「会话在用」只能问运行中的守护进程（`session.list`），守护进程没开则无从知道；`--totp-stdin` 的两行格式和「再启用回 `unknown`」是按字面读法定的，待作者确认；TOTP 种子目前只存、不被任何命令消费；`rotate` 模式下停用的绑定代理不会让账号不可分配（轮换会跳过它），只有 `fixed` 模式才拒。
+- 下一格从哪开始：作者审 PR 与上面三点；之后 0.4 其余格。
