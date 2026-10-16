@@ -4,6 +4,12 @@
 
 ## 未发布
 
+- **侦查档案 v0（0.4-J）`tabcap recon [--text]`** 与离线的 **`tabcap analyze recon <包> [--text]`**（离线时用包里最后一份录到的文档代替页面）：对会话的录制和当前页面写一份档案进证据包，`exports/dossier.json`（schema `tabcap-dossier/0`）与 `exports/dossier.md`（0600，每次覆写）；命令输出两个路径、简短摘要和 `receipt: {dossier: "exports/dossier.json"}`，`cmd` 结束事件的 `outputSummary.receipt` 里也有。不发任何请求。只答四问：
+  - **技术栈**：当前页面上每个适配器的 `detect` 结果，加一张 17 条的固定标记表（响应头 `server`、`x-powered-by`、`x-aspnet-version`、`x-aspnetmvc-version`、`x-generator`、`x-runtime`、`x-nextjs-cache`；会话 cookie 名 `JSESSIONID`、`ASP.NET_SessionId`、`PHPSESSID`、`laravel_session`、`csrftoken`、`_<app>_session`、`connect.sid` 等），头的值照录、cookie 只记名字，标【推断】，不猜版本。
+  - **数据通道与覆盖率**：请求按方法、路径模板（数字、uuid、长十六进制段写成 `{id}`）、资源类型、正文类别（`json | html | fragment | text | binary | ws | sse`）分组，列条数、首条 `r-N`、状态码、`unreadByPage`、用到的解码步骤和各自承载的页面词数；覆盖率是页面可见文字的词（≥ 4 字符，数字 ≥ 4 位）用 `analyze find` 的精确匹配在录到的响应和收到的 WebSocket 帧里找到的比例，另列至多 20 个没找到的词。
+  - **cookie 分类**：按名字列来源（`r-N` 的 `set-cookie`、录制开始时已有、未录到）、有效期、标志、按名字表给的用途（`session`、`csrf`、`consent`、`analytics`、`load-balancer`、`unknown`；【推断】）和 `analyze deps` 给出的 `requiredBy`（分级同 deps）；名字像 csrf 的请求头和字段也列出，来源取 deps。
+  - **防护识别**：guard 的挑战识别（类型、`r-N`、交给人的内容）和响应信号（HTML 403、429、`retry-after`、限流头、四个 bot 管理头名），只记名字，【推断】。只识别，不给任何绕过提示。
+
 - **信号探针（0.4-G）`tabcap fingerprint probe [--ref <名>] [--text]`**：本浏览器对一张固定字段表（49 个）呈现的值：navigator、UA client hints 及文档列出的高熵 hint、screen、devicePixelRatio、时区、canvas 与 audio 渲染（只留字节的 sha256）、WebGL 参数与扩展、语音列表、30 个常见字体族的 `document.fonts.check`、通知 / 定位权限状态、配色与减弱动效媒体查询。字段名沿用追踪模式信号表的 IDL 写法。tabcap 在 127.0.0.1（端口 0）起自己的自包含探针页，在会话里开一个后台标签加载，用完关掉，会话的当前标签不变；会话在录制时往证据包写一条 `state` 事件 `{what:"env", source:"fingerprint-probe", fields}`。默认输出 JSON 信封（schema `tabcap-fingerprint/0`：`browser`、`ref`、`fields:[{name, value, ref, verdict}]`、`summary`），`--text` 打表。
 - **参照值只来自你自己的采集**：`tabcap fingerprint serve [--port <p>] [--once] [--force]` 在 127.0.0.1 上给你自己的浏览器提供探针页，手动打开打印出的地址、点「Save as reference」，写成 `config/fingerprint/refs/<名>.json`（文件 0600、目录 0700；名字 `[a-z0-9-]{1,40}`；同名已存在时不加 `--force` 拒绝）。`fingerprint ref list | show <名> | remove <名>`。不经 CDP 采集，tabcap 不带任何参照值。
 - **`--ref <名>`** 加参照列与逐字段结论：`same`、`differs`、`missing`（参照里没有）、`extra`（本浏览器没有）；哈希按字符串比，数组按顺序比。**`tabcap fingerprint diff <包> --ref <名>`** 离线拿包里最后一条 `state` env 事件同样比。

@@ -661,6 +661,20 @@ Example: `tabcap where e12`
 | `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-where/0) |
 | `--write-findings` |  | append finding events (tool where; 实测 for exact matches, 推断 for normalized ones) to the session's bundle; default: the bundle is only read |
 
+### `tabcap recon`
+
+recon dossier v0 of the session's recording and current page: tech stack (adapter detect results, header / session-cookie hints), data channels (method, path template, type, body class) with the share of the page's visible text found in recorded responses, cookie classification (origin, lifetime, flags, role, requiredBy from analyze deps), protection identification (guard detections, response signals; identification only). Writes exports/dossier.json (schema tabcap-dossier/0) and exports/dossier.md into the bundle; sends no request
+
+```
+tabcap recon [--session name] [--timeout ms] [--text]
+```
+
+Example: `tabcap recon --text`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--text` |  | print the Markdown dossier instead of the JSON envelope |
+
 ## Trace mode (signal reads)
 
 ### `tabcap trace start`
@@ -885,6 +899,20 @@ Example: `tabcap analyze chain ./b --request r-12`
 | `--request <r-N>` |  | target request (default: the last data-bearing xhr / fetch / document request) |
 | `--session <name>` |  | pick the default target among requests of this session name |
 | `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-chain/0) |
+
+### `tabcap analyze recon`
+
+the recon dossier offline (as `tabcap recon`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); writes exports/dossier.json and exports/dossier.md
+
+```
+tabcap analyze recon <bundle> [--text]
+```
+
+Example: `tabcap analyze recon ./b --text`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--text` |  | print the Markdown dossier instead of the JSON envelope |
 
 ### `tabcap replay serve`
 
