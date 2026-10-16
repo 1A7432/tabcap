@@ -81,8 +81,10 @@
 **`state`**：`{tab, what:"cookies"|"localStorage"|"sessionStorage", origin, blob:"sha256:…", count, reason:"session-start"|"nav"|"session-stop"|"manual"}`。
 内容：cookies 用 CDP `Network.getCookies` 的原样数组；storage 用 `[[key,value],…]`。P1 只做 cookies、只在 session 起止和每次 `navigation` 类 nav 时取。
 
-**`finding`**：`{actor:"ai"|"human", tool:"find"|"diff"|"deps"|"trace"|"where"|"manual", grade:"实测"|"推断"|"待验"|"人确认", claim, evidence:[{request:"r-57", path:"$.items[3].title"}|{ws:"r-12", frame:seq}|{blob}], input, output}`。
+**`finding`**：`{actor:"ai"|"human", tool:"find"|"diff"|"deps"|"trace"|"where"|"wire"|"manual", grade:"实测"|"推断"|"待验"|"人确认", claim, evidence:[{request:"r-57", path:"$.items[3].title"}|{ws:"r-12", frame:seq}|{blob}], input, output}`。
 分析命令默认不写入；加 `--save` 才追加；`grade` 只有人能标 `人确认`（P2 的 `confirm` 事件会生成它）。
+
+`tool:"wire"`（0.4-W2）：`tabcap wire probe` 在该会话**正在录制**时写入，每个结论不是 `same` 的层（`tls` / `h2` / `headers`）一条，grade `实测`（本机 echo 上实际收到的字节）。四份文档先存成 blob（`evidence` 是它们的 `{blob}`）：`browserReport`（基准里的一次浏览器导航的每连接报告）、`clientReport`（生成的客户端那次 GET 的报告）、`check`（组件 `check` 的 JSON）、`diff`（组件 `diff --json` 的 JSON）；报告形状见 `11` §3.2。`input` = `{browser:{version, flagsHash, profile, cached}, client:{library, version}, layer}`，`output` = `{verdict:"differs"|"missing", fields:[字段路径]}`。`claim` 只说哪层、哪些字段不同（「在本机 echo 上测得」），不说原因、不给改法。命令自己的输出是 `tabcap-wire/0`：`{schema, browser:{version, flagsHash, profile, cached}, client:{library, version}, layers:[{layer, verdict:"same"|"differs"|"missing", fields:[{field, browser, client}]}], checks:[{code, status:"red"|"warn"|"info", message}], labels:[{label:"psk", browser, client}], note, saved?:{bundle, seqs, blobs}}`，`note` 固定为 "differences are measured on a local echo; they say which layer differs, not why a site refused anything"。
 
 **`note`**：`{actor, text, refs:[…]}`。人或 AI 的旁注。
 

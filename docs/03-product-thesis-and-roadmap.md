@@ -64,6 +64,7 @@
 | `guard` | 账号保护：按站点 / 账号配预算（登录次数、请求间隔、每小时上限）；探测模式只发单次请求；响应突然变空、状态码模式突变、出现验证页 → 熔断并交给人 | — |
 | `replay` | 从证据生成客户端（Python httpx / curl_cffi 优先），重放并逐项比对；离线回放服务器（按请求匹配吐出录到的响应），给爬虫做离线测试；多样本回归 | derive-client、私有笔记 |
 | `watch` | 定时重放，字段结构或签名方式变了就告警 | — |
+| `wire` | 线路层诊断（0.4-W2）：本机 127.0.0.1 上的 TLS echo（Bun 终结 TLS，原始 ClientHello 与解密后的请求交给原生组件 `native/wireprint/` 出报告）；浏览器基准 = tabcap 集成的 Chrome for Testing 按 tabcap 自己的启动参数采的画像；`wire probe` 拿生成的 Python 客户端对比基准，按 tls / h2 / headers 三层说哪层不同、哪些字段不同。只诊断，不说原因、不给改值建议；作者个人浏览器的画像不进仓库 | `11`、`07` §6 |
 | 接口 | 命令行统一 JSON 信封；同时提供 MCP 和 skill；报错写成「下一步该做什么」 | 私有笔记 |
 | 插件 | hook 套件（fetch / XHR / crypto / WebSocket）、AST 反混淆、作者自己的 JS 分析研究项目；已有的 JS 分析类 MCP 能接就接。线路层（TLS / h2 指纹）诊断工具（复现被拒时指出是哪一层对不上）现在是本仓库的原生组件 `native/wireprint/`（Zig），不再是外部工具 | — |
 
