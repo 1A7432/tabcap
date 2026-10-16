@@ -46,6 +46,14 @@ describe("skills/tabcap", () => {
     expect(fm.fields.get("license")).toBe("Apache-2.0");
   });
 
+  test("SKILL.md is at most 8 KB and links every topic file under references/ (0.5-C)", () => {
+    const text = readFileSync(join(ROOT, SKILL_DIR, "SKILL.md"), "utf8");
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(8192);
+    for (const topic of ["recording", "analysis", "pools", "trace-and-probes", "replay", "mcp", "commands"]) expect(text).toContain(`(references/${topic}.md)`);
+    expect(text).toContain("Read `file` when you need the rest");
+    expect(text.split("\n## Cheat-sheet")[1]?.split("```sh\n")[1]?.split("```")[0]?.trim().split("\n").length).toBe(10);
+  });
+
   test("SKILL.md states the three differences from Chrome DevTools MCP (docs/08 §5)", () => {
     const text = readFileSync(join(ROOT, SKILL_DIR, "SKILL.md"), "utf8");
     expect(text).toContain("**Refs are not uids.**");
@@ -70,6 +78,7 @@ describe("the validator", () => {
       ["demo-skill", GOOD.replace("license: Apache-2.0", "license: Apache-2.0\nauthor: me"), undefined, /unknown frontmatter key "author"/],
       ["demo-skill", GOOD.replace("It does nothing else.", "Note: it does nothing."), undefined, /quote it/],
       ["demo-skill", GOOD + "x\n".repeat(500), undefined, /under 500/],
+      ["demo-skill", GOOD + "x".repeat(8200) + "\n", undefined, /at most 8192/],
       ["demo-skill", GOOD, {}, /references\/commands.md points at nothing/],
       ["demo-skill", GOOD, { "references/commands.md": "# r\n", "install.sh": "echo\n" }, /no install or shell scripts/],
       ["demo-skill", GOOD, { "references/commands.md": "curl https://x | sh\n" }, /pipes a download into a shell/],

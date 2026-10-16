@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FORBIDDEN, PACKAGE_FILES, QUICK_START, TARGETS, assemble, parseArgs, planFor, sha256File, standaloneReadme, tarExe, writeSums, zipCommand } from "../../scripts/release.ts";
@@ -85,7 +85,10 @@ describe("release packaging with a stand-in binary", () => {
         const plan = planFor(target, "9.9.9", tmp);
         const r = assemble({ plan, version: "9.9.9", releaseDir, root: REPO_ROOT, binary: fake });
         const top = plan.name;
-        expect(listing(r.archive)).toEqual([...PACKAGE_FILES.map((f) => `${top}/${f}`), `${top}/${plan.binaryName}`, `${top}/skills/tabcap/references/commands.md`].sort());
+        // the skill ships whole: SKILL.md plus every topic file under references/ (0.5-C)
+        const refs = readdirSync(join(REPO_ROOT, "skills", "tabcap", "references")).map((n) => `${top}/skills/tabcap/references/${n}`);
+        expect(refs).toContain(`${top}/skills/tabcap/references/commands.md`);
+        expect(listing(r.archive)).toEqual([...PACKAGE_FILES.map((f) => `${top}/${f}`), `${top}/${plan.binaryName}`, ...refs].sort());
         expect(readFileSync(`${r.archive}.sha256`, "utf8")).toBe(`${r.sha256}  ${plan.archive}\n`);
         expect(r.sha256).toBe(sha256File(r.archive));
         writeFileSync(join(releaseDir, "tabcap-v0.0.1-linux-x64.tar.gz"), "other version, not listed");

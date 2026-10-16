@@ -11,7 +11,9 @@
 // - compatibility (spec: optional, ≤ 500 chars) is required here and names the
 //   separately installed `tabcap` binary and Chrome for Testing;
 // - license: Apache-2.0;
-// - body under 500 lines; every relative link points at an existing file;
+// - body under 500 lines and SKILL.md at most 8 KB (0.5-C context budget: it
+//   is loaded whole when the skill triggers; detail goes to references/);
+//   every relative link points at an existing file;
 // - only SKILL.md, references/*.md and scripts/* (none today) in the
 //   directory, and nothing an installer scan would flag (Hermes Agent scans
 //   skills for risky content): no shell scripts, no `curl … | sh`, no sudo,
@@ -24,6 +26,7 @@ import { basename, join, relative, sep } from "node:path";
 export const MAX_DESCRIPTION = 400;
 export const MAX_COMPATIBILITY = 500;
 export const MAX_BODY_LINES = 500;
+export const MAX_SKILL_BYTES = 8192;
 const ALLOWED_KEYS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const RISKY: Array<[RegExp, string]> = [
@@ -112,6 +115,8 @@ export function validateSkill(dir: string): string[] {
   if (fm.fields.get("license") !== "Apache-2.0") problems.push("license must be Apache-2.0");
   const body = text.split("\n").slice(fm.bodyStart);
   if (body.length >= MAX_BODY_LINES) problems.push(`the body has ${body.length} lines; keep it under ${MAX_BODY_LINES} (move detail to references/)`);
+  const bytes = Buffer.byteLength(text);
+  if (bytes > MAX_SKILL_BYTES) problems.push(`SKILL.md is ${bytes} bytes; at most ${MAX_SKILL_BYTES} (move detail to references/)`);
   for (const m of text.matchAll(/\]\(([^)\s#]+)(?:#[^)]*)?\)/g)) {
     const target = m[1] ?? "";
     if (/^[a-z]+:/.test(target)) continue;
