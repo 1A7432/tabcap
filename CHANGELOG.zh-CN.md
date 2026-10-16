@@ -17,6 +17,12 @@
 - **`tabcap analyze chain <包> [--request r-N] [--session 名] [--text]`**（schema `tabcap-chain/0`）：重现某个请求（默认：最后一个有数据的 xhr / fetch / document 请求）需要的请求，按录制顺序，每步写明给后面提供什么、还要调用方给什么；`todo` 列出 `computed-in-page` / `unrecorded` 输入。
 - **`replay export-python` 按动作链生成**（依赖图里有请求取用了更早响应的值时默认开启；`--chain` 强制开，`--no-chain` 与 0.3 输出逐字节相同）：来自前一步回复的值成为参数，`computed-in-page` 输入成为默认值 `TODO` 的参数（注释写明提示和同变输入），名字像密码、token 的输入（与 `bundle redact` 同一规则）不写进任何文件；`client.py` 带 `verify()`：`python client.py verify --base-url <地址>` 逐步重放动作链，每步按 `replay check` 的比法和录制比，打印 pass / fail 表，有失败退出码非 0。录到的期望值在 `verify_expected.json`（0600；秘密是 `<secret:…>`，运行时从 `TABCAP_SECRET_*` 取；附脱敏副本说明）。调用方在可选的 `todo_inputs.py` 里填 TODO，生成的 README 写明流程。
 - 生成的文档保留离线命令自己的 `--session`（只有守护进程共用的 `--session` / `--timeout` 不进用法行）。
+- **追踪模式：哪些页面脚本读了哪些浏览器信号（0.4-F）**：`tabcap trace start [--apis <文件>] [--stack 8] [--first-n 20] [--max-hits 500]`、`trace stop`、`trace status`、`trace list [--api <名>] [--script <url>] [--text]`。按会话、显式开启：开了之后会话现有和以后的标签、iframe（含跨进程的）和专用 Worker 都追踪，直到 `trace stop` 或 `session stop`。只读：用调试器断点（`Debugger.setBreakpointOnFunctionCall`，在文档第一条脚本执行前的 `scriptFirstStatement` 暂停里装好）记下哪个脚本哪一行读了哪个 API，页面里不注入、不包装、不改任何东西。断点会让脚本变慢、时间可被察觉——`trace start` 与 `trace status` 的输出写明，开着时每条命令的输出带 `"trace":"on"`。
+- 证据包新增事件 **`signal`**（docs/04 §4.1）：每个 (文档, api, 调用位置) 一条，带 `count`、`firstMono` / `lastMono`、每个 (api, 调用位置) 前 `--first-n` 条事件带最多 `--stack` 帧的栈、某 API 在一个文档里命中满 `--max-hits` 次后 `truncated: true`（该文档的这个断点随即撤掉），以及每个文档每个 API 在 tabcap 隔离世界里读一次的 `value`（≤ 1 KB 内联，否则 blob；cookie、storage、表单值写 `"<not-recorded>"`；秘密值替换）。tabcap `evaluate` 引起的读取标 `caller.kind: "tabcap"`。canvas、WebGL 错误、音频上下文的 instrumentation 事件记为 `access: "event"` 的 `signal`。
+- `manifest.mode.trace` 为 `false` 或追踪设置（`mechanism`、`apis` = 当前信号表的 sha256、`stack`、`firstN`、`maxHits`）；`manifest.traceWindows` 列出每个追踪窗口开、关时写的 `note` 事件。
+- 内置信号表覆盖 navigator、screen、时区、canvas、WebGL、语音列表、字体检查（只有名字；`$TABCAP_HOME/config/signals.json` 或 `--apis` 可替换：最多 500 个名字的 JSON 数组）。浏览器里没有的名字跳过并在 `trace status` 列出；Chrome for Testing 155 上是 `Window.prototype.devicePixelRatio`（全局对象自有的访问器，不在原型链上）。
+- 会话等人处理（`waiting`）期间追踪跳过所有调试暂停（`Debugger.setSkipAllPauses`），输出 `"trace":"paused"`；`handoff continue` 恢复。两者都记 `note` 事件。
+- 已知盲区：导航开始之后旧文档里的读取记不到；Service Worker 与 Shared Worker 不追踪。
 
 ### 页面上的值从哪来（0.4-C）
 
