@@ -33,7 +33,7 @@ describe("store: file and permissions (docs/04 §8.1)", () => {
     const s = Store.open(config);
     expectMode(config, 0o700);
     expectMode(storePath(config), 0o600);
-    expect(s.tables()).toEqual(["accounts", "bundles", "guard_counters", "login_recipes", "meta", "sessions", "sites"]);
+    expect(s.tables()).toEqual(["accounts", "bundles", "guard_counters", "login_recipes", "meta", "proxies", "sessions", "sites"]); // proxies: migration 3 (0.4-D)
     expect(s.schemaVersion).toBe(SCHEMA_VERSION);
     s.close();
   });

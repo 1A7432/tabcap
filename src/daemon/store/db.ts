@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { TabcapError } from "../../shared/envelope.ts";
 
 export const STORE_FILE = "state.db";
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Site names are what secret refs use (`<site>.password`), so they stay ref-safe. */
 const SITE_NAME = /^[A-Za-z0-9_-]{1,64}$/;
@@ -29,7 +29,7 @@ export function checkSiteName(name: string): string {
 }
 
 // Migrations: index i takes the schema from version i to i + 1.
-const MIGRATIONS: readonly string[] = [
+export const MIGRATIONS: readonly string[] = [
   `CREATE TABLE sites (
      name TEXT PRIMARY KEY,
      entry_url TEXT NOT NULL,
@@ -77,6 +77,36 @@ const MIGRATIONS: readonly string[] = [
   // 2: live request pacing for `tabcap replay check --live` (per site, per scope).
   `ALTER TABLE guard_counters ADD COLUMN requests INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE guard_counters ADD COLUMN last_request_at INTEGER;`,
+  // 3 (0.4-D, additive only): proxy pool, account pool columns, per-account guard
+  // counters. Account rows of guard_counters carry `account` + `window_start`
+  // (hourly window) and use session_name `account:<window_start>:<username>`,
+  // which no session name can spell (session names have no ':').
+  `CREATE TABLE proxies (
+     name TEXT PRIMARY KEY,
+     scheme TEXT NOT NULL,
+     host TEXT NOT NULL,
+     port INTEGER NOT NULL,
+     username TEXT,
+     password TEXT,
+     bypass TEXT,
+     state TEXT NOT NULL DEFAULT 'unknown',
+     fail_count INTEGER NOT NULL DEFAULT 0,
+     last_check_at INTEGER,
+     last_ok_at INTEGER,
+     latency_ms INTEGER,
+     recheck_at INTEGER,
+     created INTEGER NOT NULL
+   );
+   ALTER TABLE accounts ADD COLUMN proxy TEXT;
+   ALTER TABLE accounts ADD COLUMN state TEXT NOT NULL DEFAULT 'active';
+   ALTER TABLE accounts ADD COLUMN cool_until INTEGER;
+   ALTER TABLE accounts ADD COLUMN last_used_at INTEGER;
+   ALTER TABLE accounts ADD COLUMN fail_streak INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE accounts ADD COLUMN last_fail_at INTEGER;
+   ALTER TABLE guard_counters ADD COLUMN account TEXT;
+   ALTER TABLE guard_counters ADD COLUMN window_start INTEGER;
+   ALTER TABLE guard_counters ADD COLUMN logins INTEGER NOT NULL DEFAULT 0;
+   CREATE UNIQUE INDEX guard_counters_account ON guard_counters (site, account, window_start) WHERE account IS NOT NULL;`,
 ];
 
 export type SiteRow = { name: string; entryUrl: string; domains: string[]; notes: string | null; created: number };
@@ -96,6 +126,130 @@ export type RequestCounter = { site: string; scope: string; requests: number; la
 /** A `sessions` row: the cookies saved for a site's account (session stop / handoff continue of a site-bound session). */
 export type SavedSession = { site: string; username: string; cookies: unknown; savedAt: number | null; verifiedAt: number | null };
 export type BundleRow = { path: string; site: string | null; sessionName: string | null; created: number; finished: number | null };
+
+// ---- 0.4-D pools (docs/08 §3 0.4, owner design 10-16) ---------------------
+
+export type ProxyScheme = "http" | "https" | "socks4" | "socks5";
+export const PROXY_STATES = ["unknown", "up", "down", "disabled", "unchecked"] as const;
+export type ProxyState = (typeof PROXY_STATES)[number];
+export const ACCOUNT_STATES = ["active", "cooling", "needs-human", "disabled"] as const;
+export type AccountState = (typeof ACCOUNT_STATES)[number];
+/** What an account goes out through: a proxy name, the browser's own proxy flags (`system`), or `none`; null = never bound (behaves as `system`). */
+export type AccountProxy = string | null;
+
+/** A `proxies` row with its password: daemon / CLI internal, never printed. */
+export type ProxyRow = {
+  name: string;
+  scheme: ProxyScheme;
+  host: string;
+  port: number;
+  username: string | null;
+  password: string | null;
+  bypass: string | null;
+  state: ProxyState;
+  failCount: number;
+  lastCheckAt: number | null;
+  lastOkAt: number | null;
+  latencyMs: number | null;
+  recheckAt: number | null;
+  created: number;
+};
+export type ProxyCheckPatch = Partial<Pick<ProxyRow, "state" | "failCount" | "lastCheckAt" | "lastOkAt" | "latencyMs" | "recheckAt">>;
+
+export type AccountRow = {
+  site: string;
+  username: string;
+  proxy: AccountProxy;
+  state: AccountState;
+  coolUntil: number | null;
+  lastUsedAt: number | null;
+  failStreak: number;
+  lastFailAt: number | null;
+  created: number;
+};
+export type AccountPatch = Partial<Pick<AccountRow, "state" | "coolUntil" | "lastUsedAt" | "failStreak" | "lastFailAt">>;
+export type AccountCounter = { site: string; account: string; windowStart: number; requests: number; logins: number };
+
+/** Proxy names are what secret refs use (`<secret:proxy.<name>>`); `system` / `none` are binding keywords. */
+const PROXY_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+export const PROXY_KEYWORDS: readonly string[] = ["system", "none"];
+
+export function checkProxyName(name: string): string {
+  if (!PROXY_NAME.test(name) || PROXY_KEYWORDS.includes(name)) {
+    throw new TabcapError("usage", `bad proxy name: ${JSON.stringify(name)}`, "Proxy names use letters, digits, '_' or '-' (max 64); `system` and `none` are reserved.");
+  }
+  return name;
+}
+
+/** Hourly guard window of a wall-clock time. */
+export const HOUR_MS = 3_600_000;
+export function hourWindow(now: number): number {
+  return Math.floor(now / HOUR_MS) * HOUR_MS;
+}
+const accountScope = (windowStart: number, username: string) => `account:${windowStart}:${username}`;
+
+function isOf<T extends string>(list: readonly T[], v: unknown): v is T {
+  return typeof v === "string" && list.some((x) => x === v);
+}
+const numOrNull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
+
+function proxyRow(r: Record<string, unknown>): ProxyRow {
+  const scheme = r["scheme"];
+  const state = r["state"];
+  return {
+    name: String(r["name"]),
+    scheme: scheme === "https" || scheme === "socks4" || scheme === "socks5" ? scheme : "http",
+    host: String(r["host"]),
+    port: Number(r["port"]),
+    username: strOrNull(r["username"]),
+    password: strOrNull(r["password"]),
+    bypass: strOrNull(r["bypass"]),
+    state: isOf(PROXY_STATES, state) ? state : "unknown",
+    failCount: Number(r["fail_count"] ?? 0),
+    lastCheckAt: numOrNull(r["last_check_at"]),
+    lastOkAt: numOrNull(r["last_ok_at"]),
+    latencyMs: numOrNull(r["latency_ms"]),
+    recheckAt: numOrNull(r["recheck_at"]),
+    created: Number(r["created"]),
+  };
+}
+
+function accountRow(r: Record<string, unknown>): AccountRow {
+  const state = r["state"];
+  return {
+    site: String(r["site"]),
+    username: String(r["username"]),
+    proxy: strOrNull(r["proxy"]),
+    state: isOf(ACCOUNT_STATES, state) ? state : "active",
+    coolUntil: numOrNull(r["cool_until"]),
+    lastUsedAt: numOrNull(r["last_used_at"]),
+    failStreak: Number(r["fail_streak"] ?? 0),
+    lastFailAt: numOrNull(r["last_fail_at"]),
+    created: Number(r["created"]),
+  };
+}
+
+/** `host:port` as a URL authority (IPv6 hosts in brackets). */
+export function hostPort(p: Pick<ProxyRow, "host" | "port">): string {
+  return `${p.host.includes(":") ? `[${p.host}]` : p.host}:${p.port}`;
+}
+
+/**
+ * The spellings of a proxy credential that can show up in output: the
+ * password, `user:pass@host:port` (raw and percent-encoded, as in a proxy
+ * URL) and base64(`user:pass`), which Chrome sends as
+ * `Proxy-Authorization: Basic …` and reports in
+ * Network.requestWillBeSentExtraInfo (spike 10-16, Q2).
+ */
+export function proxySecretValues(p: Pick<ProxyRow, "host" | "port" | "username" | "password">): string[] {
+  if (p.password === null || p.password === "") return [];
+  const user = p.username ?? "";
+  const hp = hostPort(p);
+  const out = new Set<string>([p.password, `${user}:${p.password}@${hp}`, `${encodeURIComponent(user)}:${encodeURIComponent(p.password)}@${hp}`]);
+  out.add(Buffer.from(`${user}:${p.password}`, "utf8").toString("base64"));
+  return [...out];
+}
 
 function tooOpen(path: string, mode: number, want: number): TabcapError {
   return new TabcapError(
@@ -259,6 +413,8 @@ export class Store {
       if (typeof r["password"] === "string" && r["password"] !== "") out.push({ ref: `${site}.password`, value: r["password"] });
       if (typeof r["totp_seed"] === "string" && r["totp_seed"] !== "") out.push({ ref: `${site}.totp_seed`, value: r["totp_seed"] });
     }
+    // Proxy credentials (0.4-D): `<secret:proxy.<name>>` for every spelling of each.
+    for (const p of this.proxies()) for (const value of proxySecretValues(p)) out.push({ ref: `proxy.${p.name}`, value });
     // Saved session cookies: `<secret:site.cookie.name>` (names outside the ref alphabet: `site.cookie`).
     const sessions = this.db.query("SELECT site, cookies FROM sessions ORDER BY site, username").all() as Record<string, unknown>[];
     for (const r of sessions) {
@@ -376,6 +532,122 @@ export class Store {
       created: Number(r["created"]),
       finished: r["finished"] === null ? null : Number(r["finished"]),
     }));
+  }
+
+  // ---- proxies (0.4-D) ----------------------------------------------------
+
+  addProxy(p: { name: string; scheme: ProxyScheme; host: string; port: number; username: string | null; password: string | null; bypass: string | null }, now = Date.now()): void {
+    checkProxyName(p.name);
+    if (this.proxy(p.name) !== null) throw new TabcapError("conflict", `proxy "${p.name}" already exists`, `Run \`tabcap proxy remove ${p.name}\` first to replace it.`);
+    this.db
+      .query("INSERT INTO proxies (name, scheme, host, port, username, password, bypass, state, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'unknown', ?8)")
+      .run(p.name, p.scheme, p.host, p.port, p.username, p.password, p.bypass, now);
+  }
+
+  /** The row with its password (daemon / CLI internal; never print it). */
+  proxy(name: string): ProxyRow | null {
+    const r = this.db.query("SELECT * FROM proxies WHERE name = ?1").get(name) as Record<string, unknown> | null;
+    return r === null ? null : proxyRow(r);
+  }
+
+  proxies(): ProxyRow[] {
+    return (this.db.query("SELECT * FROM proxies ORDER BY name").all() as Record<string, unknown>[]).map(proxyRow);
+  }
+
+  /** Remove a proxy no account is bound to; returns false when there was none. */
+  removeProxy(name: string): boolean {
+    const bound = this.db.query("SELECT site, username FROM accounts WHERE proxy = ?1 ORDER BY site, username").all(name) as Record<string, unknown>[];
+    if (bound.length > 0) {
+      const who = bound.map((r) => `${String(r["site"])}.${String(r["username"])}`);
+      throw new TabcapError("conflict", `proxy "${name}" is bound to ${who.join(", ")}`, `Rebind first: \`tabcap account bind ${who[0] ?? "<site>.<user>"} --proxy <other>|system|none\`.`);
+    }
+    return this.db.query("DELETE FROM proxies WHERE name = ?1").run(name).changes > 0;
+  }
+
+  updateProxy(name: string, patch: ProxyCheckPatch): void {
+    const cols: Array<[string, string | number | null]> = [];
+    if (patch.state !== undefined) cols.push(["state", patch.state]);
+    if (patch.failCount !== undefined) cols.push(["fail_count", patch.failCount]);
+    if (patch.lastCheckAt !== undefined) cols.push(["last_check_at", patch.lastCheckAt]);
+    if (patch.lastOkAt !== undefined) cols.push(["last_ok_at", patch.lastOkAt]);
+    if (patch.latencyMs !== undefined) cols.push(["latency_ms", patch.latencyMs]);
+    if (patch.recheckAt !== undefined) cols.push(["recheck_at", patch.recheckAt]);
+    if (cols.length === 0) return;
+    const set = cols.map(([c], i) => `${c} = ?${i + 2}`).join(", ");
+    this.db.query(`UPDATE proxies SET ${set} WHERE name = ?1`).run(name, ...cols.map(([, v]) => v));
+  }
+
+  // ---- account pool (0.4-D) ------------------------------------------------
+
+  /** Accounts of one site (or all), in the order they were added. */
+  accounts(site?: string): AccountRow[] {
+    const rows = (
+      site === undefined
+        ? this.db.query("SELECT * FROM accounts ORDER BY site, created, username").all()
+        : this.db.query("SELECT * FROM accounts WHERE site = ?1 ORDER BY created, username").all(site)
+    ) as Record<string, unknown>[];
+    return rows.map(accountRow);
+  }
+
+  account(site: string, username: string): AccountRow | null {
+    const r = this.db.query("SELECT * FROM accounts WHERE site = ?1 AND username = ?2").get(site, username) as Record<string, unknown> | null;
+    return r === null ? null : accountRow(r);
+  }
+
+  /** Another account for an existing site (store level only: the CLI has `site add`, one account per site). */
+  addAccount(a: { site: string; username: string; password: string }, now = Date.now()): void {
+    if (this.site(a.site) === null) throw new TabcapError("not-found", `no site named "${a.site}"`, "Run `tabcap site list`.");
+    if (a.username === "" || a.password === "") throw new TabcapError("usage", "missing username or password", "Give both.");
+    if (this.account(a.site, a.username) !== null) throw new TabcapError("conflict", `account ${a.site}.${a.username} already exists`, "Use another username.");
+    this.db.query("INSERT INTO accounts (site, username, password, created) VALUES (?1, ?2, ?3, ?4)").run(a.site, a.username, a.password, now);
+  }
+
+  /** Bind an account to a proxy name, `system` or `none`. */
+  bindAccount(site: string, username: string, proxy: string): void {
+    if (this.account(site, username) === null) throw new TabcapError("not-found", `no account ${site}.${username}`, "Run `tabcap account list`.");
+    if (!PROXY_KEYWORDS.includes(proxy) && this.proxy(proxy) === null) throw new TabcapError("not-found", `no proxy named "${proxy}"`, "Run `tabcap proxy list`, or add it with `tabcap proxy add`.");
+    this.db.query("UPDATE accounts SET proxy = ?3 WHERE site = ?1 AND username = ?2").run(site, username, proxy);
+  }
+
+  patchAccount(site: string, username: string, patch: AccountPatch): void {
+    const cols: Array<[string, string | number | null]> = [];
+    if (patch.state !== undefined) cols.push(["state", patch.state]);
+    if (patch.coolUntil !== undefined) cols.push(["cool_until", patch.coolUntil]);
+    if (patch.lastUsedAt !== undefined) cols.push(["last_used_at", patch.lastUsedAt]);
+    if (patch.failStreak !== undefined) cols.push(["fail_streak", patch.failStreak]);
+    if (patch.lastFailAt !== undefined) cols.push(["last_fail_at", patch.lastFailAt]);
+    if (cols.length === 0) return;
+    const set = cols.map(([c], i) => `${c} = ?${i + 3}`).join(", ");
+    this.db.query(`UPDATE accounts SET ${set} WHERE site = ?1 AND username = ?2`).run(site, username, ...cols.map(([, v]) => v));
+  }
+
+  /** The account's guard counter for the hourly window that holds `now`. */
+  accountCounter(site: string, username: string, now = Date.now()): AccountCounter {
+    const windowStart = hourWindow(now);
+    const r = this.db.query("SELECT requests, logins FROM guard_counters WHERE site = ?1 AND account = ?2 AND window_start = ?3").get(site, username, windowStart) as Record<string, unknown> | null;
+    return { site, account: username, windowStart, requests: r === null ? 0 : Number(r["requests"]), logins: r === null ? 0 : Number(r["logins"]) };
+  }
+
+  private bumpAccount(site: string, username: string, col: "requests" | "logins", now: number): AccountCounter {
+    const windowStart = hourWindow(now);
+    const last = col === "requests" ? "last_request_at" : "last_attempt_at";
+    this.db
+      .query(
+        `INSERT INTO guard_counters (site, session_name, account, window_start, ${col}, ${last}) VALUES (?1, ?2, ?3, ?4, 1, ?5)
+         ON CONFLICT(site, session_name) DO UPDATE SET ${col} = ${col} + 1, ${last} = excluded.${last}`,
+      )
+      .run(site, accountScope(windowStart, username), username, windowStart, now);
+    return this.accountCounter(site, username, now);
+  }
+
+  /** Count one request the account's session sent (seen by a recording); returns the window's counter. */
+  noteAccountRequest(site: string, username: string, now = Date.now()): AccountCounter {
+    return this.bumpAccount(site, username, "requests", now);
+  }
+
+  /** Count one login attempt of the account. */
+  noteAccountLogin(site: string, username: string, now = Date.now()): AccountCounter {
+    return this.bumpAccount(site, username, "logins", now);
   }
 
   /** Test / diagnostics: table names in the file. */
