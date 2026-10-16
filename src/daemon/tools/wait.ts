@@ -80,13 +80,13 @@ export function networkHeldByWait(sid: string): boolean {
   return (netRefs.get(sid) ?? 0) > 0;
 }
 
-async function netOn(t: Transport, sid: string): Promise<void> {
+export async function netOn(t: Transport, sid: string): Promise<void> {
   const n = netRefs.get(sid) ?? 0;
   netRefs.set(sid, n + 1);
   if (n === 0) await t.send("Network.enable", {}, sid, 5000);
 }
 
-async function netOff(d: Daemon, t: Transport, tab: Tab): Promise<void> {
+export async function netOff(d: Daemon, t: Transport, tab: Tab): Promise<void> {
   const n = (netRefs.get(tab.sessionId) ?? 1) - 1;
   if (n > 0) {
     netRefs.set(tab.sessionId, n);

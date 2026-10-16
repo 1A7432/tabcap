@@ -238,3 +238,7 @@
 - 走法：`snapshot --css '#s47-user, #s47-pass, #s47-go, #s47-file, #s47-hover'` → `fill` 两个输入框、`type -t`、`click` 按钮 → `html --attrs` → `screenshot --ref` → `hover` → `upload` → `reload` 后旧 ref。
 - expected：五个都是 `(no accessible node) <…> [e<n>]`，`search.noAccessible` 与 `domRefs` 都是 5，完整快照里没有这些 ref；`#s47-out` 为 `user=s47-user-7f-t;pass=15`（`S47_*` 字面量）；截图宽高 = 120×30 × 页面自己的 `devicePixelRatio`；`__s23.hover` 为 true，`__s23.file` 为上传文件名；`reload` 后旧 ref 是 `stale-ref`。
 
+### s48 click-effects（P1；0.6-D，点击效果）
+- 页面 `/s48`：子菜单标题 `#s48-sub` 与表格格子 `#s48-cell` 的 click 处理只认 `isTrusted`；`#s48-count` 改计数（DOM 变动）；`#s48-link` 到 `/s48/next`（导航）；`#s48-ping` 只发 `fetch('/s48/ping')`（请求，不改 DOM）。
+- expected（不录制）：DOM `click` 子菜单与格子都是 `effect:"none"`、`note` 提 `--trusted`、退出码 0，子菜单仍 `display:none`、格子文字不变；计数 `dom`、ping `request`（服务端日志多一条 `GET /s48/ping`）、链接 `navigation`；`click --trusted` 子菜单后它展开（`display:block`），输出没有 `effect`；`--no-wait` 不报 `effect`。
+

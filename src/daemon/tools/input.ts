@@ -33,6 +33,7 @@ import { rootDoc, type FrameDoc } from "../browser/worlds.ts";
 import { log } from "../../shared/log.ts";
 import { CdpTimeoutError } from "../transport/direct/cdp.ts";
 import { keyEventParams, planClick, planTyping, type ClickPlan, type Point, type Rng } from "./inputplan.ts";
+import { classifyEffect, watchEffect, type EffectWatch } from "./effect.ts";
 
 const ELEMENT = "const el = this.nodeType === 1 ? this : this.parentElement;";
 // A ref whose node was replaced (framework re-render) can still resolve to the
@@ -537,13 +538,17 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
   const dbl = clicks === 2 ? { dblClick: true } : {};
   const { t, tabs } = d.need();
   const tab = tabs.pick(session, optStr(a, "tab"));
+  const noWait = optBool(a, "noWait");
   return tabs.run(
     tab,
     async () => {
-      const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), async (): Promise<Record<string, unknown>> => {
+      // 0.6-D: the default DOM click is watched for an effect until the post-action wait ends (tools/effect.ts).
+      const watched: { w: EffectWatch | null } = { w: null };
+      const clicked = withPostWait(t, tab, noWait, async (): Promise<Record<string, unknown>> => {
         const node = await resolveRef(t, tab, ref);
         const overlayCheck = await overlayGate(t, tab, node, ref);
         if (!trusted) {
+          if (!noWait) watched.w = await watchEffect(d, t, tab, node);
           const v = liveOrStale(rec(callResult(await call(t, node.sessionId, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
           return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), ...dbl, overlayCheck };
         }
@@ -581,8 +586,14 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
           overlayCheck,
         };
       });
+      const { result, wait } = await clicked.catch(async (e: unknown) => {
+        await watched.w?.stop(true);
+        throw e;
+      });
+      const w = watched.w;
+      const effect = w === null ? {} : classifyEffect(await w.stop(wait?.dialog === true));
       // url / nav read after the wait: the click may have navigated.
-      return { ...result, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
+      return { ...result, ...effect, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
     },
     { timeoutMs: timeoutOf(a) },
   );

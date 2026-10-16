@@ -156,4 +156,42 @@ describe.skipIf(!enabled)("tabcap 0.6-D L2 (docs/05 s22, s47–s52: DOM-backed r
     const stale = await tabcap(["click", go, ...S]);
     expect(stale.error?.["code"]).toBe("stale-ref");
   }, 120_000);
+
+  test("D2 s48: a DOM click nothing reacts to says effect none and suggests --trusted (exit 0); dom / navigation / request otherwise", async () => {
+    const S = ["--session", "d2"];
+    await ok("navigate", `${site.origin}/s48`, ...S);
+    const sub = (await cssRef("#s48-sub", S)).ref;
+    const cell = (await cssRef("#s48-cell", S)).ref;
+    const count = (await cssRef("#s48-count", S)).ref;
+    const ping = (await cssRef("#s48-ping", S)).ref;
+    const link = (await cssRef("#s48-link", S)).ref;
+
+    const none = await tabcap(["click", sub, ...S]);
+    expect(none.exit).toBe(0);
+    expect(none.data).toMatchObject({ ref: sub, trusted: false, effect: "none" });
+    expect(s(none.data["note"])).toContain("--trusted");
+    expect(await value("getComputedStyle(document.getElementById('s48-items')).display", S)).toBe("none");
+    expect((await ok("click", cell, ...S))["effect"]).toBe("none");
+    expect(await value("document.getElementById('s48-cell').textContent", S)).toBe("单元格");
+
+    expect((await ok("click", count, ...S))["effect"]).toBe("dom");
+    expect(await value("document.getElementById('s48-n').textContent", S)).toBe("1");
+    const before = site.hits.filter((h) => h === "GET /s48/ping").length;
+    expect((await ok("click", ping, ...S))["effect"]).toBe("request");
+    expect(site.hits.filter((h) => h === "GET /s48/ping").length).toBe(before + 1);
+
+    // the handler does react to trusted input; the trusted path reports no effect field
+    const t = await ok("click", sub, "--trusted", ...S);
+    expect(t["trusted"]).toBe(true);
+    expect(t["effect"]).toBeUndefined();
+    expect(await value("getComputedStyle(document.getElementById('s48-items')).display", S)).toBe("block");
+    expect(s((await ok("find", S48_ITEM, ...S))["hits"])).toContain(S48_ITEM);
+
+    expect((await ok("click", link, ...S))["effect"]).toBe("navigation");
+    expect(site.hits).toContain("GET /s48/next");
+    // --no-wait: no post-action wait, so no effect is claimed
+    await ok("navigate", `${site.origin}/s48`, ...S);
+    const again = (await cssRef("#s48-count", S)).ref;
+    expect((await ok("click", again, "--no-wait", ...S))["effect"]).toBeUndefined();
+  }, 120_000);
 });

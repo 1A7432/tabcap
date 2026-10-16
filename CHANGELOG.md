@@ -25,6 +25,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 ### Daemon fixes from a real-project test (0.6-D)
 
 - **DOM-backed refs**: an element that `snapshot --css` / `--xpath` matches but that has no accessibility node (UI libraries hide inputs and buttons from the tree) now gets a ref too, printed as `(no accessible node) <input#id.class> [e31]`: bound to its backend node id, frame and loaderId like any ref and expiring the same way. `click`, `fill`, `type` (after a `fill` / `click` focused it), `hover`, `upload`, `html` and `screenshot --ref` take it. `search.domRefs` counts them.
+- **Click effect**: after a default (DOM) `click`, the answer says what happened within the post-action wait: `effect: "dom" | "navigation" | "request"` (the first observed), or `effect: "none"` with a `note` suggesting `--trusted` when the page did nothing (a handler that only reacts to trusted input). Observe-only (a MutationObserver in tabcap's isolated world, Page / Network events; without a recording Network is switched on for the watch only); the exit code does not change; `--trusted` and `--no-wait` report no effect.
 
 ## 0.5.0 (2026-10-16)
 
