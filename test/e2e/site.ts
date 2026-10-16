@@ -694,3 +694,98 @@ export function startProbeSite(): ProbeSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, served, hits, reports, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.4-C: s40 locale-numbers
+// docs/05 s40: one GET /api/rows, rendered server-side per `?locale=` from
+// strings written here by hand (not Intl), so every expected display string
+// is visible in this source. The rows body is a literal too (amount
+// -123456.00 keeps its two trailing zeros on the wire). Two rows, so every
+// value (dir included) is unique within /api/rows: row 0 has the day > 12
+// (2026-09-15), row 1 the day <= 12 (2026-03-04). en-US shows MM/DD/YYYY,
+// fr-FR DD/MM/YYYY (U+202F narrow no-break space groups thousands), de-DE /
+// en-IN / accounting the month views 2026-09 / 202609 / 09/2026. Every locale
+// adds a full-width qty column padded with &nbsp;; accounting adds a second
+// amount column with the trailing minus.
+export const S40_LOCALES = ["en-US", "de-DE", "fr-FR", "en-IN", "accounting"] as const;
+export type S40Locale = (typeof S40_LOCALES)[number];
+export type S40Field = "amount" | "qty" | "date" | "code" | "dir";
+/** One table column: its header, the /api/rows field it shows, the HTML of its two cells (row 0, row 1). */
+export type S40Column = { head: string; field: S40Field; cells: [string, string] };
+
+export const S40_ROWS = `[{"id":4101,"amount":1234.56,"qty":1234,"date":"2026-09-15","code":"100101","dir":1},{"id":4102,"amount":-123456.00,"qty":48,"date":"2026-03-04","code":"200202","dir":-1}]`;
+
+const S40_COMMON: S40Column[] = [
+  { head: "code", field: "code", cells: ["1001.01", "2002.02"] },
+  { head: "dir", field: "dir", cells: ["DR", "CR"] },
+  { head: "qty (full-width)", field: "qty", cells: ["&nbsp;&nbsp;１２３４", "&nbsp;&nbsp;４８"] },
+];
+
+export const S40_TABLES: Record<S40Locale, S40Column[]> = {
+  "en-US": [
+    { head: "amount", field: "amount", cells: ["1,234.56", "-123,456.00"] },
+    { head: "qty", field: "qty", cells: ["1,234", "48"] },
+    { head: "date", field: "date", cells: ["09/15/2026", "03/04/2026"] },
+    ...S40_COMMON,
+  ],
+  "de-DE": [
+    { head: "amount", field: "amount", cells: ["1.234,56", "-123.456,00"] },
+    { head: "qty", field: "qty", cells: ["1.234", "48"] },
+    { head: "date", field: "date", cells: ["2026-09", "2026-03"] },
+    ...S40_COMMON,
+  ],
+  "fr-FR": [
+    { head: "amount", field: "amount", cells: ["1 234,56", "-123 456,00"] },
+    { head: "qty", field: "qty", cells: ["1 234", "48"] },
+    { head: "date", field: "date", cells: ["15/09/2026", "04/03/2026"] },
+    ...S40_COMMON,
+  ],
+  "en-IN": [
+    { head: "amount", field: "amount", cells: ["1,234.56", "-1,23,456.00"] },
+    { head: "qty", field: "qty", cells: ["1,234", "48"] },
+    { head: "date", field: "date", cells: ["202609", "202603"] },
+    ...S40_COMMON,
+  ],
+  accounting: [
+    { head: "amount", field: "amount", cells: ["1,234.56", "(123,456.00)"] },
+    { head: "amount (trailing minus)", field: "amount", cells: ["1234.56", "123456.00-"] },
+    { head: "qty", field: "qty", cells: ["1,234", "48"] },
+    { head: "date", field: "date", cells: ["09/2026", "03/2026"] },
+    ...S40_COMMON,
+  ],
+};
+
+const s40Page = (locale: S40Locale): string => {
+  const cols = S40_TABLES[locale];
+  const head = cols.map((c) => `<th>${c.head}</th>`).join("");
+  const rows = [0, 1].map((i) => `<tr>${cols.map((c) => `<td>${c.cells[i] ?? ""}</td>`).join("")}</tr>`).join("\n");
+  return `<!doctype html><meta charset=utf-8><title>s40 ${locale}</title>
+<h1>s40 ${locale}</h1>
+<table id=rows><thead><tr>${head}</tr></thead><tbody>
+${rows}
+</tbody></table>
+<p id=status>loading</p>
+<script>fetch("/api/rows").then((r) => r.json()).then((rows) => { document.getElementById("status").textContent = "rows " + rows.length; });</script>`;
+};
+
+export function startLocaleSite(): Site {
+  const served = new Map<string, string>();
+  const hits: string[] = [];
+  const send = (key: string, body: string, type: string) => {
+    const bytes = new TextEncoder().encode(body);
+    served.set(key, createHash("sha256").update(bytes).digest("hex"));
+    return new Response(bytes, { headers: { "content-type": type, "cache-control": "no-store" } });
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      hits.push(`${req.method} ${u.pathname}${u.search}`);
+      if (u.pathname === "/api/rows") return send(u.pathname, S40_ROWS, "application/json");
+      const locale = S40_LOCALES.find((l) => l === u.searchParams.get("locale"));
+      if (u.pathname === "/s40" && locale !== undefined) return send(u.pathname + u.search, s40Page(locale), "text/html; charset=utf-8");
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served, hits, stop: () => server.stop(true) };
+}
