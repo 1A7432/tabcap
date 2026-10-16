@@ -352,6 +352,25 @@ document.getElementById("f").addEventListener("submit", async (e) => {
 });
 </script>`;
 
+/**
+ * 0.6-F variant of s07 (`/s07/login?token=1`): the login answer also carries a
+ * bearer token; the page keeps it in localStorage (`access_token`), puts a tab
+ * marker in sessionStorage (`s07_tab`) and sends `authorization: Bearer <token>`
+ * next to `x-csrf` on the data request, which then needs all three (cookie sid,
+ * csrf, token).
+ */
+const LOGIN_PAGE_TOKEN = LOGIN_PAGE.replace(
+  `const r = await fetch("/api/login", { method: "POST", body });`,
+  `const r = await fetch("/api/login?token=1", { method: "POST", body });`,
+).replace(
+  `  const { csrf } = await r.json();
+  const d = await fetch("/api/data", { method: "POST", headers: { "x-csrf": csrf } });`,
+  `  const { csrf, token } = await r.json();
+  localStorage.setItem("access_token", token);
+  sessionStorage.setItem("s07_tab", "1");
+  const d = await fetch("/api/data", { method: "POST", headers: { "x-csrf": csrf, authorization: "Bearer " + localStorage.getItem("access_token") } });`,
+);
+
 const WALL_PAGE = `<!doctype html><meta charset=utf-8><title>s15 verify wall</title>
 <h1>列表</h1>
 <button id=load>加载</button>
@@ -384,15 +403,21 @@ document.getElementById("human").addEventListener("click", async () => {
 
 const WALL_HTML = `<h2>请完成验证</h2><p>访问过于频繁。${WALL_MARKER}</p>`;
 
-/** `sids`: every session cookie value the login endpoint handed out, in order (the oracle for cookie snapshots). */
-export type GuardSite = Site & { loginBodies: string[]; sids: string[] };
+/**
+ * `sids`: every session cookie value the login endpoint handed out, in order (the oracle for cookie snapshots);
+ * `csrfs` / `tokens`: the csrf and (token variant, else "") bearer token handed out with each sid.
+ */
+export type GuardSite = Site & { loginBodies: string[]; sids: string[]; csrfs: string[]; tokens: string[] };
 
 export function startGuardSite(): GuardSite {
   const served = new Map<string, string>();
   const hits: string[] = [];
   const loginBodies: string[] = [];
   const sids: string[] = [];
+  const csrfs: string[] = [];
+  const tokens: string[] = [];
   const sessions = new Map<string, string>(); // sid -> csrf
+  const bearer = new Map<string, string>(); // sid -> token (token variant only)
   const counts = new Map<string, number>(); // bucket -> calls since the last unlock
   const json = (v: unknown, status = 200, extra: Record<string, string> = {}) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...extra } });
   const html = (body: string, status = 200) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
@@ -403,7 +428,7 @@ export function startGuardSite(): GuardSite {
       const u = new URL(req.url);
       const p = u.pathname;
       hits.push(`${req.method} ${p}`);
-      if (p === "/s07/login") return html(LOGIN_PAGE);
+      if (p === "/s07/login") return html(u.searchParams.get("token") === "1" ? LOGIN_PAGE_TOKEN : LOGIN_PAGE);
       if (p === "/api/login" && req.method === "POST") {
         const body = await req.text();
         loginBodies.push(body);
@@ -413,11 +438,17 @@ export function startGuardSite(): GuardSite {
         const csrf = crypto.randomUUID().replace(/-/g, "");
         sessions.set(sid, csrf);
         sids.push(sid);
-        return json({ csrf }, 200, { "set-cookie": `sid=${sid}; Path=/; HttpOnly; SameSite=Lax` });
+        csrfs.push(csrf);
+        const token = u.searchParams.get("token") === "1" ? crypto.randomUUID().replace(/-/g, "") : "";
+        tokens.push(token);
+        if (token !== "") bearer.set(sid, token);
+        return json(token === "" ? { csrf } : { csrf, token }, 200, { "set-cookie": `sid=${sid}; Path=/; HttpOnly; SameSite=Lax` });
       }
       if (p === "/api/data" && req.method === "POST") {
         const sid = /(?:^|;\s*)sid=([0-9a-f]+)/.exec(req.headers.get("cookie") ?? "")?.[1] ?? "";
         if (sessions.get(sid) === undefined || sessions.get(sid) !== req.headers.get("x-csrf")) return json({ error: "no session" }, 401);
+        const want = bearer.get(sid);
+        if (want !== undefined && req.headers.get("authorization") !== `Bearer ${want}`) return json({ error: "no token" }, 401);
         return json({ data: "data-ok" });
       }
       if (p === "/s15/") return html(WALL_PAGE);
@@ -438,7 +469,7 @@ export function startGuardSite(): GuardSite {
       return new Response("nf", { status: 404 });
     },
   });
-  return { origin: `http://127.0.0.1:${server.port}`, served, hits, loginBodies, sids, stop: () => server.stop(true) };
+  return { origin: `http://127.0.0.1:${server.port}`, served, hits, loginBodies, sids, csrfs, tokens, stop: () => server.stop(true) };
 }
 
 // ---------------------------------------------------------------- 0.3-B: s06-like search for replay
