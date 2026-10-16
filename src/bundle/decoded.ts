@@ -24,6 +24,8 @@ export type DecodedView = {
   ok: boolean;
   error?: string;
   note?: string;
+  /** Observe-mode rows (`by:"page"`, docs/04 §33) only. */
+  evidence?: DecodedEvidence;
 };
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -32,11 +34,14 @@ const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
  * The `evidence` of an observe row (docs/04 §33; 0.6-L): where the plaintext
  * was read. Carried through to readers as is; untrusted like the rest.
  */
-export type DecodedEvidence = { sink: string; match: string | null; frames: unknown[]; at: number; candidates?: string[] };
+export type DecodedEvidence = { sink: string; match: string | null; link?: "strong" | "weak"; frames: unknown[]; at: number; candidates?: string[] };
 
 const evidenceOf = (v: unknown): DecodedEvidence | undefined => {
   if (!isRecord(v) || typeof v["sink"] !== "string" || typeof v["at"] !== "number") return undefined;
   const out: DecodedEvidence = { sink: v["sink"], match: str(v, "match"), frames: Array.isArray(v["frames"]) ? v["frames"] : [], at: v["at"] };
+  // 0.6-L2: "weak" = attributed only because it was the one armed suspect.
+  const link = v["link"];
+  if (link === "strong" || link === "weak") out.link = link;
   const c = v["candidates"];
   if (Array.isArray(c) && c.every((x) => typeof x === "string")) out.candidates = c as string[];
   return out;

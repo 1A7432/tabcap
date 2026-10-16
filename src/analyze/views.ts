@@ -10,14 +10,15 @@
 import type { DecodedView } from "../bundle/decoded.ts";
 import { STEP_CAP, pluginStep, type StepName } from "./decoders.ts";
 
-export type ViewPayload = { bytes: Uint8Array; mime: string | null; prefix: StepName[]; by: string };
+export type ViewPayload = { bytes: Uint8Array; mime: string | null; prefix: StepName[]; by: string; link?: "strong" | "weak" };
 
 /** The plaintext of an ok decoded view, or null (none, not ok, blob missing, too large). */
 export function decodedPayload(reader: { readBlob(ref: string): Uint8Array | null }, d: DecodedView | undefined): ViewPayload | null {
   if (d === undefined || !d.ok || d.blob === null) return null;
   const bytes = reader.readBlob(d.blob);
   if (bytes === null || bytes.length > STEP_CAP) return null;
-  return { bytes, mime: d.mime, prefix: [d.by === "page" ? "page" : pluginStep(d.by)], by: d.by };
+  const link = d.by === "page" ? d.evidence?.link : undefined;
+  return { bytes, mime: d.mime, prefix: [d.by === "page" ? "page" : pluginStep(d.by)], by: d.by, ...(link === undefined ? {} : { link }) };
 }
 
 /** Why an ok view could not be read (find's `searched.skipped`), or null when it can be / there is none. */

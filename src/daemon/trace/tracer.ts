@@ -1,7 +1,9 @@
 // Trace mode (0.4-F): which page scripts read which browser signals, and from
-// where. Read-only, record-only: nothing in the page is modified — no injected
-// script, no wrapped getter, no changed value — and no output advises changing
-// values. Spec: docs/04 §4.1 `signal`, §7 `mode.trace` / `traceWindows`.
+// where. Record-only: no page state is changed — no injected script, no
+// wrapped getter, no changed value — and no output advises changing values.
+// The observe mode (0.6-L, `--decode`) additionally calls the page's native
+// `console.dirxml` from a breakpoint condition (observe.ts says exactly what
+// that touches). Spec: docs/04 §4.1 `signal`, §7 `mode.trace` / `traceWindows`.
 // Oracle / reproduction: the 10-16 spike (CfT 155, NOTES), and the range pages
 // of test/e2e/v04f.e2e.test.ts whose expected (api, script, line) pairs are
 // literals of the pages themselves.
@@ -36,7 +38,7 @@ import type { Tab, Tabs } from "../browser/targets.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../transport/types.ts";
 import { classifyPause, signalFields, TraceBook, type Aggregate, type BpInfo, type DocRef, type DocSummary, type PauseFrame, type ScriptInfo, type TraceLimits } from "./aggregate.ts";
 import { hashBulkData, INSTRUMENTATION_EVENTS, notRecorded, resolverExpression, SCRIPT_FIRST_STATEMENT, VALUE_INLINE_MAX, valueExpression, type SignalList } from "./signals.ts";
-import { Armed, attribute, jsonParseLogpoint, observeRow, OBSERVE_VERSION, PAGE_BY, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, sha256Text, SINKS, suspectOf, SUSPECT_WINDOW_MS, TEXT_DECODER_CONDITION, type PageEvidence, type PlainCandidate, type SinkName } from "./observe.ts";
+import { addBounded, Armed, attribute, consoleSites, jsonParseLogpoint, OBJECT_PROBES, observeRow, OBSERVE_VERSION, PAGE_BY, pauseSite, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, sha256Text, SINKS, suspectOf, suspectShas, SUSPECT_WINDOW_MS, takeLogged, TEXT_DECODER_CONDITION, type LoggedPlain, type PageEvidence, type PlainCandidate, type SinkName } from "./observe.ts";
 import type { NetEntry } from "../capture/recorder.ts";
 
 export const TRACE_NOTICE = "Trace mode installs debugger breakpoints in the page: scripts run slower and the timing is observable.";
@@ -150,15 +152,20 @@ export class Tracer {
   private sinksOn = false;
   private pendingSinks: Promise<void> = Promise.resolve();
   private sweepTimer: ReturnType<typeof setTimeout> | null = null;
+  /** When `sweepTimer` fires (0.6-L2: an earlier deadline replaces a later one —
+   * the 500 ms settle must not wait for a 5 s suspect window). */
+  private sweepDue: number | null = null;
   private unattributedKept = 0;
   private attributedRows = 0;
+  /** Of the attributed rows, those with `link: "weak"` (single-suspect). */
+  private weakRows = 0;
   private unattributedRows = 0;
   private evidenceHits = 0;
   private sinksInstalled = 0;
   private sinksSkipped = 0;
   private walks = 0;
   private recovered = { console: 0, scope: 0 };
-  private drops = { plaintextMissing: 0, tooLarge: 0, afterStop: 0, unattributedCapped: 0, rawBody: 0, orphan: 0 };
+  private drops = { plaintextMissing: 0, tooLarge: 0, afterStop: 0, unattributedCapped: 0, rawBody: 0, orphan: 0, unpaired: 0 };
   /** Requests that already have a page row (0.6-L2): one row per response. */
   private filedRequests = new Set<string>();
   /**
@@ -180,15 +187,16 @@ export class Tracer {
    * The plaintext each JSON.parse breakpoint logged (0.6-L2): the log-point in
    * the condition emits `console.dirxml(nonce, arg)` on `Runtime.consoleAPICalled`
    * strictly before the pause of the same parse (spike E6), per session. The
-   * pause shifts this FIFO to pair the exact argument with the scope it paused
-   * in. `oversize` is a parse over the cap (the log-point sent null).
+   * pause takes the line whose caller frame is its own top frame (spike E10,
+   * `takeLogged`) to pair the exact argument with the scope it paused in.
+   * `oversize` is a parse over the cap (the log-point sent null).
    */
-  private pendingPlain = new Map<string, Array<{ text: string | null; oversize: boolean; at: number }>>();
+  private pendingPlain = new Map<string, LoggedPlain[]>();
   private static readonly PENDING_MAX = 64;
   /** sha256 of every recorded response body text (0.6-L2): a plaintext candidate
    * that is one of these is the page parsing a raw body (envelope, plain
-   * control), not a decrypted plaintext. Bounded; oldest keys are not evicted
-   * individually (cleared with the recording). */
+   * control), not a decrypted plaintext. Bounded: the oldest bodies are evicted
+   * first, so a long recording keeps excluding its newest envelopes. */
   private rawShas = new Set<string>();
   private static readonly RAW_SHAS_MAX = 8192;
   /**
@@ -203,6 +211,9 @@ export class Tracer {
   private held: Array<{ scopeShas: string[]; strings: string[]; byteCsvs: string[]; consolePlain: { text: string | null; oversize: boolean } | null; evFrames: PageEvidence["frames"]; at: number }> = [];
   private static readonly HOLD_MS = 10_000;
   private static readonly HOLD_MAX = 8;
+  /** matchHeld runs one at a time (an arm during its awaits asks for another pass). */
+  private matching: Promise<void> | null = null;
+  private matchAgain = false;
 
   private constructor(o: TracerOptions) {
     this.opts = o;
@@ -254,7 +265,12 @@ export class Tracer {
     this.recOff?.off();
     this.indexOff?.();
     this.indexOff = null;
-    rec.traceOpen(this.mode, `trace window opened: signal reads are recorded (${this.list.names.length} APIs from ${this.list.source}, stack ${this.limits.stack}, firstN ${this.limits.firstN}, maxHits ${this.limits.maxHits})`);
+    rec.traceOpen(
+      this.mode,
+      this.opts.decode
+        ? "trace window opened: observe mode (--decode), the plaintext the page parses is filed by \"page\"; no signal breakpoints"
+        : `trace window opened: signal reads are recorded (${this.list.names.length} APIs from ${this.list.source}, stack ${this.limits.stack}, firstN ${this.limits.firstN}, maxHits ${this.limits.maxHits})`,
+    );
     if (this.paused) rec.event("note", { text: `trace paused: ${TRACE_PAUSED_NOTE}`, refs: [] });
     this.recOff = { rec, off: rec.beforeStop(() => this.flushInto(rec)) };
     // 0.6-L: every finished response body is a suspect candidate while the
@@ -291,21 +307,28 @@ export class Tracer {
     try {
       await this.t.send("Debugger.enable", {}, sid, CMD_MS);
       if (type !== "worker") {
-        for (const name of [SCRIPT_FIRST_STATEMENT, ...INSTRUMENTATION_EVENTS]) await this.t.send("EventBreakpoints.setInstrumentationBreakpoint", { eventName: name }, sid, CMD_MS);
+        for (const name of this.instrumentation()) await this.t.send("EventBreakpoints.setInstrumentationBreakpoint", { eventName: name }, sid, CMD_MS);
       }
       if (this.paused) await this.t.send("Debugger.setSkipAllPauses", { skip: true }, sid, CMD_MS);
       // Workers are installed while they wait for the debugger (before their first
       // statement); running documents at trace start get their breakpoints now.
+      // 0.6-L: `install` brings the observe sinks too — a sink breakpoint
+      // resolves on the realm's own JSON.parse etc., and JS built-ins do not
+      // share one breakpoint across a target's realms: each realm installs its
+      // own, at its first statement pause (pages) or here (workers). A
+      // same-process repeat fails "already exists" and is tolerated.
       if (type === "worker" || installNow) await this.install(st, null);
-      // 0.6-L: a sink breakpoint resolves on the realm's own JSON.parse etc.,
-      // and JS built-ins do not share one breakpoint across a target's realms:
-      // each realm installs its own — at this target's first statement pause
-      // (pages), here on attach (workers). A same-process repeat that reaches
-      // `installSinks` anyway fails "already exists" and is tolerated.
-      if (this.opts.decode && type === "worker") await this.installSinks(st, null);
     } catch (e) {
       log.warn("trace: enabling a target failed", { type, error: String(e) });
     }
+  }
+
+  /** The instrumentation breakpoints of a page / frame target: scriptFirstStatement
+   * (the install channel) and, for signal tracing, the recorded events. The
+   * observe mode traces no signals (owner decision 10-16, 0.6-L2): only the
+   * install channel. */
+  private instrumentation(): string[] {
+    return this.opts.decode ? [SCRIPT_FIRST_STATEMENT] : [SCRIPT_FIRST_STATEMENT, ...INSTRUMENTATION_EVENTS];
   }
 
   private async onAttach(x: AttachedTarget): Promise<void> {
@@ -467,11 +490,17 @@ export class Tracer {
     const args = Array.isArray(params["args"]) ? params["args"] : [];
     const first = isRecord(args[0]) ? args[0] : null;
     if (first === null || first["type"] !== "string" || first["value"] !== this.nonce) return;
+    // While the session waits for the human the pauses are skipped: a line now
+    // has no pause to pair with.
+    if (this.paused) return;
     const payload = isRecord(args[1]) ? args[1] : null;
     const text = payload !== null && payload["type"] === "string" && typeof payload["value"] === "string" ? (payload["value"] as string) : null;
     const q = this.pendingPlain.get(st.sid) ?? [];
-    if (q.length >= Tracer.PENDING_MAX) q.shift();
-    q.push({ text, oversize: text === null, at: Date.now() });
+    if (q.length >= Tracer.PENDING_MAX) {
+      q.shift();
+      this.drops.unpaired++;
+    }
+    q.push({ text, oversize: text === null, at: Date.now(), sites: consoleSites(params) });
     this.pendingPlain.set(st.sid, q);
   }
 
@@ -486,13 +515,14 @@ export class Tracer {
     // 0.6-L2: every recorded body text is a raw-body sha — a plaintext candidate
     // that equals one is the page parsing a raw body (the envelope, the plain
     // control), not a decrypted plaintext.
-    if (this.rawShas.size < Tracer.RAW_SHAS_MAX) this.rawShas.add(sha256Text(text));
+    addBounded(this.rawShas, sha256Text(text), Tracer.RAW_SHAS_MAX);
     // A body the decode plugin already turned into a view has nothing to observe.
     if (e.decoded !== undefined) return;
     const s = suspectOf(bytes, text);
     if (s === null) return;
-    const shas = [...(s.candidates.whole !== null ? [s.candidates.whole] : []), ...s.candidates.leaves];
-    if (shas.length === 0) return;
+    // The ciphertext candidates, then the raw body text (0.6-L2: a page holding
+    // the raw response text while it decrypts links its parse to it).
+    const shas = suspectShas(s, text);
     this.armed.arm({ request: e.id, url: e.url, at: e.at, shas });
     this.sweepLater(SUSPECT_WINDOW_MS + 50);
     this.ensureSinks();
@@ -502,12 +532,15 @@ export class Tracer {
 
   /** With decode on, the sinks are wanted on every target for as long as the
  * tracer runs (design fix 10-16, NOTES: arming from the index push loses the
- * race with the page's own first decrypt). Sets the intent; `enable` /
- * `install` put them on each target (including realms born later), the
- * per-target `sinksTried` keeps the repeats out. */
+ * race with the page's own first decrypt). Sets the intent — `enable` /
+ * `install` put them on each target and on realms born later — and puts them
+ * on the targets already traced (0.6-L2: a recording started after
+ * `trace start --decode` on a loaded page had no sinks until the next
+ * document). */
   private ensureSinks(): void {
     if (!this.opts.decode || this.sinksOn || this.stopped) return;
     this.sinksOn = true;
+    for (const st of this.sessions.values()) void this.installSinks(st, null);
   }
 
   /** Expire the armed list: the suspects that no longer have a window.
@@ -535,9 +568,16 @@ export class Tracer {
   }
 
   private sweepLater(ms: number): void {
-    if (this.stopped || this.sweepTimer !== null) return;
+    if (this.stopped) return;
+    const due = Date.now() + ms;
+    if (this.sweepTimer !== null) {
+      if (this.sweepDue !== null && this.sweepDue <= due) return;
+      clearTimeout(this.sweepTimer);
+    }
+    this.sweepDue = due;
     this.sweepTimer = setTimeout(() => {
       this.sweepTimer = null;
+      this.sweepDue = null;
       this.sweep();
     }, ms);
   }
@@ -629,23 +669,21 @@ export class Tracer {
           return st.tabcapScripts.has(id) || st.internalScripts.has(id) || (st.scripts.get(id)?.isDefault === false);
         })
       ) {
-        // Still consume this realm's log-point so the FIFO stays paired.
-        if (sink === "JSON.parse") this.shiftPending(st.sid);
+        // Still consume this parse's log line so the queue stays paired.
+        if (sink === "JSON.parse") this.takePending(st.sid, frames[0]);
         return;
       }
       if (sink !== "JSON.parse") {
         this.evidenceHits++;
         return;
       }
-      this.armed.expire(Date.now());
-      const consolePlain = this.shiftPending(st.sid);
+      const consolePlain = this.takePending(st.sid, frames[0]);
       const rec = this.opts.recorder();
       if (rec === undefined || !rec.recording) {
         this.drops.afterStop++;
         return;
       }
       const evFrames = this.framesOf(st, frames);
-      const live = this.armed.live();
       // Walk the pausing scope for the scope-string match (which ciphertext this
       // plaintext came from — the evidence, and the disambiguation when several
       // suspects are armed). 0.6-L2: when the log-point already gave the exact
@@ -654,6 +692,11 @@ export class Tracer {
       const w = await this.walkScopeStrings(st, frames, consolePlain === null);
       this.walks++;
       const plaintext = this.plaintextFrom(consolePlain, w);
+      // The armed list is read after the walk's awaits (0.6-L2 fix): an arm that
+      // lands during the walk has already run its matchHeld — a pause held on a
+      // list read before the walk would never be matched.
+      this.armed.expire(Date.now());
+      const live = this.armed.live();
       if (live.length === 0) {
         if (this.held.length >= Tracer.HOLD_MAX) this.held.shift();
         this.held.push({ scopeShas: w.scopeShas, strings: w.strings, byteCsvs: w.byteCsvs, consolePlain, evFrames, at: Date.now() });
@@ -669,11 +712,15 @@ export class Tracer {
     }
   }
 
-  /** Pop the plaintext this realm's log-point queued for the current parse. */
-  private shiftPending(sid: string): { text: string | null; oversize: boolean } | null {
+  /** The log line of this pause's parse (same session, its caller frame is the
+   * pause's top frame — `takeLogged`), or null: the guard failed for it. */
+  private takePending(sid: string, top: Record<string, unknown> | undefined): { text: string | null; oversize: boolean } | null {
     const q = this.pendingPlain.get(sid);
-    const v = q === undefined || q.length === 0 ? undefined : q.shift();
-    return v === undefined ? null : { text: v.text, oversize: v.oversize };
+    if (q === undefined || q.length === 0) return null;
+    const { hit, rest, stale } = takeLogged(q, pauseSite(top), Date.now());
+    this.drops.unpaired += stale;
+    this.pendingPlain.set(sid, rest);
+    return hit === null ? null : { text: hit.text, oversize: hit.oversize };
   }
 
   /** The plaintext of a pause: the log-point argument when the guard was in
@@ -748,6 +795,7 @@ export class Tracer {
       this.unattributedKept++;
     } else {
       this.attributedRows++;
+      if (row.evidence.link === "weak") this.weakRows++;
     }
   }
 
@@ -768,7 +816,7 @@ export class Tracer {
       }
       if (s.from === "console") this.recovered.console++;
       else this.recovered.scope++;
-      await this.fileDecidedRow({ request: s.request, direction: "response", mime: "application/json", text: s.text, evidence: { sink: "JSON.parse", match: null, frames: s.frames, at: s.at } }, s.at);
+      await this.fileDecidedRow({ request: s.request, direction: "response", mime: "application/json", text: s.text, evidence: { sink: "JSON.parse", match: null, link: "weak", frames: s.frames, at: s.at } }, s.at);
     }
   }
 
@@ -777,24 +825,42 @@ export class Tracer {
    * page's own microtask burst wins the first parse; the arm follows and the
    * walked pause is decided then). The attribution rules are unchanged.
    */
-  private async matchHeld(): Promise<void> {
+  private matchHeld(): Promise<void> {
+    if (this.matching !== null) {
+      this.matchAgain = true;
+      return this.matching;
+    }
+    this.matching = (async () => {
+      try {
+        do {
+          this.matchAgain = false;
+          await this.matchHeldOnce();
+        } while (this.matchAgain && !this.stopped);
+      } finally {
+        this.matching = null;
+      }
+    })();
+    return this.matching;
+  }
+
+  /** One pass over the held pauses; each is taken off the list before its
+   * decision's awaits, and the armed list is re-read per pause (a row just
+   * filed forgot its suspect). */
+  private async matchHeldOnce(): Promise<void> {
     if (this.held.length === 0 || this.stopped) return;
-    const now = Date.now();
-    this.expireHeld(now);
-    if (this.held.length === 0) return;
-    this.armed.expire(now);
-    const live = this.armed.live();
-    if (live.length === 0) return;
+    this.expireHeld(Date.now());
     const rec = this.opts.recorder();
     if (rec === undefined || !rec.recording) return;
     for (const h of [...this.held]) {
+      this.armed.expire(Date.now());
+      const live = this.armed.live();
+      if (live.length === 0) return;
       const attribution = attribute(live, h.scopeShas);
       // No live suspect for this pause: keep it held for a later arm.
       if (attribution.kind === "armed-empty") continue;
+      this.held = this.held.filter((x) => x !== h);
       const plaintext = this.plaintextFrom(h.consolePlain, { strings: h.strings, byteCsvs: h.byteCsvs });
       await this.decideRow(attribution, h.scopeShas, h.evFrames, plaintext, h.at);
-      this.held = this.held.filter((x) => x !== h);
-      this.armed.expire(Date.now());
     }
   }
 
@@ -815,12 +881,18 @@ export class Tracer {
    * attribution), every ArrayBuffer / typed array copied as CSV through its
    * objectId (the fallback plaintext when the log-point was suppressed), never
    * a CryptoKey. `block` scopes are walked too (0.6-L2, spike E3: a plaintext
-   * assigned to a block-scoped `const` sits in a `block`, not a `local`).
+   * assigned to a block-scoped `const` sits in a `block`, not a `local`). Plain
+   * objects (className `Object`) held in those scopes are read one level down
+   * for the hash only (0.6-L2: `env.data` of `JSON.parse(decrypt(env.data))`),
+   * at most OBJECT_PROBES per pause; `getProperties` with `ownProperties`
+   * returns accessors without calling them. Arrays are not entered (their
+   * `getProperties` lists every index), nor other classes (DOM, Proxy, Map …).
    */
   private async walkScopeStrings(st: Sess, frames: readonly Record<string, unknown>[], wantBytes: boolean): Promise<{ scopeShas: string[]; strings: string[]; byteCsvs: string[] }> {
     const scopeShas: string[] = [];
     const strings: string[] = [];
     const byteCsvs: string[] = [];
+    const probes: string[] = [];
     for (const f of frames.slice(0, SCOPE_FRAMES)) {
       const callFrameId = str(f, "callFrameId");
       if (callFrameId === null) continue;
@@ -842,9 +914,15 @@ export class Tracer {
             if (sv.length < SCOPE_STRING_MIN) continue;
             strings.push(sv);
             scopeShas.push(sha256Text(sv));
-          } else if (wantBytes && kind === "object") {
+          } else if (kind === "object") {
             const sub = str(v, "subtype");
-            if (sub !== "arraybuffer" && sub !== "typedarray") continue;
+            const cls = str(v, "className");
+            const probe = str(v, "objectId");
+            if (sub === null && cls === "Object" && probe !== null) {
+              if (probes.length < OBJECT_PROBES && !probes.includes(probe)) probes.push(probe);
+              continue;
+            }
+            if (!wantBytes || (sub !== "arraybuffer" && sub !== "typedarray")) continue;
             const oid = str(v, "objectId");
             if (oid === null) continue;
             st.internalDepth++;
@@ -858,6 +936,21 @@ export class Tracer {
             if (res !== null && typeof res["value"] === "string" && (res["value"] as string).length > 0) byteCsvs.push(res["value"] as string);
           }
         }
+      }
+    }
+    for (const objectId of probes) {
+      let props: Record<string, unknown>;
+      try {
+        props = await this.t.send("Runtime.getProperties", { objectId, ownProperties: true }, st.sid, CMD_MS);
+      } catch {
+        continue; // one object gone is no reason to lose the pause
+      }
+      const list = Array.isArray(props["result"]) ? props["result"].filter(isRecord) : [];
+      for (const p of list.slice(0, SCOPE_PROPS)) {
+        const v = isRecord(p["value"]) ? p["value"] : null;
+        if (v === null || str(v, "type") !== "string" || typeof v["value"] !== "string") continue;
+        const sv = v["value"] as string;
+        if (sv.length >= SCOPE_STRING_MIN) scopeShas.push(sha256Text(sv));
       }
     }
     return { scopeShas, strings, byteCsvs };
@@ -885,6 +978,14 @@ export class Tracer {
    * the paused frame's realm (callFrameId), else the target's default context.
    */
   private async install(st: Sess, callFrameId: string | null): Promise<void> {
+    if (this.list.names.length > 0) await this.installSignals(st, callFrameId);
+    // 0.6-L: with decode on, every install brings the sinks ("already exists"
+    // on a repeat is tolerated); a realm born now gets them before its first
+    // script runs — what beats the page to its own first decrypt.
+    if (this.opts.decode) await this.installSinks(st, callFrameId);
+  }
+
+  private async installSignals(st: Sess, callFrameId: string | null): Promise<void> {
     const expression = resolverExpression(this.list.names);
     let res: Record<string, unknown>;
     st.internalDepth++;
@@ -923,10 +1024,6 @@ export class Tracer {
         jobs.push(this.setBp(st, fnId, { api, access: kind }));
       }
       await Promise.all(jobs);
-      // 0.6-L: with decode on, every install of this target brings the sinks
-      // (sinksTried guards the repeat); a realm born now gets them before its
-      // first script runs — what beats the page to its own first decrypt.
-      if (this.opts.decode) await this.installSinks(st, callFrameId);
     } finally {
       await this.t.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }, st.sid, CMD_MS).catch(() => undefined);
     }
@@ -1128,7 +1225,7 @@ export class Tracer {
       [...this.sessions.values()].map(async (st) => {
         const send = (m: string, p: Record<string, unknown> = {}) => this.t.send(m, p, st.sid, CMD_MS).catch(() => undefined);
         await Promise.all([...[...st.bps.keys(), ...st.sinkBps.keys()]].map((id) => send("Debugger.removeBreakpoint", { breakpointId: id })));
-        if (st.type !== "worker") for (const name of [SCRIPT_FIRST_STATEMENT, ...INSTRUMENTATION_EVENTS]) await send("EventBreakpoints.removeInstrumentationBreakpoint", { eventName: name });
+        if (st.type !== "worker") for (const name of this.instrumentation()) await send("EventBreakpoints.removeInstrumentationBreakpoint", { eventName: name });
         await send("Debugger.disable");
       }),
     );
@@ -1140,6 +1237,7 @@ export class Tracer {
     if (this.sweepTimer !== null) {
       clearTimeout(this.sweepTimer);
       this.sweepTimer = null;
+      this.sweepDue = null;
     }
     await this.settleFlush(true);
     this.drops.afterStop += this.armed.clear("trace stopped");
@@ -1182,12 +1280,12 @@ export class Tracer {
       skipped: [...this.skippedWindow].map(([api, reason]) => ({ api, reason })),
       skippedInWorkers: [...this.skippedWorker.keys()],
       warnings: this.list.warnings,
-      instrumentation: [...INSTRUMENTATION_EVENTS],
+      instrumentation: this.opts.decode ? [] : [...INSTRUMENTATION_EVENTS],
       ...(this.opts.decode
         ? {
             decode: {
               armed: this.armed.live().length,
-              rows: { attributed: this.attributedRows, unattributed: this.unattributedRows, unattributedKept: this.unattributedKept },
+              rows: { attributed: this.attributedRows, weak: this.weakRows, unattributed: this.unattributedRows, unattributedKept: this.unattributedKept },
               evidenceHits: this.evidenceHits,
               recovered: { ...this.recovered },
               walks: this.walks,

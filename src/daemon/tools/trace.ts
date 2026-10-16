@@ -3,8 +3,10 @@
 // plaintext the page itself parses out of an encrypted response, filed as a
 // `decoded` view `by:"page"`. Explicit and announced (docs/03 §10.3): the
 // output says that debugger breakpoints make scripts slower and timing
-// observable. Read-only: no value in the page is changed, no output suggests
-// changing one, and the observe sinks read scopes only (never a CryptoKey).
+// observable. No page state is changed and no output suggests changing one;
+// the observe mode calls only the page's native `console.dirxml` (its
+// log-point) and reads scopes (never a CryptoKey). With `--decode` no signal
+// breakpoints are installed (owner decision 10-16, 0.6-L2).
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,7 +14,7 @@ import { BundleReader } from "../../bundle/reader.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import type { Daemon } from "../state.ts";
 import { DEFAULT_LIMITS, type TraceLimits } from "../trace/aggregate.ts";
-import { builtinSignalList, parseSignalList, type SignalList } from "../trace/signals.ts";
+import { builtinSignalList, parseSignalList, sha256Text, type SignalList } from "../trace/signals.ts";
 import { traceTable } from "../trace/table.ts";
 import { TRACE_NOTICE, Tracer } from "../trace/tracer.ts";
 import { readTraceConfig } from "../../shared/config.ts";
@@ -41,6 +43,12 @@ export function loadSignalList(configDir: string, file: string | null): SignalLi
   return parseSignalList(text, path);
 }
 
+/** The observe mode traces no signals (0.6-L2): an empty list, said as such. */
+const OBSERVE_ONLY: SignalList = { names: [], source: "none (--decode: observe mode, no signal breakpoints)", hash: sha256Text("[]"), warnings: [] };
+
+const DECODE_NOTICE =
+  'observe mode on, no signal breakpoints: every JSON.parse of a string of 32+ chars pauses (~0.4 ms plus a round trip) and its argument is logged to tabcap through the native console.dirxml; turn it off after the recording (trace stop / --no-decode). The plaintext the page parses is filed by "page" as a decoded view; evidence.link "weak" means it was only the one armed suspect';
+
 export async function traceStart(d: Daemon, a: Args, session: string): Promise<unknown> {
   checkSessionName(session);
   const { t, tabs, console: consoleLog } = d.need();
@@ -51,10 +59,12 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     firstN: limitArg(a, "firstN", "--first-n", DEFAULT_LIMITS.firstN, 0, 100_000),
     maxHits: limitArg(a, "maxHits", "--max-hits", DEFAULT_LIMITS.maxHits, 1, 1_000_000),
   };
-  const list = loadSignalList(d.paths.config, optStr(a, "apis"));
   // 0.6-L: --decode / --no-decode override config.json `trace.decode`.
   const cfg = readTraceConfig(d.paths.configFile);
   const decode = "decode" in a ? optBool(a, "decode") : cfg.decode;
+  const apis = optStr(a, "apis");
+  if (decode && apis !== null) throw new TabcapError("usage", "--apis has no effect with --decode: the observe mode installs no signal breakpoints", "Trace signals with `tabcap trace start --no-decode --apis <file>`, or drop --apis.");
+  const list = decode ? OBSERVE_ONLY : loadSignalList(d.paths.config, apis);
   tabs.ensureSession(session);
   const tr = await Tracer.start({
     session,
@@ -76,8 +86,10 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     notice: TRACE_NOTICE,
     ...statusLite(tr),
     recording,
-    ...(decode ? { decode: tr.status()["decode"], decodeNotice: "observe mode on: every JSON.parse of a string ≥32 chars pauses (~0.4 ms plus a round trip); turn it off after the recording (trace stop / --no-decode). The plaintext the page parses is filed by \"page\" as a decoded view" } : {}),
-    ...(recording === null ? { warning: "the session is not recording: signal events reach a bundle only while `tabcap net start` records; trace status still counts reads" } : {}),
+    ...(decode ? { decode: tr.status()["decode"], decodeNotice: DECODE_NOTICE } : {}),
+    ...(recording === null
+      ? { warning: decode ? "the session is not recording: observe rows reach a bundle only while `tabcap net start` records" : "the session is not recording: signal events reach a bundle only while `tabcap net start` records; trace status still counts reads" }
+      : {}),
   };
 }
 

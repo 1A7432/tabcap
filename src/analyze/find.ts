@@ -91,6 +91,10 @@ export type FindHit = {
   snippet: string;
   /** The embedded-state node the hit lies in (script-json / inline-assign / viewstate). */
   node?: NodeTag;
+  /** 0.6-L2, a hit in an observe-mode view (`decode` starts with "page"): how
+   * the view is tied to this request — "weak" means only that it was the one
+   * armed suspect when the page parsed it (docs/04 §33); check before relying on it. */
+  link?: "strong" | "weak";
 };
 
 export type SkipReason = "binary" | "too-large" | "blob-missing" | "budget";
@@ -240,6 +244,8 @@ type Target = {
   payload: Payload;
   prefix: StepName[];
   entropyEligible: boolean;
+  /** The page view's link (0.6-L2), carried onto its hits. */
+  link?: "strong" | "weak";
 };
 
 // ------------------------------------------------------------ find
@@ -312,6 +318,7 @@ export function find(bundleDir: string, text: string, opts: FindOptions = {}): F
         ...toHitPaths(h),
         snippet: h.snippet,
         ...(h.node === undefined ? {} : { node: h.node }),
+        ...(t.link === undefined ? {} : { link: t.link }),
       });
     }
   };
@@ -340,7 +347,7 @@ export function find(bundleDir: string, text: string, opts: FindOptions = {}): F
       bodies++;
       countView(decoders, rView.prefix);
       const before = hits.length;
-      search({ ...base, part: "response", mime: rView.mime, payload: { bytes: rView.bytes }, prefix: rView.prefix, entropyEligible: true });
+      search({ ...base, part: "response", mime: rView.mime, payload: { bytes: rView.bytes }, prefix: rView.prefix, entropyEligible: true, ...(rView.link === undefined ? {} : { link: rView.link }) });
       rViewHit = hits.length > before;
     }
     // response body
