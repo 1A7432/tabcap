@@ -694,3 +694,153 @@ export function startProbeSite(): ProbeSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, served, hits, reports, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.4-F: trace mode range
+// Two origins (127.0.0.1 and localhost are different sites, so the second
+// one's iframe is out of process). Each page reads a fixed set of signal APIs
+// at known lines; the test's expected (api, script, line) pairs are literals
+// of these sources. Line numbers in comments are 1-based.
+
+export const TRACE_PROBE_JS = [
+  "window.__probe = {", // 1
+  "  ua: navigator.userAgent,", // 2
+  "  width: screen.width,", // 3
+  "  tz: Intl.DateTimeFormat().resolvedOptions().timeZone,", // 4
+  "  offset: new Date().getTimezoneOffset(),", // 5
+  "};", // 6
+  'fetch("/trace/report", { method: "POST", body: JSON.stringify(window.__probe) });', // 7
+].join("\n");
+
+export const TRACE_WORKER_JS = [
+  "const ua = navigator.userAgent;", // 1
+  "postMessage(ua.length);", // 2
+].join("\n");
+
+/** Same-origin iframe: an inline script; its line numbers count from the top of the HTML. */
+export const TRACE_FRAME_HTML = [
+  "<!doctype html><meta charset=utf-8><title>trace frame</title>", // 1
+  "<script>", // 2
+  "window.__platform = navigator.platform;", // 3
+  "</script>", // 4
+].join("\n");
+
+/** Cross-origin (OOPIF) iframe on the second origin. */
+export const TRACE_OOPIF_HTML = [
+  "<!doctype html><meta charset=utf-8><title>trace oopif</title>", // 1
+  "<script>", // 2
+  "window.__cores = navigator.hardwareConcurrency;", // 3
+  "</script>", // 4
+].join("\n");
+
+export const TRACE_LOOP_READS = 1000;
+export const TRACE_LOOP_JS = [
+  "let n = 0;", // 1
+  "const t0 = performance.now();", // 2
+  `for (let i = 0; i < ${TRACE_LOOP_READS}; i++) n += navigator.userAgent.length;`, // 3
+  "window.__loop = { ms: performance.now() - t0, n };", // 4
+  'document.title = "loop done";', // 5
+].join("\n");
+
+/** Reads navigator.language on a timer; 300 ms after load it fetches the 403 wall (guard → waiting). */
+export const TRACE_TICK_JS = [
+  "let ticks = 0;", // 1
+  'setInterval(() => { ticks += navigator.language.length > 0 ? 1 : 0; document.title = "tick " + ticks; }, 200);', // 2
+  'setTimeout(() => { fetch("/trace/wall"); }, 300);', // 3
+].join("\n");
+
+/** Creates a 2d canvas context (instrumentation breakpoint canvasContextCreated). */
+export const TRACE_CANVAS_JS = [
+  'const ctx = document.createElement("canvas").getContext("2d");', // 1
+  'document.title = ctx ? "canvas done" : "no canvas";', // 2
+].join("\n");
+
+/** What the page itself can see of the instrumented APIs (descriptors, toString, stacks). */
+export const TRACE_VISIBLE_JS = [
+  "function snap() {",
+  '  const d = Object.getOwnPropertyDescriptor(Navigator.prototype, "userAgent");',
+  "  return JSON.stringify({",
+  "    getter: d.get.toString(),",
+  "    getterViaProto: Function.prototype.toString.call(d.get),",
+  "    name: d.get.name, length: d.get.length, keys: Object.keys(d), enumerable: d.enumerable, configurable: d.configurable, set: d.set === undefined,",
+  "    names: Object.getOwnPropertyNames(Navigator.prototype), symbols: Object.getOwnPropertySymbols(Navigator.prototype).map(String),",
+  "    own: Object.getOwnPropertyNames(navigator),",
+  "    toDataURL: Function.prototype.toString.call(HTMLCanvasElement.prototype.toDataURL),",
+  "    query: Function.prototype.toString.call(Permissions.prototype.query),",
+  '    screenWidth: Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Screen.prototype, "width").get),',
+  '    stack: (function probeStack() { return new Error("probe").stack; })(),',
+  "    globals: Object.keys(window).length,",
+  "  });",
+  "}",
+  "window.__snapLoad = snap();",
+].join("\n");
+
+const tracePage = (title: string, body: string) => `<!doctype html><meta charset=utf-8><title>${title}</title>\n${body}`;
+
+export type TraceSite = { a: string; b: string; reports: Record<string, unknown>[]; hits: string[]; stop: () => void };
+
+export function startTraceSite(): TraceSite {
+  const reports: Record<string, unknown>[] = [];
+  const hits: string[] = [];
+  const js = (body: string) => new Response(body, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
+  const html = (body: string, status = 200) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  const b = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const p = new URL(req.url).pathname;
+      hits.push(`B ${req.method} ${p}`);
+      if (p === "/trace/oopif.html") return html(TRACE_OOPIF_HTML);
+      return new Response("nf", { status: 404 });
+    },
+  });
+  const bOrigin = `http://localhost:${b.port}`;
+  const a = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const p = new URL(req.url).pathname;
+      hits.push(`A ${req.method} ${p}`);
+      if (p === "/trace/")
+        return html(
+          tracePage(
+            "trace probe",
+            [
+              '<script src="/trace/probe.js"></script>',
+              '<iframe id=same src="/trace/frame.html"></iframe>',
+              `<iframe id=cross src="${bOrigin}/trace/oopif.html"></iframe>`,
+              "<p id=out>loading</p>",
+              '<script>const w = new Worker("/trace/worker.js"); w.onmessage = (e) => { document.getElementById("out").textContent = "worker done " + e.data; };</script>',
+            ].join("\n"),
+          ),
+        );
+      if (p === "/trace/probe.js") return js(TRACE_PROBE_JS);
+      if (p === "/trace/worker.js") return js(TRACE_WORKER_JS);
+      if (p === "/trace/frame.html") return html(TRACE_FRAME_HTML);
+      if (p === "/trace/loop.html") return html(tracePage("loop", '<script src="/trace/loop.js"></script>'));
+      if (p === "/trace/loop.js") return js(TRACE_LOOP_JS);
+      if (p === "/trace/wall.html") return html(tracePage("tick 0", '<script src="/trace/tick.js"></script>'));
+      if (p === "/trace/tick.js") return js(TRACE_TICK_JS);
+      if (p === "/trace/wall") return html("<h2>请完成验证</h2>", 403);
+      if (p === "/trace/canvas.html") return html(tracePage("canvas", '<script src="/trace/canvas.js"></script>'));
+      if (p === "/trace/canvas.js") return js(TRACE_CANVAS_JS);
+      if (p === "/trace/visible.html") return html(tracePage("visible", '<script src="/trace/visible.js"></script>'));
+      if (p === "/trace/visible.js") return js(TRACE_VISIBLE_JS);
+      if (p === "/trace/report" && req.method === "POST") {
+        const v: unknown = await req.json().catch(() => null);
+        if (typeof v === "object" && v !== null) reports.push(Object.fromEntries(Object.entries(v)));
+        return new Response("ok");
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return {
+    a: `http://127.0.0.1:${a.port}`,
+    b: bOrigin,
+    reports,
+    hits,
+    stop: () => {
+      a.stop(true);
+      b.stop(true);
+    },
+  };
+}
