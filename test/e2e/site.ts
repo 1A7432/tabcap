@@ -1663,3 +1663,71 @@ export function startProxySite(): ProxySite {
   });
   return { url: `http://127.0.0.1:${server.port}`, port: server.port ?? 0, seen, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.6-I: bodies and site stop rules (docs/05 s54–s55)
+// One origin; every size and status a test expects is a literal here or in
+// `served` / `api` (what the range really sent), never tabcap's output.
+//   /s54            s54 big-script: a page with a 1.5 MiB script, a
+//                   stylesheet, an image and one fetch() of JSON; `served`
+//                   keeps the byte length of each body sent.
+//   /s55            s55 site-stop: a button whose click fetches /s55/api
+//                   and reads the body; /s55/api answers by arrival order
+//                   with S55_STATUSES (then 200); `api` logs each answer.
+
+export const S54_ROWS = ["s54-a", "s54-b"] as const;
+export const S54_SCRIPT = `/* s54 big script */\nwindow.__s54 = "loaded";\nvar s54_pad = "${"0123456789abcdef".repeat(96 * 1024)}";\n`;
+export const S54_CSS = "body { font-family: sans-serif; } h1 { color: #333; }\n";
+export const S55_STATUSES = [200, 500, 500, 500] as const;
+
+export type BodiesSite = { origin: string; served: Map<string, number>; api: Array<{ n: number; status: number }>; stop: () => void };
+
+export function startBodiesSite(): BodiesSite {
+  const served = new Map<string, number>();
+  const api: Array<{ n: number; status: number }> = [];
+  const send = (path: string, body: string | Uint8Array, type: string, status = 200) => {
+    const bytes = typeof body === "string" ? new TextEncoder().encode(body) : body;
+    served.set(path, bytes.length);
+    return new Response(bytes, { status, headers: { "content-type": type, "cache-control": "no-store" } });
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const p = new URL(req.url).pathname;
+      if (p === "/favicon.ico") return new Response(null, { status: 204 });
+      if (p === "/s54")
+        return send(
+          p,
+          `<!doctype html><meta charset=utf-8><title>s54 big script</title><link rel=stylesheet href="/s54/site.css">
+<h1>s54</h1><img src="/s54/logo.png" alt="logo" width=1 height=1><p id=s54-out></p>
+<script src="/s54/big.js"></script>
+<script>fetch("/s54/api", { cache: "no-store" }).then((r) => r.json()).then((j) => { document.getElementById("s54-out").textContent = j.rows.join(","); });</script>`,
+          "text/html; charset=utf-8",
+        );
+      if (p === "/s54/big.js") return send(p, S54_SCRIPT, "application/javascript");
+      if (p === "/s54/site.css") return send(p, S54_CSS, "text/css");
+      if (p === "/s54/logo.png") return send(p, PIXEL, "image/png");
+      if (p === "/s54/api") return send(p, JSON.stringify({ rows: S54_ROWS }), "application/json");
+      if (p === "/s55")
+        return send(
+          p,
+          `<!doctype html><meta charset=utf-8><title>s55 site stop</title>
+<button type=button id=s55-load>加载</button> <span id=s55-out></span>
+<script>
+document.getElementById("s55-load").addEventListener("click", () => {
+  fetch("/s55/api", { cache: "no-store" }).then((r) => r.json().then((j) => { document.getElementById("s55-out").textContent = "n" + String(j.n) + "=" + String(r.status); }));
+});
+</script>`,
+          "text/html; charset=utf-8",
+        );
+      if (p === "/s55/api") {
+        const n = api.length + 1;
+        const status = S55_STATUSES[n - 1] ?? 200;
+        api.push({ n, status });
+        return send(p, JSON.stringify({ n, status }), "application/json", status);
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served, api, stop: () => server.stop(true) };
+}
