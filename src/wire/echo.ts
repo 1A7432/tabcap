@@ -55,6 +55,13 @@ type Front = {
 
 type Pending = { buf: Uint8Array[] };
 
+/**
+ * One relayed connection. Each side is ended / written only while it is open:
+ * touching a Bun socket after its close crashed Bun 1.4.2 on Windows (CI, a
+ * segfault in the unit tests), so both sides track their own closed state.
+ */
+type Relay = { fc: Front; back: Socket<unknown> | null; toBack: Pending; toFront: Pending; frontClosed: boolean; backClosed: boolean };
+
 function concat(parts: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
   let o = 0;
@@ -110,7 +117,7 @@ export class Echo {
   private constructor(
     private readonly o: EchoOptions,
     private readonly inner: tls.Server,
-    private front: TCPSocketListener<{ fc: Front; back: Socket<unknown> | null; toBack: Pending; toFront: Pending }> | null,
+    private front: TCPSocketListener<Relay> | null,
     private readonly work: string,
   ) {}
 
@@ -186,48 +193,55 @@ export class Echo {
     this.o.log?.(line);
   }
 
-  private listenFront(innerPort: number, port: number): TCPSocketListener<{ fc: Front; back: Socket<unknown> | null; toBack: Pending; toFront: Pending }> {
+  private listenFront(innerPort: number, port: number): TCPSocketListener<Relay> {
     const echo = this;
-    return Bun.listen<{ fc: Front; back: Socket<unknown> | null; toBack: Pending; toFront: Pending }>({
+    return Bun.listen<Relay>({
       hostname: "127.0.0.1",
       port,
       socket: {
         open(s) {
           const fc: Front = { id: ++echo.seq, clientPort: s.remotePort, chunks: [], bytes: 0, hello: null, notTls: null };
           echo.stats.connections++;
-          s.data = { fc, back: null, toBack: { buf: [] }, toFront: { buf: [] } };
+          s.data = { fc, back: null, toBack: { buf: [] }, toFront: { buf: [] }, frontClosed: false, backClosed: false };
           echo.open.add(s);
+          const relay = s.data;
+          const endFront = () => {
+            if (!relay.frontClosed) s.end();
+          };
           void Bun.connect<undefined>({
             hostname: "127.0.0.1",
             port: innerPort,
             socket: {
               data(_b, d) {
-                writeAll(s, s.data.toFront, new Uint8Array(d));
+                if (!relay.frontClosed) writeAll(s, relay.toFront, new Uint8Array(d));
               },
               drain(b) {
-                flush(b, s.data.toBack);
+                if (!relay.backClosed) flush(b, relay.toBack);
               },
-              close() {
-                s.end();
+              close(b) {
+                relay.backClosed = true;
+                echo.open.delete(b);
+                endFront();
               },
               error() {
-                s.end();
+                endFront();
               },
             },
           }).then(
             (b) => {
-              if (echo.stopped) {
+              if (echo.stopped || relay.frontClosed) {
+                relay.backClosed = true;
                 b.end();
                 return;
               }
               echo.open.add(b);
-              s.data.back = b;
+              relay.back = b;
               echo.byRelayPort.set(b.localPort, fc);
-              const queued = s.data.toBack.buf;
-              s.data.toBack = { buf: [] };
-              for (const q of queued) writeAll(b, s.data.toBack, q);
+              const queued = relay.toBack.buf;
+              relay.toBack = { buf: [] };
+              for (const q of queued) writeAll(b, relay.toBack, q);
             },
-            () => s.end(),
+            () => endFront(),
           );
         },
         data(s, d) {
@@ -247,20 +261,25 @@ export class Echo {
             }
           }
           if (s.data.back === null) s.data.toBack.buf.push(bytes);
-          else writeAll(s.data.back, s.data.toBack, bytes);
+          else if (!s.data.backClosed) writeAll(s.data.back, s.data.toBack, bytes);
         },
         drain(s) {
-          flush(s, s.data.toFront);
+          if (!s.data.frontClosed) flush(s, s.data.toFront);
         },
         close(s) {
+          s.data.frontClosed = true;
           echo.open.delete(s);
-          s.data.back?.end();
+          const back = s.data.back;
+          if (back !== null && !s.data.backClosed) back.end();
           // The TLS side may report after the front closed (a parallel connection the client dropped): keep the match a while.
-          const port = s.data.back?.localPort;
-          if (port !== undefined) setTimeout(() => echo.byRelayPort.delete(port), 10_000);
+          if (back !== null) {
+            const port = back.localPort;
+            const t = setTimeout(() => echo.byRelayPort.delete(port), 10_000);
+            t.unref();
+          }
         },
         error(s) {
-          s.end();
+          if (!s.data.frontClosed) s.end();
         },
       },
     });
@@ -361,11 +380,14 @@ export class Echo {
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
-    this.front?.stop(true);
-    for (const s of this.open) s.terminate();
-    for (const s of this.secure) s.destroy();
-    this.secure.clear();
+    // Each live socket is closed exactly once (stop(true) as well would close the front ones a second time).
+    const open = [...this.open];
     this.open.clear();
+    const secure = [...this.secure];
+    this.secure.clear();
+    for (const s of secure) s.destroy();
+    for (const s of open) s.terminate();
+    this.front?.stop(false);
     await new Promise<void>((resolve) => this.inner.close(() => resolve()));
     rmSync(this.work, { recursive: true, force: true });
   }
