@@ -156,6 +156,26 @@ Most agent browsers start from "give the agent a clean, isolated browser and let
 
 **Replay key rules.** When your scraper's requests differ from the recording only in volatile parts, write a rules file instead of an offline replay script: `replay-rules.json` (schema `tabcap-replay-rules/0`, or `replay` / `sites.<name>.replay` in `config.json` so a site's rules live with the site) says per host / path / method which query parameters to ignore (`t`, `nonce` …), whether the body counts as form pairs, canonical JSON (minus ignored fields), a decode plugin's plaintext or not at all, and how answers are compared (`status`, `status+body`, `status+decoded-body`, ignored JSON paths). `replay serve --rules` and `replay check --rules` use it, and so does `tabcap bundle export fixtures <bundle> --out <dir>`: one fixture per recorded exchange, keyed the same way and redacted like a HAR export; `--format <plugin>` hands each fixture to a fixture plugin of your own that writes your harness's format. Without rules nothing changes. Details: [docs/04 §31](docs/04-evidence-bundle-spec-v0.md).
 
+## Where it sits
+
+Several tools turn recorded browser traffic into something an agent can call: Integuru has an LLM build a request dependency graph from a HAR and generates Python, agent-browser's derive-client skill has the agent read a HAR and write a standalone client, Unbrowse compiles a site's first-party requests into hosted MCP tools, and Playwright `routeFromHAR` and VCR.py replay recordings inside tests. tabcap works on the recording itself: it traces every request input deterministically (exact matches only; anything else is marked `computed-in-page`) and grades each written conclusion as measured or inferred; it keeps the recording as an evidence bundle you can diff, re-analyse and replay-check field by field against the server; `replay serve` and the generated fixtures feed the scraper code you already have instead of only producing a new client; it tries one login per site and session, paces and counts live checks per site, and hands verification pages to the human; nested and cross-origin iframes and iframe-based legacy widgets are reached through frame-path refs, and encrypted bodies are flagged and turned into plaintext by decode plugins you write.
+
+| | tabcap | Integuru | derive-client | Unbrowse | HAR replay¹ |
+|---|---|---|---|---|---|
+| Records the browser session | ✓ | ✓ | ✓ | ✓ (its cloud browser) | ✓ (Playwright) |
+| Request inputs traced to their source | ✓ exact match | LLM-inferred | LLM-inferred | – | – |
+| Generates a new client | ✓ (httpx) | ✓ (Python) | ✓ | MCP tools | – |
+| Serves recorded responses to existing code | ✓ (`replay serve`) | – | – | – | ✓ (in tests) |
+| Replay check against the server, field by field | ✓ | – | the agent compares shapes | ✓ (hosted) | – |
+| Nested / cross-origin iframes | ✓ | – | partial² | – | – |
+| Encrypted bodies | flagged; decode plugins | – | – | – | – |
+| Login / verification handed to the human | ✓ | before recording | before recording | ✓ | – |
+| Live requests paced per site | ✓ | – | advised | – | – |
+| MCP | ✓ | – | ✓ (agent-browser) | ✓ | – |
+| Runs | locally | locally + OpenAI API | locally | hosted | locally |
+
+✓: in the product's own docs or reproduced on tabcap's local range. LLM-inferred: the docs give the step to an LLM or to the agent. –: not described in its public docs as read; not a claim that it cannot. ¹ Playwright `routeFromHAR`, VCR.py. ² local range run of agent-browser, whose HAR the skill reads: the cross-origin frame was entered with `frame`, the depth-3 frame not with the commands tried, and the HAR had no entry for the depth-3 frame document and no bodies for the cross-origin frame documents. Sources and reproduction: [docs/12](docs/12-comparison.md), read on 2026-10-16.
+
 ## Boundaries
 
 - Not an unattended scraping platform and not a cloud browser.

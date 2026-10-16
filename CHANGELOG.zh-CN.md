@@ -89,6 +89,10 @@
 - **`tabcap analyze schema-diff <旧包> <新包> [--template …] [--text] [--write]`**：两份形状按端点配对，schema `tabcap-schema-diff/0`：`added` / `removed`（`路径:类型`，如 `$.items[].name:string`、`query:v:string(int)`）、`changed`（`{path, from, to}`）、`optionalityChanged`、`enumChanged`，判定 `same | drift | new | gone`；`--text` 一行一个变化。**有端点漂移时退出码 1**（信封仍是 `ok`），可放 cron。JSON 接口在新录制里回了 HTML，算漂移（全部 removed）；一边的数组一个元素都没有时，数组下面的位置不比较。
 - 靶场：s06 加 `GET /api/list` 与变体 `?v=2`（改名一个字段、改一个类型、加一个字段）；e2e `v06g`。规范：[docs/04 §32](docs/04-evidence-bundle-spec-v0.md)。
 
+### 定位（0.6-K）
+
+- README「位置」一节与 docs/12：tabcap 与 Integuru、agent-browser 的 derive-client、Unbrowse、HAR 回放（Playwright `routeFromHAR`、VCR.py）的对照，附能力表；每一格或引自该产品自己的文档（2026-10-16 读取），或在本地靶场复现（输出与靶场脚本在 `docs/compare/`）；找不到来源或没跑的列为待验。
+
 ## 0.5.0（2026-10-16）
 
 ### 变更

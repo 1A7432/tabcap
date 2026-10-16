@@ -156,6 +156,26 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 
 **回放键规则。** 爬虫发的请求和录到的只差在易变的部分时，写一份规则文件，不必再手写离线回放脚本：`replay-rules.json`（schema `tabcap-replay-rules/0`，也可以写进 `config.json` 的 `replay` / `sites.<名>.replay`，让站点的规则跟着站点走）按 host / 路径 / 方法说明忽略哪些 query 参数（`t`、`nonce` …）、正文按表单对、规范 JSON（去掉忽略的字段）、解码插件的明文还是不比，以及回答怎么比（`status`、`status+body`、`status+decoded-body`、忽略的 JSON 路径）。`replay serve --rules`、`replay check --rules` 用它，`tabcap bundle export fixtures <包> --out <目录>` 也用它：每条录到的交换一个夹具，键按同样的规则算，默认像 HAR 导出一样脱敏；`--format <插件>` 把每个夹具交给你自己的夹具插件，写成你的测试框架要的格式。不给规则时一切照旧。细节：[docs/04 §31](docs/04-evidence-bundle-spec-v0.md)。
 
+## 位置
+
+有几类工具把录到的浏览器流量变成 agent 能调用的东西：Integuru 让 LLM 从 HAR 建请求依赖图并生成 Python，agent-browser 的 derive-client skill 让 agent 读 HAR 写出独立客户端，Unbrowse 把站点自己的一方请求编译成托管的 MCP 工具，Playwright `routeFromHAR` 与 VCR.py 在测试里回放录制。tabcap 在录制本身上干活：每个请求输入都确定性地追来源（只认精确匹配，其余标 `computed-in-page`），写下的每条结论分级为实测或推断；录制留成证据包，可以 diff、重新分析、对服务端逐字段 `replay check`；`replay serve` 与生成的 fixture 喂给你已有的采集代码，不只是另起一个新客户端；每站每会话只试一次登录，线上检查按站点限速、计数，验证页交给人；多层、跨源 iframe 与基于 iframe 的老式控件通过帧路径 ref 触达，加密正文会被标出，并由你自己写的 decode 插件转成明文。
+
+| | tabcap | Integuru | derive-client | Unbrowse | HAR 回放¹ |
+|---|---|---|---|---|---|
+| 录下浏览器会话 | ✓ | ✓ | ✓ | ✓（它的云浏览器） | ✓（Playwright） |
+| 请求输入追到来源 | ✓ 精确匹配 | LLM 推断 | LLM 推断 | – | – |
+| 生成新客户端 | ✓（httpx） | ✓（Python） | ✓ | MCP 工具 | – |
+| 给已有代码喂录到的响应 | ✓（`replay serve`） | – | – | – | ✓（测试内） |
+| 对服务端逐字段回放比对 | ✓ | – | agent 比对响应形状 | ✓（托管） | – |
+| 多层 / 跨源 iframe | ✓ | – | 部分² | – | – |
+| 加密正文 | 标出；decode 插件 | – | – | – | – |
+| 登录 / 验证交给人 | ✓ | 录制前 | 录制前 | ✓ | – |
+| 线上请求按站点限速 | ✓ | – | 文字建议 | – | – |
+| MCP | ✓ | – | ✓（agent-browser） | ✓ | – |
+| 在哪跑 | 本机 | 本机 + OpenAI API | 本机 | 托管 | 本机 |
+
+✓：产品自己的文档写明，或在 tabcap 本地靶场复现。LLM 推断：文档把这一步交给 LLM 或 agent。–：按读到的公开文档没有描述这项，不表示它做不到。¹ Playwright `routeFromHAR`、VCR.py。² 本地靶场上跑的是 agent-browser（skill 读的就是它录的 HAR）：用 `frame` 进入了跨源帧，试过的命令进不了第 3 层帧；HAR 里没有第 3 层帧文档这一条，跨源帧文档没有正文。来源与复现：[docs/12](docs/12-comparison.md)，2026-10-16 读取。
+
 ## 边界
 
 - 不是无人值守的采集平台，也不是云浏览器。

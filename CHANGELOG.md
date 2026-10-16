@@ -89,6 +89,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **`tabcap analyze schema-diff <old> <new> [--template …] [--text] [--write]`**: the two shapes matched by endpoint, schema `tabcap-schema-diff/0`: `added` / `removed` (`path:type`, e.g. `$.items[].name:string`, `query:v:string(int)`), `changed` (`{path, from, to}`), `optionalityChanged`, `enumChanged`, verdict `same | drift | new | gone`; `--text` prints one line per change. **Exits 1 when any endpoint drifted** (the envelope stays `ok`), for a cron job. A JSON endpoint that answers HTML in the new recording is a drift with everything removed; paths under an array that had no items on one side are not compared.
 - Range: s06 has `GET /api/list` and its variant `?v=2` (a field renamed, a type changed, a field added); e2e `v06g`. Spec: [docs/04 §32](docs/04-evidence-bundle-spec-v0.md).
 
+### Positioning (0.6-K)
+
+- README "Where it sits" and docs/12: tabcap next to Integuru, agent-browser's derive-client, Unbrowse and HAR replay (Playwright `routeFromHAR`, VCR.py), with a capability table; every cell is quoted from the product's own docs (read 2026-10-16) or reproduced on the local range (outputs and the range script in `docs/compare/`); what could not be sourced or run is listed as unverified.
+
 ## 0.5.0 (2026-10-16)
 
 ### Changed
