@@ -6,8 +6,8 @@
 //
 // Names follow the Chrome DevTools MCP tool surface (docs/08 §5, owner decision
 // 10-15): `press-key`, `tab list` / `tab select`, `console list` / `console show`,
-// `--page-size` / `--page-idx`, `--file-path` … Old names stay for one release
-// as deprecated aliases (`deprecatedFor` commands, `deprecated` flag spellings).
+// `--page-size` / `--page-idx`, `--file-path` … The 0.3 aliases of the old
+// names were removed in 0.4 (owner, 2026-10-16: no compatibility kept).
 
 import { TabcapError } from "../shared/envelope.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
@@ -27,10 +27,6 @@ export type FlagSpec = {
   alias?: string;
   /** The command fails without it. */
   required?: boolean;
-  /** Old spellings that still work for one release (docs/08 §5); help marks them deprecated. */
-  deprecated?: string[];
-  /** The flag itself is deprecated: this note says what to use instead. */
-  deprecatedNote?: string;
   /** May be given more than once; the value is then a list of strings. */
   repeat?: boolean;
 };
@@ -52,8 +48,6 @@ export type CommandSpec = {
   internal?: boolean;
   /** Never echo argument values in errors (a stray positional may be a password). */
   quiet?: boolean;
-  /** Deprecated alias of this command (removed in 0.4): run that one instead. */
-  deprecatedFor?: string;
   /** Arguments always sent with this command (e.g. `tab new` = navigate in a new tab). */
   fixed?: Record<string, string | number | boolean>;
   /** The trailing variadic positional is kept as a list (file paths), not joined with spaces. */
@@ -61,9 +55,6 @@ export type CommandSpec = {
   /** Argument keys holding local file paths: the CLI resolves them against its own working directory. */
   localPaths?: string[];
 };
-
-/** The release that drops the deprecated aliases. */
-export const ALIASES_REMOVED_IN = "0.4";
 
 const SESSION: FlagSpec = { flag: "--session", key: "session", kind: "string", help: "session name; else $TABCAP_SESSION", default: "default", metavar: "name" };
 const TIMEOUT: FlagSpec = { flag: "--timeout", key: "timeoutMs", kind: "number", help: "command timeout in ms", default: 30000, metavar: "ms" };
@@ -176,8 +167,6 @@ export const COMMANDS: CommandSpec[] = [
     fixed: { newTab: true },
   },
   { path: ["tab", "close"], pos: ["tab"], flags: [SESSION], summary: "close one of the session's tabs", example: "tabcap tab close t2", action: "tab.close" },
-  { path: ["tabs"], pos: [], flags: [SESSION], summary: "list the session's tabs (never other tabs)", example: "tabcap tabs", action: "tabs", deprecatedFor: "tab list" },
-  { path: ["tab", "use"], pos: ["tab"], flags: [SESSION], summary: "make one of the session's tabs (e.g. a popup) its current tab", example: "tabcap tab use t2", action: "tab.use", deprecatedFor: "tab select" },
   { path: ["go"], pos: ["direction"], choices: { direction: ["back", "forward"] }, flags: [...TT, NO_WAIT], summary: "history back / forward, waits until ready and the DOM is quiet", example: "tabcap go back", action: "go" },
   {
     path: ["reload"],
@@ -278,7 +267,6 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap press-key Enter",
     action: "press",
   },
-  { path: ["press"], pos: ["key"], flags: [...TT, ...INTERACT], summary: "press a key: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a …", example: "tabcap press Enter", action: "press", deprecatedFor: "press-key" },
   {
     path: ["upload"],
     pos: ["ref", "files..."],
@@ -308,8 +296,8 @@ export const COMMANDS: CommandSpec[] = [
     pos: [],
     flags: [
       ...TT,
-      { flag: "--file-path", key: "filePath", kind: "string", help: "image path (default under ~/.local/share/tabcap/shots/)", metavar: "path", deprecated: ["--out"] },
-      { flag: "--full-page", key: "fullPage", kind: "bool", help: "the whole page, not just the viewport (not with --ref)", deprecated: ["--full"] },
+      { flag: "--file-path", key: "filePath", kind: "string", help: "image path (default under ~/.local/share/tabcap/shots/)", metavar: "path" },
+      { flag: "--full-page", key: "fullPage", kind: "bool", help: "the whole page, not just the viewport (not with --ref)" },
       { flag: "--format", key: "format", kind: "string", help: "png | jpeg | webp", default: "png", metavar: "png|jpeg|webp" },
       { flag: "--quality", key: "quality", kind: "number", help: "jpeg / webp quality 0–100 (ignored for png)", metavar: "0-100" },
       { flag: "--ref", key: "ref", kind: "string", help: "only this element (a ref from snapshot)", metavar: "e12" },
@@ -371,15 +359,14 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--host", key: "host", kind: "string", help: "host[:port] substring", metavar: "s" },
       { flag: "--status", key: "status", kind: "string", help: "status code or class: 200 | 2xx | 3xx | 4xx | 5xx", metavar: "code" },
       { flag: "--method", key: "method", kind: "string", help: "only this HTTP method", metavar: "M" },
-      { flag: "--resource-types", key: "types", kind: "string", help: "comma list: xhr,fetch,document,script …", metavar: "xhr,fetch", deprecated: ["--type"] },
+      { flag: "--resource-types", key: "types", kind: "string", help: "comma list: xhr,fetch,document,script …", metavar: "xhr,fetch" },
       { flag: "--tab", key: "tab", kind: "string", help: "only requests of this tab", metavar: "t2" },
       { flag: "--since", key: "since", kind: "string", help: "only requests finished after this command started (the `cmd` id commands return while recording)", metavar: "c-12" },
       { flag: "--failed", key: "failed", kind: "bool", help: "only failed requests (hidden by default)" },
       { flag: "--no-failed", key: "noFailed", kind: "bool", help: "hide failed requests (the default)" },
       { flag: "--all", key: "all", kind: "bool", help: "also failed requests and data: URLs" },
-      { flag: "--page-size", key: "pageSize", kind: "number", help: "requests per page (max 1000); without --page-size / --page-idx every match is returned", metavar: "n", deprecated: ["--limit"] },
+      { flag: "--page-size", key: "pageSize", kind: "number", help: "requests per page (max 1000); without --page-size / --page-idx every match is returned", metavar: "n" },
       { flag: "--page-idx", key: "pageIdx", kind: "number", help: "page to return, 0-based (100 per page unless --page-size); nextPageIdx names the next one", metavar: "n" },
-      { flag: "--offset", key: "offset", kind: "number", help: "skip this many matches (oldest first)", metavar: "n", deprecatedNote: "use --page-idx" },
       { flag: "--kind", key: "kind", kind: "string", help: "http (requests) | ws (WebSocket frames: id, direction, opcode, size, ts)", default: "http", metavar: "http|ws" },
     ],
     summary:
@@ -429,21 +416,6 @@ export const COMMANDS: CommandSpec[] = [
     summary: "one console message by msgid (from console list): text, arguments, location, stack trace",
     example: "tabcap console show 3",
     action: "console.show",
-  },
-  {
-    path: ["console"],
-    pos: [],
-    flags: [
-      SESSION,
-      TAB,
-      { flag: "--level", key: "level", kind: "string", help: "debug | log | info | warn | error: that level and more severe (log = info)", metavar: "level" },
-      { flag: "--limit", key: "limit", kind: "number", help: "return at most the last N entries", default: 100, metavar: "n" },
-      { flag: "--clear", key: "clear", kind: "bool", help: "empty the tab's buffer after reading" },
-    ],
-    summary: "the tab's console (last 500 entries, kept even when not recording): ts, level, source, text (4 KB max), url:line:col, exception stack",
-    example: "tabcap console --level warn",
-    action: "console",
-    deprecatedFor: "console list",
   },
   {
     path: ["wait"],
@@ -637,19 +609,14 @@ export function flagNames(c: CommandSpec): string[] {
   return c.flags.flatMap(spellingsOf);
 }
 
-/** Every spelling of one flag: the name, its alias, its deprecated old spellings. */
+/** Every spelling of one flag: the name and its alias. */
 export function spellingsOf(f: FlagSpec): string[] {
-  return [f.flag, ...(f.alias === undefined ? [] : [f.alias]), ...(f.deprecated ?? [])];
+  return [f.flag, ...(f.alias === undefined ? [] : [f.alias])];
 }
 
-/** Commands for users and agents now: neither plumbing nor deprecated aliases. */
+/** Commands for users and agents: everything but plumbing. */
 export function currentCommands(): CommandSpec[] {
-  return COMMANDS.filter((c) => c.internal !== true && c.deprecatedFor === undefined);
-}
-
-/** "tabs → tab list, …": the deprecated command aliases and what replaces them. */
-export function deprecatedAliases(): { alias: string; use: string }[] {
-  return COMMANDS.flatMap((c) => (c.deprecatedFor === undefined ? [] : [{ alias: c.path.join(" "), use: c.deprecatedFor }]));
+  return COMMANDS.filter((c) => c.internal !== true);
 }
 
 const BUNDLE_PATHS = ["bundle export har", "bundle import har", "bundle redact", "bundle info"];
@@ -675,14 +642,12 @@ export function usageOf(c: CommandSpec, skip: readonly string[] = []): string {
     const name = c.restList === true && i === c.pos.length - 1 ? `${posName(c, p)}...` : posName(c, p);
     return c.optional !== undefined && i >= c.pos.length - c.optional ? `[${name}]` : name;
   });
-  const flags = c.flags.filter((f) => !isCommonFlag(f, skip) && f.deprecatedNote === undefined).map(flagUsage);
+  const flags = c.flags.filter((f) => !isCommonFlag(f, skip)).map(flagUsage);
   return [TOOL_NAME, ...c.path, ...pos, ...flags].join(" ");
 }
 
-const deprecationLine = (use: string) => `Deprecated: use \`${TOOL_NAME} ${use}\` instead (this alias is removed in ${ALIASES_REMOVED_IN}).`;
-
 export function helpAll(): string {
-  const shown = COMMANDS.filter((c) => c.deprecatedFor === undefined);
+  const shown = COMMANDS;
   const w = Math.max(...shown.map((c) => c.path.join(" ").length));
   const lines = [
     "tabcap — a dedicated browser for AI agents: background tabs, refs, network capture.",
@@ -690,8 +655,6 @@ export function helpAll(): string {
     "",
     "Commands:",
     ...shown.map((c) => `  ${c.path.join(" ").padEnd(w)}  ${c.summary}\n  ${"".padEnd(w)}  e.g. ${c.example}`),
-    "",
-    `Deprecated aliases (removed in ${ALIASES_REMOVED_IN}): ${deprecatedAliases().map((x) => `${x.alias} → ${x.use}`).join(", ")}`,
     "",
     "Start: tabcap setup && tabcap daemon start && tabcap browser start",
     "Then:  tabcap navigate <url> → tabcap snapshot --interactive → tabcap click <ref> / tabcap fill <ref> <text>",
@@ -702,13 +665,11 @@ export function helpAll(): string {
 
 /** Help for a command group (`tabcap net --help`): its subcommands, or null when `group` is no group. */
 export function helpGroup(group: string): string | null {
-  const subs = COMMANDS.filter((c) => c.path[0] === group && c.path.length > 1 && c.internal !== true && c.deprecatedFor === undefined);
+  const subs = COMMANDS.filter((c) => c.path[0] === group && c.path.length > 1 && c.internal !== true);
   if (subs.length === 0) return null;
-  const old = deprecatedAliases().filter((x) => x.alias.split(" ")[0] === group);
   return [
     `${TOOL_NAME} ${group} — subcommands:`,
     ...subs.map((c) => `  ${usageOf(c, COMMON_FLAGS)}\n      ${c.summary}`),
-    ...(old.length === 0 ? [] : ["", `Deprecated (removed in ${ALIASES_REMOVED_IN}): ${old.map((x) => `${x.alias} → ${x.use}`).join(", ")}`]),
     "",
     `More: ${TOOL_NAME} ${group} <subcommand> --help`,
   ].join("\n");
@@ -717,14 +678,11 @@ export function helpGroup(group: string): string | null {
 function flagHelp(f: FlagSpec): string {
   const base = f.default === undefined ? f.help : `${f.help} [default: ${f.default}]`;
   const repeat = f.repeat === true ? " (repeatable)" : "";
-  const note = f.deprecatedNote === undefined ? "" : ` — deprecated, ${f.deprecatedNote}; removed in ${ALIASES_REMOVED_IN}`;
-  const old = f.deprecated === undefined ? "" : ` (old spelling ${f.deprecated.join(", ")} still works; deprecated, removed in ${ALIASES_REMOVED_IN})`;
-  return base + repeat + note + old;
+  return base + repeat;
 }
 
 export function helpFor(c: CommandSpec): string {
   const lines = [`Usage: ${usageOf(c)}`, "", c.summary, "", `Example: ${c.example}`];
-  if (c.deprecatedFor !== undefined) lines.splice(1, 0, deprecationLine(c.deprecatedFor));
   if (c.flags.length > 0) {
     lines.push("", "Options:");
     for (const f of c.flags) {
@@ -751,10 +709,6 @@ export type SchemaFlag = {
   help: string;
   /** May be given more than once (the value is a list). */
   repeatable: boolean;
-  /** Old spellings that still work until the next minor release. */
-  deprecatedAliases: string[];
-  /** Set when the flag itself is deprecated: what to use instead. */
-  deprecated: string | null;
 };
 
 export type SchemaCommand = {
@@ -768,8 +722,6 @@ export type SchemaCommand = {
   /** Needs the running daemon (and usually the browser). */
   daemon: boolean;
   internal: boolean;
-  /** Deprecated alias: the command to use instead (removed in the next minor release). */
-  deprecatedFor: string | null;
 };
 
 export type Schema = {
@@ -792,8 +744,6 @@ function schemaFlag(f: FlagSpec): SchemaFlag {
     default: f.default ?? (f.kind === "bool" ? false : null),
     help: f.help,
     repeatable: f.repeat === true,
-    deprecatedAliases: [...(f.deprecated ?? [])],
-    deprecated: f.deprecatedNote ?? null,
   };
 }
 
@@ -820,7 +770,6 @@ export function schema(): Schema {
         flags: c.flags.map(schemaFlag),
         daemon: c.action !== undefined,
         internal: c.internal === true,
-        deprecatedFor: c.deprecatedFor ?? null,
       };
     }),
   };

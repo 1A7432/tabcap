@@ -162,7 +162,7 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
   }, 60_000);
 
   test("net list shows the XHR; net body path holds the served bytes", async () => {
-    const list = await ok("net", "list", "--type", "xhr", "--session", S);
+    const list = await ok("net", "list", "--resource-types", "xhr", "--session", S);
     const reqs = Array.isArray(list["requests"]) ? list["requests"].filter(isRecord) : [];
     const items = reqs.find((r) => r["url"] === `${site.origin}/api/items`);
     expect(items).toMatchObject({ method: "GET", status: 200, mime: "application/json", outcome: "finished", type: "xhr" });
@@ -175,7 +175,7 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
     const tree = s((await ok("snapshot", "--interactive", "--session", S))["tree"]);
     await ok("click", refOf(tree, /link "Go to page two" \[(e\d+)\]/), "--session", S);
     for (let i = 0; i < 50; i++) {
-      const t = await ok("tabs", "--session", S);
+      const t = await ok("tab", "list", "--session", S);
       const tabs = Array.isArray(t["tabs"]) ? t["tabs"].filter(isRecord) : [];
       if (tabs.some((x) => x["url"] === `${site.origin}/two`)) break;
       await Bun.sleep(100);
@@ -202,7 +202,7 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
       if (out === "") await Bun.sleep(100);
     }
     expect(out).toBe("苹果,香蕉,樱桃");
-    const reqs = (await ok("net", "list", "--type", "xhr,fetch", ...C))["requests"];
+    const reqs = (await ok("net", "list", "--resource-types", "xhr,fetch", ...C))["requests"];
     const items = (Array.isArray(reqs) ? reqs.filter(isRecord) : []).find((r) => r["url"] === `${smoke.origin}/api/items`);
     const body = await ok("net", "body", s(items?.["id"]), ...C);
     expect(sha(s(body["path"]))).toBe(smoke.served.get("/api/items") ?? "missing");
@@ -238,8 +238,8 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
 
   test("tabs never lists other sessions; session stop closes owned tabs only", async () => {
     await ok("navigate", `${site.origin}/two`, "--session", "other");
-    const mine = await ok("tabs", "--session", S);
-    const theirs = await ok("tabs", "--session", "other");
+    const mine = await ok("tab", "list", "--session", S);
+    const theirs = await ok("tab", "list", "--session", "other");
     const ids = (d: Record<string, unknown>) => (Array.isArray(d["tabs"]) ? d["tabs"].filter(isRecord).map((x) => x["tab"]) : []);
     expect(ids(mine)).toEqual(["t1"]);
     expect(ids(theirs)).toEqual([s(ids(theirs)[0])]);
@@ -247,7 +247,7 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
     const stop = await ok("session", "stop", S);
     expect(stop["closed"]).toEqual(["t1"]);
     bundle = s(stop["bundle"]);
-    expect(ids(await ok("tabs", "--session", "other"))).toEqual(ids(theirs));
+    expect(ids(await ok("tab", "list", "--session", "other"))).toEqual(ids(theirs));
     const gone = await tabcap("snapshot", "--session", S);
     expect(gone.error).toMatchObject({ code: "no-tab" });
     const manifest: unknown = JSON.parse(readFileSync(join(bundle, "manifest.json"), "utf8"));

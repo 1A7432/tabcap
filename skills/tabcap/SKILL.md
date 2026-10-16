@@ -48,8 +48,6 @@ The command and option names follow the Chrome DevTools MCP tools, so most map o
 2. **`net list` hides failed requests and `data:` URLs by default**, but always counts them in `hidden: {failed, data}`; `--failed` shows only the failed ones, `--all` everything. Without `--page-size` / `--page-idx` every match comes back; with them, `nextPageIdx` names the next page.
 3. **`--snapshot` is optional.** Interactive commands (`click`, `hover`, `fill`, `type`, `press-key`, `upload`) return a fresh snapshot only when you pass `--snapshot`.
 
-Old names still work until 0.4 (`tabs`, `tab use`, `press`, `console`, `net list --type / --limit / --offset`, `screenshot --out / --full`); `--help` marks them deprecated. Use the new ones.
-
 ## Sessions and tabs
 
 A session is a name (default `default`, or `--session <name>`, or `$TABCAP_SESSION`). `navigate` creates the session and opens a **background tab** for it if it has none; `tab new <url>` opens another one and makes it current. Commands act on the session's current tab; there is no fallback to other tabs — if the tab was closed you get `no-tab` → run `navigate` again. `session stop <name>` closes only the tabs that session opened.

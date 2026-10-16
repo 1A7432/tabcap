@@ -162,10 +162,10 @@ describe.skipIf(!enabled)("tabcap 0.3-D L2 (overlay adapter)", () => {
   test("outline lists the popup as 新窗口 with its tab id", async () => {
     const P = ["--session", "ovp"];
     await ok("navigate", `${site.origin}/ov/popup`, ...P);
-    const opener = s((await ok("tabs", ...P))["current"]);
+    const opener = s((await ok("tab", "list", ...P))["current"]);
     const open = recs((await ok("find", "打开参照窗口", ...P))["hits"])[0];
     await ok("click", s(open?.["clickable"]), ...P);
-    const tabs = await until("the popup", () => ok("tabs", ...P), (d) => recs(d["tabs"]).length === 2);
+    const tabs = await until("the popup", () => ok("tab", "list", ...P), (d) => recs(d["tabs"]).length === 2);
     const pop = recs(tabs["tabs"]).find((t) => t["reason"] === "popup");
     const id = s(pop?.["tab"]);
     const out = await until("the popup title", () => ok("outline", ...P), (d) => s(d["outline"]).includes("参照选择"));

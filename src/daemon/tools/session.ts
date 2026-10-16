@@ -148,7 +148,7 @@ export async function tabsList(d: Daemon, _a: Args, session: string): Promise<un
 }
 
 /**
- * `tab select <tab> [--bring-to-front]` (and the deprecated `tab use`): the
+ * `tab select <tab> [--bring-to-front]`: the
  * session's current tab changes; nothing moves on screen unless
  * --bring-to-front, which is focus ladder level 3 and says so.
  */

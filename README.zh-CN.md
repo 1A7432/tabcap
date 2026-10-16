@@ -29,7 +29,7 @@ tabcap --help                               # 全部命令；tabcap <命令> --h
 tabcap daemon stop                          # 关浏览器、收尾录制、退出
 ```
 
-命令名与参数名对齐 Chrome DevTools MCP（`press-key`、`tab list` / `tab select`、`console list` / `console show`、`--page-size` / `--page-idx`、`--file-path` …），旧名保留到 0.4。命令一览（`--session`、`--timeout` 省略；`tabcap <命令> --help` 看全部选项和例子，`skills/tabcap/references/commands.md` 是完整参考，`tabcap schema --json` 是机器可读版）：
+命令名与参数名对齐 Chrome DevTools MCP（`press-key`、`tab list` / `tab select`、`console list` / `console show`、`--page-size` / `--page-idx`、`--file-path` …），0.3 的旧名已在 0.4 删除。命令一览（`--session`、`--timeout` 省略；`tabcap <命令> --help` 看全部选项和例子，`skills/tabcap/references/commands.md` 是完整参考，`tabcap schema --json` 是机器可读版）：
 
 <!-- BEGIN GENERATED: commands (from src/cli/commands.ts; run `bun run gen:docs`) -->
 | 命令 | 作用 |
@@ -95,8 +95,6 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain]` | generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs |
 | `tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--json]` | send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference |
 | `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
-
-旧名别名（0.4 删除）: `tabs` → `tab list`, `tab use` → `tab select`, `press` → `press-key`, `console` → `console list`
 <!-- END GENERATED: commands -->
 
 **站点与账号库**：`tabcap site add <名> --url <入口> --user <账号>` 在提示符下输入密码（或 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。这是**明文**库，保护程度和 `~/.netrc` 一样（macOS / Linux 上文件 0600、目录 0700，权限更宽时守护进程拒绝启动；Windows 上沿用 `%LOCALAPPDATA%` 的用户默认 ACL），能用测试账号就别用主账号。AI 只看得到站点名、入口、账号名，命令里只写引用 `tabcap fill <ref> --secret <名>.password`；守护进程把所有输出、日志、证据包事件里的已知密码替换成 `<secret:<名>.password>`，只有登录请求本身的正文原样进包，导出 HAR 时会被打码。同一会话第二次用密码登录会被拦下（`guard.login-limit`），撞上验证页时会话进入 `waiting`、交给人处理。

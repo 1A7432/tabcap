@@ -29,7 +29,7 @@ tabcap --help                               # every command; tabcap <command> --
 tabcap daemon stop                          # close the browser, finish recordings, exit
 ```
 
-Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `tab select`, `console list` / `console show`, `--page-size` / `--page-idx`, `--file-path` …); the old names keep working until 0.4. Commands (`--session` and `--timeout` left out; `tabcap <command> --help` shows every option, `skills/tabcap/references/commands.md` is the full reference, `tabcap schema --json` the machine-readable one):
+Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `tab select`, `console list` / `console show`, `--page-size` / `--page-idx`, `--file-path` …); the 0.3 names were removed in 0.4. Commands (`--session` and `--timeout` left out; `tabcap <command> --help` shows every option, `skills/tabcap/references/commands.md` is the full reference, `tabcap schema --json` the machine-readable one):
 
 <!-- BEGIN GENERATED: commands (from src/cli/commands.ts; run `bun run gen:docs`) -->
 | Command | What it does |
@@ -95,8 +95,6 @@ Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `
 | `tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain]` | generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs |
 | `tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--json]` | send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference |
 | `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
-
-Deprecated aliases (removed in 0.4): `tabs` → `tab list`, `tab use` → `tab select`, `press` → `press-key`, `console` → `console list`
 <!-- END GENERATED: commands -->
 
 ## What it is

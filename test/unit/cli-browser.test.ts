@@ -20,10 +20,9 @@ describe("help", () => {
     const text = helpAll();
     for (const c of COMMANDS) {
       expect(text).toContain(c.path.join(" "));
-      // Deprecated aliases (docs/08 §5) are listed once, "old → new", without their own example.
-      if (c.deprecatedFor === undefined) expect(text).toContain(`e.g. ${c.example}`);
-      else expect(text).toContain(`${c.path.join(" ")} → ${c.deprecatedFor}`);
+      expect(text).toContain(`e.g. ${c.example}`);
     }
+    expect(text).not.toContain("Deprecated");
     expect(text).toContain("bundle");
   });
   test("tabcap <cmd> --help prints usage, example and options, exit 0", async () => {
@@ -31,7 +30,7 @@ describe("help", () => {
     expect(r.code).toBe(0);
     expect(r.text).toContain("Usage: tabcap net list");
     expect(r.text).toContain("Example: tabcap net list --resource-types xhr,fetch");
-    expect(r.text).toContain("old spelling --type still works; deprecated");
+    expect(r.text).not.toContain("deprecated");
     expect(r.text).toContain("--filter");
     const c = matchCommand(["click"]);
     if (c === null) throw new Error("no click");
@@ -52,7 +51,7 @@ describe("argument parsing", () => {
     expect(spec(["net", "body"]).action).toBe("net.body");
   });
   test("usage errors carry next and exit 2", async () => {
-    for (const argv of [["click"], ["snapshot", "--bogus"], ["snapshot", "--max-chars", "x"], ["tabs", "extra"]]) {
+    for (const argv of [["click"], ["snapshot", "--bogus"], ["snapshot", "--max-chars", "x"], ["tab", "list", "extra"]]) {
       const r = await run(argv);
       expect(r.code).toBe(2);
       if (r.envelope.ok) throw new Error("expected failure");
@@ -64,7 +63,7 @@ describe("argument parsing", () => {
 
 describe("no daemon", () => {
   test("browser commands fail with not-running and say what to do", async () => {
-    const r = await run(["tabs"]);
+    const r = await run(["tab", "list"]);
     expect(r.code).toBe(1);
     expect(r.envelope).toMatchObject({ ok: false, error: { code: "not-running" } });
     if (r.envelope.ok) throw new Error("expected failure");
