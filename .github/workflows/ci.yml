@@ -59,9 +59,9 @@ jobs:
       - name: skill validation
         run: bun run validate:skill
 
-  # native/wireprint (Zig): format check, offline tests, and a cross-compile of
-  # the four release targets (artifacts are not uploaded yet). tabcap builds the
-  # component only with -Dopenssl=false.
+  # native/wireprint (Zig): format check, offline tests, and the four release
+  # binaries tabcap embeds (native/dist/<target>/, this host's included), whose
+  # host binary is run once.
   native:
     name: native (${{ matrix.os }})
     strategy:
@@ -83,15 +83,25 @@ jobs:
       - name: zig fmt
         run: zig fmt --check src
       - name: zig build test
-        run: zig build test -Dopenssl=false --summary all
-      - name: cross-compile (darwin-arm64, linux-x64, linux-arm64, windows-x64)
+        run: zig build test --summary all
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: wire binaries (native/dist, all four targets)
+        working-directory: .
         run: |
-          for t in aarch64-macos x86_64-linux aarch64-linux x86_64-windows; do
-            start=$(date +%s)
-            zig build -Dopenssl=false -Doptimize=ReleaseSafe -Dtarget="$t" --prefix "zig-out/$t"
-            echo "$t: $(( $(date +%s) - start )) s"
-            ls -l "zig-out/$t/bin"
-          done
+          bun scripts/native.ts build
+          ls -l native/dist/*/
+      - name: host binary runs
+        working-directory: .
+        run: |
+          case "${{ runner.os }}" in
+            Linux) bin=native/dist/x86_64-linux-gnu/wireprint ;;
+            Windows) bin=native/dist/x86_64-windows-gnu/wireprint.exe ;;
+            macOS) bin=native/dist/aarch64-macos/wireprint ;;
+          esac
+          "$bin" version
+          "$bin" ja4 native/wireprint/fixtures/clienthello/cft-155-macos-nav-1.bin
 
   e2e:
     name: e2e (${{ matrix.os }})
@@ -158,8 +168,25 @@ jobs:
       - name: platform probe (listener, CDP channel, windows, file locations)
         continue-on-error: true
         run: ${{ matrix.run_prefix }} bun scripts/ci-probe.ts 2>&1 | tee probe.log; exit ${PIPESTATUS[0]}
+      # The wire component for this host (the e2e runs tabcap from source, which uses native/dist/).
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: wire binary (host)
+        run: bun scripts/native.ts build --host
       - name: L2 e2e
+        env:
+          # v04w copies the Chrome for Testing wire profile it captures here (uploaded below).
+          TABCAP_WIRE_PROFILE_OUT: ${{ runner.temp }}/wire-profile
         run: ${{ matrix.run_prefix }} bun test test/e2e --timeout 120000 2>&1 | tee e2e.log; exit ${PIPESTATUS[0]}
+      - name: upload the captured wire profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wire-profile-${{ matrix.os }}
+          path: ${{ runner.temp }}/wire-profile
+          if-no-files-found: warn
+          retention-days: 30
       - name: upload logs
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4

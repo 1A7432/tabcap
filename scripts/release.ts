@@ -6,6 +6,8 @@
 //   bun scripts/release.ts --sums-only             only (re)write dist/release/SHA256SUMS
 //   bun scripts/release.ts --dry-run               print the plan as JSON, touch nothing
 //
+// First (unless --skip-build) the four wire binaries: `bun scripts/native.ts build`
+// (Zig 0.16.0 cross builds into native/dist/; every tabcap binary embeds all four).
 // Per target: `bun build --compile --target=bun-<target>` → dist/tabcap-<target>[.exe];
 // then dist/release/tabcap-v<version>-<target>/ holds the binary (tabcap or
 // tabcap.exe), skills/tabcap/ (agentskills.io layout), README.md and
@@ -78,6 +80,9 @@ export function planFor(target: Target, version: string, root: string = ROOT): P
     buildCommand: ["bun", "build", "--compile", `--target=bun-${target}`, join(root, "src", "cli", "main.ts"), "--outfile", binary],
   };
 }
+
+/** The wire binaries every tabcap binary embeds (src/wire/embedded.ts): all four Zig targets, before any `bun build --compile`. */
+export const NATIVE_BUILD_COMMAND = ["bun", join(ROOT, "scripts", "native.ts"), "build"];
 
 /** Files every package carries besides the binary (paths inside the package). */
 export const PACKAGE_FILES = ["README.md", "README.zh-CN.md", "LICENSE", "NOTICE", `skills/${TOOL_NAME}/SKILL.md`] as const;
@@ -177,11 +182,12 @@ if (import.meta.main) {
   const releaseDir = join(ROOT, "dist", "release");
   const plans = o.targets.map((t) => planFor(t, TOOL_VERSION));
   if (o.dryRun) {
-    console.log(JSON.stringify({ version: TOOL_VERSION, releaseDir, plans, files: PACKAGE_FILES, sums: join(releaseDir, "SHA256SUMS") }, null, 2));
+    console.log(JSON.stringify({ version: TOOL_VERSION, releaseDir, native: NATIVE_BUILD_COMMAND, plans, files: PACKAGE_FILES, sums: join(releaseDir, "SHA256SUMS") }, null, 2));
   } else {
     mkdirSync(releaseDir, { recursive: true });
     const built: Array<{ target: Target; archive: string; sha256: string }> = [];
     if (!o.sumsOnly) {
+      if (!o.skipBuild) run(NATIVE_BUILD_COMMAND);
       for (const plan of plans) {
         if (!o.skipBuild) run(plan.buildCommand);
         const r = assemble({ plan, version: TOOL_VERSION, releaseDir });

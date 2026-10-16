@@ -20,3 +20,4 @@ fixtures/**/exports/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+native/dist/

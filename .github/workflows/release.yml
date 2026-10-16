@@ -52,6 +52,11 @@ jobs:
           [ "$want" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME does not match package.json ($want)"; exit 1; }
       - name: L0 unit tests
         run: bun test test/unit
+      # The wire component (native/wireprint): release.ts cross-compiles the four
+      # targets with Zig before `bun build --compile`, which embeds all four.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
       - name: build and package
         run: bun scripts/release.ts --targets ${{ matrix.target }}
       - name: smoke (--version)
