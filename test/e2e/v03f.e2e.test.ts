@@ -274,9 +274,24 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
   }, 60_000);
 
   test("resize sets the page's content size; emulate --viewport overrides it and a bare emulate clears it", async () => {
+    // A size that fits every CI screen is exact everywhere.
+    const fits = await ok("resize", "900", "500", ...S);
+    expect(rec(fits["viewport"])).toEqual({ width: 900, height: 500 });
+    expect(await page("[innerWidth, innerHeight]")).toEqual([900, 500]);
     const r = await ok("resize", "900", "700", ...S);
-    expect(rec(r["viewport"])).toEqual({ width: 900, height: 700 });
-    expect(await page("[innerWidth, innerHeight]")).toEqual([900, 700]);
+    const height = rec(r["viewport"])["height"];
+    if (height !== 700) {
+      // Windows never makes a window taller than the screen allows (the window's maximum
+      // tracking size), and the CI runner's screen is 1024x768. Evidence, CI run 38840695217
+      // (probe.log, 0.4-B): screen 1024x768, Chrome's frame 95 px (resize 900 500 → outerHeight
+      // 595); resize 900 700 → Browser.getWindowBounds height 788 (795 needed), innerHeight 693,
+      // devicePixelRatio 1. Only that case is let through: Windows, and a window at least as tall as the screen.
+      expect(process.platform).toBe("win32");
+      const fit = await page("outerHeight >= screen.height");
+      expect(fit).toBe(true);
+    }
+    expect(rec(r["viewport"])).toEqual({ width: 900, height });
+    expect(await page("[innerWidth, innerHeight]")).toEqual([900, height]);
     const nativeDpr = await page("devicePixelRatio");
     const e = await ok("emulate", "--viewport", "390x844x3,mobile,touch", ...S);
     expect(rec(e["emulation"])["viewport"]).toMatchObject({ width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
