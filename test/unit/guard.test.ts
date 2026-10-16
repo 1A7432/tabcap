@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
-import { BLOCKED_WHILE_WAITING, CONTINUE_NEXT, Guard, challengeOf, type GuardRecorder } from "../../src/daemon/guard.ts";
+import { BLOCKED_WHILE_WAITING, CONTINUE_NEXT, Guard, challengeOf, waitingError, type GuardRecorder } from "../../src/daemon/guard.ts";
+import { ACTION_COMMANDS } from "../../src/daemon/state.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 
@@ -109,5 +110,27 @@ describe("guard: waiting state", () => {
     }
     expect(code).toBe("not-found");
     for (const a of ["navigate", "click", "fill", "type", "press", "go", "reload", "evaluate", "dialog"]) expect(BLOCKED_WHILE_WAITING.has(a)).toBe(true);
+  });
+
+  test("resize and emulate are blocked while waiting (0.4) with the same waiting error; they are not action commands", async () => {
+    const { g } = guard();
+    const rec = new FakeRec("s");
+    g.recorder = () => rec;
+    g.watch(rec);
+    rec.emit(entry({ id: "r-21", status: 403, mime: "text/html" }));
+    await g.settle();
+    for (const action of ["resize", "emulate"]) {
+      const h = g.blocking("s", action, null);
+      expect(h?.request).toBe("r-21");
+      if (h === null) throw new Error("not blocked");
+      const e = waitingError(h);
+      expect(e.code).toBe("waiting");
+      expect(e.next).toBe(CONTINUE_NEXT);
+      expect(e.message).toBe(waitingError(g.blocking("s", "click", null) ?? h).message);
+      expect(ACTION_COMMANDS.has(action)).toBe(false);
+    }
+    g.resume("s", "human");
+    expect(g.blocking("s", "resize", null)).toBeNull();
+    expect(g.blocking("s", "emulate", null)).toBeNull();
   });
 });

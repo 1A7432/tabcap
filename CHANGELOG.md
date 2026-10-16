@@ -25,6 +25,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 ### Changed
 
 - `net list` and `console list` page by default: without a paging option they return page 0 with 100 per page (`nextPageIdx` when there is more); `--page-size 0` returns everything (it used to be the default). `--page-size 0` with a `--page-idx` above 0 is a usage error.
+- While a session waits for the human (hand-off), `resize` and `emulate` are refused with the `waiting` error like the other commands that act on the page.
 
 ## 0.3.0 (2026-10-16)
 
