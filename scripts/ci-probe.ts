@@ -107,6 +107,13 @@ try {
   await Bun.sleep(1000);
   show("visible browser windows after the first tab", visibleWindows());
   await tabcap("snapshot", "--interactive");
+  // resize evidence (0.4-B B8.3): what the window, the screen and the page report around `resize`.
+  const metrics = "JSON.stringify({ inner: [innerWidth, innerHeight], outer: [outerWidth, outerHeight], screenXY: [screenX, screenY], screen: [screen.width, screen.height], avail: [screen.availWidth, screen.availHeight], availXY: [screen.availLeft, screen.availTop], dpr: devicePixelRatio })";
+  await tabcap("evaluate", metrics);
+  for (const [w, h] of [["900", "700"], ["900", "500"]] as const) {
+    await tabcap("resize", w, h);
+    await tabcap("evaluate", metrics);
+  }
   await tabcap("daemon", "status");
   await tabcap("daemon", "stop");
 } finally {

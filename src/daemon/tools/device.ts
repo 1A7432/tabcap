@@ -67,6 +67,11 @@ export async function resize(d: Daemon, a: Args, session: string): Promise<unkno
       }
       await Bun.sleep(100);
       const got = await viewport(d, tab.sessionId);
+      if (got.w !== want.width || got.h !== want.height) {
+        // Diagnostics only: the window the OS actually gave us (e.g. clamped to the screen).
+        const after: unknown = await t.send("Browser.getWindowBounds", { windowId }, null, 5000).then((r) => r["bounds"] ?? null, (e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+        log.info("resize: viewport differs from the request", { requested: want, viewport: got, method, boundsBefore: bounds, boundsAfter: after });
+      }
       const shared = tabs.sessionTabs(session).filter((x) => x !== tab).map((x) => x.id);
       return {
         tab: tab.id,
