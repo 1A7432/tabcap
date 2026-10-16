@@ -9,7 +9,7 @@ license: Apache-2.0
 
 `tabcap` runs a background daemon that owns its own Chrome for Testing (own profile). Every command prints exactly **one JSON envelope** on stdout: `{"ok":true,"data":{…}}` or `{"ok":false,"error":{"code","message","next"}}`. When `ok` is false, **do what `error.next` says**; do not guess around it.
 
-Read more only when the task needs it: [recording](references/recording.md) (tabs, page reading, acting, waiting, `net`), [analysis](references/analysis.md) (`where`, `recon`, `analyze`), [replay](references/replay.md), [pools](references/pools.md) (sites, accounts, proxies, plugins), [trace and probes](references/trace-and-probes.md), [MCP](references/mcp.md). Every option: [references/commands.md](references/commands.md), `tabcap help <command>`, `tabcap schema --json`.
+Read more only when the task needs it: [recording](references/recording.md), [search](references/search.md) (snapshot grep / css / subtree, `html` fragments, body line search and `net grep`) (tabs, page reading, acting, waiting, `net`), [analysis](references/analysis.md) (`where`, `recon`, `analyze`), [replay](references/replay.md), [pools](references/pools.md) (sites, accounts, proxies, plugins), [trace and probes](references/trace-and-probes.md), [MCP](references/mcp.md). Every option: [references/commands.md](references/commands.md), `tabcap help <command>`, `tabcap schema --json`.
 
 Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--proxy none` blocks everything but 127.0.0.1 / localhost). On `not-running`, run the two start commands.
 
