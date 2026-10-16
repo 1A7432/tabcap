@@ -694,3 +694,32 @@ export function startProbeSite(): ProbeSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, served, hits, reports, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.4-D: account pool site
+// GET /pool/set?v=<value> sets the cookie pool_sid=<value>; GET /pool/me shows
+// the Cookie header it received. `hits` (path + query and the Cookie header of
+// every request) is the oracle for "the account's own cookies, and only them".
+export type PoolHit = { path: string; cookie: string | null };
+export type PoolSite = { origin: string; hits: PoolHit[]; stop: () => void };
+
+export function startPoolSite(): PoolSite {
+  const hits: PoolHit[] = [];
+  const html = (body: string, extra: Record<string, string> = {}) =>
+    new Response(`<!doctype html><meta charset=utf-8><title>pool</title>${body}`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...extra } });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      const cookie = req.headers.get("cookie");
+      hits.push({ path: `${u.pathname}${u.search}`, cookie });
+      if (u.pathname === "/pool/set") {
+        const v = (u.searchParams.get("v") ?? "").replace(/[^A-Za-z0-9-]/g, "");
+        return html(`<p id=set>set ${v}</p>`, { "set-cookie": `pool_sid=${v}; Path=/; Max-Age=3600; SameSite=Lax` });
+      }
+      if (u.pathname === "/pool/me") return html(`<p id=me>cookie: ${(cookie ?? "").replace(/[<>&]/g, "")}</p>`);
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, hits, stop: () => server.stop(true) };
+}
