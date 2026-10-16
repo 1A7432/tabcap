@@ -26,6 +26,8 @@ export type ReqSpec = {
   respHeaders?: Headers;
   postData?: string | null;
   ts: number;
+  /** Extra request-event fields (e.g. unreadByPage), merged last. */
+  extra?: Record<string, unknown>;
 };
 
 export type Build = {
@@ -97,6 +99,7 @@ export async function buildBundle(
         timing: null,
         outcome: s.bodyMissing === "navigated" ? "incomplete" : "finished",
         error: null,
+        ...(s.extra ?? {}),
       }));
     },
     async ws(handshake, ts, direction, payload) {

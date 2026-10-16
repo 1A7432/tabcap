@@ -3002,6 +3002,53 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
+      "example": "tabcap recon --text",
+      "flags": [
+        {
+          "alias": null,
+          "default": "default",
+          "flag": "--session",
+          "help": "session name; else $TABCAP_SESSION",
+          "key": "session",
+          "repeatable": false,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": 30000,
+          "flag": "--timeout",
+          "help": "command timeout in ms",
+          "key": "timeoutMs",
+          "repeatable": false,
+          "required": false,
+          "type": "number",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--text",
+          "help": "print the Markdown dossier instead of the JSON envelope",
+          "key": "text",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+      ],
+      "internal": false,
+      "name": "recon",
+      "path": [
+        "recon",
+      ],
+      "positionals": [],
+      "summary": "recon dossier v0 of the session's recording and current page: tech stack (adapter detect results, header / session-cookie hints), data channels (method, path template, type, body class) with the share of the page's visible text found in recorded responses, cookie classification (origin, lifetime, flags, role, requiredBy from analyze deps), protection identification (guard detections, response signals; identification only). Writes exports/dossier.json (schema tabcap-dossier/0) and exports/dossier.md into the bundle; sends no request",
+      "usage": "tabcap recon [--session name] [--timeout ms] [--text]",
+    },
+    {
+      "daemon": true,
       "example": "tabcap handoff status",
       "flags": [
         {
@@ -3745,6 +3792,39 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
       ],
       "summary": "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input)",
       "usage": "tabcap analyze chain <bundle> [--request r-N] [--session name] [--text]",
+    },
+    {
+      "daemon": false,
+      "example": "tabcap analyze recon ./b --text",
+      "flags": [
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--text",
+          "help": "print the Markdown dossier instead of the JSON envelope",
+          "key": "text",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+      ],
+      "internal": false,
+      "name": "analyze recon",
+      "path": [
+        "analyze",
+        "recon",
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "name": "bundle",
+          "required": true,
+          "variadic": false,
+        },
+      ],
+      "summary": "the recon dossier offline (as \`tabcap recon\`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); writes exports/dossier.json and exports/dossier.md",
+      "usage": "tabcap analyze recon <bundle> [--text]",
     },
     {
       "daemon": false,
