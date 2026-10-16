@@ -13,6 +13,12 @@ pub const clienthello = struct {
     pub const firefox_157b4_macos_1 = @embedFile("clienthello/firefox-157b4-macos-1.bin");
     pub const firefox_157b4_macos_psk = @embedFile("clienthello/firefox-157b4-macos-psk.bin");
     pub const safari_26_6_2_macos_1 = @embedFile("clienthello/safari-26.6.2-macos-1.bin");
+    /// Chrome for Testing 155.0.8059.79 (macOS arm64) through a Bun TLS relay on 2026-10-16 (the 0.4-W2
+    /// spike, first record as relayed): two first connections that each carried a navigation, and one
+    /// resumption (pre_shared_key last) that carried /favicon.ico.
+    pub const cft_155_macos_nav_1 = @embedFile("clienthello/cft-155-macos-nav-1.bin");
+    pub const cft_155_macos_nav_2 = @embedFile("clienthello/cft-155-macos-nav-2.bin");
+    pub const cft_155_macos_psk = @embedFile("clienthello/cft-155-macos-psk.bin");
 
     pub const all = [_]struct { name: []const u8, bytes: []const u8 }{
         .{ .name = "chrome-153-macos-1", .bytes = chrome_153_macos_1 },
@@ -21,6 +27,9 @@ pub const clienthello = struct {
         .{ .name = "firefox-157b4-macos-1", .bytes = firefox_157b4_macos_1 },
         .{ .name = "firefox-157b4-macos-psk", .bytes = firefox_157b4_macos_psk },
         .{ .name = "safari-26.6.2-macos-1", .bytes = safari_26_6_2_macos_1 },
+        .{ .name = "cft-155-macos-nav-1", .bytes = cft_155_macos_nav_1 },
+        .{ .name = "cft-155-macos-nav-2", .bytes = cft_155_macos_nav_2 },
+        .{ .name = "cft-155-macos-psk", .bytes = cft_155_macos_psk },
     };
 };
 
@@ -37,6 +46,15 @@ pub const h2 = struct {
     pub const chrome_153_macos = @embedFile("h2/chrome-153-macos.bin");
     pub const firefox_157b4_macos = @embedFile("h2/firefox-157b4-macos.bin");
     pub const safari_26_6_2_macos = @embedFile("h2/safari-26.6.2-macos.bin");
+    /// Chrome for Testing 155 (same connections as clienthello.cft_155_macos_nav_1 / _psk): the decrypted
+    /// client stream of the navigation to https://localhost:<port>/?h=localhost&r=1 and of /favicon.ico.
+    pub const cft_155_macos_nav = @embedFile("h2/cft-155-macos-nav.bin");
+    pub const cft_155_macos_favicon = @embedFile("h2/cft-155-macos-favicon.bin");
+};
+
+/// HTTP/1.1 request heads (see fixtures/h1/README.md): request line + header fields + empty line.
+pub const h1 = struct {
+    pub const get_basic = @embedFile("h1/get-basic.bin");
 };
 
 /// RFC 7541 Appendix C header blocks (see fixtures/hpack/README.md).

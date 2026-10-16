@@ -1,0 +1,8 @@
+GET /client?x=1 HTTP/1.1
+Host: localhost:4443
+Accept: */*
+Accept-Encoding: gzip, deflate
+Connection: keep-alive
+User-Agent: python-httpx/0.28.1
+Cookie: sid=synthetic
+

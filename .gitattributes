@@ -3,3 +3,5 @@
 * text=auto eol=lf
 # Bundle blobs are content-addressed bytes: never convert them.
 fixtures/bundles/**/blobs/** -text
+# Wire fixtures are raw wire bytes (an HTTP/1.1 head is all text, CRLF included): never convert them.
+native/wireprint/fixtures/**/*.bin -text

@@ -1,10 +1,11 @@
 //! `wireprint check --claim <profile.json> <report.json>`: compares one observed connection
-//! (a `serve` report) against a corpus profile the client claims to be, layer by layer, and reports where
+//! (a `report` output) against a corpus profile the client claims to be, layer by layer, and reports where
 //! they disagree. Rules are deliberately about RAW fields, not only hashes (hash matching
 //! breaks on Finch variants; field presence/order is what impersonation libraries get wrong).
 //!
 //!   TLS   T1 JA4 differs            T2 cipher list differs (set / order)   T3 extension set differs
-//!         T4 extension order fixed but differs (only when the profile is not randomized)
+//!         T4 extension order fixed but differs (only when the profile's order is "fixed"; skipped, as an
+//!            info line, when it is "unknown" because the profile judged fewer than two samples)
 //!         T5 supported_groups / key_share groups differ   T6 signature_algorithms differ
 //!         T7 ALPN list differs      T8 presence flags differ (ECH, trust_anchors, ALPS codepoint)
 //!   H2    A1 Akamai string differs  A2 SETTINGS pairs differ   A3 WINDOW_UPDATE differs
@@ -109,7 +110,7 @@ fn headerNames(arena: std.mem.Allocator, v: Value, path: []const []const u8) std
     return .{ .array = out };
 }
 
-/// Compares `report` (a `serve` report or `parse` output) against `profile` (corpus profile).
+/// Compares `report` (a `report` output or `parse` output) against `profile` (corpus profile).
 pub fn checkClaim(arena: std.mem.Allocator, report: Value, profile: Value, out: *std.ArrayList(Finding)) std.mem.Allocator.Error!void {
     const id = getStr(profile, &.{"id"}) orelse "?";
     try push(arena, out, "I0", .info, "claim: {s}", .{id});
@@ -150,8 +151,12 @@ pub fn checkClaim(arena: std.mem.Allocator, report: Value, profile: Value, out: 
         for (ro.array.items) |x| try sorted.append(x);
         std.mem.sort(Value, sorted.items, {}, valueStrLess);
         const rs: Value = .{ .array = sorted };
+        const order_unknown = if (getStr(pch, &.{"extension_order"})) |eo| std.mem.eql(u8, eo, "unknown") else false;
         if (!jdiff.equal(rs, ps)) {
             try push(arena, out, "T3", .red, "extension set differs (GREASE/PSK removed): observed {s} vs profile {s}", .{ try fmtValue(arena, rs), try fmtValue(arena, ps) });
+        } else if (order_unknown) {
+            // Fewer than two samples could not tell a fixed order from a random one: T4 is not judged.
+            try push(arena, out, "T4", .info, "extension order not compared: the profile's order is unknown (fewer than 2 samples)", .{});
         } else if (!(getBool(pch, &.{"extension_order_randomized"}) orelse false)) {
             // Profile says the order is stable: compare against the first recorded order.
             if (get(pch, &.{"extensions_order_samples"})) |samples| if (samples == .array and samples.array.items.len > 0) {

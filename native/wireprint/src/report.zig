@@ -1,20 +1,22 @@
-//! JSON report writers shared by `wireprint parse`, `wireprint h2` and the echo server.
+//! JSON report writers shared by `wireprint parse`, `wireprint h2` and `wireprint report`.
 //! Field names follow spec/profile-schema.md (tls.client_hello.*, tls.ja3, tls.ja4.{ja4,ja4_r,ja4_o,ja4_ro},
 //! http2.*, http.*, tcp.*); hex is lowercase, u16 values are 4 digits (src/hex.zig).
 //! Header VALUES are only printed for an allow-list of fingerprint-relevant headers (fixtures/README.md:
 //! never store cookies or credentials); names and their order are always printed.
 const std = @import("std");
-const hex = @import("../hex.zig");
-const client_hello = @import("../tls/client_hello.zig");
-const grease = @import("../tls/grease.zig");
-const tcp_reassembly = @import("../net/tcp_reassembly.zig");
-const eth_ip_tcp = @import("../net/eth_ip_tcp.zig");
-const ja3 = @import("../fp/ja3.zig");
-const ja4 = @import("../fp/ja4.zig");
-const akamai = @import("../fp/akamai.zig");
-const frame = @import("../h2/frame.zig");
-const hpack = @import("../h2/hpack.zig");
-const check_headers = @import("../check/headers.zig");
+const hex = @import("./hex.zig");
+const client_hello = @import("./tls/client_hello.zig");
+const grease = @import("./tls/grease.zig");
+const tcp_reassembly = @import("./net/tcp_reassembly.zig");
+const eth_ip_tcp = @import("./net/eth_ip_tcp.zig");
+const ja3 = @import("./fp/ja3.zig");
+const ja4 = @import("./fp/ja4.zig");
+const akamai = @import("./fp/akamai.zig");
+const frame = @import("./h2/frame.zig");
+const hpack = @import("./h2/hpack.zig");
+const check_headers = @import("./check/headers.zig");
+const record = @import("./tls/record.zig");
+const h1 = @import("./h1.zig");
 
 pub const Json = std.json.Stringify;
 
@@ -384,8 +386,10 @@ pub fn http2(arena: std.mem.Allocator, js: *Json, obs: H2Observation) !void {
 }
 
 /// "http" object: header names in order, allow-listed values, and the UA / client-hint consistency findings.
-pub fn http(arena: std.mem.Allocator, js: *Json, headers: []const hpack.Header) !void {
+pub fn http(arena: std.mem.Allocator, js: *Json, headers: []const hpack.Header, version: []const u8) !void {
     try js.beginObject();
+    try js.objectField("version");
+    try js.write(version);
     try js.objectField("header_count");
     try js.write(headers.len);
     try js.objectField("headers_order");
@@ -433,6 +437,98 @@ pub fn http(arena: std.mem.Allocator, js: *Json, headers: []const hpack.Header) 
     try js.endObject();
 }
 
+/// Inputs of `wireprint report`: the raw bytes one connection carried, plus what the TLS terminator saw.
+pub const ReportInput = struct {
+    /// Client->server TLS record stream starting with the ClientHello record(s).
+    client_hello: []const u8,
+    /// Decrypted client stream starting with the HTTP/2 connection preface.
+    h2: ?[]const u8 = null,
+    /// Decrypted client stream starting with an HTTP/1.1 request head.
+    h1: ?[]const u8 = null,
+    alpn: ?[]const u8 = null,
+    sni: ?[]const u8 = null,
+    peer: ?[]const u8 = null,
+};
+
+pub const ReportError = error{ BadClientHello, BadH2, BadH1, BothH1AndH2 } || std.mem.Allocator.Error || std.Io.Writer.Error;
+
+/// One per-connection report in the shape `profile`, `check` and `diff` read (the shape the removed
+/// OpenSSL `serve` used to answer with): connection, tls{handshake, client_hello, ja3, ja4}, http2, http.
+/// What only the TLS terminator knows (negotiated ALPN, SNI as seen, peer) comes in as arguments; the
+/// negotiated version / cipher are not passed and are written as null.
+pub fn writeReport(arena: std.mem.Allocator, js: *Json, in: ReportInput) ReportError!void {
+    if (in.h1 != null and in.h2 != null) return error.BothH1AndH2;
+    var scratch: [1 << 16]u8 = undefined;
+    const record_bytes = record.recordLen(in.client_hello) catch return error.BadClientHello;
+    const msg = record.firstHandshakeMessage(in.client_hello, &scratch) catch return error.BadClientHello;
+    if (msg.msg_type != 1) return error.BadClientHello;
+    const ch = client_hello.parse(msg.bytes) catch return error.BadClientHello;
+    // Walk every extension once so a malformed extension block fails here, not halfway through the JSON.
+    {
+        var iter = ch.iterateExtensions();
+        while (iter.next() catch return error.BadClientHello) |_| {}
+    }
+
+    var obs: ?H2Observation = null;
+    if (in.h2) |bytes| {
+        const after = frame.stripPreface(bytes) catch return error.BadH2;
+        obs = try collectH2(arena, after);
+    }
+    var req: ?h1.Request = null;
+    if (in.h1) |bytes| {
+        req = h1.parseHead(arena, bytes) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.BadH1,
+        };
+    }
+
+    try js.beginObject();
+    try js.objectField("wireprint");
+    try js.write("0.1.0");
+    try js.objectField("connection");
+    try js.beginObject();
+    try js.objectField("peer");
+    try js.write(in.peer);
+    try js.objectField("record_bytes");
+    try js.write(record_bytes);
+    try js.endObject();
+
+    try js.objectField("tls");
+    try js.beginObject();
+    try js.objectField("handshake");
+    try js.beginObject();
+    try js.objectField("version");
+    try js.write(null);
+    try js.objectField("cipher");
+    try js.write(null);
+    try js.objectField("alpn");
+    try js.write(in.alpn);
+    try js.objectField("sni");
+    try js.write(in.sni);
+    try js.objectField("session_reused");
+    try js.write(null);
+    try js.objectField("hello_retry");
+    try js.write(null);
+    try js.endObject();
+    try js.objectField("client_hello");
+    clientHello(arena, js, &ch) catch |err| switch (err) {
+        error.Truncated, error.Malformed, error.NotClientHello => return error.BadClientHello,
+        else => |e| return e,
+    };
+    try fingerprints(arena, js, &ch, .tcp, .both);
+    try js.endObject();
+
+    try js.objectField("http2");
+    if (obs) |o| try http2(arena, js, o) else try js.write(null);
+    try js.objectField("http");
+    if (obs) |o| {
+        try http(arena, js, o.headers, "2");
+    } else if (req) |r| {
+        try http(arena, js, r.headers, "1.1");
+    } else try js.write(null);
+    try js.endObject();
+}
+
 test "collectH2 on the real Chrome stream yields four settings and a decoded request" {
     const fixtures = @import("fixtures");
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -453,7 +549,7 @@ test "collectH2 on the real Chrome stream yields four settings and a decoded req
     try js.objectField("http2");
     try http2(arena, &js, obs);
     try js.objectField("http");
-    try http(arena, &js, obs.headers);
+    try http(arena, &js, obs.headers, "2");
     try js.endObject();
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "\"akamai\":\"1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p\"") != null);
 }
