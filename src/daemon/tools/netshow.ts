@@ -133,7 +133,12 @@ export function requestDetail(ev: Record<string, unknown>, store: Pick<BlobStore
       protocol: resp["protocol"] ?? null,
       remote: resp["remote"] ?? null,
       fromCache: resp["fromCache"] ?? null,
-      body: blob === null ? null : { path: store.pathOf(blob), blob, size: body === null ? null : num(body, "size"), wireEncoding: body === null ? null : (body["wireEncoding"] ?? null) },
+      body:
+        blob === null
+          ? body !== null && typeof body["skipped"] === "string"
+            ? { skipped: body["skipped"] }
+            : null
+          : { path: store.pathOf(blob), blob, size: num(body ?? {}, "size"), wireEncoding: body === null ? null : (body["wireEncoding"] ?? null) },
       bodyMissing: missing,
       ...decodedDetail(resp["decoded"], store),
     },

@@ -2554,7 +2554,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "example": "tabcap net start",
+      "example": "tabcap net start --bodies api+script",
       "flags": [
         {
           "alias": null,
@@ -2562,6 +2562,17 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "flag": "--session",
           "help": "session name; else $TABCAP_SESSION",
           "key": "session",
+          "repeatable": false,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": null,
+          "flag": "--bodies",
+          "help": "which response bodies to store: all | api (document, xhr, fetch, websocket, eventsource, other) | api+script (api and scripts) | none; images, fonts, stylesheets and media are metadata only unless all. Default: config.json record.bodies, else all",
+          "key": "bodies",
           "repeatable": false,
           "required": false,
           "type": "string",
@@ -2576,7 +2587,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
       ],
       "positionals": [],
       "summary": "record the session's traffic (requests with bodies, WebSocket frames, console) into a bundle under ~/.local/share/tabcap/bundles/",
-      "usage": "tabcap net start [--session name]",
+      "usage": "tabcap net start [--session name] [--bodies mode]",
     },
     {
       "daemon": true,

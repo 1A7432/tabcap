@@ -8,6 +8,7 @@ import { dirname } from "node:path";
 import { writeFileAtomic } from "../bundle/manifest.ts";
 import { TabcapError } from "./envelope.ts";
 import { isRecord, str, tryParseJson } from "./json.ts";
+import { BODIES_DEFAULT, parseBodiesMode, type BodiesMode } from "./bodies.ts";
 
 export type TabcapConfig = {
   chrome: { executablePath: string; version: string | null; platform: string | null } | null;
@@ -172,4 +173,19 @@ export function fetchConfigFrom(raw: Record<string, unknown>, site: string | nul
 
 export function readFetchConfig(file: string, site: string | null): FetchConfig {
   return fetchConfigFrom(readRaw(file), site);
+}
+
+// ------------------------------------------------------------ record (0.6-I)
+
+/** `config.json` `record: {bodies: "all"|"api"|"api+script"|"none"}`: the default of `net start --bodies`. */
+export function recordBodiesFrom(raw: Record<string, unknown>): BodiesMode {
+  const r = raw["record"];
+  if (r === undefined || r === null) return BODIES_DEFAULT;
+  if (!isRecord(r)) throw new TabcapError("bad-input", "config.json record is invalid", "Set record to an object {bodies: ...}, or remove it.");
+  const b = r["bodies"];
+  return b === undefined || b === null ? BODIES_DEFAULT : parseBodiesMode(b, "config");
+}
+
+export function readRecordBodies(file: string): BodiesMode {
+  return recordBodiesFrom(readRaw(file));
 }

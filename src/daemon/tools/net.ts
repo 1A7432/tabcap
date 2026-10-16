@@ -22,15 +22,33 @@ import { parseDecoded } from "../../bundle/decoded.ts";
 import { isRecord } from "../../shared/json.ts";
 import { decodePlugins } from "../hooks/plugins.ts";
 import { redactedDetail, redactUrl, revealOf, withRedactedUrl, type LiveCtx } from "./liveredact.ts";
+import { parseBodiesMode, type BodiesMode } from "../../shared/bodies.ts";
+import { readRecordBodies } from "../../shared/config.ts";
 
 /** 0.6-E: how a net command prints values (docs/04 §8.3); null with --reveal. */
 const liveCtx = (d: Daemon, a: Args): LiveCtx | null => (revealOf(a) ? null : { scrub: (s) => d.secrets.scrub(s) });
 
-export async function netStart(d: Daemon, _a: Args, session: string): Promise<unknown> {
+/** 0.6-I: `--bodies`, else config.json `record.bodies`, else all. */
+export function bodiesOf(d: Daemon, a: Args): BodiesMode {
+  const flag = optStr(a, "bodies");
+  return flag === null ? readRecordBodies(d.paths.configFile) : parseBodiesMode(flag, "flag");
+}
+
+export async function netStart(d: Daemon, a: Args, session: string): Promise<unknown> {
   checkSessionName(session);
+  const bodies = bodiesOf(d, a);
   const { t, tabs, info, console } = d.need();
   const have = d.recorders.get(session);
-  if (have !== undefined) return { session, bundle: have.dir, alreadyRecording: true };
+  if (have !== undefined) {
+    const asked = optStr(a, "bodies");
+    return {
+      session,
+      bundle: have.dir,
+      alreadyRecording: true,
+      bodies: have.bodies,
+      ...(asked !== null && bodies !== have.bodies ? { note: `already recording with --bodies ${have.bodies}; run \`tabcap net stop\` first to record with --bodies ${bodies}` } : {}),
+    };
+  }
   tabs.ensureSession(session);
   const dir = join(d.paths.bundles, `${session}-${compactStamp(nowMs())}`);
   if (existsSync(dir)) throw new TabcapError("conflict", `bundle ${dir} already exists`, "Wait a second and run `tabcap net start` again.");
@@ -50,6 +68,7 @@ export async function netStart(d: Daemon, _a: Args, session: string): Promise<un
     console,
     scrub: (s) => d.secrets.scrub(s),
     site: bound,
+    bodies,
     onFinished: (done) => d.store?.finishBundle(done),
     // 0.4-D: proxy credentials never reach raw/cdp.jsonl or events.jsonl.
     scrubOut: (line) => d.proxySecrets.scrub(line),
@@ -71,6 +90,7 @@ export async function netStart(d: Daemon, _a: Args, session: string): Promise<un
     session,
     bundle: dir,
     alreadyRecording: false,
+    bodies,
     instrumentation:
       "Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied; while a same-origin `tabcap fetch` runs, its tab's fetch() requests also pause at the Request stage (the x-tabcap-fetch marker is removed, nothing else changes)",
     ...(decode.empty ? {} : { decode: decode.plugins.map((p) => p.name) }),
@@ -204,6 +224,14 @@ async function netBodyOf(d: Daemon, a: Args, session: string): Promise<unknown> 
   if (id.includes(":")) return frameBody(dir, frames, id, optStr(a, "out"), s === null ? null : { s, scrub, charset: () => null, resourceType: null }, exp);
   const e = index.find((x) => x.id === id);
   if (e === undefined) throw new TabcapError("not-found", `no request ${id} in ${dir}`, "Run `tabcap net list` for request ids.");
+  if (e.blob === null && e.bodySkipped !== undefined) {
+    throw new TabcapError(
+      "not-found",
+      `request ${id} has no stored body: the recording skips ${e.type} bodies (--bodies ${rec.bodies}, ${e.bodySkipped})`,
+      e.type === "script" ? "Record again with `tabcap net start --bodies api+script` (or `--bodies all`) to keep script bodies." : "Record again with `tabcap net start --bodies all` to keep it.",
+      { id, type: e.type, bodies: rec.bodies, skipped: e.bodySkipped },
+    );
+  }
   if (e.blob === null) {
     throw new TabcapError("not-found", `request ${id} has no stored body (${e.bodyMissing ?? "none"})`, "Bodies are missing for redirects, 204/304, failures and navigated-away requests; see bodyMissing in the bundle.");
   }

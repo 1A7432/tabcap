@@ -615,10 +615,14 @@ Example: `tabcap console show 3`
 record the session's traffic (requests with bodies, WebSocket frames, console) into a bundle under ~/.local/share/tabcap/bundles/
 
 ```
-tabcap net start [--session name]
+tabcap net start [--session name] [--bodies mode]
 ```
 
-Example: `tabcap net start`
+Example: `tabcap net start --bodies api+script`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--bodies <mode>` |  | which response bodies to store: all \| api (document, xhr, fetch, websocket, eventsource, other) \| api+script (api and scripts) \| none; images, fonts, stylesheets and media are metadata only unless all. Default: config.json record.bodies, else all |
 
 ### `tabcap net stop`
 

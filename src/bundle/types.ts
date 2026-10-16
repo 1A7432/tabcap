@@ -422,6 +422,8 @@ export type Manifest = {
     tabs: ManifestTab[];
   };
   mode: { capture: CaptureMode; trace: false | TraceMode; raw: boolean; humanRecorder: boolean; sample?: boolean };
+  /** 0.6-I: which response bodies the recording stored (`net start --bodies`); absent in older bundles = all. */
+  record?: { bodies: "all" | "api" | "api+script" | "none" };
   /** One entry per trace window (docs/04 §7, 0.4-F); absent when trace mode never ran during the recording. */
   traceWindows?: TraceWindow[];
   counts: ManifestCounts;

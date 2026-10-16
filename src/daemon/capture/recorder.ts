@@ -49,6 +49,7 @@ import { framePayload, WsBook, type WsConn } from "./ws.ts";
 import { cookieArray, cookieStateFields, navCookieParams, navWantsCookies, stateOrigin, type StateReason } from "./cookies.ts";
 import { continueHeaders, initiatorMatch, markerOf, withoutMarker, type FetchReg } from "./fetchmark.ts";
 import { decodedField, type DecodeDirection, type DecodeJob, type DecodeOutcome } from "../hooks/decode.ts";
+import { BODIES_DEFAULT, keepsBody, SKIPPED_REASON, type BodiesMode } from "../../shared/bodies.ts";
 
 const NETWORK_ENABLE = { maxTotalBufferSize: 256 * 1024 * 1024, maxResourceBufferSize: 64 * 1024 * 1024, maxPostDataSize: 1024 * 1024 };
 const FETCH_ENABLE = {
@@ -96,6 +97,8 @@ export type NetEntry = {
   fetchId?: string;
   /** The response body's decoded view (decode plugin, 0.6-B), when one was stored. */
   decoded?: { by: string; version: string; mime: string | null; blob: string; bytes: number };
+  /** 0.6-I: the body was not stored because of `net start --bodies` (`response.body.skipped`). */
+  bodySkipped?: string;
   /** Daemon clock when the event was written. */
   at: number;
 };
@@ -180,6 +183,8 @@ export type RecorderOptions = {
   unreadAfterMs?: number;
   /** Decode plugins of this recording (0.6-B); null / absent: none. */
   decode?: RecorderDecode | null;
+  /** 0.6-I `net start --bodies`: which response bodies are stored (default all). */
+  bodies?: BodiesMode;
 };
 
 /** What the recorder needs from the decode plugins (hooks/decode.ts DecodeSession). */
@@ -188,6 +193,8 @@ export type RecorderDecode = { readonly empty: boolean; decode(job: DecodeJob): 
 export class Recorder {
   readonly dir: string;
   readonly session: string;
+  /** 0.6-I: which response bodies this recording stores (manifest `record.bodies`). */
+  readonly bodies: BodiesMode;
   /** Daemon clock when the recording started. */
   readonly startedAt = Date.now();
   /** Daemon clock at each command's start event, by `c-<seq>` (net list / net wait --since). */
@@ -220,6 +227,7 @@ export class Recorder {
     this.raw = raw;
     this.dir = o.dir;
     this.session = o.session;
+    this.bodies = o.bodies ?? BODIES_DEFAULT;
     this.t = o.t;
     this.opts = o;
   }
@@ -244,6 +252,9 @@ export class Recorder {
     });
     const raw = createWriteStream(join(o.dir, "raw", "cdp.jsonl"), { flags: "a", mode: 0o600 });
     const r = new Recorder(writer, raw, o);
+    r.writer.updateManifest((m) => {
+      m.record = { bodies: r.bodies };
+    });
     r.writer.append({ ts: nowMs(), mono: null, kind: "session", actor: "system", tab: null, cmd: null, phase: "start", name: o.session, mode: { capture: "mixed", trace: false, raw: true } });
     r.offs.push(
       o.t.onEvent((e) => r.onEvent(e)),
@@ -884,8 +895,11 @@ export class Recorder {
     const pre = status === null ? null : noBodyReason(q.method, status);
     const viaFetch = this.fetched.get(q.key);
     this.fetched.delete(q.key);
+    let skipped = false;
     if (pre !== null) missing = { reason: pre, detail: null };
     else if (q.type === "websocket") missing = { reason: "unsupported", detail: "websocket handshake has no body" };
+    // 0.6-I: a body the --bodies mode skips is never asked from Chrome.
+    else if (!keepsBody(this.bodies, q.type)) skipped = true;
     else if (viaFetch !== undefined) body = viaFetch.bytes;
     else {
       try {
@@ -897,7 +911,7 @@ export class Recorder {
         missing = { reason: bodyErrorReason(msg, commit !== undefined && commit > q.startedLocal, q.tab.closed), detail: msg };
       }
     }
-    await this.write(q, { outcome: "finished", endMono, body, missing, error: null });
+    await this.write(q, { outcome: "finished", endMono, body, missing, error: null, skipped });
   }
 
   private async write(
@@ -909,11 +923,16 @@ export class Recorder {
       missing: { reason: BodyMissingReason; detail: string | null } | null;
       error: { text: string; canceled: boolean; blockedReason: string | null } | null;
       unreadByPage?: boolean;
+      /** 0.6-I: the --bodies mode skips this body (finishOk did not ask for it). */
+      skipped?: boolean;
     },
   ): Promise<void> {
     let bodyRef: { blob: string; size: number } | null = null;
     let missing = o.missing;
-    if (o.body !== null) {
+    // 0.6-I: a body Fetch rescued (navigation, unread by the page) is dropped too when the mode skips its type.
+    const skipped = o.skipped === true || (o.body !== null && !keepsBody(this.bodies, q.type));
+    if (skipped) missing = null;
+    else if (o.body !== null) {
       const put = await this.writer.putBlob(o.body);
       if (put.outcome === "stored") bodyRef = { blob: put.ref, size: put.size };
       else missing = { reason: "too-large", detail: `${put.size} bytes > ${put.cap}` };
@@ -932,7 +951,8 @@ export class Recorder {
       extraResp: this.extraResp.get(q.key) ?? null,
       postData,
       postDataMissing,
-      unreadByPage: o.unreadByPage === true && bodyRef !== null,
+      unreadByPage: o.unreadByPage === true && (bodyRef !== null || skipped),
+      skipped,
       decoded,
     });
     this.extraReq.delete(q.key);
@@ -1045,6 +1065,7 @@ export class Recorder {
       postDataMissing?: { reason: string; detail: string | null } | null;
       unreadByPage?: boolean;
       decoded?: { request: Record<string, unknown> | null; response: Record<string, unknown> | null };
+      skipped?: boolean;
     },
   ): UnsequencedEvent {
     // 0.6-A: the marker of a `tabcap fetch` never reached the server (Request stage); the recorded headers say so.
@@ -1052,7 +1073,10 @@ export class Recorder {
     const r = q.response;
     // docs/04 §14: never `response: null`. No response at all (cut by a navigation,
     // failed before headers, still open at stop) → status null, empty headers, why.
-    let response: Record<string, unknown> = { status: null, headers: {}, body: null, bodyMissing: o.missing ?? { reason: "unsupported", detail: "no response" } };
+    let response: Record<string, unknown> =
+      o.skipped === true
+        ? { status: null, headers: {}, body: { skipped: SKIPPED_REASON }, bodyMissing: null }
+        : { status: null, headers: {}, body: null, bodyMissing: o.missing ?? { reason: "unsupported", detail: "no response" } };
     if (r !== null) {
       const respH = mergeHeaders(normalizeHeaders(r["headers"]), o.extraResp);
       const ct = headerValue(respH.headers, "content-type");
@@ -1071,10 +1095,12 @@ export class Recorder {
         fromServiceWorker: r["fromServiceWorker"] === true,
         fromPrefetch: r["fromPrefetchCache"] === true,
         body:
-          o.body === null
-            ? null
-            : { blob: o.body.blob, size: o.body.size, base64: false, wireEncoding: headerValue(respH.headers, "content-encoding"), truncated: false },
-        bodyMissing: o.body === null ? (o.missing ?? { reason: "unsupported", detail: null }) : null,
+          o.skipped === true
+            ? { skipped: SKIPPED_REASON }
+            : o.body === null
+              ? null
+              : { blob: o.body.blob, size: o.body.size, base64: false, wireEncoding: headerValue(respH.headers, "content-encoding"), truncated: false },
+        bodyMissing: o.body === null && o.skipped !== true ? (o.missing ?? { reason: "unsupported", detail: null }) : null,
         ...(o.decoded?.response === null || o.decoded?.response === undefined ? {} : { decoded: o.decoded.response }),
       };
     }
@@ -1110,9 +1136,9 @@ export class Recorder {
       outcome: o.outcome,
       error: o.error,
       // Incomplete requests whose body was still rescued by Fetch keep it; mark where it came from.
-      ...(o.outcome === "incomplete" && o.body !== null ? { bodySource: "fetch" } : {}),
+      ...(o.outcome === "incomplete" && o.body !== null && o.skipped !== true ? { bodySource: "fetch" } : {}),
       // docs/04 §5.2 rule 9: finished from the Fetch body, the page never read it (no loadingFinished).
-      ...(o.unreadByPage === true ? { bodySource: "fetch", unreadByPage: true } : {}),
+      ...(o.unreadByPage === true ? (o.skipped === true ? { unreadByPage: true } : { bodySource: "fetch", unreadByPage: true }) : {}),
     };
   }
 
@@ -1124,6 +1150,7 @@ export class Recorder {
     const missing = resp !== null && isRecord(resp["bodyMissing"]) ? str(resp["bodyMissing"], "reason") : null;
     const dv = resp !== null && isRecord(resp["decoded"]) ? resp["decoded"] : null;
     const dBlob = dv === null || dv["ok"] !== true ? null : str(dv, "blob");
+    const skipped = body === null ? null : str(body, "skipped");
     this.index.push({
       id,
       tab: q.tab.id,
@@ -1136,6 +1163,7 @@ export class Recorder {
       outcome: stored["outcome"] === "failed" ? "failed" : stored["outcome"] === "incomplete" ? "incomplete" : "finished",
       blob: body === null ? null : str(body, "blob"),
       bodyMissing: missing ?? (body === null ? reason : null),
+      ...(skipped === null ? {} : { bodySkipped: skipped }),
       cmd: typeof stored["cmd"] === "string" ? stored["cmd"] : null,
       at: Date.now(),
       ...(stored["unreadByPage"] === true ? { unreadByPage: true } : {}),

@@ -498,9 +498,18 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["net", "start"],
     pos: [],
-    flags: [SESSION],
+    flags: [
+      SESSION,
+      {
+        flag: "--bodies",
+        key: "bodies",
+        kind: "string",
+        help: "which response bodies to store: all | api (document, xhr, fetch, websocket, eventsource, other) | api+script (api and scripts) | none; images, fonts, stylesheets and media are metadata only unless all. Default: config.json record.bodies, else all",
+        metavar: "mode",
+      },
+    ],
     summary: "record the session's traffic (requests with bodies, WebSocket frames, console) into a bundle under ~/.local/share/tabcap/bundles/",
-    example: "tabcap net start",
+    example: "tabcap net start --bodies api+script",
     action: "net.start",
   },
   { path: ["net", "stop"], pos: [], flags: [SESSION], summary: "finish the recording (bundle manifest gets `finished`)", example: "tabcap net stop", action: "net.stop" },
