@@ -15,6 +15,13 @@
 // view and that plugin is enabled, the answer is decoded by the same plugin
 // and the two plaintexts are compared (a row note says so); when the answer
 // does not decode, the original bytes are compared and a note says why.
+// Key rules (0.6-C, ./rules.ts, docs/04 §31): the rule that fits a recorded
+// request (host, path, method) says how its answer is compared, on both
+// sides alike: compare "status" (no body), "status+body" (as above, the
+// default) or "status+decoded-body" (both bodies through the decode plugin:
+// `decodeWith`, else the plugin of the recorded view; when either side cannot
+// be decoded the row is unverified, with a note), and `ignorePaths` are left
+// out of both JSON bodies before they are compared.
 // Oracle: the bundle (recorded status / headers / blobs). Reproduce:
 //   bun test test/unit/replay-check.test.ts test/unit/replay-integration.test.ts
 
@@ -30,6 +37,8 @@ import { HOP_BY_HOP, flattenJson, globMatcher, headerJoined, isLoopbackHost, rep
 import { DecodeHost, DecodeSession, type DecodePlugin } from "../daemon/hooks/decode.ts";
 import { decodePlugins } from "../daemon/hooks/plugins.ts";
 import { decodedPayload } from "../analyze/views.ts";
+import { DEFAULT_RULE, NO_RULES, pickRule, rulesInfo, stripResponseJson, type CompiledRule, type RuleSet } from "./rules.ts";
+import { Plaintexts } from "./plaintext.ts";
 
 export const DEFAULT_AGAINST = "http://127.0.0.1:4500";
 export const DEFAULT_HEADERS = ["content-type", "location"];
@@ -62,6 +71,8 @@ export type CheckRow = {
   diffs: { status?: true; headers?: HeaderDiff[]; body?: BodyDiff };
   notes: string[];
   error?: string;
+  /** The key rule that applied (only when rules are loaded). */
+  rule?: string;
 };
 
 export type CheckTotals = { requests: number; same: number; different: number; errors: number; unverified: number; skipped: number };
@@ -77,6 +88,8 @@ export type CheckResult = {
   rows: CheckRow[];
   skipped: Skipped[];
   warnings: string[];
+  /** Where the rules come from (0.6-C). */
+  rules?: ReturnType<typeof rulesInfo>;
 };
 
 // ------------------------------------------------------------ comparator
@@ -96,15 +109,19 @@ export function compareJson(recorded: unknown, got: unknown): FieldDiff[] | null
   return out;
 }
 
-/** Compare two bodies the way the recording's type says: JSON per path, text equal, binary by hash. Null: same. */
-export function compareBodies(recorded: Uint8Array, mime: string | null, got: Uint8Array): BodyDiff | null {
+/**
+ * Compare two bodies the way the recording's type says: JSON per path, text
+ * equal, binary by hash. Null: same. `rule`: its ignorePaths are left out of
+ * both JSON bodies (0.6-C).
+ */
+export function compareBodies(recorded: Uint8Array, mime: string | null, got: Uint8Array, rule: CompiledRule = DEFAULT_RULE): BodyDiff | null {
   const recText = isBinaryMime(mime) ? null : utf8(recorded);
   const recJson = recText === null ? null : parseJsonDoc(recText);
   if (recJson !== null) {
     const gotText = utf8(got);
     const gotJson = gotText === null ? null : parseJsonDoc(gotText);
     if (gotJson === null) return { kind: "not-json", detail: `the recording is JSON, the answer is not (${got.length} bytes)` };
-    const fields = compareJson(recJson.value, gotJson.value);
+    const fields = compareJson(stripResponseJson(recJson.value, rule), stripResponseJson(gotJson.value, rule));
     if (fields === null) {
       // too large to walk: fall back to bytes
       const same = sha256Hex(recorded) === sha256Hex(got);
@@ -171,6 +188,8 @@ export type CheckOptions = {
   now?: () => number;
   /** Tests: the HTTP client. */
   fetch?: HttpClient;
+  /** Key rules (0.6-C); absent: every answer compared as before. */
+  rules?: RuleSet;
 };
 
 /** Reasons a recorded body cannot be compared (not a difference). */
@@ -270,13 +289,19 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
   });
 
   const rows: CheckRow[] = [];
+  const rules = opts.rules ?? NO_RULES;
   const plugins = chosen.some((r) => r.response?.decoded?.ok === true) ? decodePlugins(opts.configDir) : [];
-  const decoder: Decoder = { host: new DecodeHost(), plugins, sessions: new Map() };
+  const decoder: Decoder = { host: new DecodeHost(), plugins, sessions: new Map(), plain: rules.rules.some((r) => r.response.compare === "status+decoded-body") ? new Plaintexts(opts.configDir) : null };
   try {
-    for (const r of chosen) rows.push(await checkOne(r, reader, base, opts, guard, sleep, now, egress, decoder));
+    for (const r of chosen) {
+      const rule = pickRule(rules, r);
+      const row = await checkOne(r, reader, base, opts, guard, sleep, now, egress, decoder, rule);
+      rows.push(rules.rules.length > 0 ? { ...row, rule: rule.id } : row);
+    }
   } finally {
     guard?.store.close();
     decoder.host.close();
+    decoder.plain?.close();
   }
   const totals: CheckTotals = { requests: rows.length, same: 0, different: 0, errors: 0, unverified: 0, skipped: skipped.length };
   for (const row of rows) {
@@ -285,7 +310,7 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
     else if (row.result === "error") totals.errors++;
     else totals.unverified++;
   }
-  return { bundle: opts.bundle, against: base.href, live: guard !== null, proxy: egress?.proxy ?? null, headers: [...opts.headers], totals, rows, skipped, warnings };
+  return { bundle: opts.bundle, against: base.href, live: guard !== null, proxy: egress?.proxy ?? null, headers: [...opts.headers], totals, rows, skipped, warnings, rules: rulesInfo(rules) };
 }
 
 async function checkOne(
@@ -298,6 +323,7 @@ async function checkOne(
   now: () => number,
   egress: AccountProxy | null,
   decoder: Decoder,
+  rule: CompiledRule,
 ): Promise<CheckRow> {
   const u = new URL(r.url);
   const row: CheckRow = { id: r.id, method: r.method, path: `${u.pathname}${u.search}`, status: { recorded: r.response?.status ?? null, got: null }, result: "same", diffs: {}, notes: [] };
@@ -329,7 +355,7 @@ async function checkOne(
   }
   row.status.got = res.status;
   // A replay server says which recording it served; with repeated keys a used server is offset.
-  const servedId = /^(r-\d+);n=\d+$/.exec(res.headers.get("x-tabcap-replay") ?? "")?.[1];
+  const servedId = /^(r-\d+);n=\d+(?:;|$)/.exec(res.headers.get("x-tabcap-replay") ?? "")?.[1];
   if (servedId !== undefined && servedId !== r.id) row.notes.push(`the replay server answered with ${servedId} (same match key, cycling); restart it for a one-to-one check`);
   const got = new Uint8Array(await res.arrayBuffer());
   if (got.length > MAX_RESPONSE_BYTES) row.notes.push(`answer over ${MAX_RESPONSE_BYTES} bytes`);
@@ -339,14 +365,26 @@ async function checkOne(
 
   const resp = r.response;
   let bodyChecked = false;
-  if (resp?.body) {
+  if (rule.response.compare === "status") {
+    bodyChecked = true;
+    row.notes.push(`body not compared (rule ${rule.id}: compare "status")`);
+  } else if (rule.response.compare === "status+decoded-body") {
+    const d = await decodedBodies(r, reader, res, got, decoder, rule);
+    if ("note" in d) row.notes.push(d.note);
+    else {
+      bodyChecked = true;
+      row.notes.push(`body compared as decoded by ${d.by} (plugin:${d.by}; rule ${rule.id})`);
+      const bd = compareBodies(d.recorded, d.mime, d.got, rule);
+      if (bd !== null) row.diffs.body = bd;
+    }
+  } else if (resp?.body) {
     const rec = reader.readBlob(resp.body.blob);
     if (rec === null) row.notes.push("recorded body blob is missing; body not compared");
     else {
       bodyChecked = true;
       const dec = await decodedPair(r, reader, res, got, decoder);
       if (dec.note !== null) row.notes.push(dec.note);
-      const bd = dec.pair !== null ? compareBodies(dec.pair.recorded, dec.pair.mime, dec.pair.got) : compareBodies(rec, resp.mimeType ?? headerJoined(resp.headers, "content-type"), got);
+      const bd = dec.pair !== null ? compareBodies(dec.pair.recorded, dec.pair.mime, dec.pair.got, rule) : compareBodies(rec, resp.mimeType ?? headerJoined(resp.headers, "content-type"), got, rule);
       if (bd !== null) row.diffs.body = bd;
     }
   } else if (resp?.bodyMissing) {
@@ -363,7 +401,56 @@ async function checkOne(
   return row;
 }
 
-type Decoder = { host: DecodeHost; plugins: readonly DecodePlugin[]; sessions: Map<string, DecodeSession> };
+type Decoder = { host: DecodeHost; plugins: readonly DecodePlugin[]; sessions: Map<string, DecodeSession>; plain: Plaintexts | null };
+
+function answerHeaders(res: Response): Record<string, string> {
+  const headers: Record<string, string> = {};
+  res.headers.forEach((v, k) => {
+    headers[k] = v;
+  });
+  return headers;
+}
+
+/**
+ * compare "status+decoded-body" (0.6-C): both bodies as one plugin decodes
+ * them. The plugin is the rule's decodeWith, else the one of the recorded
+ * view; the recorded side is the view when it is that plugin's, else the
+ * recorded bytes decoded now. Any side that cannot be decoded: a note (the
+ * row stays unverified).
+ */
+async function decodedBodies(
+  r: RequestEvent,
+  reader: BundleReader,
+  res: Response,
+  got: Uint8Array,
+  decoder: Decoder,
+  rule: CompiledRule,
+): Promise<{ recorded: Uint8Array; got: Uint8Array; mime: string | null; by: string } | { note: string }> {
+  const view = r.response?.decoded;
+  const name = rule.response.decodeWith ?? (view?.ok === true ? view.by : null);
+  const pre = `rule ${rule.id} compares decoded bodies`;
+  if (name === null) return { note: `${pre}, but the recording has no decoded response view and the rule names no decodeWith plugin; body not compared` };
+  const plain = decoder.plain;
+  if (plain === null) return { note: `${pre}: no decoder; body not compared` };
+  const why = plain.problem(name);
+  if (why !== null) return { note: `${pre}: ${why}; body not compared` };
+  const resp = r.response;
+  let recorded: { bytes: Uint8Array; mime: string | null } | null = null;
+  if (view !== undefined && view.ok && view.by === name) {
+    const p = decodedPayload(reader, view);
+    if (p === null) return { note: `${pre}: the recorded decoded view of ${name} is missing; body not compared` };
+    recorded = { bytes: p.bytes, mime: p.mime };
+  } else {
+    const blob = resp?.body ? reader.readBlob(resp.body.blob) : null;
+    if (blob === null || resp === null) return { note: `${pre}: the recorded body is missing; body not compared` };
+    const d = await plain.decode(name, { direction: "response", id: r.id, url: r.url, method: r.method, requestHeaders: r.request.headers, response: { status: resp.status, headers: resp.headers }, body: blob, mime: resp.mimeType ?? headerJoined(resp.headers, "content-type") });
+    if ("error" in d) return { note: `${pre}: the recorded body: ${d.error}; body not compared` };
+    recorded = d;
+  }
+  const g = await plain.decode(name, { direction: "response", id: r.id, url: r.url, method: r.method, requestHeaders: r.request.headers, response: { status: res.status, headers: answerHeaders(res) }, body: got, mime: res.headers.get("content-type") });
+  if ("error" in g) return { note: `${pre}: the answer: ${g.error}; body not compared` };
+  return { recorded: recorded.bytes, got: g.bytes, mime: recorded.mime, by: name };
+}
 
 /**
  * Both plaintexts when the recording has a decoded view and its plugin decodes
@@ -390,10 +477,7 @@ async function decodedPair(
     decoder.sessions.set(plugin.name, session);
   }
   if (session.isDisabled(plugin.name)) return { pair: null, note: `decode plugin ${plugin.name} was disabled after repeated failures; original bodies compared` };
-  const headers: Record<string, string> = {};
-  res.headers.forEach((v, k) => {
-    headers[k] = v;
-  });
+  const headers = answerHeaders(res);
   const out = await session.decode({
     direction: "response",
     id: r.id,
@@ -441,6 +525,8 @@ export function renderCheckText(r: CheckResult): string {
   });
   const t = r.totals;
   lines.push("", `totals: ${t.requests} request(s), ${t.same} same, ${t.different} different, ${t.errors} error(s), ${t.unverified} unverified, ${t.skipped} skipped (not replayable)`);
+  const ri = r.rules;
+  if (ri !== undefined && ri.source !== "none") lines.push(`rules: ${ri.rules} from ${ri.source === "file" ? (ri.file ?? "") : `config.json${ri.site === null || ri.site === undefined ? "" : ` (site ${ri.site})`}`}`);
   for (const w of r.warnings) lines.push(`warning: ${w}`);
   return lines.join("\n");
 }

@@ -11,6 +11,13 @@ import { DEFAULT_AGAINST, DEFAULT_HEADERS, check, renderCheckText } from "../rep
 import { headerNames } from "../replay/common.ts";
 import { accountProxy, writeProxyEnv, type AccountProxy } from "../replay/proxyenv.ts";
 import { BundleReader } from "../bundle/reader.ts";
+import { loadRules, type RuleSet } from "../replay/rules.ts";
+
+/** `--rules <file>`, else config.json `sites.<bundle site>.replay` then `replay` (0.6-C). */
+export function bundleRules(bundle: string, file: string | undefined): RuleSet {
+  const site = file === undefined ? BundleReader.open(bundle).manifest.session.site : null;
+  return loadRules({ file, configFile: paths().configFile, site });
+}
 
 /** --proxy-env: the proxy of the account the bundle was recorded with (manifest session.site / account). */
 function bundleAccountProxy(bundle: string): AccountProxy {
@@ -40,7 +47,8 @@ function longFlags(argv: readonly string[]): string[] {
 }
 
 function serveText(info: ServeInfo): string {
-  const lines = [`replaying ${info.bundle} on ${info.url}: ${info.routeCount} route(s), ${info.recordings} recording(s), ${info.skippedCount} skipped. Ctrl-C to stop.`];
+  const rules = info.rules.source === "none" ? "" : `, ${info.rules.rules} rule(s) from ${info.rules.source === "file" ? (info.rules.file ?? "") : "config.json"}`;
+  const lines = [`replaying ${info.bundle} on ${info.url}: ${info.routeCount} route(s), ${info.recordings} recording(s), ${info.skippedCount} skipped${rules}. Ctrl-C to stop.`];
   for (const w of info.warnings) lines.push(`warning: ${w}`);
   return lines.join("\n");
 }
@@ -52,13 +60,15 @@ async function serve(spec: CommandSpec, args: Record<string, unknown>): Promise<
   if (once !== undefined && (typeof once !== "number" || !(once > 0))) throw new TabcapError("usage", "--once needs a positive number of seconds", `Usage: ${usageOf(spec)}`);
   const port = numOr(args["port"], 4500);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TabcapError("usage", `bad --port ${port}`, "Pass 0-65535 (0 = any free port).");
-  const server = startReplayServer({
+  const server = await startReplayServer({
     bundle,
     host: str(args["host"]) ?? "127.0.0.1",
     port,
     strict: headerNames(str(args["strict"])),
     matchCookies: args["matchCookies"] === true,
     log: json ? null : (line) => process.stderr.write(line + "\n"),
+    rules: bundleRules(bundle, str(args["rules"])),
+    configDir: paths().config,
   });
   process.stdout.write((json ? JSON.stringify(ok(server.info)) : serveText(server.info)) + "\n");
   await new Promise<void>((resolve) => {
@@ -128,6 +138,7 @@ export async function runReplay(argv: readonly string[]): Promise<Outcome> {
           withCookies: a["withCookies"] === true,
           headers: headers.length > 0 ? headers : DEFAULT_HEADERS,
           configDir: paths().config,
+          rules: bundleRules(bundle, str(a["rules"])),
         });
         const code = result.totals.different + result.totals.errors > 0 ? 1 : 0;
         if (a["json"] === true) return { code, envelope: ok(result) };

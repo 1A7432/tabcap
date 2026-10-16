@@ -27,6 +27,7 @@ import { accountAdd, accountBind, accountList, accountRemove, accountSetState, p
 import { Store, storePath } from "../daemon/store/db.ts";
 import { Secrets, variantsOf } from "../daemon/secrets.ts";
 import { decodeBundle } from "../bundle/decode.ts";
+import { readRulesFile, rulesInfo } from "../replay/rules.ts";
 import { DecodeHost, DecodeSession, type DecodePlugin } from "../daemon/hooks/decode.ts";
 import { asDecodePlugin, decodePlugins, listPlugins, pluginsDir } from "../daemon/hooks/plugins.ts";
 import { BUNDLE_USAGE, COMMANDS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, flagNames, helpAll, helpFor, helpTopic, matchCommand, parseCommand, schema, specOf, spellingsOf, usageOf, type CommandSpec } from "./commands.ts";
@@ -126,11 +127,15 @@ async function cmdExportHar(p: Parsed): Promise<unknown> {
   const salt = redact ? newSalt() : null;
   const tab = flagStr(p, "--tab");
   const typesFlag = flagStr(p, "--types");
+  const rulesFile = flagStr(p, "--rules");
+  // 0.6-C: --rules only drops each rule's ignoreQuery parameters (no config.json fallback here).
+  const rules = rulesFile === undefined ? undefined : readRulesFile(rulesFile);
   const res = exportHar(reader, {
     ...(tab === undefined ? {} : { tab }),
     ...(typesFlag === undefined ? {} : { types: typesFlag.split(",").map((s) => s.trim()).filter((s) => s !== "") }),
     embedEvents: p.flags.get("--embed-events") === true,
     redact: salt === null ? false : { salt, knownSecrets: storeSecrets() },
+    ...(rules === undefined ? {} : { rules }),
   });
   // docs/04 §17: HAR exports are 0600 like the rest of the bundle (they can carry live values with --no-redact).
   mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
@@ -144,6 +149,7 @@ async function cmdExportHar(p: Parsed): Promise<unknown> {
     saltFile,
     dropped: res.dropped,
     skipped: res.skipped,
+    ...(rules === undefined ? {} : { rules: rulesInfo(rules) }),
     complete: reader.isComplete(),
     warnings: [
       ...(reader.isComplete() ? [] : ["bundle is not finished: recording in progress or interrupted"]),

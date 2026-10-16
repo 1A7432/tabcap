@@ -263,7 +263,7 @@ describe("multi-host bundles: the host joins the key (0.3-C)", () => {
   });
 
   test("replay serve: the Host header selects the origin; serve info says host matching is on", async () => {
-    const srv = startReplayServer({ bundle: multi.dir, host: "127.0.0.1", port: 0, strict: [], matchCookies: false, log: null });
+    const srv = await startReplayServer({ bundle: multi.dir, host: "127.0.0.1", port: 0, strict: [], matchCookies: false, log: null });
     try {
       expect(srv.info.match).toEqual({ strict: [], cookies: false, host: true });
       expect(srv.info.routes.map((r) => `${r.host ?? "-"} ${r.path}`)).toEqual(["127.0.0.1:4310 /api/me", "api.127.0.0.1.nip.test:4311 /api/me", "api.127.0.0.1.nip.test:4311 /api/only-b"]);

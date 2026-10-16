@@ -17,6 +17,7 @@ import { parseInlineOrBlob, parseRequest, toRawEvent, toResourceType, type Bundl
 import { blobRefsOf, redactView } from "./redact.ts";
 import type { Headers, RawEvent, RequestEvent, ResourceType, UnsequencedEvent } from "./types.ts";
 import { BundleWriter } from "./writer.ts";
+import { dropIgnoredQuery, pickRule, type RuleSet } from "../replay/rules.ts";
 
 // ------------------------------------------------------------ HAR shapes (output)
 
@@ -250,6 +251,8 @@ export type ExportOptions = {
   /** Redact before building the HAR (§8). Pass the per-export salt. */
   redact?: { salt: string; knownSecrets?: readonly string[] } | false;
   now?: () => number;
+  /** `--rules` (0.6-C, §31): drop each request's ignoreQuery parameters from its URL and queryString; nothing else changes. */
+  rules?: RuleSet;
 };
 
 export type ExportResult = {
@@ -280,8 +283,9 @@ function wsMessages(view: BundleView, events: readonly RawEvent[], requestId: st
   return out;
 }
 
-function toEntry(view: BundleView, events: readonly RawEvent[], r: RequestEvent, pageOf: ReadonlyMap<string, string>): HarEntry {
+function toEntry(view: BundleView, events: readonly RawEvent[], r: RequestEvent, pageOf: ReadonlyMap<string, string>, rules: RuleSet | undefined): HarEntry {
   const reqHeaders = r.request.headers;
+  const url = rules === undefined ? r.url : dropIgnoredQuery(r.url, pickRule(rules, r));
   const resp = r.response;
   const httpVersion = httpVersionOf(resp?.protocol ?? null);
 
@@ -317,11 +321,11 @@ function toEntry(view: BundleView, events: readonly RawEvent[], r: RequestEvent,
     time: r.timing !== null && r.timing.end !== null && r.timing.start !== null ? round3(r.timing.end - r.timing.start) : -1,
     request: {
       method: r.method,
-      url: r.url,
+      url,
       httpVersion,
       cookies: allHeaders(reqHeaders, "cookie").flatMap(cookiesFromHeader),
       headers: headerList(reqHeaders),
-      queryString: queryOf(r.url),
+      queryString: queryOf(url),
       headersSize: -1,
       bodySize: reqBodySize,
     },
@@ -409,7 +413,7 @@ export function exportHar(source: BundleView, opts: ExportOptions = {}): ExportR
         skipped.filtered++;
         continue;
       }
-      entries.push(toEntry(view, events, r, pageOf));
+      entries.push(toEntry(view, events, r, pageOf, opts.rules));
     } else if (e.kind === "ws") {
       if (e["phase"] !== "frame") drop("ws");
     } else {
