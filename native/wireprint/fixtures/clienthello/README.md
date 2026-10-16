@@ -14,6 +14,15 @@
 | `firefox-157b4-macos-psk.bin` | Firefox DE 157.0 | 会话恢复 |
 | `safari-26.6.2-macos-1.bin` | Safari 26.6.2 | 无 ECH（没有 0xfe0d） |
 
+`cft-155-macos-*.bin`（0.4-W2 加入）：2026-10-16，macOS arm64 上的 Chrome for Testing 155.0.8059.79 打 0.4-W2 spike 的 Bun echo（`Bun.listen` 前端记录、再转发给 `node:tls`），前端收到的首个完整 record。启动参数是 spike 的最小参数，不是 tabcap 的生产参数（所以带 field trial 实验的扩展 `12e0`），只当解析与 diff 的测试输入，不当基准画像。SNI 为 `localhost`。
+
+| 文件 | 那条连接 | 备注 |
+|---|---|---|
+| `cft-155-macos-nav-1.bin` / `-nav-2.bin` | 两次导航各自的首次连接 | 扩展集合相同、顺序不同；GREASE 值不同 |
+| `cft-155-macos-psk.bin` | 恢复会话（`0029` 在最后），承载 `/favicon.ico` | |
+
+三份的 `.expected.json` 同样是 `tools/openssl_oracle.c`（OpenSSL 3.6.4）的原样输出；重跑 oracle 时 `chrome-153-macos-1.expected.json` 逐字节不变（核对过）。
+
 这些是"一台机器、一个时刻"的样本，数值以本项目正式采集（`corpus/`）为准，不代表该浏览器版本的全部行为。
 
 ## expected.json

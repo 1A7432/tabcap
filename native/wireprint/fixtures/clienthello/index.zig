@@ -11,4 +11,7 @@ pub const all = [_]struct { name: []const u8, json: []const u8 }{
     .{ .name = "firefox-157b4-macos-1", .json = @embedFile("firefox-157b4-macos-1.expected.json") },
     .{ .name = "firefox-157b4-macos-psk", .json = @embedFile("firefox-157b4-macos-psk.expected.json") },
     .{ .name = "safari-26.6.2-macos-1", .json = @embedFile("safari-26.6.2-macos-1.expected.json") },
+    .{ .name = "cft-155-macos-nav-1", .json = @embedFile("cft-155-macos-nav-1.expected.json") },
+    .{ .name = "cft-155-macos-nav-2", .json = @embedFile("cft-155-macos-nav-2.expected.json") },
+    .{ .name = "cft-155-macos-psk", .json = @embedFile("cft-155-macos-psk.expected.json") },
 };

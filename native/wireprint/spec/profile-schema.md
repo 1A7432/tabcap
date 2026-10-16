@@ -26,7 +26,7 @@
   "capture": {
     "captured_at": "2026-09-20T14:03:11+08:00",
     "method": "playwright-chrome-channel",  // playwright-* | manual | script
-    "server": "wireprint-serve 0.1.0",
+    "server": "tabcap-wire-echo 0.4.0",  // 采集端：TLS 由谁终结（tabcap 的 Bun echo）；wireprint report 拼成报告
     "server_host_os": "macos",         // 服务器所在 OS，解释 TCP 层的观察环境
     "connection": "first",             // first | resumed
     "samples": 5,                      // 对同一配置采样次数（Chrome 乱序需要多次）
@@ -53,7 +53,9 @@
         ["0000", "0033", "001b", "..."]
       ],
       "extensions_sorted": ["0000", "0005", "000a", "000b", "000d", "0010", "0012", "0015", "0017", "001b", "0023", "002b", "002d", "0033", "4469", "ff01"],
-      "extension_order_randomized": true,
+      "extension_order": "randomized",   // randomized | fixed | unknown（判断用的首连样本少于 2 个）
+      "extension_order_samples_judged": 3,
+      "extension_order_randomized": true, // 同上的布尔版，unknown 时为 null
       "extension_grease_positions": [0, 15],
       "supported_versions": ["0304", "0303"],
       "supported_groups": ["11ec", "001d", "0017", "0018"],
@@ -95,7 +97,13 @@
     },
     "accept": "text/html,application/xhtml+xml,...",
     "accept_encoding": "gzip, deflate, br, zstd",
-    "accept_language": "zh-CN,zh;q=0.9,en;q=0.8"
+    "accept_language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "roles": {                            // 每种请求角色一份头顺序（报告顶层的 role，否则 navigate→navigation、其它→other）
+      "navigation": { "samples": 3, "method": "GET", "headers_order": ["sec-ch-ua", "..."], "headers_order_stable_across_samples": true,
+                      "accept": "text/html,...", "sec_fetch_site": "none", "sec_fetch_mode": "navigate", "sec_fetch_dest": "document" },
+      "fetch":      { "samples": 3, "method": "GET", "headers_order": ["sec-ch-ua-platform", "..."], "headers_order_stable_across_samples": true,
+                      "accept": "*/*", "sec_fetch_site": "same-origin", "sec_fetch_mode": "cors", "sec_fetch_dest": "empty" }
+    }
   },
 
   "tcp": {
@@ -124,3 +132,5 @@
 - 采集不到的字段填 `null`，不要省略键，让 diff 能区分"没采"和"没有"。
 - 不存 Cookie 值、不存 Authorization 等敏感头的值；`headers_order` 只有名字。
 - 伪装库的画像 `subject.kind = "library"`，`subject.claims` 指向它模仿的真画像，diff 就是逼真度报告。
+- `extension_order` 为 `unknown` 时（参与判断的首连样本少于 2 个），`check` 不判 T4（只给一条 info）。
+- tabcap 采集的画像（`tabcap wire profile`）在顶层另有 `tabcap` 段：CfT 版本、启动参数（本机路径换成 `<profile>` 这类记号）与其 sha256、各角色样本数；`corpus/` 只收这种画像（见 `corpus/README.md`）。

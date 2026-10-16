@@ -1,5 +1,5 @@
 //! Corpus profile assembler (spec/profile-schema.md).
-//! Input: N `wireprint serve` reports (report-<seq>.json) for one (browser, version, os, arch) configuration.
+//! Input: N `wireprint report` outputs (per-connection reports) for one (browser, version, os, arch) configuration.
 //! Output: one profile JSON with hashes AND raw lists, per-sample extension orders, and stability flags.
 //! Fields that cannot be captured are written as null (never omitted) so `wireprint diff` can tell
 //! "not captured" from "absent". Header values are copied only from the allow-listed set the report carries.
@@ -19,8 +19,8 @@ pub const Meta = struct {
     headless: bool = false,
     captured_at: ?[]const u8 = null,
     method: []const u8 = "manual",
-    server: []const u8 = "wireprint-serve 0.1.0",
-    server_host_os: []const u8 = "macos",
+    server: []const u8 = "wireprint-report 0.1.0",
+    server_host_os: []const u8 = "unknown",
     raw_dir: ?[]const u8 = null,
     notes: []const u8 = "",
 };
@@ -237,6 +237,8 @@ pub fn assemble(gpa: std.mem.Allocator, js: *Json, reports: []const Value, meta:
         try js.objectField("extensions_order_samples");
         try js.beginArray();
         var randomized = false;
+        // How many orders the judgement saw: with fewer than two, "fixed" cannot be told from "random".
+        var order_samples: usize = 0;
         const ref_order = get(ch, &.{"extensions_order"});
         // Samples are written raw (GREASE included: that is what the wire carried), but stability is judged on
         // the GREASE/PSK-free order: Safari 26 keeps a fixed order while its two GREASE values change every
@@ -251,6 +253,7 @@ pub fn assemble(gpa: std.mem.Allocator, js: *Json, reports: []const Value, meta:
             if (psk and !use_all) continue;
             const order = get(r, &.{ "tls", "client_hello", "extensions_order" }) orelse continue;
             try js.write(order);
+            order_samples += 1;
             if (ref_stable) |rs| {
                 const so = try stableOrder(gpa, order);
                 defer gpa.free(so);
@@ -268,8 +271,15 @@ pub fn assemble(gpa: std.mem.Allocator, js: *Json, reports: []const Value, meta:
         } else try js.write(null);
         try js.objectField("extension_count");
         try writeOpt(js, get(ch, &.{"extension_count"}));
+        // extension_order: "randomized" | "fixed" | "unknown" (fewer than two samples were judged);
+        // extension_order_randomized keeps the boolean for older readers and is null when unknown.
+        const known = order_samples >= 2;
+        try js.objectField("extension_order");
+        try js.write(if (!known) "unknown" else if (randomized) "randomized" else "fixed");
+        try js.objectField("extension_order_samples_judged");
+        try js.write(order_samples);
         try js.objectField("extension_order_randomized");
-        try js.write(randomized);
+        if (known) try js.write(randomized) else try js.write(null);
         try js.objectField("extension_grease_positions");
         try writeOpt(js, get(ch, &.{"extension_grease_positions"}));
         try js.objectField("supported_versions");
@@ -369,6 +379,7 @@ pub fn assemble(gpa: std.mem.Allocator, js: *Json, reports: []const Value, meta:
         try js.write(headerValue(ref, "sec-fetch-dest"));
         try js.objectField("checks");
         try writeOpt(js, get(ref, &.{ "http", "checks" }));
+        try writeRoles(gpa, js, reports);
     }
     try js.endObject();
 
@@ -407,6 +418,88 @@ pub fn assemble(gpa: std.mem.Allocator, js: *Json, reports: []const Value, meta:
 
     try js.objectField("notes");
     try js.write(meta.notes);
+    try js.endObject();
+}
+
+/// The request role of a report: its own top-level `role` (set by whoever captured it, e.g. tabcap's echo:
+/// "navigation", "fetch"), else "navigation" for sec-fetch-mode: navigate, else "other".
+fn roleOf(r: Value) []const u8 {
+    if (getStr(r, &.{"role"})) |role| return role;
+    if (headerValue(r, "sec-fetch-mode")) |m| if (std.mem.eql(u8, m, "navigate")) return "navigation";
+    return "other";
+}
+
+fn nonPseudoNamesEql(a: ?Value, b: ?Value) bool {
+    const x = a orelse return b == null;
+    const y = b orelse return false;
+    if (x != .array or y != .array) return false;
+    var i: usize = 0;
+    var j: usize = 0;
+    while (true) {
+        while (i < x.array.items.len and isPseudo(x.array.items[i])) i += 1;
+        while (j < y.array.items.len and isPseudo(y.array.items[j])) j += 1;
+        if (i == x.array.items.len or j == y.array.items.len) return i == x.array.items.len and j == y.array.items.len;
+        const xs = x.array.items[i];
+        const ys = y.array.items[j];
+        if (xs != .string or ys != .string or !std.mem.eql(u8, xs.string, ys.string)) return false;
+        i += 1;
+        j += 1;
+    }
+}
+
+fn isPseudo(v: Value) bool {
+    return v == .string and v.string.len > 0 and v.string[0] == ':';
+}
+
+/// `http.roles`: one header-order record per request role (a browser orders a navigation's headers
+/// differently from a page's fetch), first-seen order of roles, first sample of each role as reference.
+fn writeRoles(gpa: std.mem.Allocator, js: *Json, reports: []const Value) Error!void {
+    var roles: std.ArrayList([]const u8) = .empty;
+    defer roles.deinit(gpa);
+    for (reports) |r| {
+        const role = roleOf(r);
+        for (roles.items) |x| {
+            if (std.mem.eql(u8, x, role)) break;
+        } else try roles.append(gpa, role);
+    }
+    try js.objectField("roles");
+    try js.beginObject();
+    for (roles.items) |role| {
+        var first: ?Value = null;
+        var samples: usize = 0;
+        var stable = true;
+        for (reports) |r| {
+            if (!std.mem.eql(u8, roleOf(r), role)) continue;
+            samples += 1;
+            if (first) |f| {
+                if (!nonPseudoNamesEql(get(f, &.{ "http", "headers_order" }), get(r, &.{ "http", "headers_order" }))) stable = false;
+            } else first = r;
+        }
+        const ref = first orelse continue;
+        try js.objectField(role);
+        try js.beginObject();
+        try js.objectField("samples");
+        try js.write(samples);
+        try js.objectField("method");
+        try js.write(headerValue(ref, ":method"));
+        try js.objectField("headers_order");
+        try js.beginArray();
+        if (get(ref, &.{ "http", "headers_order" })) |ho| if (ho == .array) {
+            for (ho.array.items) |n| if (n == .string and !isPseudo(n)) try js.write(n.string);
+        };
+        try js.endArray();
+        try js.objectField("headers_order_stable_across_samples");
+        try js.write(stable);
+        try js.objectField("accept");
+        try js.write(headerValue(ref, "accept"));
+        try js.objectField("sec_fetch_site");
+        try js.write(headerValue(ref, "sec-fetch-site"));
+        try js.objectField("sec_fetch_mode");
+        try js.write(headerValue(ref, "sec-fetch-mode"));
+        try js.objectField("sec_fetch_dest");
+        try js.write(headerValue(ref, "sec-fetch-dest"));
+        try js.endObject();
+    }
     try js.endObject();
 }
 
@@ -524,4 +617,38 @@ test "GREASE values changing between samples do not count as extension-order ran
     try std.testing.expectEqualStrings("002b", sorted[2].string);
     // raw samples keep GREASE as sent
     try std.testing.expectEqualStrings("5a5a", get(parsed.value, &.{ "tls", "client_hello", "extensions_order_samples" }).?.array.items[0].array.items[0].string);
+}
+
+test "navigation and fetch reports keep two header-order roles; one sample leaves the order unknown" {
+    const gpa = std.testing.allocator;
+    const nav =
+        \\{"role":"navigation","tls":{"client_hello":{"extensions_order":["0000","0010"],"has_pre_shared_key":false},"ja4":{"ja4":"x"}},"http2":{},
+        \\ "http":{"headers_order":[":method",":path","sec-ch-ua","user-agent","accept","sec-fetch-mode"],"headers":[{"name":":method","value":"GET"},{"name":"sec-fetch-mode","value":"navigate"}]}}
+    ;
+    const fetch =
+        \\{"role":"fetch","tls":{"client_hello":{"extensions_order":["0029","0000"],"has_pre_shared_key":true},"ja4":{"ja4":"y"}},"http2":{},
+        \\ "http":{"headers_order":[":method",":path","sec-ch-ua","user-agent","accept","sec-fetch-mode","sec-fetch-dest"],"headers":[{"name":":method","value":"GET"},{"name":"sec-fetch-mode","value":"cors"}]}}
+    ;
+    var pa = try std.json.parseFromSlice(Value, gpa, nav, .{});
+    defer pa.deinit();
+    var pb = try std.json.parseFromSlice(Value, gpa, fetch, .{});
+    defer pb.deinit();
+    var buf: [16384]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    var js: Json = .{ .writer = &w };
+    try assemble(gpa, &js, &.{ pa.value, pb.value }, .{ .name = "chrome", .version = "155.0.8059.79", .os = "macos", .arch = "arm64" });
+    var parsed = try std.json.parseFromSlice(Value, gpa, w.buffered(), .{});
+    defer parsed.deinit();
+    // Only the first connection is judged (the fetch resumed with a PSK): one sample, order unknown.
+    try std.testing.expectEqualStrings("unknown", getStr(parsed.value, &.{ "tls", "client_hello", "extension_order" }).?);
+    try std.testing.expect(get(parsed.value, &.{ "tls", "client_hello", "extension_order_randomized" }).? == .null);
+    const roles = get(parsed.value, &.{ "http", "roles" }).?.object;
+    try std.testing.expectEqual(@as(usize, 2), roles.count());
+    try std.testing.expectEqualStrings("navigation", roles.keys()[0]);
+    try std.testing.expectEqualStrings("fetch", roles.keys()[1]);
+    try std.testing.expectEqual(@as(usize, 4), get(roles.get("navigation").?, &.{"headers_order"}).?.array.items.len); // pseudo-headers left out
+    try std.testing.expectEqual(@as(usize, 5), get(roles.get("fetch").?, &.{"headers_order"}).?.array.items.len);
+    try std.testing.expectEqualStrings("cors", getStr(roles.get("fetch").?, &.{"sec_fetch_mode"}).?);
+    // The top-level http section is still the navigation reference (what check's N1 reads).
+    try std.testing.expectEqual(@as(usize, 4), get(parsed.value, &.{ "http", "headers_order" }).?.array.items.len);
 }
