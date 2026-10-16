@@ -1,5 +1,5 @@
-// tabcap proxy add | list | remove | check and tabcap account bind | list |
-// set-state (0.4-D, docs/08 §3 0.4): the store only, no daemon needed. The
+// tabcap proxy add | list | remove | check | set-state and tabcap account
+// add | remove | bind | list | set-state (0.4-D, docs/08 §3 0.4): the store only, no daemon needed. The
 // running daemon re-reads the store before every command, so a proxy added
 // here is scrubbed from its output at once. Passwords come from stdin or the
 // prompt, never from argv, and no output carries one.
@@ -9,8 +9,10 @@ import { TabcapError } from "../shared/envelope.ts";
 import type { Paths } from "../shared/paths.ts";
 import { Secrets } from "../daemon/secrets.ts";
 import { checkProxyName, checkSiteName, hostPort, PROXY_KEYWORDS, type ProxyRow, type Store } from "../daemon/store/db.ts";
-import { accountCleared, accountState, proxyUnchecked } from "../daemon/pool/rules.ts";
+import { accountCleared, accountState, proxyReactivated, proxyUnchecked } from "../daemon/pool/rules.ts";
 import { checkThrough, parseProxyUrl, patchFor, type HttpClient } from "../daemon/pool/proxy.ts";
+import { isRecord, str } from "../shared/json.ts";
+import { send } from "./client.ts";
 import { promptPassword, stripNewline, withStore } from "./site.ts";
 
 const s = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
@@ -145,5 +147,75 @@ export function accountSetState(p: Paths, args: Record<string, unknown>): unknow
     if (a === null) throw new TabcapError("not-found", `no account ${site}.${user}`, "Run `tabcap account list`.");
     st.patchAccount(site, user, state === "active" ? accountCleared() : { state: "disabled", coolUntil: null });
     return { account: `${site}.${user}`, from: a.state, state };
+  });
+}
+
+/** Names of the live sessions bound to a site account, from the running daemon (none when it is not running). */
+export async function liveAccountSessions(p: Paths, site: string, user: string): Promise<string[]> {
+  const env = await send(p, "session.list", {}, "default", [], 5000);
+  if (!env.ok || !isRecord(env.data) || !Array.isArray(env.data["sessions"])) return [];
+  const out: string[] = [];
+  for (const x of env.data["sessions"]) {
+    if (isRecord(x) && str(x, "site") === site && str(x, "account") === user) out.push(str(x, "session") ?? "?");
+  }
+  return out;
+}
+
+/**
+ * `account add <site> --user <u> [--password-stdin] [--totp-stdin]`: another
+ * account for a stored site. With --totp-stdin (which needs --password-stdin)
+ * stdin carries two lines: the password, then the TOTP seed. Neither is
+ * ever part of the output.
+ */
+export async function accountAdd(p: Paths, args: Record<string, unknown>, readStdin: () => Promise<string> = () => Bun.stdin.text()): Promise<unknown> {
+  const site = checkSiteName(s(args["site"]) ?? "");
+  const user = s(args["user"]);
+  if (user === null) throw new TabcapError("usage", "missing --user", "Pass --user <username>.");
+  const stdin = args["passwordStdin"] === true;
+  const totp = args["totpStdin"] === true;
+  if (totp && !stdin) throw new TabcapError("usage", "--totp-stdin needs --password-stdin", "Pipe two lines on stdin: the password, then the TOTP seed.");
+  // Fail before asking for the password when the site is unknown or the account exists.
+  withStore(p, (st) => {
+    if (st.site(site) === null) throw new TabcapError("not-found", `no site named "${site}"`, "Run `tabcap site list`, or add it with `tabcap site add`.");
+    if (st.account(site, user) !== null) throw new TabcapError("conflict", `account ${site}.${user} already exists`, "Use another --user, or `tabcap account remove` the old one first.");
+  });
+  let password: string;
+  let seed: string | null = null;
+  if (stdin) {
+    const raw = await readStdin();
+    if (totp) {
+      const lines = raw.split(/\r?\n/);
+      password = lines[0] ?? "";
+      seed = (lines[1] ?? "").trim();
+      if (seed === "") throw new TabcapError("usage", "empty TOTP seed", "Pipe the password on line 1 and the TOTP seed on line 2.");
+    } else password = stripNewline(raw);
+  } else password = await promptPassword(`Password for ${user} at ${site}: `);
+  if (password === "") throw new TabcapError("usage", "empty password", "Type the password at the prompt, or pipe it with --password-stdin.");
+  withStore(p, (st) => st.addAccount({ site, username: user, password, totpSeed: seed }));
+  const warnings = ["the store is plaintext (0600, like ~/.netrc): prefer a test account"];
+  if (password.length < 8) warnings.push("passwords shorter than 8 characters also replace unrelated text in tabcap output");
+  return { account: `${site}.${user}`, site, user, state: "active", proxy: null, secrets: [`${site}.password`], warnings };
+}
+
+export async function accountRemove(p: Paths, args: Record<string, unknown>, live: (site: string, user: string) => Promise<string[]> = (a, b) => liveAccountSessions(p, a, b)): Promise<unknown> {
+  const { site, user } = parseAccountRef(s(args["account"]) ?? "");
+  const exists = withStore(p, (st) => st.account(site, user) !== null);
+  if (!exists) throw new TabcapError("not-found", `no account ${site}.${user}`, "Run `tabcap account list`.");
+  const using = await live(site, user);
+  if (using.length > 0) throw new TabcapError("conflict", `account ${site}.${user} is in use by session ${using.map((x) => `"${x}"`).join(", ")}`, `Run \`tabcap session stop ${using[0] ?? "<name>"}\` first.`);
+  withStore(p, (st) => st.removeAccount(site, user));
+  return { account: `${site}.${user}`, removed: true };
+}
+
+export function proxySetState(p: Paths, args: Record<string, unknown>): unknown {
+  const name = s(args["name"]) ?? "";
+  const state = s(args["state"]);
+  if (state !== "active" && state !== "disabled") throw new TabcapError("usage", "state must be active or disabled", "tabcap proxy set-state <name> active|disabled");
+  return withStore(p, (st) => {
+    const row = st.proxy(name);
+    if (row === null) throw new TabcapError("not-found", `no proxy named "${name}"`, "Run `tabcap proxy list`.");
+    // active = back to the pre-check state: `unknown` / `unchecked` until the next check says otherwise.
+    st.updateProxy(name, state === "disabled" ? { state: "disabled" } : proxyReactivated());
+    return { proxy: name, from: row.state, state: st.proxy(name)?.state ?? state };
   });
 }
