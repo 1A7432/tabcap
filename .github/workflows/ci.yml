@@ -43,6 +43,40 @@ jobs:
       - name: skill validation
         run: bun run validate:skill
 
+  # native/wireprint (Zig): format check, offline tests, and a cross-compile of
+  # the four release targets (artifacts are not uploaded yet). tabcap builds the
+  # component only with -Dopenssl=false.
+  native:
+    name: native (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: native/wireprint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - run: zig version
+      - name: zig fmt
+        run: zig fmt --check src
+      - name: zig build test
+        run: zig build test -Dopenssl=false --summary all
+      - name: cross-compile (darwin-arm64, linux-x64, linux-arm64, windows-x64)
+        run: |
+          for t in aarch64-macos x86_64-linux aarch64-linux x86_64-windows; do
+            start=$(date +%s)
+            zig build -Dopenssl=false -Doptimize=ReleaseSafe -Dtarget="$t" --prefix "zig-out/$t"
+            echo "$t: $(( $(date +%s) - start )) s"
+            ls -l "zig-out/$t/bin"
+          done
+
   e2e:
     name: e2e (${{ matrix.os }})
     strategy:
