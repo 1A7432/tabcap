@@ -269,3 +269,8 @@
 - 做了什么：0.4 全部格合入 main（B、C、D、D2、E、F、G、G2、H、I、J、K、W1、W1-spec、W2），每格都在 main 上复验（单测 / tsc / skill / gen:docs / Zig / macOS 全量端到端）后快进合入；版本号升 0.4.0（package.json、README 状态行、打包模板），CHANGELOG 的 Unreleased 定稿为 0.4.0。最后几次合入带 `[skip ci]`：私有库 Actions 额度已用 90%，macOS runner 按 10 倍计费，草稿 PR 一开就会跑整套。
 - 卡在哪：v0.4.0 的 tag 与草稿 Release 等仓库公开后再打（release.yml 有 macOS job）；0.4-K 的 s07 时钟修复只在本机复现，CI 上 30 次循环的确认等公开后免费跑；Windows 包仍未在真机跑过。
 - 下一格从哪开始：作者定「提交邮箱是否改为 GitHub 匿名地址」「何时翻公开」；翻公开 → 打 v0.4.0 → 发布 v0.3.0 / v0.4.0 → 挪目录到 `~/ClaudeCode/tabcap` → 作者用真项目跑一遍定第一批适配器与 0.5 清单。
+
+## 2026-10-16 · 0.5-R · 公开版 README（五点不同改写为 0.4、中文对齐、凭据新规则、插件一句；分支 0.5-R，无 PR，主循环从分支合并）
+- 做了什么：先实测 agent 路径：无 TTY 的进程用 `site add … --password-stdin` / `account add … --password-stdin` 存入随机值，之后 CLI 输出、日志、证据包里都只有 `<secret:example.password>`，原值只在 `state.db`；代码本来就不拦，没改代码逻辑。README 五点不同 #3 改「存一次、之后只用引用」（推荐人手填，可交给 agent 存一次）、#4 保留「不带解法」并加插件接口一句、#5 按 0.4 重写（find / where、deps / chain → export-python verify()、replay serve / check、recon、追踪模式、两个探针只诊断）；文档段补 09–11。README.zh-CN 按英文逐节补齐（简介、它是什么、五点不同、边界、安装、凭据库、文档）。docs/04 §8.1 标题与「录入」条、docs/03 §5 `store` 的「只手动录入」、docs/03 §6 插件一句、SKILL.md 凭据规则与登录段、`site add` / `account add` / `proxy add` 的帮助摘要（连带生成表、commands.md、schema 快照）、两份 CHANGELOG Unreleased。
+- 卡在哪（按最字面读法定，待作者审）：帮助摘要里的「for the human, not the AI」与新规则矛盾，按「同一规则处处一致」改了（不在 brief 列出的文件里）；docs/03 §10 第 7 条标题「凭据不进模型」与 docs/05 s07 的「模型不见明文」没动（前者是 10-15 的设计判断原文，后者是靶场场景）；根目录 AGENTS.md「凭据不进对话」是对本仓库 AI 协作者的规则，不是产品规则，没动。中文版删了已过时的「自用、准备开源」简介、状态行里的「扩展通道阶段 2」与 `docs/04–10`，「从哪开始」「目录」并进「文档」段，「版权边界」保留。单测 680 / 681：`bundle.test.ts` 的 sample-v0 fixture 仍写 0.3.0，是 main 上 0.4.0 版本号提交带来的，本格没碰。
+- 下一格从哪开始：主循环合并分支 0.5-R（会和并行的 MCP 段分支在两份 README 上相邻，按段落合）；重生 `fixtures/bundles/sample-v0`（版本号 0.4.0）让单测回到全绿；作者审上面几处字面定案。
