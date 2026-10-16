@@ -26,7 +26,7 @@
 // the text they claim is left out of the literal match on the document, which
 // still reports the value where the page shows it (a table cell).
 //
-// Decode plugins (0.6-B, docs/04 §26): a body with a decoded view is explored
+// Decode plugins (0.6-B, docs/04 §28): a body with a decoded view is explored
 // from the plugin's plaintext, with `plugin:<name>` as the first step of the
 // chain (a prefix, like the HAR wire steps), ahead of the built-in steps.
 //

@@ -1,4 +1,4 @@
-// Range decode plugin (docs/05 s42, docs/04 §26), test only: protocol
+// Range decode plugin (docs/05 s42, docs/04 §28), test only: protocol
 // tabcap-decode/1 on stdin / stdout. A body sent with `x-enc: xor` (request
 // headers for a request body, response headers for a response body) is
 // base64 of the plaintext XORed with the key in config.json beside this file.

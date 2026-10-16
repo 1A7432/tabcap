@@ -1,4 +1,4 @@
-"""tabcap decode plugin runner (protocol tabcap-decode/1, docs/04 §26).
+"""tabcap decode plugin runner (protocol tabcap-decode/1, docs/04 §28).
 
 Reads one JSON request per line on stdin, calls plugin.decode(flow) and
 answers one JSON line on stdout. `flow` mirrors the mitmproxy addon shape:

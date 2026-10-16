@@ -7,7 +7,7 @@
 // views until `bundle decode`, which appends them to the decoded.jsonl
 // sidecar and leaves events.jsonl byte for byte as recorded.
 // Oracle: the range site (test/e2e/site.ts S42_*, plaintexts written by hand)
-// and the docs/04 §26 shapes.
+// and the docs/04 §28 shapes.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";

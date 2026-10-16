@@ -1,4 +1,4 @@
-// Decoded views (0.6-B, docs/04 §26): plaintext a decode plugin produced from
+// Decoded views (0.6-B, docs/04 §28): plaintext a decode plugin produced from
 // a request or response body, stored as a blob beside the original and
 // referenced from the `request` event as `request.decoded` /
 // `response.decoded`:

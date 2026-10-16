@@ -1,4 +1,4 @@
-# tabcap decode plugin (docs/04 §26). No dependencies by default: add what
+# tabcap decode plugin (docs/04 §28). No dependencies by default: add what
 # your plugin.py imports (e.g. "cryptography") and `uv run` installs it into
 # this directory's .venv on first start.
 [project]

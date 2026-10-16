@@ -1,4 +1,4 @@
-// Decoded views for the analysis commands (0.6-B, docs/04 §26). A request or
+// Decoded views for the analysis commands (0.6-B, docs/04 §28). A request or
 // response side whose `decoded` view is ok is read from the plugin's
 // plaintext instead of the original bytes, with `plugin:<name>` as the first
 // decode step; `find`, `where`, `deps`, `recon` and `replay check` all go

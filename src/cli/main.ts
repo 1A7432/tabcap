@@ -183,7 +183,7 @@ async function cmdDecode(p: Parsed): Promise<unknown> {
     if (info === undefined) throw new TabcapError("not-found", `no plugin named "${name}" in ${pluginsDir(config)}`, "Install it in its own directory with a manifest.json, then `tabcap plugin list`.");
     if (info.manifest === null) throw new TabcapError("bad-input", `plugin "${name}" is not usable: ${info.error ?? "invalid"}`, "Fix its manifest.json; `tabcap plugin list` shows the error.");
     plugins = asDecodePlugin(info);
-    if (plugins.length === 0) throw new TabcapError("usage", `plugin "${name}" is not a decode plugin`, 'Decode plugins have "kind": "decode" in manifest.json (docs/04 §26).');
+    if (plugins.length === 0) throw new TabcapError("usage", `plugin "${name}" is not a decode plugin`, 'Decode plugins have "kind": "decode" in manifest.json (docs/04 §28).');
   } else {
     plugins = decodePlugins(config);
     if (plugins.length === 0) throw new TabcapError("not-found", "no enabled decode plugin", "Install one under the plugins directory and `tabcap plugin enable <name>`, or pass --plugin <name>.");

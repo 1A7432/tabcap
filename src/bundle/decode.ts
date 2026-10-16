@@ -1,4 +1,4 @@
-// `tabcap bundle decode <bundle> [--plugin name]` (0.6-B, docs/04 §26): run
+// `tabcap bundle decode <bundle> [--plugin name]` (0.6-B, docs/04 §28): run
 // decode plugins over a finished bundle, so a recording made before the
 // plugin existed gets decoded views too. For every request whose request /
 // response body a plugin takes, the plaintext goes to a new blob and the view

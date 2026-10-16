@@ -4,7 +4,7 @@
 // - damaged middle lines are reported and skipped;
 // - a manifest with a different format major is refused (§10);
 // - decoded views added by `bundle decode` live in the decoded.jsonl sidecar
-//   (docs/04 §26); `events` and `requests()` carry them overlaid on their
+//   (docs/04 §28); `events` and `requests()` carry them overlaid on their
 //   request events, the file itself is never changed.
 
 import { existsSync, readFileSync } from "node:fs";

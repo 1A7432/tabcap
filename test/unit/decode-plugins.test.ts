@@ -4,7 +4,7 @@
 // `decoded` field and blob (fake CDP transport, the range plugin), and
 // `bundle decode` on a bundle recorded without a plugin (views go to the
 // decoded.jsonl sidecar; events.jsonl never changes, owner ruling 10-16).
-// Oracles: docs/04 §26 (shapes, written before the code in the brief), the
+// Oracles: docs/04 §28 (shapes, written before the code in the brief), the
 // fake plugin's documented behaviour (test/fixtures/plugins/fake-decode), and
 // the s42 plaintexts written by hand in test/e2e/site.ts.
 
@@ -293,7 +293,7 @@ describe("recorder: decoded views beside the original bodies", () => {
     };
     const rawResp = side("response");
     const rawReq = side("request");
-    // shapes exactly as docs/04 §26
+    // shapes exactly as docs/04 §28
     expect(rawResp["decoded"]).toEqual({ by: "xor-decode", version: "1", direction: "response", mime: "application/json", blob: expect.stringMatching(/^sha256:[0-9a-f]{64}$/), bytes: S42_ORDER_JSON.length, ok: true });
     expect(rawReq["decoded"]).toEqual({ by: "xor-decode", version: "1", direction: "request", mime: "application/json", blob: expect.stringMatching(/^sha256:[0-9a-f]{64}$/), bytes: S42_POST_JSON.length, ok: true });
     expect(blobText(order?.response?.decoded?.blob)).toBe(S42_ORDER_JSON);

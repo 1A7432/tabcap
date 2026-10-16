@@ -16,7 +16,7 @@
 // headers, URLs, bodies and state, which keeps `diff` classifications intact.
 // Two passes: pass 1 collects every value masked by a name rule; pass 2 also
 // replaces those exact values wherever else they appear (min length 6).
-// Decoded views (0.6-B, docs/04 §26) are plaintext of a body: redacted like
+// Decoded views (0.6-B, docs/04 §28) are plaintext of a body: redacted like
 // a body of their own mime type; their error / note texts are scrubbed.
 
 import { existsSync, mkdirSync, readdirSync } from "node:fs";

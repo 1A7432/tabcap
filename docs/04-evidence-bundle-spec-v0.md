@@ -26,7 +26,7 @@
   events.jsonl                    事件流，append-only，seq 单调递增
   blobs/sha256/<xx>/<64 位十六进制>  正文、截图、cookie 快照等所有大块内容；无扩展名；xx = 哈希前两位
   raw/cdp.jsonl                   可选：原始 CDP 事件（Network / Page 域原样）；用于复核录制器本身
-  decoded.jsonl                   可选：`bundle decode` 追加的解码视图旁路文件（只追加，§26）；读者叠加到请求事件上
+  decoded.jsonl                   可选：`bundle decode` 追加的解码视图旁路文件（只追加，§28）；读者叠加到请求事件上
   exports/                        导出产物（HAR、脱敏副本、侦查档案 dossier.json / dossier.md、超出输出预算的回答 <command>-<seq>.json，§24）；不参与分析
 ```
 

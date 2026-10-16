@@ -265,7 +265,7 @@ export type RequestSide = {
   headersSource: HeadersSource;
   postData: InlineOrBlob | null;
   postDataMissing?: { reason: string; detail: string | null };
-  /** Plaintext view of the request body from a decode plugin (docs/04 §26). */
+  /** Plaintext view of the request body from a decode plugin (docs/04 §28). */
   decoded?: DecodedView;
 };
 
@@ -284,7 +284,7 @@ export type ResponseSide = {
   fromPrefetch: boolean;
   body: ResponseBody | null;
   bodyMissing: { reason: BodyMissingReason; detail: string | null } | null;
-  /** Plaintext view of the response body from a decode plugin (docs/04 §26). */
+  /** Plaintext view of the response body from a decode plugin (docs/04 §28). */
   decoded?: DecodedView;
 };
 

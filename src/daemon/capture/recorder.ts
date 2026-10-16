@@ -20,7 +20,7 @@
 // matches an enabled decode plugin, the plugin is asked after the body is
 // captured, before the event is written; its plaintext is stored as a blob
 // and referenced as `decoded` on the `request` / `response` side (docs/04
-// §26). The original body is never changed. A plugin disabled after repeated
+// §28). The original body is never changed. A plugin disabled after repeated
 // failures gets a `note` event.
 
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";

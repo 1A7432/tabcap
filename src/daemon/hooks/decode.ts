@@ -1,4 +1,4 @@
-// Decode plugins (0.6-B, owner design 2026-10-16; docs/04 §26). A decode
+// Decode plugins (0.6-B, owner design 2026-10-16; docs/04 §28). A decode
 // plugin is the user's own program in $TABCAP_HOME/config/plugins/<name>/,
 // `manifest.json` with `kind: "decode"`, enabled like a challenge handler
 // (`tabcap plugin enable <name>`). It turns an encoded / encrypted body into
@@ -76,7 +76,7 @@ const bad = (msg: string) =>
   new TabcapError(
     "bad-input",
     `plugin manifest: ${msg}`,
-    'Fix manifest.json (decode plugins: name, kind "decode", version, match {host, path, contentTypes, direction}, command [argv], timeoutMs, maxBytes; docs/04 §26).',
+    'Fix manifest.json (decode plugins: name, kind "decode", version, match {host, path, contentTypes, direction}, command [argv], timeoutMs, maxBytes; docs/04 §28).',
   );
 
 function globList(v: unknown, field: string, check: (s: string) => boolean, what: string): string[] {
@@ -546,7 +546,7 @@ export class DecodeSession {
 }
 
 /**
- * The `decoded` field of a request / response side (docs/04 §26):
+ * The `decoded` field of a request / response side (docs/04 §28):
  * `{by, version, direction, mime, blob, bytes, ok, error?, note?}`. A view
  * the blob store refuses (over its cap) is reported as `ok: false`.
  */
