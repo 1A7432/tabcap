@@ -33,11 +33,27 @@ export type InlineOrBlob = { inline: string } | { blob: string; size: number };
 
 export type CaptureMode = "passive" | "active" | "mixed";
 
+/**
+ * `manifest.mode.trace` (docs/04 §4.1 `signal`, §7): false, or the settings of
+ * the recording's trace windows (the last `trace start` wins).
+ */
+export type TraceMode = {
+  mechanism: Array<"fn-breakpoint" | "instrumentation">;
+  /** `sha256:<hex>` of the active signals.json (the built-in list: its embedded JSON text). */
+  apis: string;
+  stack: number;
+  firstN: number;
+  maxHits: number;
+};
+
+/** `manifest.traceWindows[]`: seqs of the `note` events that opened and closed one trace window (toSeq null while open). */
+export type TraceWindow = { fromSeq: number; toSeq: number | null };
+
 export type SessionEvent = Envelope & {
   kind: "session";
   phase: "start" | "stop";
   name: string;
-  mode: { capture: CaptureMode; trace: boolean; raw: boolean };
+  mode: { capture: CaptureMode; trace: false | TraceMode; raw: boolean };
 };
 
 export type TabReason = "ai-opened" | "borrowed" | "user-cancelled-debugging" | "closed" | "crashed" | "popup";
@@ -161,6 +177,30 @@ export type NoteEvent = Envelope & {
   kind: "note";
   text: string;
   refs: unknown[];
+};
+
+/** One frame of a `signal` stack; line / col as CDP gives them (0-based). */
+export type SignalFrame = { url: string; line: number; col: number };
+
+/**
+ * docs/04 §4.1 `signal` (0.4-F trace mode): reads of one browser signal API,
+ * aggregated per (document, api, caller location). Recorded from debugger
+ * breakpoints; nothing in the page is changed.
+ */
+export type SignalEvent = Envelope & {
+  kind: "signal";
+  frame: string | null;
+  nav: string | null;
+  api: string;
+  access: "get" | "call" | "event";
+  args: string | null;
+  caller: { kind: "page" | "tabcap"; url: string; scriptId: string; line: number; col: number };
+  stack: SignalFrame[];
+  count: number;
+  firstMono: number | null;
+  lastMono: number | null;
+  truncated?: true;
+  value?: unknown;
 };
 
 // ---------------------------------------------------------------- §5.1 request
@@ -290,6 +330,7 @@ export type KnownEvent =
   | StateEvent
   | FindingEvent
   | NoteEvent
+  | SignalEvent
   | HandoffEvent
   | ConfirmEvent
   | GuardEvent;
@@ -360,7 +401,9 @@ export type Manifest = {
     account: string | null;
     tabs: ManifestTab[];
   };
-  mode: { capture: CaptureMode; trace: boolean; raw: boolean; humanRecorder: boolean; sample?: boolean };
+  mode: { capture: CaptureMode; trace: false | TraceMode; raw: boolean; humanRecorder: boolean; sample?: boolean };
+  /** One entry per trace window (docs/04 §7, 0.4-F); absent when trace mode never ran during the recording. */
+  traceWindows?: TraceWindow[];
   counts: ManifestCounts;
   redaction: Redaction | null;
   imported: Imported | null;
