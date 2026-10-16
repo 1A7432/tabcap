@@ -7,6 +7,12 @@
 // the observe mode calls only the page's native `console.dirxml` (its
 // log-point) and reads scopes (never a CryptoKey). With `--decode` no signal
 // breakpoints are installed (owner decision 10-16, 0.6-L2).
+// 0.6-U: `trace start --decode` names the enabled decode plugins
+// (`decodePlugins`, with `decodePluginsNotice`): a body a plugin filed a view
+// for is not observed (tracer.ts) and plugin views outrank the page's
+// (docs/04 §33 D4), so where one matches, few `by:"page"` rows appear.
+// Whether one matches the session's traffic is not knowable at start; an
+// enabled one is enough.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +24,7 @@ import { builtinSignalList, parseSignalList, sha256Text, type SignalList } from 
 import { traceTable } from "../trace/table.ts";
 import { TRACE_NOTICE, Tracer } from "../trace/tracer.ts";
 import { readTraceConfig } from "../../shared/config.ts";
+import { decodePlugins } from "../hooks/plugins.ts";
 import { checkSessionName, optBool, optNum, optStr, type Args } from "./args.ts";
 import { redactUrl, revealOf } from "./liveredact.ts";
 
@@ -48,6 +55,17 @@ const OBSERVE_ONLY: SignalList = { names: [], source: "none (--decode: observe m
 
 const DECODE_NOTICE =
   'observe mode on, no signal breakpoints: every JSON.parse of a string of 32+ chars pauses (~0.4 ms plus a round trip) and its argument is logged to tabcap through the native console.dirxml; turn it off after the recording (trace stop / --no-decode). The plaintext the page parses is filed by "page" as a decoded view; evidence.link "weak" means it was only the one armed suspect';
+
+/** `trace start --decode` fields naming the enabled decode plugins (0.6-U), or {} when there is none. */
+export function decodePluginsFields(configDir: string): { decodePlugins?: string[]; decodePluginsNotice?: string } {
+  const names = decodePlugins(configDir).map((p) => p.name);
+  if (names.length === 0) return {};
+  const first = names[0] ?? "";
+  return {
+    decodePlugins: names,
+    decodePluginsNotice: `enabled decode plugin(s) ${names.join(", ")}: a response body one of them filed a view for (decoded or failed) is not observed, and plugin views outrank by:"page" views (docs/04 §33 D4), so where a plugin matches the traffic few by:"page" rows appear; to observe the page instead: \`tabcap plugin disable ${names.length === 1 ? first : "<name>"}\``,
+  };
+}
 
 export async function traceStart(d: Daemon, a: Args, session: string): Promise<unknown> {
   checkSessionName(session);
@@ -86,7 +104,7 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     notice: TRACE_NOTICE,
     ...statusLite(tr),
     recording,
-    ...(decode ? { decode: tr.status()["decode"], decodeNotice: DECODE_NOTICE } : {}),
+    ...(decode ? { decode: tr.status()["decode"], decodeNotice: DECODE_NOTICE, ...decodePluginsFields(d.paths.config) } : {}),
     ...(recording === null
       ? { warning: decode ? "the session is not recording: observe rows reach a bundle only while `tabcap net start` records" : "the session is not recording: signal events reach a bundle only while `tabcap net start` records; trace status still counts reads" }
       : {}),
