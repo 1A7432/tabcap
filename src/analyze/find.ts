@@ -169,7 +169,7 @@ const WIRE_STEPS: Record<string, StepName> = { gzip: "gzip", "x-gzip": "gzip", b
  * bundle imported from HAR reports the wire decoding the import (or the HAR
  * producer) already applied, so the chain starts with that step.
  */
-function wirePrefix(imported: boolean, wireEncoding: string | null, decodeFailed: boolean): StepName[] {
+export function wirePrefix(imported: boolean, wireEncoding: string | null, decodeFailed: boolean): StepName[] {
   if (!imported || wireEncoding === null || decodeFailed) return [];
   const out: StepName[] = [];
   for (const token of wireEncoding.toLowerCase().split(",").map((t) => t.trim()).filter((t) => t !== "" && t !== "identity")) {

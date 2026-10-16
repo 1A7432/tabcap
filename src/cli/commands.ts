@@ -478,6 +478,27 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap net wait --url /api/search --method POST",
     action: "net.wait",
   },
+  {
+    path: ["where"],
+    pos: ["query..."],
+    flags: [
+      ...T,
+      {
+        flag: "--as",
+        key: "as",
+        kind: "string",
+        help: "what the input is: ref (a snapshot ref; its visible text is looked up) or text (the value as typed). Default: e<n> is a ref while the session's tab has a current snapshot, anything else text",
+        metavar: "ref|text",
+      },
+      { flag: "--top", key: "top", kind: "number", help: "candidates to return (1-100)", default: 5, metavar: "n" },
+      { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON (the envelope's data is schema tabcap-where/0)" },
+      { flag: "--write-findings", key: "writeFindings", kind: "bool", help: "append finding events (tool where; 实测 for exact matches, 推断 for normalized ones) to the session's bundle; default: the bundle is only read" },
+    ],
+    summary:
+      "which recorded response carries a value the page shows (a snapshot ref's visible text, or a text): JSON paths through analyze find's decode chain, then HTML text nodes (selectors), matched exactly or after normalisation (thousands / decimal separators, accounting negatives, full-width, nbsp, YYYY-MM dates, dotted codes, DR / CR); searches only the session's recording and sends no request",
+    example: "tabcap where e12",
+    action: "where",
+  },
   { path: ["handoff", "status"], pos: [], flags: [SESSION], summary: "is the session handed to the human? state running | waiting | resumed, reason, screenshot, handler answers", example: "tabcap handoff status", action: "handoff.status" },
   {
     path: ["handoff", "continue"],

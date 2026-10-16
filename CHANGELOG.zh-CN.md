@@ -9,6 +9,13 @@
 - **`replay export-python` 按动作链生成**（依赖图里有请求取用了更早响应的值时默认开启；`--chain` 强制开，`--no-chain` 与 0.3 输出逐字节相同）：来自前一步回复的值成为参数，`computed-in-page` 输入成为默认值 `TODO` 的参数（注释写明提示和同变输入），名字像密码、token 的输入（与 `bundle redact` 同一规则）不写进任何文件；`client.py` 带 `verify()`：`python client.py verify --base-url <地址>` 逐步重放动作链，每步按 `replay check` 的比法和录制比，打印 pass / fail 表，有失败退出码非 0。录到的期望值在 `verify_expected.json`（0600；秘密是 `<secret:…>`，运行时从 `TABCAP_SECRET_*` 取；附脱敏副本说明）。调用方在可选的 `todo_inputs.py` 里填 TODO，生成的 README 写明流程。
 - 生成的文档保留离线命令自己的 `--session`（只有守护进程共用的 `--session` / `--timeout` 不进用法行）。
 
+### 页面上的值从哪来（0.4-C）
+
+- **`tabcap where <ref|文字> [--as ref|text] [--top 5] [--text] [--write-findings]`**（schema `tabcap-where/0`）：页面上显示的一个值来自哪个录到的响应。会话的标签页有当前快照时，`e12` 这样的输入是 ref，取该元素的可见文字；其它输入按原样搜（`--as` 可强制）。候选来自三处：经 `analyze find` 解码链的 JSON 值（路径与步骤名和 `find` 一致）、其它文本正文的整段文字、HTML 响应的文本节点（指向响应源码的标签路径选择器）；JSON 候选排在 HTML 候选前。`match` 为 `exact`（去首尾空白后相等，score 1）或 `normalized`（score = 1 / (1 + 用到的规则数)）；同分时更早的请求在前。只读本会话的录制（正在写的包，`net stop` 后是最后一个包），不发任何请求。默认输出 JSON 信封；`--text` 出文本报告；`--write-findings` 追加 `finding` 事件（`tool: "where"`，精确匹配 `实测`，归一化匹配 `推断`）。
+- **值归一化**（表驱动，列出所有合理解释及所用规则名，规则少的在前）：`trim`、`nbsp`、`html-entity`、`js-escape`、`fullwidth`、`thousands-sep`（`,` `.` `'` 空格，印度分组 `1,23,456`）、`decimal-comma`、`accounting-negative`（`(1,234.56)`）、`trailing-minus`（`1234.56-`）、`trailing-zeros`、`date-yyyymm`（`2026-09` / `202609` / `09/2026`；完整日期 `20260915` / `15/09/2026` / `09/15/2026`）、`dotted-code`（`1001.01` ↔ `100101`）、`dr-cr`、`empty-zero-null`。两段都 ≤ 12 的 `a/b/YYYY` 日期，只有同页另一个日期能证明日月顺序时才给候选，否则 `ambiguous` 列出两种读法（reason `ambiguous-date`）。只归一到空 / `-` / `—` / `null` / `0` 的查询返回 reason `too-common`。
+- 非 UTF-8 的正文按声明的字符集解码（响应的 charset、content-type，否则 HTML `<meta charset>`），例如 GBK；不认识的字符集在无其它命中时给 reason `unsupported-charset`。
+- 端到端测试加入靶场场景 s40 locale-numbers（同一份 `/api/rows` 的 en-US、de-DE、fr-FR、en-IN、会计格式五种渲染）。
+
 ## 0.3.0（2026-10-16）
 
 - **命令名对齐 Chrome DevTools MCP**（docs/08 §5）：`press` → `press-key`，`tabs` / `tab use` → `tab list` / `tab select`，`console` → `console list`（新增 `--types`、`--page-size`、`--page-idx`、`--include-stack-traces`，`--level`、`--limit` 保留）与 `console show <msgid>`；`net list --type / --limit / --offset` → `--resource-types / --page-size / --page-idx`（页码语义，`nextPageIdx`；不给分页参数时返回全部匹配，给了默认每页 100；默认仍藏失败与 `data:`，`--all` 全列）；`screenshot --out / --full` → `--file-path / --full-page`，新增 `--format png|jpeg|webp`、`--quality`、`--ref`；`snapshot` 新增 `--verbose`、`--file-path`；`type --submit-key`；`click --dbl-click`；`dialog --prompt-text`；`wait --text` 可重复（任一命中），并在所有帧里找；`evaluate --function` / `--args`；`reload --ignore-cache`。旧名保留到 0.4，`--help` 标为弃用；`net list` 输出仍带旧的 `offset` / `limit` / `nextOffset` 字段一版。

@@ -646,6 +646,23 @@ Example: `tabcap net wait --url /api/search --method POST`
 | `--since <c-12\|start>` |  | look back to this command's start (c-12), or `start` for the whole recording |
 | `--fresh` |  | only requests finishing after the wait begins |
 
+### `tabcap where`
+
+which recorded response carries a value the page shows (a snapshot ref's visible text, or a text): JSON paths through analyze find's decode chain, then HTML text nodes (selectors), matched exactly or after normalisation (thousands / decimal separators, accounting negatives, full-width, nbsp, YYYY-MM dates, dotted codes, DR / CR); searches only the session's recording and sends no request
+
+```
+tabcap where <query> [--session name] [--timeout ms] [--as ref|text] [--top n] [--text] [--write-findings]
+```
+
+Example: `tabcap where e12`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--as <ref\|text>` |  | what the input is: ref (a snapshot ref; its visible text is looked up) or text (the value as typed). Default: e<n> is a ref while the session's tab has a current snapshot, anything else text |
+| `--top <n>` | `5` | candidates to return (1-100) |
+| `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-where/0) |
+| `--write-findings` |  | append finding events (tool where; 实测 for exact matches, 推断 for normalized ones) to the session's bundle; default: the bundle is only read |
+
 ## Handoff and challenge handlers
 
 ### `tabcap handoff status`

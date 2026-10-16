@@ -460,6 +460,12 @@ export type ExploreOptions = {
   record?: boolean;
   /** Undecodable top-level bytes may count as encrypted (false for compressed / binary mime). */
   entropyEligible?: boolean;
+  /**
+   * The matcher compares whole values (analyze where): "json-unescape" is
+   * judged per matched string leaf (its text is not literally in the raw
+   * document) instead of by running the matcher on the raw document.
+   */
+  wholeValues?: boolean;
 };
 
 type Ctx = { chain: StepName[]; paths: string[]; root: string };
@@ -478,6 +484,7 @@ export class Explorer {
   private readonly maxHits: number;
   private readonly record: boolean;
   private readonly entropyEligible: boolean;
+  private readonly wholeValues: boolean;
 
   constructor(
     private readonly matcher: Matcher,
@@ -486,6 +493,7 @@ export class Explorer {
     this.maxHits = opts.maxHits ?? 50;
     this.record = opts.record ?? true;
     this.entropyEligible = opts.entropyEligible ?? true;
+    this.wholeValues = opts.wholeValues ?? false;
   }
 
   /** Explore bytes. `prefix` steps were already applied before the bytes were stored (HAR import). */
@@ -658,8 +666,13 @@ export class Explorer {
       }
       const m = this.matcher(s);
       if (m !== null) {
-        if (rawText !== null && rawHas === null) rawHas = this.matcher(rawText) !== null;
-        out.push(this.hit(at, m, rawText !== null && rawHas === false ? ["json-unescape"] : []));
+        let unescaped = false;
+        if (rawText !== null && this.wholeValues) unescaped = typeof leaf === "string" && !rawText.includes(m.haystack.slice(m.index, m.index + m.length));
+        else if (rawText !== null) {
+          if (rawHas === null) rawHas = this.matcher(rawText) !== null;
+          unescaped = rawHas === false;
+        }
+        out.push(this.hit(at, m, unescaped ? ["json-unescape"] : []));
         return true;
       }
       if (typeof leaf === "string" && s.length >= 4) out.push(...this.transforms(s, at, ""));

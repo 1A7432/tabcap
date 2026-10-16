@@ -66,7 +66,7 @@ export function referenceDoc(): string {
     ["Navigation and page reading", (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "")],
     ["Input", (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "")],
     ["Page tools", (c) => ["evaluate", "screenshot", "resize", "emulate", "console"].includes(c.path[0] ?? "")],
-    ["Network recording", (c) => c.path[0] === "net"],
+    ["Network recording", (c) => c.path[0] === "net" || c.path[0] === "where"],
     ["Handoff and challenge handlers", (c) => ["handoff", "plugin"].includes(c.path[0] ?? "")],
     ["Offline: bundles, analysis, replay", (c) => ["bundle", "analyze", "replay", "schema"].includes(c.path[0] ?? "")],
   ];
