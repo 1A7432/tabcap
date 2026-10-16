@@ -20,6 +20,10 @@
 - **`bundle export har --rules <file>`** 只把各规则忽略的 query 参数从条目的 URL 与 `queryString` 去掉，别的不变。
 - `replay export-python`（链模式）挑目标与 `analyze chain` 的默认目标同一条规则（导出的请求里有数据、开始时间最晚的那条），不再按事件流里的最后一条。
 
+### 页面内解码·观察模式（0.6-L）
+
+- **`tabcap trace start --decode`**（配合 `net start` 录制；`--no-decode` 关闭；config.json `trace.decode` 设默认）：站点把 API 响应体加密时是页面自己的 JS 解密的——观察模式借这个。开启期间页面上常设三个 sink 断点（`JSON.parse` 带实参长度 condition；`TextDecoder.prototype.decode` 与 `SubtleCrypto.prototype.decrypt` 只计 evidence，**绝不读 CryptoKey**）；像密文的已完成响应进入 5 秒嫌疑窗口；页面交给 `JSON.parse` 的明文从暂停帧的 local/closure 里恢复（函数调用断点读不到被调实参——实测），按密文候选的 sha256 与暂停作用域字符串的匹配归属，作为 `by:"page"` 的 `decoded` 视图写进 `decoded.jsonl`。`find` / `where` / `deps` / `recon` / `replay check` 经内置链步骤 `page` 搜索它。归不到具体响应的明文保留（`request: null`、列出候选，每录制至多 50 行）；归属规则是 scope-string、再唯一嫌疑——**绝不按时间取最近**。ok 的插件视图仍优先于 page 视图。只读：只断点，不改页面任何值。
+
 ### 与 mitmproxy / Burp 互通（0.6-M）
 
 - 只有文档和样本，行为不变：[docs/13](docs/13-interop-proxies.md) 写了在 `tabcap browser start --proxy <url>` 后面串联 mitmproxy / Burp（传给 Chrome 的参数）、导入 mitmproxy `hardump` 的 HAR 及字段丢失表、mitmproxy 的 `response(flow)` 与 tabcap 的 Python `decode(flow)` 对照。新增样本 `test/fixtures/har/mitmproxy-range.har` 与导入测试。

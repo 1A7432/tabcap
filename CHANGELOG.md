@@ -28,6 +28,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **`bundle export har --rules <file>`** drops each rule's ignored query parameters from the entry URL and `queryString`; nothing else changes.
 - `replay export-python` (chain mode) picks its target with the same rule as `analyze chain`'s default (the data-bearing request that started last, among the exported requests), no longer the last one in the event stream.
 
+### In-page decoding, observe mode (0.6-L)
+
+- **`tabcap trace start --decode`** (with `net start` recording; `--no-decode` off; config.json `trace.decode` for the default): sites that encrypt API bodies decrypt them in their own page JS — observe mode borrows that. Three sink breakpoints stay up while it is on (`JSON.parse` gated by an argument-length condition; `TextDecoder.prototype.decode` and `SubtleCrypto.prototype.decrypt` counted as evidence, a `CryptoKey` is never read); a finished response that looks like ciphertext arms a 5 s window; the plaintext the page hands to `JSON.parse` is recovered from the pausing call frames' scopes (a function-call breakpoint sees no callee arguments — measured), attributed by the sha256 of ciphertext candidates against scope strings, and filed into `decoded.jsonl` as a `by:"page"` view of the response. `find`, `where`, `deps`, `recon` and `replay check` search it through the built-in decode step `page`. Unattributed plaintext is kept (`request: null`, candidates listed, at most 50 per recording); attribution is scope-string, then the only armed suspect — never by recency. An ok plugin view still outranks a page view. Read-only: breakpoints only, nothing in the page is modified.
+
 ### Interop with mitmproxy and Burp (0.6-M)
 
 - Docs and a fixture only, no behaviour change: [docs/13](docs/13-interop-proxies.md) covers chaining mitmproxy / Burp behind `tabcap browser start --proxy <url>` (the Chrome flags passed), importing a mitmproxy `hardump` HAR with its field-loss table, and mitmproxy's `response(flow)` next to tabcap's Python `decode(flow)`. New fixture `test/fixtures/har/mitmproxy-range.har` with import tests.

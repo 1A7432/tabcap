@@ -292,3 +292,9 @@
 - 页面 `/s55`：按钮「加载」每点一次 `fetch("/s55/api")` 并读正文，把 `n<序号>=<状态>` 写进 `#s55-out`；`/s55/api` 按到达顺序回 200、500、500、500，之后 200；`api` 记每次回了什么（oracle）。配置 `sites.example.guard.consecutiveNon200: 3`，站点 `example` 入口 `/s55`。
 - 走法：录制中点两次（200、500），`tabcap fetch /s55/api`（500），再点一次（500，连续第三个非 2xx）→ `handoff status` → 再点、再 `fetch` → `handoff continue` → `fetch`。
 - expected：`handoff status` 为 `waiting`、`reason:"stop-rule"`、`rule:"consecutiveNon200:3"`、`request` 是第四条 `/s55/api`、截图文件存在；之后的 `click` 与 `fetch` 都是 `guard.stopped`，靶场没有收到第五条；`handoff continue` 回 `fetchResumed:["example"]`，下一条 `fetch` 拿到 200；包里 `guard` 事件依次是 `breaker` 与 `resume`（都是 `stop-rule`、同一 `request`），`handoff` 依次是 `waiting` 与 `resumed`。
+
+## 9. 0.6-L 页面内解码·观察模式（10-16，P1）
+
+### s59 in-page-decode（P1；0.6-L，`trace start --decode` 观察 `JSON.parse`）
+- 页面 `/s59`（`test/e2e/site.ts` 的 `startInPageDecodeSite`）：`/api/enc` 应 `{"code":0,"data":"<base64>"}`——12 行 JSON（`S59_PLAIN`）默认按 `S59_XOR_KEY` 逐字节 XOR，`?mode=webcrypto` 时 AES-128-GCM（`data` = base64(iv‖密文‖tag)，逐 worker 的 `?mode=worker` 变体把 XOR 放进 dedicated worker）；页面 fetch、自己解密（XOR 循环，或 `crypto.subtle.decrypt` + `TextDecoder`）、`JSON.parse` 明文、渲染表格，再 fetch `/api/plain`（明文 JSON，同样过 `JSON.parse`）当对照组。`?mode=webcrypto&two=1` 并发 `slot=1` / `slot=2` 两个加密响应（密钥同、IV 不同：`slot=2` 是 `S59_PLAIN2`），各自解密各自 `JSON.parse`，渲染 24 行。任何 raw `/api/enc` 正文中都没有明文值。
+- expected：xor、webcrypto、two=1 三变体都落 `by:"page"` 的 sidecar 行——`version "observe/0"`、request 归到各自的 r-N、blob 打开是 `S59_PLAIN`（slot=2 `S59_PLAIN2`）、`evidence.match` 是响应体 `data` 的 sha256（exp3【实测】：暂停帧的 local 里就有那段 base64）；`/api/plain` 不落行；webcrypto 的 `evidenceHits` ≥ 2（`TextDecoder` 与 `SubtleCrypto`）；`find <S59-0001>` 一条 hit，`decode` 链是 `["page"]`、路径 `$.rows[0].id`；`trace stop` 后不带 `--decode` 重跑 `find S59-0001` 零命中。全部对照与 `resources/trace-and-probes.md` 的常量表由 site.ts 的导出量直接给出。

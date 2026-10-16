@@ -705,3 +705,39 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 - **扁平路径**（比较与 `--text` 用）：响应从 `$` 起（`$.items[].name`；不是标识符的名字写成 `$["a b"]`，同 `find` 的 JSON 路径），query 参数为 `query:<名字>`，请求体从 `body:$` 起（与 `analyze deps` 的输入标签同形）。类型文字：`kind` 加可选 `(format)`，union 用 `|` 连接各 variant（`number(int)|null`）。
 - **`schema-diff`**（schema `tabcap-schema-diff/0`）：两包都用上面的规则推断（带 `--template` 时只看这个端点，一边没有就是 new / gone，两边都没有报 `not-found`），按 key 配对。每个端点 `{key, method, template, verdict:"same"|"drift"|"new"|"gone", added:["<路径>:<类型>"…], removed:[…], changed:[{path, from, to}], optionalityChanged:[{path, from:"required"|"optional", to}], enumChanged:[{path, from:[…], to:[…]}]}`；`added` / `removed` 列出每一个新增 / 消失的位置（父节点新增时子节点也逐个列出），`changed` 是两边都有、类型文字不同（含 format 与 union 的变化），`enumChanged` 只在两边都有枚举且不同时报。五个列表任一非空即 `drift`。只在旧包 / 新包里的端点为 `gone` / `new`（不算漂移）；但端点在另一边录到了、只是什么都推不出（如 JSON 接口改回了 HTML 登录页）时，按空形状比较，是 `drift`（全部 removed / added）。另一边那个数组一个元素都没有时，数组下面的位置不比较（没有证据），写一条 `warnings`。顶层：`{schema, old:{dir, id, session, endpoints}, new:{…}, filter:{template}, drift, summary:{same, drift, new, gone}, endpoints:[…], warnings, written?}`，旧包里的端点在前，新包独有的在后。有 `drift` 时 CLI 退出码 1，信封仍是 `ok:true`（比较本身成功了）；`new` / `gone` 不影响退出码。`--text` 一行一个变化：`drift GET /api/list added $.items[].name:string`、`… removed …`、`… changed <路径> <旧> -> <新>`、`… optionality <路径> required -> optional`、`… enum <路径> [a] -> [a,b]`、`new <key>`、`gone <key>`，末行 `schema-diff: <n> drift, <n> same, <n> new, <n> gone`。`--write` 把两边的形状各写进自己的 `exports/shape.json`。
 - **靶场**：s06 加 `GET /api/list` 与变体 `?v=2`（`title` 改名 `name`、`price` 由小数字符串变数字、加 `currency`；`docs/05` s06）。【实测 10-16，本机 CfT 155：`test/e2e/v06g.e2e.test.ts` 3/3；`test/unit/shape.test.ts`】
+
+## 33. 0.6-L 页面内解码·观察模式 `trace start --decode`（10-16 brief + 两处实测修正；字面与下列细节按实现定案，待作者审）
+
+观察模式借页面的解密：站点把 API 响应体加密、靠页面自己的 JS 解出明文；解码插件（§28）要密钥与算法，页面两者都有、每次都在跑。`tabcap trace start --decode`（`--no-decode` 关闭；config.json `trace.decode` 设默认）在页面上装三个 sink 断点，把页面交给 `JSON.parse` 的明文归属到加密响应，写进 `decoded.jsonl`（§28 的 sidecar 形状）成为 `by:"page"` 的 `decoded` 视图；`find` / `where` / `deps` / `recon` / `replay check` 经内置链步骤 `page` 读它。**只断点，不改页面任何值；`CryptoKey` 永不读。**证据包规范之外它是诊断组命令，不进 MCP core、不进 SKILL.md 本体（文档在 `skills/tabcap/references/trace-and-probes.md`）。
+
+sink 与断点（D1；spike exp2/exp3，e2e【实测】）：
+- `JSON.parse`——明文源，condition `typeof arguments[0] === "string" && arguments[0].length >= 32`（exp2：2000 次短 parse 的 heavy 页带 condition 中位 +15 ms，不带 +837 ms）；
+- `TextDecoder.prototype.decode`、`SubtleCrypto.prototype.decrypt`——只计 `evidenceHits`，不给行（D1）；TextDecoder 带 condition `byteLength >= 32`，decrypt 调用稀少不设。
+- **修正（待作者审）：sink 常装**。brief D3「每 suspect 5 s 窗口装断点」与页面竞态必输：arm 由录制 index 推送驱动，而页面的 fetch→解密→`JSON.parse` 在同一微任务串里结束（s59 xor【实测】，首轮 e2e 三次全 miss）。改为 decode 开启即常装：每个 realm 在其 scriptFirstStatement 暂停里装好（0.4-F 的安装通道，JS 内建断点**不**跨 realm 共享，逐 realm 装；同进程重复报 "already exists"、容忍），armed 窗口只做归属。
+- **修正（待作者审）：hold 10 s 补匹配**。微任务串还可以再赢一次：暂停时 armed 为空的 walk 结果先暂存（≤8 个、10 s 过期），arm 一到由 `matchHeld` 补判（归属规则不变）。信封 parse（`{"code":0,"data":…}` 那层）没有明文、其 suspect 也不会命中，自然过期——`drops.plaintextMissing` 里的这类计数是语义内的噪声（「该次暂停没找到明文」），不是错误。
+
+suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `find` 的熵规则（`looksEncrypted`）或 JSON 里有 ≥64 字符的 base64/hex 叶子 → arm 5 s；候选 = sha256(整段 body 文本) + sha256(每个叶子)。
+
+归属（作者 10-16 定，替换 brief 的 sequence/recent；**绝不按时间取最近**）：
+1. scope-string：暂停帧 local/closure 里某个字符串值的 sha256 命中某 live suspect 的候选 → 该 suspect；
+2. 恰有一个 live suspect → single-suspect；
+3. 否则 unattributed：行 `request: null`、`evidence.candidates` 列出当时全部 live suspects；每录制至多 50 行（D7），超出计 `unattributedCapped` 丢弃。
+
+明文恢复（spike exp4【实测】：函数调用断点看不到被调实参——`data:null`、只有 caller 帧、`arguments` 是 caller 自己的）：walk 暂停帧（≤4 帧）的 local/closure scope（每 scope ≤200 属性）：字符串值直接收（≥16 字符才参与 sha 匹配）；ArrayBuffer/TypedArray 经 objectId 只读 `callFunctionOn` 复制字节（CSV，> 1 MiB 不复制计 oversize）；tabcap 侧 UTF-8 解码后试 `JSON.parse`，取最长可解析者；明文 <32 字符不成候选，>1 MiB 只当 evidence（tooLarge）。**页面代码一律不执行**（`JSON.parse` 在 tabcap 侧跑）。tabcap 自己的 evaluation 与隔离世界帧的暂停一律丢弃（0.4-F 实测：JS 内建断点跨 context 也会打进来）。
+
+行形状（§28 的 sidecar 行 + `evidence`；oracle 是靶场 s59 的字面量，e2e `v06l`）：
+
+```jsonc
+{ "seq": 1, "request": "r-13", "direction": "response",
+  "decoded": { "by": "page", "version": "observe/0", "mime": "application/json",
+               "blob": "sha256:…", "bytes": 245, "ok": true,
+               "evidence": { "sink": "JSON.parse", "match": "<命中的密文 sha256 或 null>",
+                             "frames": [ { "url", "line", "column", "function" } ],      // ≤5
+                             "at": 1760000000000, "candidates": ["r-13"] } },              // 只 unattributed 行
+  "at": 1760000000000 }
+```
+
+- 行的优先级（D4）：ok 的插件视图 > ok 的 page 视图（page 行后写也顶不掉插件行）；同 rank 后行赢；inline 视图按同一 rank 裁定；`request:null` 的行不 overlay 任何请求。
+- 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`；`trace status` 与 `trace stop` 的 `decode` 块：`{armed, rows:{attributed, unattributed, unattributedKept}, evidenceHits, sinks:{resolved, skipped, on}, drops:{plaintextMissing, tooLarge, afterStop, unattributedCapped}}`（trace stop 报的是停止前的最后状态）。
+
+字面自定（NOTES 待审）：`sinks.skipped` 只计 evaluate 拿不到函数对象或 setBreakpoint 没返回 bpId；「already exists」的 catch 不计数（它是良性共享信令）；plainText 长 ≥32 / scope 字符串 ≥16 / hold 10 s / hold ≤8 / evidence frames ≤5 / mime 固定 `application/json`（明文必须过 `JSON.parse`）；`--text / --first-n` 等 trace 原有旗标与 decode 无交互。
