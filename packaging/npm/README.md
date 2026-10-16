@@ -32,7 +32,7 @@ bun run npm:pack --version 0.6.0        # 只做断言：package.json 与每个�
 - 产物在 `dist/npm/`：每个包一个目录、一个 `npm pack` 出的 `.tgz`，加 `SHA256SUMS`。打包用 `npm pack --json --offline --ignore-scripts --no-update-notifier`，不连 registry；打完核对 tarball 里的文件与目录完全一致、二进制是可执行权限。
 - 结尾打印发布命令（按顺序）和发布后的核对命令，路径是绝对路径，可以直接复制。
 
-平台包内容：`package.json`、`bin/tabcap`（Windows 是 `bin/tabcap.exe`，0755）、`LICENSE`、`NOTICE`（二进制里有从 Apache-2.0 代码派生的部分，NOTICE 要随二进制分发）、五行 `README.md`。主包内容：`package.json`、`bin/tabcap.js`、`LICENSE`、`NOTICE`、`README.md`（README 的 Quick start，加一段 npm 安装说明）、`skills/tabcap/`（`SKILL.md` 与 `references/commands.md`；全局安装后在 `$(npm root -g)/tabcap/skills/tabcap/`）。
+平台包内容：`package.json`、`bin/tabcap`（Windows 是 `bin/tabcap.exe`，0755）、`LICENSE`、`NOTICE`（二进制里有从 Apache-2.0 代码派生的部分，NOTICE 要随二进制分发）、五行 `README.md`。主包内容：`package.json`、`bin/tabcap.js`、`LICENSE`、`NOTICE`、`README.md`（README 的 Quick start，加一段 npm 安装说明）、`skills/tabcap/`（`SKILL.md` 与 `references/commands.md`；全局安装后在 `$(npm root -g)/tabcap/skills/tabcap/`）。`templates/plugins/decode-python/`（解码插件的 Python runner 模板；全局安装后在 `$(npm root -g)/tabcap/templates/plugins/decode-python/`）。
 
 ## 2. 本地验证（发布前，不连 registry）
 

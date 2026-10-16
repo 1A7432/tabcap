@@ -74,7 +74,7 @@ function listing(archive: string): string[] {
 
 describe("release packaging with a stand-in binary", () => {
   for (const target of ["linux-x64", "windows-x64"] as const) {
-    test(`${target}: binary, skill, both READMEs, LICENSE, NOTICE; .sha256 and SHA256SUMS agree`, () => {
+    test(`${target}: binary, skill, decode template, both READMEs, LICENSE, NOTICE; .sha256 and SHA256SUMS agree`, () => {
       const tmp = mkdtempSync(join(tmpdir(), "tabcap-rel-"));
       try {
         const releaseDir = join(tmp, "release");
@@ -87,7 +87,10 @@ describe("release packaging with a stand-in binary", () => {
         // the skill ships whole: SKILL.md plus every topic file under references/ (0.5-C)
         const refs = readdirSync(join(REPO_ROOT, "skills", "tabcap", "references")).map((n) => `${top}/skills/tabcap/references/${n}`);
         expect(refs).toContain(`${top}/skills/tabcap/references/commands.md`);
-        expect(listing(r.archive)).toEqual([...PACKAGE_FILES.map((f) => `${top}/${f}`), `${top}/${plan.binaryName}`, ...refs].sort());
+        // and so does the decode plugin template (0.6-T)
+        const tpl = readdirSync(join(REPO_ROOT, "templates", "plugins", "decode-python")).map((n) => `${top}/templates/plugins/decode-python/${n}`);
+        expect(tpl).toContain(`${top}/templates/plugins/decode-python/runner.py`);
+        expect(listing(r.archive)).toEqual([...PACKAGE_FILES.map((f) => `${top}/${f}`), `${top}/${plan.binaryName}`, ...refs, ...tpl].sort());
         expect(readFileSync(`${r.archive}.sha256`, "utf8")).toBe(`${r.sha256}  ${plan.archive}\n`);
         expect(r.sha256).toBe(sha256File(r.archive));
         writeFileSync(join(releaseDir, "tabcap-v0.0.1-linux-x64.tar.gz"), "other version, not listed");

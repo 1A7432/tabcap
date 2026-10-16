@@ -143,8 +143,8 @@ export function mainManifest(template: Record<string, unknown>, version: string,
   return { name: TOOL_NAME, version, ...rest, optionalDependencies };
 }
 
-/** The `files` the tabcap package needs: the shim, the skill, NOTICE (npm adds package.json, README, LICENSE itself). */
-export const MAIN_FILES = ["bin/", "skills/", "NOTICE"] as const;
+/** The `files` the tabcap package needs: the shim, the skill, the decode plugin template, NOTICE (npm adds package.json, README, LICENSE itself). */
+export const MAIN_FILES = ["bin/", "skills/", "templates/", "NOTICE"] as const;
 /** The `files` a platform package needs. */
 export const PLATFORM_FILES = ["bin/", "NOTICE"] as const;
 
@@ -295,6 +295,7 @@ export function assembleMain(o: { version: string; outDir: string; root?: string
   copyFileSync(join(root, "NOTICE"), join(dir, "NOTICE"));
   writeFileSync(join(dir, "README.md"), mainReadme(readFileSync(join(root, "README.md"), "utf8"), o.version, scope));
   cpSync(join(root, "skills", TOOL_NAME), join(dir, "skills", TOOL_NAME), { recursive: true });
+  cpSync(join(root, "templates", "plugins", "decode-python"), join(dir, "templates", "plugins", "decode-python"), { recursive: true });
   return dir;
 }
 

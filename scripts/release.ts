@@ -10,7 +10,8 @@
 // (Zig 0.16.0 cross builds into native/dist/; every tabcap binary embeds all four).
 // Per target: `bun build --compile --target=bun-<target>` → dist/tabcap-<target>[.exe];
 // then dist/release/tabcap-v<version>-<target>/ holds the binary (tabcap or
-// tabcap.exe), skills/tabcap/ (agentskills.io layout), README.md and
+// tabcap.exe), skills/tabcap/ (agentskills.io layout),
+// templates/plugins/decode-python/ (the decode plugin template, 0.6-T), README.md and
 // README.zh-CN.md (the quick-start sections only, generated-table markers
 // stripped, checked for internal wording), LICENSE and NOTICE; it is packed as
 // .tar.gz (zip for Windows) with a `shasum -a 256` style .sha256 next to it.
@@ -85,7 +86,20 @@ export function planFor(target: Target, version: string, root: string = ROOT): P
 export const NATIVE_BUILD_COMMAND = ["bun", join(ROOT, "scripts", "native.ts"), "build"];
 
 /** Files every package carries besides the binary (paths inside the package). */
+/** Directories copied whole into every package (0.6-T: the decode plugin template ships beside the skill). */
+export const PACKAGE_DIRS = [`skills/${TOOL_NAME}`, "templates/plugins/decode-python"] as const;
 export const PACKAGE_FILES = ["README.md", "README.zh-CN.md", "LICENSE", "NOTICE", `skills/${TOOL_NAME}/SKILL.md`] as const;
+
+/** Files under `dir` (relative, sorted, forward slashes). */
+export function listTree(dir: string, prefix = ""): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(join(dir, prefix), { withFileTypes: true })) {
+    const rel = prefix === "" ? e.name : `${prefix}/${e.name}`;
+    if (e.isDirectory()) out.push(...listTree(dir, rel));
+    else out.push(rel);
+  }
+  return out.sort();
+}
 
 export function run(cmd: string[], o: { cwd?: string; env?: Record<string, string> } = {}): void {
   const p = Bun.spawnSync(cmd, { cwd: o.cwd ?? ROOT, stdout: "inherit", stderr: "inherit", env: { ...process.env, ...(o.env ?? {}) } });
@@ -123,10 +137,10 @@ export function assemble(o: { plan: Plan; version: string; releaseDir: string; r
   if (!existsSync(bin)) throw new Error(`missing ${bin}; build it first`);
   const dir = join(o.releaseDir, o.plan.name);
   rmSync(dir, { recursive: true, force: true });
-  mkdirSync(join(dir, "skills"), { recursive: true });
+  mkdirSync(dir, { recursive: true });
   copyFileSync(bin, join(dir, o.plan.binaryName));
   chmodSync(join(dir, o.plan.binaryName), 0o755);
-  cpSync(join(root, "skills", TOOL_NAME), join(dir, "skills", TOOL_NAME), { recursive: true });
+  for (const d of PACKAGE_DIRS) cpSync(join(root, d), join(dir, d), { recursive: true });
   copyFileSync(join(root, "LICENSE"), join(dir, "LICENSE"));
   copyFileSync(join(root, "NOTICE"), join(dir, "NOTICE"));
   writeFileSync(join(dir, "README.md"), standaloneReadme(readFileSync(join(root, "README.md"), "utf8"), o.version, QUICK_START.en));
@@ -182,7 +196,7 @@ if (import.meta.main) {
   const releaseDir = join(ROOT, "dist", "release");
   const plans = o.targets.map((t) => planFor(t, TOOL_VERSION));
   if (o.dryRun) {
-    console.log(JSON.stringify({ version: TOOL_VERSION, releaseDir, native: NATIVE_BUILD_COMMAND, plans, files: PACKAGE_FILES, sums: join(releaseDir, "SHA256SUMS") }, null, 2));
+    console.log(JSON.stringify({ version: TOOL_VERSION, releaseDir, native: NATIVE_BUILD_COMMAND, plans, files: PACKAGE_FILES, dirs: PACKAGE_DIRS.map((d) => ({ dir: d, files: listTree(join(ROOT, d)) })), sums: join(releaseDir, "SHA256SUMS") }, null, 2));
   } else {
     mkdirSync(releaseDir, { recursive: true });
     const built: Array<{ target: Target; archive: string; sha256: string }> = [];

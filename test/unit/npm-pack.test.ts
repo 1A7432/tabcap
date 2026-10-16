@@ -108,7 +108,7 @@ describe("manifests and files", () => {
     const m = mainTemplate();
     expect("optionalDependencies" in m).toBe(false);
     expect(missingFiles(m, MAIN_FILES)).toEqual([]);
-    expect(missingFiles({ files: ["bin/"] }, MAIN_FILES)).toEqual(["skills/", "NOTICE"]);
+    expect(missingFiles({ files: ["bin/"] }, MAIN_FILES)).toEqual(["skills/", "templates/", "NOTICE"]);
     expect(missingFiles({}, PLATFORM_FILES)).toEqual(["bin/", "NOTICE"]);
   });
   test("platform package.json: scoped or unscoped name first, the template's os / cpu kept, no scripts", () => {
@@ -290,10 +290,10 @@ describe("package layout (stand-in binary)", () => {
       }
       expect(() => assemblePlatform({ p: "linux-x64", version: TOOL_VERSION, binary: join(dir, "absent"), outDir: join(dir, "out") })).toThrow(/missing/);
     }));
-  test("tabcap package: package.json, the generated shim, LICENSE, NOTICE, README, the skill", () =>
+  test("tabcap package: package.json, the generated shim, LICENSE, NOTICE, README, the skill, the decode template", () =>
     withTmp((dir) => {
       const out = assembleMain({ version: TOOL_VERSION, outDir: dir, scope: null });
-      expect(listFiles(out)).toEqual(["LICENSE", "NOTICE", "README.md", "bin/tabcap.js", "package.json", "skills/tabcap/SKILL.md", "skills/tabcap/references/analysis.md", "skills/tabcap/references/commands.md", "skills/tabcap/references/mcp.md", "skills/tabcap/references/pools.md", "skills/tabcap/references/recording.md", "skills/tabcap/references/replay.md", "skills/tabcap/references/search.md", "skills/tabcap/references/trace-and-probes.md"]);
+      expect(listFiles(out)).toEqual(["LICENSE", "NOTICE", "README.md", "bin/tabcap.js", "package.json", "skills/tabcap/SKILL.md", "skills/tabcap/references/analysis.md", "skills/tabcap/references/commands.md", "skills/tabcap/references/mcp.md", "skills/tabcap/references/pools.md", "skills/tabcap/references/recording.md", "skills/tabcap/references/replay.md", "skills/tabcap/references/search.md", "skills/tabcap/references/trace-and-probes.md", "templates/plugins/decode-python/config.example.json", "templates/plugins/decode-python/manifest.json", "templates/plugins/decode-python/plugin.py", "templates/plugins/decode-python/pyproject.toml", "templates/plugins/decode-python/runner.py"]);
       expect(readFileSync(join(out, "bin", "tabcap.js"), "utf8")).toBe(shimSource(shimTemplate(), null));
       expect(readFileSync(join(out, "skills", "tabcap", "SKILL.md"), "utf8")).toBe(readFileSync(join(REPO_ROOT, "skills", "tabcap", "SKILL.md"), "utf8"));
     }));
