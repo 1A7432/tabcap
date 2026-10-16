@@ -34,7 +34,8 @@ import { writeFileAtomic } from "../bundle/manifest.ts";
 import { parseInlineOrBlob, type BundleReader } from "../bundle/reader.ts";
 import type { RawEvent, RequestEvent, ResourceType } from "../bundle/types.ts";
 import { isRecord, num, str } from "../shared/json.ts";
-import { STEP_CAP, STEP_NAMES, Explorer, baseMime, binaryMagic, isBinaryMime, isCompressedMime, parseJsonDoc, utf8, type StepName } from "./decoders.ts";
+import { STEP_CAP, STEP_NAMES, Explorer, baseMime, binaryMagic, isBinaryMime, isCompressedMime, isPluginStep, parseJsonDoc, utf8, type StepName } from "./decoders.ts";
+import { decodedPayload } from "./views.ts";
 import { DepsGraph, sourceGrade, type DepsClass, type DepsSource, type InputLocation } from "./deps.ts";
 import { cookiePairs, headerValues } from "./diff.ts";
 import { wirePrefix } from "./find.ts";
@@ -456,7 +457,11 @@ function channelsAndCoverage(reader: BundleReader, requests: readonly RequestEve
     const st = r.response?.status ?? null;
     if (!c.status.includes(st)) c.status.push(st);
     if (r["unreadByPage"] === true) c.unreadByPage++;
-    const list: Payload[] = p === null ? [] : [p];
+    // 0.6-B: a decode plugin's view is what the channel carries in plaintext; its
+    // step leads the channel's `decode` list. The body class stays the original's.
+    const view = r.response === null ? null : decodedPayload(reader, r.response.decoded);
+    const list: Payload[] = view !== null ? [{ bytes: view.bytes, mime: view.mime, prefix: view.prefix }] : p === null ? [] : [p];
+    if (view !== null) for (const s of view.prefix) c.steps.add(s);
     if (r.type === "websocket") list.push(...wsRecvPayloads(reader, reader.events, r.id));
     payloads.set(r.id, list);
   }
@@ -496,7 +501,7 @@ function channelsAndCoverage(reader: BundleReader, requests: readonly RequestEve
       first: c.first,
       status: [...c.status].sort((a, b) => (a ?? -1) - (b ?? -1)),
       unreadByPage: c.unreadByPage,
-      decode: STEP_NAMES.filter((s) => c.steps.has(s)),
+      decode: [...[...c.steps].filter((s) => isPluginStep(s)).sort(), ...STEP_NAMES.filter((s) => c.steps.has(s))],
       tokens: c.found.size,
       seq: c.requests[0]?.seq ?? 0,
     }))

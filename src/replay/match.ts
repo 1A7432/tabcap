@@ -230,6 +230,9 @@ export class ReplayIndex {
     parts: { method: string; host: string | null; query: [string, string][]; bodySha256: string; strict: (string | null)[]; cookie: string | null },
     incoming: Map<string, string>,
   ): Candidate {
+    // Extension point (0.6-C): matching on decoded request bodies would read
+    // r.request.decoded through analyze/views.ts decodedPayload here; 0.6-B
+    // keeps replay serve on the original bytes.
     const recParams = extractParams(r.request, (ref) => this.reader.readBlob(ref), () => undefined);
     const differs: Candidate["differs"] = {};
     if (r.method !== parts.method) differs.method = { recorded: r.method, got: parts.method };

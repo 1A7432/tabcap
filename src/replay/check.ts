@@ -11,6 +11,10 @@
 // (1 request per 2 s unless --rate). Tests never use --live against a real
 // site. A live check goes out through the proxy of the bundle's account when
 // it is bound to a pool proxy (0.4-D); the result names the proxy, never its URL.
+// Decoded bodies (0.6-B): when the recorded response has a decode plugin's
+// view and that plugin is enabled, the answer is decoded by the same plugin
+// and the two plaintexts are compared (a row note says so); when the answer
+// does not decode, the original bytes are compared and a note says why.
 // Oracle: the bundle (recorded status / headers / blobs). Reproduce:
 //   bun test test/unit/replay-check.test.ts test/unit/replay-integration.test.ts
 
@@ -23,6 +27,9 @@ import { accountProxy, type AccountProxy } from "./proxyenv.ts";
 import type { HttpClient } from "../daemon/pool/proxy.ts";
 import { isBinaryMime, parseJsonDoc, utf8 } from "../analyze/decoders.ts";
 import { HOP_BY_HOP, flattenJson, globMatcher, headerJoined, isLoopbackHost, replayableRequests, requestBodyBytes, type Skipped } from "./common.ts";
+import { DecodeHost, DecodeSession, type DecodePlugin } from "../daemon/hooks/decode.ts";
+import { decodePlugins } from "../daemon/hooks/plugins.ts";
+import { decodedPayload } from "../analyze/views.ts";
 
 export const DEFAULT_AGAINST = "http://127.0.0.1:4500";
 export const DEFAULT_HEADERS = ["content-type", "location"];
@@ -263,10 +270,13 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
   });
 
   const rows: CheckRow[] = [];
+  const plugins = chosen.some((r) => r.response?.decoded?.ok === true) ? decodePlugins(opts.configDir) : [];
+  const decoder: Decoder = { host: new DecodeHost(), plugins, sessions: new Map() };
   try {
-    for (const r of chosen) rows.push(await checkOne(r, reader, base, opts, guard, sleep, now, egress));
+    for (const r of chosen) rows.push(await checkOne(r, reader, base, opts, guard, sleep, now, egress, decoder));
   } finally {
     guard?.store.close();
+    decoder.host.close();
   }
   const totals: CheckTotals = { requests: rows.length, same: 0, different: 0, errors: 0, unverified: 0, skipped: skipped.length };
   for (const row of rows) {
@@ -287,6 +297,7 @@ async function checkOne(
   sleep: (ms: number) => Promise<void>,
   now: () => number,
   egress: AccountProxy | null,
+  decoder: Decoder,
 ): Promise<CheckRow> {
   const u = new URL(r.url);
   const row: CheckRow = { id: r.id, method: r.method, path: `${u.pathname}${u.search}`, status: { recorded: r.response?.status ?? null, got: null }, result: "same", diffs: {}, notes: [] };
@@ -333,7 +344,9 @@ async function checkOne(
     if (rec === null) row.notes.push("recorded body blob is missing; body not compared");
     else {
       bodyChecked = true;
-      const bd = compareBodies(rec, resp.mimeType ?? headerJoined(resp.headers, "content-type"), got);
+      const dec = await decodedPair(r, reader, res, got, decoder);
+      if (dec.note !== null) row.notes.push(dec.note);
+      const bd = dec.pair !== null ? compareBodies(dec.pair.recorded, dec.pair.mime, dec.pair.got) : compareBodies(rec, resp.mimeType ?? headerJoined(resp.headers, "content-type"), got);
       if (bd !== null) row.diffs.body = bd;
     }
   } else if (resp?.bodyMissing) {
@@ -348,6 +361,52 @@ async function checkOne(
   if (Object.keys(row.diffs).length > 0) row.result = "different";
   else if (!bodyChecked) row.result = "unverified";
   return row;
+}
+
+type Decoder = { host: DecodeHost; plugins: readonly DecodePlugin[]; sessions: Map<string, DecodeSession> };
+
+/**
+ * Both plaintexts when the recording has a decoded view and its plugin decodes
+ * the answer too; else null with a note saying why the originals are compared.
+ * (`replay serve` matching on decoded bodies is 0.6-C: analyze/views.ts
+ * decodedPayload is the extension point.)
+ */
+async function decodedPair(
+  r: RequestEvent,
+  reader: BundleReader,
+  res: Response,
+  got: Uint8Array,
+  decoder: Decoder,
+): Promise<{ pair: { recorded: Uint8Array; got: Uint8Array; mime: string | null } | null; note: string | null }> {
+  const d = r.response?.decoded;
+  if (d === undefined || !d.ok) return { pair: null, note: null };
+  const recorded = decodedPayload(reader, d);
+  if (recorded === null) return { pair: null, note: `the recorded decoded view of ${d.by} is missing; original bodies compared` };
+  const plugin = decoder.plugins.find((p) => p.name === d.by);
+  if (plugin === undefined) return { pair: null, note: `the recording was decoded by ${d.by}, which is not an enabled decode plugin here; original bodies compared` };
+  let session = decoder.sessions.get(plugin.name);
+  if (session === undefined) {
+    session = new DecodeSession(decoder.host, [plugin]);
+    decoder.sessions.set(plugin.name, session);
+  }
+  if (session.isDisabled(plugin.name)) return { pair: null, note: `decode plugin ${plugin.name} was disabled after repeated failures; original bodies compared` };
+  const headers: Record<string, string> = {};
+  res.headers.forEach((v, k) => {
+    headers[k] = v;
+  });
+  const out = await session.decode({
+    direction: "response",
+    id: r.id,
+    url: r.url,
+    method: r.method,
+    requestHeaders: r.request.headers,
+    response: { status: res.status, headers },
+    body: got,
+    mime: res.headers.get("content-type"),
+  });
+  if (out === null) return { pair: null, note: `decode plugin ${plugin.name} does not take this answer (match); original bodies compared` };
+  if (!out.ok) return { pair: null, note: `decode plugin ${plugin.name} could not decode the answer (${out.error}); original bodies compared` };
+  return { pair: { recorded: recorded.bytes, got: out.body, mime: recorded.mime }, note: `body compared as decoded by ${plugin.name} (plugin:${plugin.name})` };
 }
 
 // ------------------------------------------------------------ text

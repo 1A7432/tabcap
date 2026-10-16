@@ -23,6 +23,9 @@
 //   (response charset, content-type, else an HTML meta) via TextDecoder; a
 //   charset TextDecoder does not know yields reason `unsupported-charset`
 //   when nothing else matched.
+// - a response with a decode plugin's view (0.6-B, views.ts) is read from
+//   the plaintext instead of the original bytes; its candidates carry
+//   `plugin:<name>` as the first step of the chain;
 // Ranking decision (0.4-C, see NOTES): JSON / text-body candidates come
 // before HTML text-node candidates, each group by score. An HTML text node
 // showing the value is a rendering of it; s40 records every locale's page
@@ -36,8 +39,9 @@ import { BundleReader } from "../bundle/reader.ts";
 import type { RequestEvent } from "../bundle/types.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
-import { Explorer, STEP_CAP, STEP_NAMES, baseMime, binaryMagic, isBinaryMime, utf8, type DecodeHit, type Matcher, type StepName } from "./decoders.ts";
+import { Explorer, STEP_CAP, baseMime, binaryMagic, isBinaryMime, isStepName, utf8, type DecodeHit, type Matcher, type StepName } from "./decoders.ts";
 import { mayEmbed } from "./embedded.ts";
+import { decodedPayload } from "./views.ts";
 import type { FindingInput } from "./finding.ts";
 import { wirePrefix } from "./find.ts";
 import { htmlTextNodes } from "./htmltext.ts";
@@ -184,13 +188,15 @@ export function whereIn(reader: BundleReader, query: WhereQuery, opts: WhereOpti
   for (const r of reader.requests()) {
     const resp = r.response;
     const body = resp?.body ?? null;
-    if (resp === null || body === null || body.size > STEP_CAP) continue;
-    const mime = resp.mimeType ?? headerValue(resp.headers, "content-type");
-    const binaryByType = r.type === "image" || r.type === "font" || r.type === "media";
+    if (resp === null) continue;
+    const view = decodedPayload(reader, resp.decoded);
+    if (view === null && (body === null || body.size > STEP_CAP)) continue;
+    const mime = view !== null ? view.mime : (resp.mimeType ?? headerValue(resp.headers, "content-type"));
+    const binaryByType = view === null && (r.type === "image" || r.type === "font" || r.type === "media");
     if (isBinaryMime(mime) || (binaryByType && baseMime(mime) !== "image/svg+xml")) continue;
-    const bytes = reader.readBlob(body.blob);
+    const bytes = view !== null ? view.bytes : body === null ? null : reader.readBlob(body.blob);
     if (bytes === null || bytes.length > STEP_CAP || binaryMagic(bytes) !== null) continue;
-    const prefix = wirePrefix(imported, body.wireEncoding, body.decodeFailed === true);
+    const prefix = view !== null ? view.prefix : body === null ? [] : wirePrefix(imported, body.wireEncoding, body.decodeFailed === true);
     let text = utf8(bytes);
     if (text !== null && text.startsWith("﻿")) text = text.slice(1);
     if (text === null) {
@@ -253,7 +259,7 @@ const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is st
 const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
 const strOr = (v: unknown, d = ""): string => (typeof v === "string" ? v : d);
 const ruleList = (v: unknown): RuleName[] => strs(v).filter((x): x is RuleName => (RULES as readonly string[]).includes(x));
-const stepList = (v: unknown): StepName[] => strs(v).filter((x): x is StepName => (STEP_NAMES as readonly string[]).includes(x));
+const stepList = (v: unknown): StepName[] => strs(v).filter((x): x is StepName => isStepName(x));
 
 /** A where result read back from JSON (the CLI renders the daemon's answer); null when it is not one. */
 export function whereResultOf(v: unknown): WhereResult | null {

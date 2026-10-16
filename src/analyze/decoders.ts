@@ -26,6 +26,10 @@
 // the text they claim is left out of the literal match on the document, which
 // still reports the value where the page shows it (a table cell).
 //
+// Decode plugins (0.6-B, docs/04 §26): a body with a decoded view is explored
+// from the plugin's plaintext, with `plugin:<name>` as the first step of the
+// chain (a prefix, like the HAR wire steps), ahead of the built-in steps.
+//
 // Guards: chain length <= MAX_DEPTH, each step's output <= STEP_CAP, a per-body
 // work budget (bytes produced + JSON leaves visited), duplicate decoded
 // payloads explored once, iterative JSON walk (no recursion on input depth).
@@ -40,7 +44,7 @@ export const MAX_LEAVES = 2_000_000;
 export const MIN_BASE64 = 12;
 export const SNIPPET_RADIUS = 80;
 
-export type StepName =
+export type BuiltinStep =
   | "gzip"
   | "br"
   | "deflate"
@@ -57,7 +61,18 @@ export type StepName =
   | "inline-assign"
   | "viewstate";
 
-export const STEP_NAMES: readonly StepName[] = [
+/** A decode plugin's view (0.6-B): `plugin:<plugin name>`. */
+export type PluginStep = `plugin:${string}`;
+export type StepName = BuiltinStep | PluginStep;
+
+const PLUGIN_STEP = /^plugin:[a-z0-9][a-z0-9_-]{0,63}$/;
+export const pluginStep = (name: string): PluginStep => `plugin:${name}`;
+export const isPluginStep = (s: string): s is PluginStep => PLUGIN_STEP.test(s);
+/** A built-in step name or a plugin step. */
+export const isStepName = (s: string): s is StepName => (STEP_NAMES as readonly string[]).includes(s) || isPluginStep(s);
+
+/** The built-in steps, in report order (plugin steps come first in a chain and are not listed). */
+export const STEP_NAMES: readonly BuiltinStep[] = [
   "gzip", "br", "deflate", "base64", "json", "json-unescape", "json-string", "urldecode", "html-entities", "jsonp", "sse", "ndjson",
   "script-json", "inline-assign", "viewstate",
 ];

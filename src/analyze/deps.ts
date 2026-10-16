@@ -30,6 +30,10 @@
 // Order: two requests compare on the monotonic clock (start `timing.start`,
 // set-cookie `timing.responseStart`, body `mono`, the end), the wall clock
 // only when one side has none (actions, unread bodies; docs/04 §6).
+// Decoded views (0.6-B, views.ts): a request body with a decode plugin's view
+// gives its inputs from the plaintext (JSON leaves / form fields), and a
+// response with a view is searched in the plaintext, its sources carrying
+// `plugin:<name>` first in `decode`. The original bytes are not read then.
 // Oracle: test/unit/deps.test.ts builds bundles with known value flows (each
 // case states the flow it plants); test/e2e/v04a.e2e.test.ts records docs/05
 // s06 and s07 on the range site, expected values from the site.
@@ -42,6 +46,7 @@ import { isSensitiveHeader, isSensitiveName } from "../bundle/redact.ts";
 import type { RawEvent, RequestEvent } from "../bundle/types.ts";
 import { classifyGroup, groupRequests, headerValues, singleSampleParams, splitKey, type DiffParam, type ParamLocation } from "./diff.ts";
 import { Explorer, STEP_CAP, baseMime, binaryMagic, isBinaryMime, jsonPathIndex, jsonPathKey, parseJsonDoc, type DecodeHit, type Matcher, type StepName } from "./decoders.ts";
+import { decodedPayload } from "./views.ts";
 
 export const DEPS_SCHEMA = "tabcap-deps/0";
 /** Shortest value matched by value alone (response body, action, set-cookie under another name). */
@@ -245,6 +250,17 @@ export function setCookiePairs(r: RequestEvent): { name: string; value: string }
 
 const SECRET = /^<secret:([^<>]+)>$/;
 
+/**
+ * The request as its inputs are read: with an ok decoded view of the request
+ * body, the view's blob stands in for the body (0.6-B). The event itself is
+ * not changed.
+ */
+function withDecodedBody(r: RequestEvent): RequestEvent {
+  const d = r.request.decoded;
+  if (d === undefined || !d.ok || d.blob === null) return r;
+  return { ...r, request: { ...r.request, postData: { blob: d.blob, size: d.bytes ?? 0 } } };
+}
+
 /** The dependency graph of one bundle; inputs are resolved on demand and memoised. */
 export class DepsGraph {
   readonly reader: BundleReader;
@@ -304,7 +320,7 @@ export class DepsGraph {
   private indexInputs(): void {
     const m = this.reader.manifest;
     const sessionKey = m.session.name !== "" ? m.session.name : m.id;
-    const { groups, cookieValues } = groupRequests([{ label: "b1", sessionKey, requests: this.requests, readBlob: (ref) => this.reader.readBlob(ref) }], (w) => this.warnings.push(w));
+    const { groups, cookieValues } = groupRequests([{ label: "b1", sessionKey, requests: this.requests.map((r) => withDecodedBody(r)), readBlob: (ref) => this.reader.readBlob(ref) }], (w) => this.warnings.push(w));
     for (const [key, g] of groups) {
       const params = g.samples.length >= 2 ? (classifyGroup(key, g, cookieValues, 1)?.params ?? []) : singleSampleParams(g);
       const byKey = new Map<string, DiffParam>();
@@ -399,19 +415,21 @@ export class DepsGraph {
     if (exact.size === 0) return;
     let budgetWarned = false;
     for (const r of this.requests) {
+      const view = decodedPayload(this.reader, r.response?.decoded);
       const body = r.response?.body;
-      if (body === undefined || body === null || body.size > STEP_CAP) continue;
-      const mime = r.response?.mimeType ?? null;
-      const binaryByType = r.type === "image" || r.type === "font" || r.type === "media";
+      if (view === null && (body === undefined || body === null || body.size > STEP_CAP)) continue;
+      const mime = view !== null ? view.mime : (r.response?.mimeType ?? null);
+      const binaryByType = view === null && (r.type === "image" || r.type === "font" || r.type === "media");
       if (isBinaryMime(mime) || (binaryByType && baseMime(mime) !== "image/svg+xml")) continue;
-      const bytes = this.reader.readBlob(body.blob);
+      const bytes = view !== null ? view.bytes : body === undefined || body === null ? null : this.reader.readBlob(body.blob);
       if (bytes === null || bytes.length > STEP_CAP || binaryMagic(bytes) !== null) continue;
+      const prefix = view?.prefix ?? [];
       const when: When = { t: r.ts, mono: finiteOrNull(r.mono), seq: r.seq };
       const active = new Set(exact);
       for (let run = 0; run < MAX_BODY_RUNS && active.size > 0; run++) {
         const embedded = new Set([...active].filter((v) => v.length >= MIN_EMBEDDED_LENGTH));
         const ex = new Explorer(setMatcher(active, embedded), { maxHits: 5000, record: false, entropyEligible: false });
-        const hits: DecodeHit[] = ex.exploreBytes(bytes, { mime });
+        const hits: DecodeHit[] = ex.exploreBytes(bytes, { mime }, prefix);
         if (ex.budgetExceeded && !budgetWarned) {
           this.warnings.push(`${r.id}: decode budget exhausted; response sources may be incomplete`);
           budgetWarned = true;

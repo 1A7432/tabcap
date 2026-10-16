@@ -16,6 +16,10 @@
 // `window.X = {…}` literal or viewstate field carries `node` (step, address,
 // script id / type); nodes that were not decoded (malformed, over a bound) are
 // listed in `searched.embedded`.
+// Decoded views (0.6-B, views.ts): a body with a decode plugin's view is
+// searched in the plaintext first (chain `[plugin:<name>, …]`); only when that
+// has no hit is the original searched too (never judged "looks encrypted").
+// `searched.decoders` counts the views as `plugin:<name>`.
 
 import { TabcapError } from "../shared/envelope.ts";
 import { num, str } from "../shared/json.ts";
@@ -30,6 +34,7 @@ import {
   decodeHtmlEntities,
   isBinaryMime,
   isCompressedMime,
+  isPluginStep,
   type DecodeHit,
   type EmbeddedSkip,
   type Matcher,
@@ -37,6 +42,7 @@ import {
   type OpaqueNode,
   type StepName,
 } from "./decoders.ts";
+import { decodedPayload, viewProblem } from "./views.ts";
 
 export const MAX_HITS = 50;
 /**
@@ -206,6 +212,12 @@ function toHitPaths(h: DecodeHit): { path: string | null; innerPath: string | nu
   return { path: first ?? null, innerPath: h.paths.length > 1 && last !== undefined ? last : null };
 }
 
+/** A decoded view searched: counted under its plugin step. */
+function countView(into: Partial<Record<StepName, number>>, prefix: readonly StepName[]): void {
+  const s = prefix[0];
+  if (s !== undefined) into[s] = (into[s] ?? 0) + 1;
+}
+
 function mergeStats(into: Partial<Record<StepName, number>>, from: Partial<Record<StepName, number>>): void {
   for (const k of STEP_NAMES) {
     const v = from[k];
@@ -319,8 +331,22 @@ export function find(bundleDir: string, text: string, opts: FindOptions = {}): F
       status: resp?.status ?? null,
       type: r.type,
     };
+    // decoded view of the response body (0.6-B): searched first
+    const rView = resp === null ? null : decodedPayload(reader, resp.decoded);
+    const rProblem = resp === null ? null : viewProblem(reader, resp.decoded);
+    if (rProblem !== null) skip(r.id, "response", rProblem.reason, rProblem.detail);
+    let rViewHit = false;
+    if (rView !== null) {
+      bodies++;
+      countView(decoders, rView.prefix);
+      const before = hits.length;
+      search({ ...base, part: "response", mime: rView.mime, payload: { bytes: rView.bytes }, prefix: rView.prefix, entropyEligible: true });
+      rViewHit = hits.length > before;
+    }
     // response body
-    if (resp === null || resp.body === null) {
+    if (rViewHit) {
+      // the plaintext answered; the original is not searched again
+    } else if (resp === null || resp.body === null) {
       const reason = resp?.bodyMissing?.reason ?? null;
       if (reason !== null) {
         missing[reason] = (missing[reason] ?? 0) + 1;
@@ -338,33 +364,44 @@ export function find(bundleDir: string, text: string, opts: FindOptions = {}): F
         else if (bytes.length > STEP_CAP) skip(r.id, "response", "too-large", `${bytes.length} bytes`);
         else if (binaryMagic(bytes) !== null) skip(r.id, "response", "binary", `magic:${binaryMagic(bytes) ?? ""}`);
         else {
-          bodies++;
+          if (rView === null) bodies++;
           search({
             ...base,
             part: "response",
             mime,
             payload: { bytes },
             prefix: wirePrefix(imported, body.wireEncoding, body.decodeFailed === true),
-            entropyEligible: !isCompressedMime(mime),
+            entropyEligible: rView === null && !isCompressedMime(mime),
           });
         }
       }
     }
-    // request body
-    const pd = r.request.postData;
+    // request body (decoded view first, as for the response)
+    const qView = decodedPayload(reader, r.request.decoded);
+    const qProblem = viewProblem(reader, r.request.decoded);
+    if (qProblem !== null) skip(r.id, "request-body", qProblem.reason, qProblem.detail);
+    let qViewHit = false;
+    if (qView !== null) {
+      bodies++;
+      countView(decoders, qView.prefix);
+      const before = hits.length;
+      search({ ...base, part: "request-body", mime: qView.mime, payload: { bytes: qView.bytes }, prefix: qView.prefix, entropyEligible: true });
+      qViewHit = hits.length > before;
+    }
+    const pd = qViewHit ? null : r.request.postData;
     if (pd !== null) {
       const mime = headerValue(r.request.headers, "content-type");
       if ("inline" in pd) {
-        bodies++;
-        search({ ...base, part: "request-body", mime, payload: { text: pd.inline }, prefix: [], entropyEligible: !isCompressedMime(mime) });
+        if (qView === null) bodies++;
+        search({ ...base, part: "request-body", mime, payload: { text: pd.inline }, prefix: [], entropyEligible: qView === null && !isCompressedMime(mime) });
       } else {
         const bytes = reader.readBlob(pd.blob);
         if (bytes === null) skip(r.id, "request-body", "blob-missing", pd.blob);
         else if (bytes.length > STEP_CAP) skip(r.id, "request-body", "too-large", `${bytes.length} bytes`);
         else if (isBinaryMime(mime) || binaryMagic(bytes) !== null) skip(r.id, "request-body", "binary", baseMime(mime) || "magic");
         else {
-          bodies++;
-          search({ ...base, part: "request-body", mime, payload: { bytes }, prefix: [], entropyEligible: !isCompressedMime(mime) });
+          if (qView === null) bodies++;
+          search({ ...base, part: "request-body", mime, payload: { bytes }, prefix: [], entropyEligible: qView === null && !isCompressedMime(mime) });
         }
       }
     }
@@ -534,7 +571,8 @@ export function renderFindText(r: FindResult): string {
     lines.push(`    ${oneLine(h.snippet)}`);
   }
   const s = r.searched;
-  const dec = STEP_NAMES.filter((k) => (s.decoders[k] ?? 0) > 0)
+  const pluginKeys = (Object.keys(s.decoders) as StepName[]).filter((k) => isPluginStep(k)).sort();
+  const dec = [...pluginKeys, ...STEP_NAMES.filter((k) => (s.decoders[k] ?? 0) > 0)]
     .map((k) => `${k}=${s.decoders[k] ?? 0}`)
     .join(" ");
   const sk = (Object.keys(s.skipped) as SkipReason[]).filter((k) => s.skipped[k] > 0).map((k) => `${k} ${s.skipped[k]}`).join(", ");
