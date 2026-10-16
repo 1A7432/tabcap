@@ -13,6 +13,12 @@
 - 解码插件可以回答「不是我的正文」：线路上 `{"id":N,"declined":true}`。不写视图，也不算失败（不再计入让插件停用的三次失败）。Python runner 在 `decode()` 返回 `None` 时发这个回答；以前这会写成一条 `ok: false` 的视图（「plugin.decode returned None」）。录制与 `tabcap bundle decode` 规则相同；`bundle decode` 在 `decoded` / `failed` 旁边报 `declined`（所有匹配插件都放弃的侧数）和 `declinedBy`（按插件）。「是我的但解坏了」的正文请抛异常，那仍是失败视图。
 - `templates/plugins/decode-python/` 现在随发布包和 npm 包一起带（全局安装后在 `$(npm root -g)/tabcap/templates/plugins/decode-python/`），skill 的分析参考里写了它的位置。
 
+### click 的弹窗 effect 与会话残留（0.6-R）
+
+- **`click` 报弹窗**：默认（DOM）`click` 打开了页面（`window.open`、新窗口：opener 是被点标签的 page target，它以 `popup` 标签进会话）时，回答是 `effect: "popup"` 加 `popup: {tab, url}`（会话里的标签 id；知道时带地址），`note` 指向 `--tab <id>` / `tab select <id>`。以前报 `effect: "none"` 并建议 `--trusted`。弹窗优先于其余几种效果，只报第一个。
+- **`fill --secret` 要求会话已绑站点**：没被 `session start --site` 绑过的会话（`net start`、`navigate` 建的，包括 `session start --site` 失败之后建的）里，`fill --secret` 在碰页面之前报 `not-found`，`next` 给 `tabcap session stop <name>`，再 `tabcap session start <name> --site <site>`。以前会悄悄填该站点的第一个账号。`net start`、`navigate` 仍隐式建会话。
+- **`session start --site` 失败不留残留**：错误里说明会话没有启动；账号的浏览器上下文开了之后再失败，上下文会被销毁，后来同名的隐式会话不会把标签开进去。
+
 ### README 重写
 
 - 两份 README 改回给人读的样子：是什么、为什么、快速开始、做什么、命令分组一览、同类对照、边界、平台、文档。生成的全量命令表从 README 里拿掉，完整参考只在 `skills/tabcap/references/commands.md`（`bun run gen:docs` 现在只写这一个文件）。

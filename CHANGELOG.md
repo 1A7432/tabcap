@@ -13,6 +13,12 @@ English | [中文](CHANGELOG.zh-CN.md)
 - A decode plugin can now say "not my body": the wire answer `{"id":N,"declined":true}`. No view is written and it is not a failure (it no longer counts toward the three failures that disable a plugin). The Python runner sends it when `decode()` returns `None`; before, that was written as an `ok: false` view ("plugin.decode returned None"). Recording and `tabcap bundle decode` follow the same rule; `bundle decode` reports `declined` (sides every matching plugin declined) and `declinedBy` (per plugin) beside `decoded` / `failed`. Raise an exception for a body that is yours but broken: that stays a failed view.
 - `templates/plugins/decode-python/` now ships in the release archives and the npm package (`$(npm root -g)/tabcap/templates/plugins/decode-python/` after a global install), and the skill's analysis reference says where it is.
 
+### click popup effect and session leftovers (0.6-R)
+
+- **`click` reports a popup**: a default (DOM) `click` that opens a page (window.open, a new window: a page target whose opener is the clicked tab, which joins the session as a `popup` tab) now answers `effect: "popup"` with `popup: {tab, url}` (the session's tab id; the URL once known) and a `note` that points to `--tab <id>` / `tab select <id>`. It used to say `effect: "none"` and suggest `--trusted`. A popup outranks the other effects; only the first one is reported.
+- **`fill --secret` needs a bound session**: in a session that no `session start --site` bound (one made by `net start` or `navigate`, also after a failed `session start --site`), `fill --secret` now fails with `not-found` before touching the page, and `next` says `tabcap session stop <name>`, then `tabcap session start <name> --site <site>`. It used to fill the site's first account silently. `net start` and `navigate` still create sessions implicitly.
+- **A failed `session start --site` leaves nothing behind**: its error says the session was not started, and an account browser context opened before a later failure is disposed again, so no later implicit session of that name opens tabs in it.
+
 ### README rewritten
 
 - Both READMEs are written for a reader again: what it is, why, a quick start, what it does, a one-table overview of the command groups, the comparison, boundaries, platforms, docs. The generated table of every command left the README; the full reference stays in `skills/tabcap/references/commands.md` (the only file `bun run gen:docs` writes now).
