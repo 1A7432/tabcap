@@ -96,11 +96,6 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap handoff status` | is the session handed to the human? state running \| waiting \| resumed, reason, screenshot, handler answers |
 | `tabcap handoff continue` | end a waiting state after the human finished in the browser (run it only when they say so) |
 | `tabcap guard resume --site <site>` | resume fetches: let `tabcap fetch` send to a site again after one of its stop rules fired (decide first: look at the stopped response) |
-| `tabcap trace start [--apis file] [--stack n] [--first-n n] [--max-hits n]` | trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable |
-| `tabcap trace stop` | end trace mode: breakpoints removed, debugger off, open documents written to the recording |
-| `tabcap trace status` | trace mode state: on \| paused (handoff) \| off, active APIs, names skipped in this browser, per-document read counts |
-| `tabcap trace list [--api name] [--script url] [--text] [--reveal]` | API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded |
-| `tabcap fingerprint probe [--ref name] [--text]` | the values this browser presents for a fixed signal list (navigator, UA client hints, screen, time zone, canvas / audio hashes, WebGL, voices, fonts, permissions, media queries): the probe page in a new background tab, closed afterwards; while recording, a `state` env event in the bundle. Read-only |
 | `tabcap plugin list` | challenge handlers and decode plugins installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, kind, hooks / match, enabled, errors |
 | `tabcap plugin enable <name>` | opt a plugin in: a challenge handler is asked before a challenge goes to the human; a decode plugin decodes matching bodies of recordings started from now on |
 | `tabcap plugin disable <name>` | stop using this handler or decode plugin |
@@ -118,6 +113,18 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap replay session [<bundle>] --out <file> [--site site]` | write the recording's cookies (latest state snapshot), or with --site and no bundle the store's saved session, as a Playwright storageState file, mode 0600; it holds live session cookies, values are never printed |
 | `tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--browser-headers] [--proxy-env file]` | generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs |
 | `tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--json]` | send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference |
+| `tabcap mcp [--print-config host] [--all-tools]` | serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human |
+| `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
+
+**诊断（可选）**
+
+| 命令 | 作用 |
+|---|---|
+| `tabcap trace start [--apis file] [--stack n] [--first-n n] [--max-hits n]` | trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable |
+| `tabcap trace stop` | end trace mode: breakpoints removed, debugger off, open documents written to the recording |
+| `tabcap trace status` | trace mode state: on \| paused (handoff) \| off, active APIs, names skipped in this browser, per-document read counts |
+| `tabcap trace list [--api name] [--script url] [--text] [--reveal]` | API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded |
+| `tabcap fingerprint probe [--ref name] [--text]` | the values this browser presents for a fixed signal list (navigator, UA client hints, screen, time zone, canvas / audio hashes, WebGL, voices, fonts, permissions, media queries): the probe page in a new background tab, closed afterwards; while recording, a `state` env event in the bundle. Read-only |
 | `tabcap wire serve [--port port] [--capture-dir dir]` | local TLS echo on 127.0.0.1 until Ctrl-C (prints {url, port, caPath} first): answers every request with the wire report of its own connection (TLS ClientHello, JA3 / JA4, HTTP/2 settings and frames, header order) as JSON; trust it with the CA from `tabcap wire ca-path` |
 | `tabcap wire version` | version, path and sha256 of the native wire component (extracted from the tabcap binary into the cache on first use) |
 | `tabcap wire ca-path` | path of the wire echo's CA certificate (a test CA for 127.0.0.1 only), for clients that verify TLS |
@@ -128,8 +135,6 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap fingerprint ref show <name>` | one saved reference with all its fields |
 | `tabcap fingerprint ref remove <name>` | delete a saved reference |
 | `tabcap fingerprint diff <bundle> --ref <name> [--text]` | the last `state` env event of a bundle (from `fingerprint probe`) against a saved reference, offline: the same output as `fingerprint probe --ref` |
-| `tabcap mcp [--print-config host] [--all-tools]` | serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human |
-| `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
 <!-- END GENERATED: commands -->
 
 ## 它是什么

@@ -14,6 +14,7 @@
 - **新的 deps 类 `caller-input`**：没有来源、不是 cookie、不像签名（`looks-signature` / `looks-random`）、名字不敏感，且名字在固定表里（page、pageSize、limit、offset、from、to、period、year、month、groupBy、sort、q …，表见 docs/04 §15）或录到的值都是普通值（6 位以下的数字、true / false、日期、一个短单词）。它不算 `unresolved`；`analyze chain` 把它列在新的 `inputs` 里而不是 `todo`；`replay export-python`（链模式）把它生成为普通参数、默认值是录到的值，不带 TODO。其余照旧 `computed-in-page`。靶场 s06 的 `q` / `page` 现在是 `caller-input`；新靶场页 s53（token 接口，然后 `Authorization: Bearer`）覆盖前缀。
 - **实时输出打码**：`net show`、`net list`、`net body`、`fetch`（含 `POST /fetch`）、`recon`、`trace list` 按 `bundle redact` 的名字规则（default@2）把值显示成 `<redacted:<名字>>`：名字敏感的头（`authorization`、`x-api-key`、`*token*`、`*auth*`、`*session*` 及名字规则）、每个 cookie / set-cookie 的值（名字和属性保留）、名字敏感的 query 与请求体字段（URL、`location`、postData、档案里的 URL、trace 的脚本 URL）。`x-csrf` 不算敏感。整值是库里秘密的仍显示 `<secret:…>`。这些命令加 **`--reveal`**（`POST /fetch` 用 `reveal: true`）打印录到的原值。证据包不变（它就是证据），HAR 导出照旧打码。
 - **`replay export-python` 少发头**：默认每个函数只发浏览器不会自己加的请求头：`content-type`、`authorization`、不是 Chrome 默认值的 `accept`、与请求不同源的 `referer`，以及浏览器默认头表以外的头（自定义 `x-*` …）；`user-agent`、`accept-language`、`origin`、`sec-ch-ua*`、`sec-fetch-*`、`priority`、缓存与条件请求头都不发，也不为它们生成参数。**`--browser-headers`** 恢复原来的输出。头表与 `session export` 用的是同一张（移到 `replay/common.ts`）；`client.py` 开头写明按哪种方式生成。
+- **帮助索引**：诊断命令（`trace`、`fingerprint`、`wire`）归到 `tabcap --help` 末尾的 `Diagnostics (optional)` 组（`tabcap help diagnostics`），排在 `Other` 之后；README 的生成表把它们放进表尾单独的小表，`references/commands.md` 里是最后一节。MCP 核心集与 SKILL.md 本来就不含它们（未改）。
 
 ### 会话导出（0.6-F）
 

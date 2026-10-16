@@ -1108,31 +1108,36 @@ export function usageOf(c: CommandSpec, skip: readonly string[] = []): string {
 /**
  * Command groups of the help index and the generated reference
  * (scripts/gen-docs.ts): id (for `tabcap help <id>`), title, members.
+ * `last`: the group comes after the leftover "Other" group, at the very end
+ * (0.6-E: the optional diagnostics, which the MCP core set and SKILL.md leave out).
  */
-export const COMMAND_GROUPS: ReadonlyArray<{ id: string; title: string; test: (c: CommandSpec) => boolean }> = [
+export const COMMAND_GROUPS: ReadonlyArray<{ id: string; title: string; test: (c: CommandSpec) => boolean; last?: true }> = [
   { id: "lifecycle", title: "Setup and lifecycle", test: (c) => ["setup", "daemon", "browser", "mcp"].includes(c.path[0] ?? "") },
   { id: "sessions", title: "Sites, sessions and tabs", test: (c) => ["site", "session", "tab"].includes(c.path[0] ?? "") },
   { id: "page", title: "Navigation and page reading", test: (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "") },
   { id: "input", title: "Input", test: (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "") },
   { id: "tools", title: "Page tools", test: (c) => ["evaluate", "screenshot", "resize", "emulate", "console"].includes(c.path[0] ?? "") },
   { id: "network", title: "Network recording", test: (c) => c.path[0] === "net" || c.path[0] === "where" || c.path[0] === "recon" || c.path[0] === "fetch" },
-  { id: "trace", title: "Trace mode (signal reads)", test: (c) => c.path[0] === "trace" },
   { id: "handoff", title: "Handoff and challenge handlers", test: (c) => ["handoff", "plugin", "guard"].includes(c.path[0] ?? "") },
   { id: "offline", title: "Offline: bundles, analysis, replay", test: (c) => ["bundle", "analyze", "replay", "schema"].includes(c.path[0] ?? "") },
+  { id: "diagnostics", title: "Diagnostics (optional)", test: (c) => ["trace", "fingerprint", "wire"].includes(c.path[0] ?? ""), last: true },
 ];
 
-/** Current commands by group, in registry order; leftovers go to a last "Other" group. */
-export function groupedCommands(): { id: string; title: string; commands: CommandSpec[] }[] {
+/** The id of the group that collects commands no group claims. */
+export const OTHER_GROUP = "other";
+
+/** Current commands by group, in registry order; leftovers go to an "Other" group after the regular groups, before the `last` ones. */
+export function groupedCommands(): { id: string; title: string; commands: CommandSpec[]; last: boolean }[] {
   const cmds = currentCommands();
   const used = new Set<CommandSpec>();
-  const out = COMMAND_GROUPS.map((g) => {
+  const all = COMMAND_GROUPS.map((g) => {
     const mine = cmds.filter((c) => g.test(c) && !used.has(c));
     for (const c of mine) used.add(c);
-    return { id: g.id, title: g.title, commands: mine };
+    return { id: g.id, title: g.title, commands: mine, last: g.last === true };
   });
   const rest = cmds.filter((c) => !used.has(c));
-  if (rest.length > 0) out.push({ id: "other", title: "Other", commands: rest });
-  return out;
+  const other = rest.length > 0 ? [{ id: OTHER_GROUP, title: "Other", commands: rest, last: false }] : [];
+  return [...all.filter((g) => !g.last), ...other, ...all.filter((g) => g.last)];
 }
 
 export const INDEX_SUMMARY_CHARS = 56;

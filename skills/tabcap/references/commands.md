@@ -787,62 +787,6 @@ Example: `tabcap recon --text`
 | `--text` |  | print the Markdown dossier instead of the JSON envelope |
 | `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
-## Trace mode (signal reads)
-
-### `tabcap trace start`
-
-trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable
-
-```
-tabcap trace start [--session name] [--apis file] [--stack n] [--first-n n] [--max-hits n]
-```
-
-Example: `tabcap trace start`
-
-| Option | Default | Meaning |
-|---|---|---|
-| `--apis <file>` |  | signal list file: a JSON array of API names in IDL form (else ~/.config/tabcap/signals.json, else the built-in list) |
-| `--stack <n>` | `8` | stack frames kept per signal event |
-| `--first-n <n>` | `20` | signal events with a stack per (api, caller); later ones only count |
-| `--max-hits <n>` | `500` | reads of one API in one document before its breakpoint is removed (the event gets truncated: true) |
-
-### `tabcap trace stop`
-
-end trace mode: breakpoints removed, debugger off, open documents written to the recording
-
-```
-tabcap trace stop [--session name]
-```
-
-Example: `tabcap trace stop`
-
-### `tabcap trace status`
-
-trace mode state: on | paused (handoff) | off, active APIs, names skipped in this browser, per-document read counts
-
-```
-tabcap trace status [--session name]
-```
-
-Example: `tabcap trace status`
-
-### `tabcap trace list`
-
-API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded
-
-```
-tabcap trace list [--session name] [--api name] [--script url] [--text] [--reveal]
-```
-
-Example: `tabcap trace list --api Navigator.prototype.userAgent`
-
-| Option | Default | Meaning |
-|---|---|---|
-| `--api <name>` |  | only this API (exact name, e.g. Navigator.prototype.userAgent) |
-| `--script <url>` |  | only scripts whose URL contains this text |
-| `--text` |  | print a text report instead of JSON |
-| `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
-
 ## Handoff and challenge handlers
 
 ### `tabcap handoff status`
@@ -1295,6 +1239,62 @@ Example: `tabcap html e12 --inner`
 | `--text` |  | textContent instead of markup |
 | `--attrs` |  | only the element's attributes, as an object |
 | `--max-chars <n>` | `4000` | cut the markup / text (each attribute value with --attrs); `truncated` and `chars` (the whole length) say so |
+
+## Diagnostics (optional)
+
+### `tabcap trace start`
+
+trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable
+
+```
+tabcap trace start [--session name] [--apis file] [--stack n] [--first-n n] [--max-hits n]
+```
+
+Example: `tabcap trace start`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--apis <file>` |  | signal list file: a JSON array of API names in IDL form (else ~/.config/tabcap/signals.json, else the built-in list) |
+| `--stack <n>` | `8` | stack frames kept per signal event |
+| `--first-n <n>` | `20` | signal events with a stack per (api, caller); later ones only count |
+| `--max-hits <n>` | `500` | reads of one API in one document before its breakpoint is removed (the event gets truncated: true) |
+
+### `tabcap trace stop`
+
+end trace mode: breakpoints removed, debugger off, open documents written to the recording
+
+```
+tabcap trace stop [--session name]
+```
+
+Example: `tabcap trace stop`
+
+### `tabcap trace status`
+
+trace mode state: on | paused (handoff) | off, active APIs, names skipped in this browser, per-document read counts
+
+```
+tabcap trace status [--session name]
+```
+
+Example: `tabcap trace status`
+
+### `tabcap trace list`
+
+API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded
+
+```
+tabcap trace list [--session name] [--api name] [--script url] [--text] [--reveal]
+```
+
+Example: `tabcap trace list --api Navigator.prototype.userAgent`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--api <name>` |  | only this API (exact name, e.g. Navigator.prototype.userAgent) |
+| `--script <url>` |  | only scripts whose URL contains this text |
+| `--text` |  | print a text report instead of JSON |
+| `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ### `tabcap fingerprint probe`
 

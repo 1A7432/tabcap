@@ -18,10 +18,18 @@ export const README_ZH_FILE = "README.zh-CN.md";
 
 const cell = (s: string) => s.replace(/\|/g, "\\|");
 
-/** Markdown table of every current command: usage (common flags left out) and one-line help. */
-export function commandTable(header: [string, string]): string {
-  const rows = currentCommands().map((c) => `| \`${cell(usageOf(c, COMMON_FLAGS))}\` | ${cell(c.summary)} |`);
-  return [`| ${header[0]} | ${header[1]} |`, "|---|---|", ...rows].join("\n");
+/**
+ * Markdown table of every current command: usage (common flags left out) and one-line help, in registry
+ * order; the commands of the `last` groups (0.6-E: Diagnostics (optional)) follow in their own table under
+ * that group's title (`titles` translates it for the Chinese README).
+ */
+export function commandTable(header: [string, string], titles: Readonly<Record<string, string>> = {}): string {
+  const row = (c: CommandSpec) => `| \`${cell(usageOf(c, COMMON_FLAGS))}\` | ${cell(c.summary)} |`;
+  const head = [`| ${header[0]} | ${header[1]} |`, "|---|---|"];
+  const trailing = groupedCommands().filter((g) => g.last && g.commands.length > 0);
+  const later = new Set(trailing.flatMap((g) => g.commands));
+  const main = [...head, ...currentCommands().filter((c) => !later.has(c)).map(row)].join("\n");
+  return [main, ...trailing.map((g) => [`**${titles[g.id] ?? g.title}**`, "", ...head, ...g.commands.map(row)].join("\n"))].join("\n\n");
 }
 
 function flagValue(f: FlagSpec): string {
@@ -96,13 +104,13 @@ export function replaceGenerated(text: string, name: string, body: string): stri
 
 /** The files as they should be, given their current hand-written parts. */
 export function generatedDocs(root: string = ROOT): { file: string; current: string; wanted: string }[] {
-  const spec: [string, [string, string]][] = [
-    [README_FILE, ["Command", "What it does"]],
-    [README_ZH_FILE, ["命令", "作用"]],
+  const spec: [string, [string, string], Record<string, string>][] = [
+    [README_FILE, ["Command", "What it does"], {}],
+    [README_ZH_FILE, ["命令", "作用"], { diagnostics: "诊断（可选）" }],
   ];
-  const tables = spec.map(([file, header]) => {
+  const tables = spec.map(([file, header, titles]) => {
     const current = readFileSync(join(root, file), "utf8");
-    return { file, current, wanted: replaceGenerated(current, "commands", commandTable(header)) };
+    return { file, current, wanted: replaceGenerated(current, "commands", commandTable(header, titles)) };
   });
   const ref = join(root, REFERENCE_FILE);
   let current = "";

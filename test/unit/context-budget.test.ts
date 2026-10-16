@@ -16,6 +16,7 @@ import { OUTLINE_MAX_CHARS } from "../../src/daemon/tools/outline.ts";
 import { DEFAULT_PAGE_SIZE } from "../../src/shared/pagination.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { SAMPLE_FIXTURE_DIR } from "./_fixtures.ts";
+import { CORE } from "../../src/mcp/tools.ts";
 import { SLOW_IO_MS } from "./_platform.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "tabcap-budget-"));
@@ -262,7 +263,17 @@ describe("help index (tabcap --help) and tabcap help <command|group>", () => {
     for (const n of names) expect(lines.filter((l) => l.startsWith(`  ${n}  `)).length).toBe(1);
     const titles = text.split("\n").filter((l) => /^[A-Z].*\[[a-z]+\]:$/.test(l));
     expect(titles.map((t) => t.replace(/ \[[a-z]+\]:$/, ""))).toEqual(groupedCommands().map((g) => g.title));
-    expect(groupedCommands().slice(0, COMMAND_GROUPS.length).map((g) => g.id)).toEqual(COMMAND_GROUPS.map((g) => g.id));
+    // regular groups in table order, then the leftover "Other", then the `last` groups (0.6-E: diagnostics at the end)
+    const ids = groupedCommands().map((g) => g.id);
+    const regular = COMMAND_GROUPS.filter((g) => g.last !== true).map((g) => g.id);
+    expect(ids).toEqual([...regular, ...(ids.includes("other") ? ["other"] : []), ...COMMAND_GROUPS.filter((g) => g.last === true).map((g) => g.id)]);
+    expect(ids[ids.length - 1]).toBe("diagnostics");
+    expect(groupedCommands().find((g) => g.id === "diagnostics")?.title).toBe("Diagnostics (optional)");
+    // the MCP core set and SKILL.md leave the diagnostics out (0.6-E: verified, unchanged)
+    const DIAG = ["trace", "fingerprint", "wire"];
+    expect(Object.keys(CORE).filter((k) => DIAG.includes(k.split(" ")[0] ?? ""))).toEqual([]);
+    const skill = readFileSync(join(import.meta.dir, "..", "..", "skills", "tabcap", "SKILL.md"), "utf8");
+    for (const w of DIAG) expect([w, new RegExp(`tabcap ${w}\\b|\`${w} [a-z]`).test(skill)]).toEqual([w, false]);
     expect(text).not.toContain("daemon run");
   });
 
