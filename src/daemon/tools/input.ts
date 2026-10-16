@@ -27,6 +27,9 @@ import { withPostWait } from "./settle.ts";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { coveredBy, coveredError } from "../adapters/runtime.ts";
+import { chainTo, placeChain, rawFrames } from "../browser/frames.ts";
+import { parseFramePath, type FrameBinding } from "../browser/refs.ts";
+import { rootDoc, type FrameDoc } from "../browser/worlds.ts";
 import { log } from "../../shared/log.ts";
 import { CdpTimeoutError } from "../transport/direct/cdp.ts";
 import { keyEventParams, planClick, planTyping, type ClickPlan, type Point, type Rng } from "./inputplan.ts";
@@ -105,23 +108,117 @@ export const FOCUS_SELECT_FN = `function () { ${ELEMENT} ${LIVE}
   return { kind: "unsupported", tag: el.tagName.toLowerCase(), type, ac };
 }`;
 
-// The focused element, through open shadow roots. `none`: nothing editable has
-// focus (Chrome moves focus to <body> when the focused node is removed), so
-// Input.insertText would go nowhere; `connected` is the node's own isConnected.
-export const ACTIVE_FN = `(() => {
-  let el = document.activeElement;
-  for (let i = 0; el && el.shadowRoot && el.shadowRoot.activeElement && i < 16; i++) el = el.shadowRoot.activeElement;
-  const top = !el || el === document.body || el === document.documentElement;
-  const editable = !!el && (el.isContentEditable || document.designMode === "on");
-  return { connected: !!el && el.isConnected, none: top && !editable, tag: el ? el.tagName.toLowerCase() : null, type: el ? el.getAttribute("type") : null, ac: el ? el.getAttribute("autocomplete") : null };
+// The focused element, through open shadow roots and (0.4-I) same-origin
+// frames. `none`: nothing editable has focus (Chrome moves focus to <body>
+// when the focused node is removed), so Input.insertText would go nowhere;
+// `connected` is the node's own isConnected. `cross`: focus is inside a frame
+// this document cannot look into (out of process); the caller continues in
+// that frame's session. `el: true` returns the element itself instead.
+const activeExpr = (el: boolean) => `(() => {
+  let doc = document, el = doc.activeElement;
+  for (let hop = 0; hop < 16; hop++) {
+    for (let i = 0; el && el.shadowRoot && el.shadowRoot.activeElement && i < 16; i++) el = el.shadowRoot.activeElement;
+    if (!el || (el.tagName !== "IFRAME" && el.tagName !== "FRAME")) break;
+    let inner = null;
+    try { inner = el.contentDocument; } catch (e) { inner = null; }
+    if (!inner) ${el ? "return el;" : `return { cross: true, connected: !!el.isConnected, none: false, tag: el.tagName.toLowerCase(), type: null, ac: null };`}
+    doc = inner;
+    el = doc.activeElement;
+  }
+  ${
+    el
+      ? "return null;"
+      : `const top = !el || el === doc.body || el === doc.documentElement;
+  const editable = !!el && (el.isContentEditable || doc.designMode === "on");
+  return { connected: !!el && el.isConnected, none: top && !editable, tag: el ? el.tagName.toLowerCase() : null, type: el ? el.getAttribute("type") : null, ac: el ? el.getAttribute("autocomplete") : null };`
+  }
 })()`;
+export const ACTIVE_FN = activeExpr(false);
+const ACTIVE_FRAME_EL = activeExpr(true);
 
-async function call(t: Transport, tab: Tab, objectId: string, fn: string, args: unknown[] = [], byValue = true): Promise<Record<string, unknown>> {
+/** Runtime.callFunctionOn on a node through the session that owns its document. */
+async function call(t: Transport, sessionId: string, objectId: string, fn: string, args: unknown[] = [], byValue = true): Promise<Record<string, unknown>> {
   return t.send(
     "Runtime.callFunctionOn",
     { objectId, functionDeclaration: fn, arguments: args.map((value) => ({ value })), returnByValue: byValue, userGesture: true },
-    tab.sessionId,
+    sessionId,
   );
+}
+
+/**
+ * A node an input command acts on: its JS object, backend id, and (0.4-I) the
+ * session owning its document and its frame (absent / null: the root document).
+ */
+export type InputNode = { objectId: string; backendNodeId: number; sessionId?: string; frame?: FrameBinding | null };
+
+const sessionOf = (tab: Tab, node: InputNode): string => node.sessionId ?? tab.sessionId;
+const frameOf = (node: InputNode): FrameBinding | null => node.frame ?? null;
+
+/** `frame` of an input command's output: the frame path of a frame ref (root refs: nothing). */
+const frameField = (node: InputNode): Record<string, string> => {
+  const f = frameOf(node);
+  return f === null ? {} : { frame: f.path };
+};
+
+/** An ancestor frame on the way from the root to a ref's frame: its document and the owner element of the next frame down. */
+type Ancestor = { doc: FrameDoc; binding: FrameBinding | null; owner: number; origin: Point };
+
+/**
+ * Where a frame ref's document sits (docs/07 §1.1): `space` is the top-level
+ * position of the viewport its box models are measured in, `origin` the
+ * top-level position of the frame's own viewport, `ancestors` the documents
+ * above it (root first) with the owner element of the next frame. The root
+ * document needs no CDP call.
+ */
+type Place = { space: Point; origin: Point; ancestors: Ancestor[] };
+
+async function placeOf(t: Transport, tab: Tab, node: InputNode, ref: string): Promise<Place> {
+  const f = frameOf(node);
+  if (f === null) return { space: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, ancestors: [] };
+  const chain = chainTo(await rawFrames(t, tab), f.frameId);
+  const depth = parseFramePath(f.path)?.length ?? -1;
+  if (chain === null || chain.length !== depth + 1) throw new TabcapError("stale-ref", `ref ${ref} expired: frame ${f.path} is no longer where the snapshot saw it`, "run snapshot again (`tabcap snapshot --frames`) and use the new ref.");
+  const at = await placeChain(t, chain);
+  const root = await docIdentity(t, tab);
+  const parts = f.path.split("/");
+  const ancestors: Ancestor[] = [];
+  for (let i = 0; i + 1 < chain.length; i++) {
+    const p = chain[i];
+    const owner = at.owner[i + 1];
+    if (p === undefined || owner === undefined || owner === null) continue;
+    const path = parts.slice(0, i).join("/");
+    ancestors.push({
+      doc: i === 0 ? rootDoc(tab, root) : { frameId: p.frameId, loaderId: p.loaderId, url: p.url, sessionId: p.sessionId },
+      binding: i === 0 ? null : { path, frameId: p.frameId, sessionId: p.sessionId, loaderId: p.loaderId },
+      owner,
+      origin: at.origin[i] ?? { x: 0, y: 0 },
+    });
+  }
+  return { space: at.space.at(-1) ?? { x: 0, y: 0 }, origin: at.origin.at(-1) ?? { x: 0, y: 0 }, ancestors };
+}
+
+/**
+ * Trusted input into a frame: the point must hit the target in its own
+ * document (frame-local coordinates) and, in every ancestor document, the
+ * owner element of the frame below. A miss is reported like a covered target.
+ */
+async function occlusionChain(t: Transport, tab: Tab, node: InputNode, ref: string, to: Point, place: Place): Promise<void> {
+  const local = { x: to.x - place.origin.x, y: to.y - place.origin.y };
+  const occ = rec(callResult(await call(t, sessionOf(tab, node), node.objectId, OCCLUSION_FN, [local.x, local.y])));
+  if (occ["ok"] !== true) {
+    throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(to.x)}, ${Math.round(to.y)}) by ${str(occ, "hit") ?? "nothing"}`, "Close the overlay first (snapshot to find it), or use plain `tabcap click <ref>` (DOM click).");
+  }
+  for (const a of [...place.ancestors].reverse()) {
+    const r = await t.send("DOM.resolveNode", { backendNodeId: a.owner }, a.doc.sessionId, 5000).catch(() => null);
+    const obj = r !== null && isRecord(r["object"]) ? r["object"] : null;
+    const oid = obj === null ? null : str(obj, "objectId");
+    if (oid === null) throw new TabcapError("stale-ref", `ref ${ref} expired: its frame's owner element is gone`, "run snapshot again (`tabcap snapshot --frames`) and use the new ref.");
+    const v = rec(callResult(await call(t, a.doc.sessionId, oid, OCCLUSION_FN, [to.x - a.origin.x, to.y - a.origin.y])));
+    if (v["ok"] !== true) {
+      const where = a.binding === null ? "the root document" : `frame ${a.binding.path}`;
+      throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(to.x)}, ${Math.round(to.y)}) by ${str(v, "hit") ?? "nothing"} in ${where}`, "Close the overlay first (snapshot to find it), or use plain `tabcap click <ref>` (DOM click).");
+    }
+  }
 }
 
 function rec(v: unknown): Record<string, unknown> {
@@ -140,11 +237,22 @@ export function liveOrStale(v: Record<string, unknown>, ref: string): Record<str
  * close-button refs; tabcap never closes overlays itself. If the check itself
  * fails the action goes on as before and the output says `overlayCheck: "skipped"`.
  */
-async function overlayGate(t: Transport, tab: Tab, node: { objectId: string; backendNodeId: number }, ref: string): Promise<"clear" | "skipped"> {
-  liveOrStale(rec(callResult(await call(t, tab, node.objectId, SCROLL_FN))), ref);
+async function overlayGate(t: Transport, tab: Tab, node: InputNode, ref: string): Promise<"clear" | "skipped"> {
+  liveOrStale(rec(callResult(await call(t, sessionOf(tab, node), node.objectId, SCROLL_FN))), ref);
   let cover;
   try {
-    cover = await coveredBy(t, tab, await docIdentity(t, tab), node.backendNodeId);
+    const f = frameOf(node);
+    const root = await docIdentity(t, tab);
+    const own: FrameDoc = f === null ? rootDoc(tab, root) : { frameId: f.frameId, loaderId: f.loaderId, url: "", sessionId: f.sessionId };
+    cover = await coveredBy(t, tab, own, node.backendNodeId, undefined, f);
+    // 0.4-I: a frame ref is also covered when an overlay of an ancestor document covers the frame's owner element.
+    if (cover === null && f !== null) {
+      const place = await placeOf(t, tab, node, ref);
+      for (const a of [...place.ancestors].reverse()) {
+        cover = await coveredBy(t, tab, a.doc, a.owner, undefined, a.binding);
+        if (cover !== null) break;
+      }
+    }
   } catch (e) {
     if (e instanceof TabcapError && e.code === "stale-ref") throw e;
     log.warn("overlay check failed", { tab: tab.id, ref, error: e instanceof Error ? e.message : String(e) });
@@ -154,9 +262,9 @@ async function overlayGate(t: Transport, tab: Tab, node: { objectId: string; bac
   return "clear";
 }
 
-/** Centre of the node's content box (viewport CSS px), after scrolling it into view. */
-async function centre(t: Transport, tab: Tab, backendNodeId: number, ref: string): Promise<{ x: number; y: number }> {
-  const r = await t.send("DOM.getBoxModel", { backendNodeId }, tab.sessionId, 5000).catch(() => null);
+/** Centre of the node's content box, after scrolling it into view: CSS px in the viewport of the session's local root (the tab for the root document and same-process frames). */
+async function centre(t: Transport, sessionId: string, backendNodeId: number, ref: string): Promise<{ x: number; y: number }> {
+  const r = await t.send("DOM.getBoxModel", { backendNodeId }, sessionId, 5000).catch(() => null);
   const model = r !== null && isRecord(r["model"]) ? r["model"] : null;
   const q = model !== null && Array.isArray(model["content"]) ? model["content"].filter((n): n is number => typeof n === "number") : [];
   if (q.length < 8) throw new TabcapError("page", `ref ${ref} has no box (hidden or zero-size)`, "Use plain `tabcap click <ref>` (DOM click), or snapshot again to find a visible element.");
@@ -324,9 +432,11 @@ export async function pointerClick(
   deps: PointerDeps = DEFAULT_DEPS,
   onMove: (p: Point) => void = () => undefined,
   clicks: 1 | 2 = 1,
+  /** Session of the target's document for the delivery probe (a frame's); mouse events always go to the tab's session. */
+  probeSessionId: string = sessionId,
 ): Promise<PointerResult> {
   const plan = planClick(from, to, deps.rng);
-  const probe = await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: PROBE_FN, arguments: [], returnByValue: false, userGesture: true }, sessionId);
+  const probe = await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: PROBE_FN, arguments: [], returnByValue: false, userGesture: true }, probeSessionId);
   callResult(probe);
   const probeId = isRecord(probe["result"]) ? str(probe["result"], "objectId") : null;
   const actualMs = await movePath(t, sessionId, ref, plan, deps, onMove);
@@ -339,7 +449,7 @@ export async function pointerClick(
   }
   let got: Record<string, unknown> = {};
   if (probeId !== null) {
-    const r = await t.send("Runtime.callFunctionOn", { objectId: probeId, functionDeclaration: PROBE_READ_FN, arguments: [], returnByValue: true, userGesture: true }, sessionId);
+    const r = await t.send("Runtime.callFunctionOn", { objectId: probeId, functionDeclaration: PROBE_READ_FN, arguments: [], returnByValue: true, userGesture: true }, probeSessionId);
     got = rec(callResult(r));
   }
   if (got["pointerdown"] !== true && got["mousedown"] !== true) {
@@ -350,6 +460,28 @@ export async function pointerClick(
     );
   }
   return { plan, actualMs, delivered: got };
+}
+
+/**
+ * The end point of a trusted pointer path in top-level viewport coordinates:
+ * the target's content-box centre plus its frame's offset chain (0.4-I), after
+ * the occlusion check at that point (in the target's document and, for a frame
+ * ref, in every ancestor document at the frame's owner element).
+ */
+async function targetPoint(t: Transport, tab: Tab, node: InputNode, ref: string): Promise<Point> {
+  const sid = sessionOf(tab, node);
+  const c = await centre(t, sid, node.backendNodeId, ref);
+  if (frameOf(node) === null) {
+    const occ = rec(callResult(await call(t, sid, node.objectId, OCCLUSION_FN, [c.x, c.y])));
+    if (occ["ok"] !== true) {
+      throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(c.x)}, ${Math.round(c.y)}) by ${str(occ, "hit") ?? "nothing"}`, "Close the overlay first (snapshot to find it), or use plain `tabcap click <ref>` (DOM click).");
+    }
+    return c;
+  }
+  const place = await placeOf(t, tab, node, ref);
+  const to = { x: c.x + place.space.x, y: c.y + place.space.y };
+  await occlusionChain(t, tab, node, ref, to, place);
+  return to;
 }
 
 export type TrustedClick =
@@ -363,21 +495,19 @@ export type TrustedClick =
  * occlusion check at the end point → pointerClick. The screencast and the
  * emulation are switched off again in every case.
  */
-export async function trustedClickOn(t: Transport, tab: Tab, node: { objectId: string; backendNodeId: number }, ref: string, deps: PointerDeps = DEFAULT_DEPS, clicks: 1 | 2 = 1): Promise<TrustedClick> {
+export async function trustedClickOn(t: Transport, tab: Tab, node: InputNode, ref: string, deps: PointerDeps = DEFAULT_DEPS, clicks: 1 | 2 = 1): Promise<TrustedClick> {
+  const sid = sessionOf(tab, node);
   return withFocusEmulation(t, tab.sessionId, async () => {
-    liveOrStale(rec(callResult(await call(t, tab, node.objectId, SCROLL_FN))), ref);
+    liveOrStale(rec(callResult(await call(t, sid, node.objectId, SCROLL_FN))), ref);
+    // The paint check, focus emulation and mouse events are the top-level tab's (input routes into frames).
     const { paint, held, release } = await holdFrames(t, tab.sessionId);
     try {
       if (!paint.painted) {
         log.info("click --trusted: tab not confirmed painted, DOM click instead", { tab: tab.id, ref, raf: paint.raf, visibility: paint.visibility, error: paint.error });
-        const v = liveOrStale(rec(callResult(await call(t, tab, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
+        const v = liveOrStale(rec(callResult(await call(t, sid, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
         return { kind: "degraded", paint, tag: str(v, "tag") };
       }
-      const to = await centre(t, tab, node.backendNodeId, ref);
-      const occ = rec(callResult(await call(t, tab, node.objectId, OCCLUSION_FN, [to.x, to.y])));
-      if (occ["ok"] !== true) {
-        throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(to.x)}, ${Math.round(to.y)}) by ${str(occ, "hit") ?? "nothing"}`, "Close the overlay first (snapshot to find it), or use plain `tabcap click <ref>` (DOM click).");
-      }
+      const to = await targetPoint(t, tab, node, ref);
       const from = tab.pointer ?? { x: 0, y: 0 };
       const result = await pointerClick(
         t,
@@ -391,6 +521,7 @@ export async function trustedClickOn(t: Transport, tab: Tab, node: { objectId: s
           tab.pointer = p;
         },
         clicks,
+        sid,
       );
       return { kind: "clicked", from, to, result, held };
     } finally {
@@ -413,14 +544,15 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
         const node = await resolveRef(t, tab, ref);
         const overlayCheck = await overlayGate(t, tab, node, ref);
         if (!trusted) {
-          const v = liveOrStale(rec(callResult(await call(t, tab, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
-          return { tab: tab.id, ref, level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), ...dbl, overlayCheck };
+          const v = liveOrStale(rec(callResult(await call(t, node.sessionId, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
+          return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), ...dbl, overlayCheck };
         }
         const r = await trustedClickOn(t, tab, node, ref, DEFAULT_DEPS, clicks);
         if (r.kind === "degraded") {
           return {
             tab: tab.id,
             ref,
+            ...frameField(node),
             level: 1,
             trusted: false,
             eventShape: "incomplete",
@@ -436,6 +568,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
         return {
           tab: tab.id,
           ref,
+          ...frameField(node),
           level: 2,
           trusted: true,
           eventShape: "full",
@@ -472,7 +605,7 @@ export async function hover(d: Daemon, a: Args, session: string): Promise<unknow
         const node = await resolveRef(t, tab, ref);
         const overlayCheck = await overlayGate(t, tab, node, ref);
         return withFocusEmulation(t, tab.sessionId, async () => {
-          liveOrStale(rec(callResult(await call(t, tab, node.objectId, SCROLL_FN))), ref);
+          liveOrStale(rec(callResult(await call(t, node.sessionId, node.objectId, SCROLL_FN))), ref);
           const { paint, held, release } = await holdFrames(t, tab.sessionId);
           try {
             if (!paint.painted) {
@@ -482,11 +615,7 @@ export async function hover(d: Daemon, a: Args, session: string): Promise<unknow
                 "Nothing was hovered. Check the tab with `tabcap screenshot`, then run hover again; tabcap did not retry.",
               );
             }
-            const to = await centre(t, tab, node.backendNodeId, ref);
-            const occ = rec(callResult(await call(t, tab, node.objectId, OCCLUSION_FN, [to.x, to.y])));
-            if (occ["ok"] !== true) {
-              throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(to.x)}, ${Math.round(to.y)}) by ${str(occ, "hit") ?? "nothing"}`, "Close the overlay first (snapshot to find it), then hover again.");
-            }
+            const to = await targetPoint(t, tab, node, ref);
             const from = tab.pointer ?? { x: 0, y: 0 };
             const plan = planClick(from, to, DEFAULT_DEPS.rng);
             const actualMs = await movePath(t, tab.sessionId, ref, plan, DEFAULT_DEPS, (p) => {
@@ -496,6 +625,7 @@ export async function hover(d: Daemon, a: Args, session: string): Promise<unknow
             return {
               tab: tab.id,
               ref,
+              ...frameField(node),
               level: 2,
               trusted: true,
               at: xy(to),
@@ -622,12 +752,13 @@ async function fillOn(
   const node = await resolveRef(t, tab, ref);
   const overlayCheck = await overlayGate(t, tab, node, ref);
   let v: Record<string, unknown>;
+  // Input.insertText goes to the tab's session: Chrome routes it to the focused frame (0.4-I, measured).
   if (!trusted) {
-    v = liveOrStale(rec(callResult(await call(t, tab, node.objectId, FILL_FN, [text]))), ref);
+    v = liveOrStale(rec(callResult(await call(t, node.sessionId, node.objectId, FILL_FN, [text]))), ref);
     if (v["kind"] === "contenteditable") await t.send("Input.insertText", { text }, tab.sessionId, 10_000);
   } else {
     v = await withFocusEmulation(t, tab.sessionId, async () => {
-      const r = liveOrStale(rec(callResult(await call(t, tab, node.objectId, FOCUS_SELECT_FN))), ref);
+      const r = liveOrStale(rec(callResult(await call(t, node.sessionId, node.objectId, FOCUS_SELECT_FN))), ref);
       if (r["kind"] === "input" || r["kind"] === "contenteditable") await t.send("Input.insertText", { text }, tab.sessionId, 10_000);
       return r;
     });
@@ -644,6 +775,7 @@ async function fillOn(
   return {
     tab: tab.id,
     ref,
+    ...frameField(node),
     level: trusted ? 2 : 1,
     trusted,
     kind,
@@ -673,9 +805,28 @@ export function activeFieldOf(v: Record<string, unknown>): { sensitive: boolean 
   return { sensitive: isSensitiveField(str(v, "type"), str(v, "ac")) };
 }
 
+/**
+ * Is the focused field password-like? Follows focus into frames: same-origin
+ * ones in the page, out-of-process ones through their own session (0.4-I), so
+ * text typed into a password field of an iframe is masked too.
+ */
 async function activeIsSensitive(t: Transport, tab: Tab): Promise<boolean> {
-  const r = await t.send("Runtime.evaluate", { expression: ACTIVE_FN, returnByValue: true }, tab.sessionId, 5000);
-  return activeFieldOf(rec(callResult(r))).sensitive;
+  let sessionId = tab.sessionId;
+  for (let hop = 0; hop < 8; hop++) {
+    const r = await t.send("Runtime.evaluate", { expression: ACTIVE_FN, returnByValue: true }, sessionId, 5000);
+    const v = rec(callResult(r));
+    if (v["cross"] !== true) return activeFieldOf(v).sensitive;
+    const o = await t.send("Runtime.evaluate", { expression: ACTIVE_FRAME_EL, returnByValue: false }, sessionId, 5000).catch(() => null);
+    const oid = o !== null && isRecord(o["result"]) ? str(o["result"], "objectId") : null;
+    const d = oid === null ? null : await t.send("DOM.describeNode", { objectId: oid }, sessionId, 5000).catch(() => null);
+    const node = d !== null && isRecord(d["node"]) ? d["node"] : null;
+    const frameId = node === null ? null : str(node, "frameId");
+    const next = frameId === null ? undefined : t.targets().find((x) => x.targetId === frameId);
+    // The frame cannot be followed: unknown field, not password-like as far as tabcap can see.
+    if (next === undefined) return activeFieldOf(v).sensitive;
+    sessionId = next.sessionId;
+  }
+  return false;
 }
 
 /** Most a `--delay` may be (ms between two characters). */
@@ -866,15 +1017,15 @@ export async function upload(d: Daemon, a: Args, session: string): Promise<unkno
     tab,
     async () => {
       const node = await resolveRef(t, tab, ref);
-      const kind = liveOrStale(rec(callResult(await call(t, tab, node.objectId, FILE_INPUT_FN))), ref);
+      const kind = liveOrStale(rec(callResult(await call(t, node.sessionId, node.objectId, FILE_INPUT_FN))), ref);
       let method: "input" | "file-chooser";
       if (kind["file"] === true) {
         if (files.length > 1 && kind["multiple"] !== true) throw multipleError();
-        await t.send("DOM.setFileInputFiles", { files, backendNodeId: node.backendNodeId }, tab.sessionId, 10_000);
+        await t.send("DOM.setFileInputFiles", { files, backendNodeId: node.backendNodeId }, node.sessionId, 10_000);
         method = "input";
       } else {
-        const chooser = await withFileChooser(t, tab, async () => {
-          liveOrStale(rec(callResult(await call(t, tab, node.objectId, CLICK_FN))), ref);
+        const chooser = await withFileChooser(t, node.sessionId, async () => {
+          liveOrStale(rec(callResult(await call(t, node.sessionId, node.objectId, CLICK_FN))), ref);
         });
         if (chooser === null) {
           throw new TabcapError(
@@ -884,32 +1035,36 @@ export async function upload(d: Daemon, a: Args, session: string): Promise<unkno
           );
         }
         if (files.length > 1 && chooser.mode === "selectSingle") throw multipleError();
-        await t.send("DOM.setFileInputFiles", { files, backendNodeId: chooser.backendNodeId }, tab.sessionId, 10_000);
+        await t.send("DOM.setFileInputFiles", { files, backendNodeId: chooser.backendNodeId }, node.sessionId, 10_000);
         method = "file-chooser";
       }
-      return { tab: tab.id, ref, method, files: files.length, paths: files, ...(await snapshotAfter(d, t, tab, a)) };
+      return { tab: tab.id, ref, ...frameField(node), method, files: files.length, paths: files, ...(await snapshotAfter(d, t, tab, a)) };
     },
     { timeoutMs: timeoutOf(a) },
   );
 }
 
-/** Run `click` with file chooser interception on; the chooser it opened (backend node, mode), or null after FILE_CHOOSER_MS. */
-async function withFileChooser(t: Transport, tab: Tab, click: () => Promise<void>): Promise<{ backendNodeId: number; mode: string } | null> {
+/**
+ * Run `click` with file chooser interception on, on the session of the
+ * clicked element's document (a frame ref's own session); the chooser it
+ * opened (backend node, mode), or null after FILE_CHOOSER_MS.
+ */
+async function withFileChooser(t: Transport, sessionId: string, click: () => Promise<void>): Promise<{ backendNodeId: number; mode: string } | null> {
   let resolveOpened: (v: { backendNodeId: number; mode: string }) => void = () => undefined;
   const opened = new Promise<{ backendNodeId: number; mode: string }>((r) => {
     resolveOpened = r;
   });
   const off = t.onEvent((e) => {
-    if (e.sessionId !== tab.sessionId || e.method !== "Page.fileChooserOpened") return;
+    if (e.sessionId !== sessionId || e.method !== "Page.fileChooserOpened") return;
     const id = e.params["backendNodeId"];
     if (typeof id === "number" && Number.isSafeInteger(id)) resolveOpened({ backendNodeId: id, mode: str(e.params, "mode") ?? "selectSingle" });
   });
-  await t.send("Page.setInterceptFileChooserDialog", { enabled: true }, tab.sessionId, 5000);
+  await t.send("Page.setInterceptFileChooserDialog", { enabled: true }, sessionId, 5000);
   try {
     await click();
     return await Promise.race([opened, Bun.sleep(FILE_CHOOSER_MS).then(() => null)]);
   } finally {
     off();
-    await t.send("Page.setInterceptFileChooserDialog", { enabled: false }, tab.sessionId, 5000).catch(() => undefined);
+    await t.send("Page.setInterceptFileChooserDialog", { enabled: false }, sessionId, 5000).catch(() => undefined);
   }
 }

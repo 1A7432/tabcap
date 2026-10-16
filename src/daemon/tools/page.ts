@@ -14,7 +14,8 @@ import type { Transport } from "../transport/types.ts";
 import type { Tab } from "../browser/targets.ts";
 import { optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
-import { resolveRef } from "./snapshot.ts";
+import { resolveRef, type RefNode } from "./snapshot.ts";
+import { chainTo, placeChain, rawFrames } from "../browser/frames.ts";
 
 export const MAX_OUTPUT_CHARS = 60_000;
 const EVAL_GROUP = "tabcap-evaluate";
@@ -105,20 +106,37 @@ async function evaluateFunction(d: Daemon, a: Args, session: string, fn: string)
   const { t, tabs } = d.need();
   const tab = tabs.pick(session, optStr(a, "tab"));
   const budget = timeoutOf(a);
-  const release = () => t.send("Runtime.releaseObjectGroup", { objectGroup: EVAL_GROUP }, tab.sessionId, 5000).then(() => undefined, () => undefined);
+  // 0.4-I: element arguments from a frame make the function run in that frame's window (its session);
+  // refs of two different documents cannot meet in one call.
+  const refArgs = args.filter((x): x is { ref: string } => "ref" in x);
   return tabs.run(
     tab,
-    () => asTabcap(d, session, tab.sessionId, async () => {
+    async () => {
+      const nodes = new Map<string, RefNode>();
+      for (const x of refArgs) if (!nodes.has(x.ref)) nodes.set(x.ref, await resolveRef(t, tab, x.ref));
+      const docs = new Set([...nodes.values()].map((n) => `${n.sessionId}|${n.frame?.frameId ?? "root"}`));
+      if (docs.size > 1) throw new TabcapError("usage", "the element arguments are in different documents (frames)", "Pass refs of one frame per call (the function runs in that frame's window).");
+      const first = [...nodes.values()][0];
+      const sid = first === undefined ? tab.sessionId : first.sessionId;
+      const release = () => t.send("Runtime.releaseObjectGroup", { objectGroup: EVAL_GROUP }, sid, 5000).then(() => undefined, () => undefined);
+      return asTabcap(d, session, sid, async () => {
       try {
         const callArgs: Array<{ value: unknown } | { objectId: string }> = [];
-        for (const x of args) callArgs.push("ref" in x ? { objectId: (await resolveRef(t, tab, x.ref)).objectId } : { value: x.value });
-        const g = await t.send("Runtime.evaluate", { expression: "globalThis", objectGroup: EVAL_GROUP }, tab.sessionId, budget);
-        const gid = isRecord(g["result"]) ? str(g["result"], "objectId") : null;
+        for (const x of args) callArgs.push("ref" in x ? { objectId: nodes.get(x.ref)?.objectId ?? "" } : { value: x.value });
+        let gid: string | null;
+        if (first === undefined || first.frame === null) {
+          const g = await t.send("Runtime.evaluate", { expression: "globalThis", objectGroup: EVAL_GROUP }, tab.sessionId, budget);
+          gid = isRecord(g["result"]) ? str(g["result"], "objectId") : null;
+        } else {
+          // The frame's own window: the realm the element belongs to.
+          const g = await t.send("Runtime.callFunctionOn", { objectId: first.objectId, functionDeclaration: "function () { return (this.ownerDocument || this).defaultView; }", returnByValue: false, objectGroup: EVAL_GROUP }, sid, budget);
+          gid = isRecord(g["result"]) ? str(g["result"], "objectId") : null;
+        }
         if (gid === null) throw new TabcapError("page", "the page has no global object to call the function on", "Navigate again; the tab may be on an error page.");
         const r = await t.send(
           "Runtime.callFunctionOn",
           { objectId: gid, functionDeclaration: fn, arguments: callArgs, returnByValue: true, awaitPromise: true, objectGroup: EVAL_GROUP, userGesture: true },
-          tab.sessionId,
+          sid,
           budget,
         );
         const ex = isRecord(r["exceptionDetails"]) ? r["exceptionDetails"] : null;
@@ -132,11 +150,12 @@ async function evaluateFunction(d: Daemon, a: Args, session: string, fn: string)
         const value: unknown = type === "undefined" ? null : "value" in res ? res["value"] : (str(res, "unserializableValue") ?? str(res, "description") ?? null);
         const text = JSON.stringify(value) ?? "null";
         if (text.length > MAX_OUTPUT_CHARS) return { tab: tab.id, type, valueText: text.slice(0, MAX_OUTPUT_CHARS), truncated: true, chars: text.length, note: `output truncated at ${MAX_OUTPUT_CHARS} chars; return a smaller value` };
-        return { tab: tab.id, type, value, truncated: false };
+        return { tab: tab.id, type, value, truncated: false, ...(first?.frame ? { frame: first.frame.path } : {}) };
       } finally {
         await release();
       }
-    }),
+      });
+    },
     { timeoutMs: budget },
   );
 }
@@ -188,11 +207,21 @@ export async function screenshot(d: Daemon, a: Args, session: string): Promise<u
   );
 }
 
-/** Page-coordinate clip of an element's border box, after scrolling it into view (Puppeteer ElementHandle.screenshot). */
+/**
+ * Page-coordinate clip of an element's border box, after scrolling it into view
+ * (Puppeteer ElementHandle.screenshot). A frame ref's box is moved by its
+ * frame's offset chain into the tab's viewport (0.4-I, docs/07 §1.1).
+ */
 async function elementClip(t: Transport, tab: Tab, ref: string): Promise<Record<string, number>> {
   const node = await resolveRef(t, tab, ref);
-  await t.send("Runtime.callFunctionOn", { objectId: node.objectId, functionDeclaration: "function () { const el = this.nodeType === 1 ? this : this.parentElement; if (el) el.scrollIntoView({ block: \"center\", inline: \"center\" }); }", returnByValue: true }, tab.sessionId, 5000);
-  const r = await t.send("DOM.getBoxModel", { backendNodeId: node.backendNodeId }, tab.sessionId, 5000).catch(() => null);
+  await t.send("Runtime.callFunctionOn", { objectId: node.objectId, functionDeclaration: "function () { const el = this.nodeType === 1 ? this : this.parentElement; if (el) el.scrollIntoView({ block: \"center\", inline: \"center\" }); }", returnByValue: true }, node.sessionId, 5000);
+  let off = { x: 0, y: 0 };
+  if (node.frame !== null) {
+    const chain = chainTo(await rawFrames(t, tab), node.frame.frameId);
+    if (chain === null) throw new TabcapError("stale-ref", `ref ${ref} expired: frame ${node.frame.path} is gone`, "run snapshot again (`tabcap snapshot --frames`) and use the new ref.");
+    off = (await placeChain(t, chain)).space.at(-1) ?? off;
+  }
+  const r = await t.send("DOM.getBoxModel", { backendNodeId: node.backendNodeId }, node.sessionId, 5000).catch(() => null);
   const model = r !== null && isRecord(r["model"]) ? r["model"] : null;
   const q = model !== null && Array.isArray(model["border"]) ? model["border"].filter((n): n is number => typeof n === "number") : [];
   if (q.length < 8) throw new TabcapError("page", `ref ${ref} has no box (hidden or zero-size)`, "Take a screenshot of the page instead, or snapshot again to find a visible element.");
@@ -207,7 +236,7 @@ async function elementClip(t: Transport, tab: Tab, ref: string): Promise<Record<
   const width = Math.max(...xs) - x;
   const height = Math.max(...ys) - y;
   if (width <= 0 || height <= 0) throw new TabcapError("page", `ref ${ref} has a zero-size box`, "Pick a visible element (snapshot again).");
-  return { x: x + sx, y: y + sy, width, height, scale: 1 };
+  return { x: x + off.x + sx, y: y + off.y + sy, width, height, scale: 1 };
 }
 
 /**

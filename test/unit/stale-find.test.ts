@@ -128,3 +128,36 @@ describe("find: clickable hits first (docs/05 s19)", () => {
     expect(hits[0]?.clickable).toBe(refFor(99));
   });
 });
+
+describe("type: focus followed into frames (0.4-I)", () => {
+  const evalActive = (doc: unknown): Record<string, unknown> => {
+    const v: unknown = new Function("document", `return ${ACTIVE_FN};`)(doc);
+    if (typeof v !== "object" || v === null) throw new Error("ACTIVE_FN returned no object");
+    return Object.fromEntries(Object.entries(v));
+  };
+  const el = (tagName: string, o: Record<string, unknown> = {}) => ({ isConnected: true, isContentEditable: false, shadowRoot: null, tagName, getAttribute: () => null, ...o });
+  const body = el("BODY");
+  const doc = (active: unknown) => ({ activeElement: active, body, documentElement: {}, designMode: "off" });
+
+  test("a same-origin frame's focused password field is found through its contentDocument", () => {
+    const pw = el("INPUT", { getAttribute: (n: string) => (n === "type" ? "password" : null) });
+    const frame = el("IFRAME", { contentDocument: doc(pw) });
+    expect(evalActive(doc(el("FRAME", { contentDocument: doc(frame) })))).toMatchObject({ connected: true, none: false, tag: "input", type: "password" });
+    expect(activeFieldOf(evalActive(doc(el("FRAME", { contentDocument: doc(frame) }))))).toEqual({ sensitive: true });
+  });
+
+  test("a cross-origin frame (no contentDocument) asks the caller to continue in its session", () => {
+    expect(evalActive(doc(el("IFRAME", { contentDocument: null })))).toMatchObject({ cross: true, connected: true, none: false, tag: "iframe" });
+    const throwing = el("IFRAME");
+    Object.defineProperty(throwing, "contentDocument", {
+      get() {
+        throw new Error("blocked");
+      },
+    });
+    expect(evalActive(doc(throwing))).toMatchObject({ cross: true });
+  });
+
+  test("focus on <body> inside a same-origin frame is still `none` (the field went away)", () => {
+    expect(evalActive(doc(el("IFRAME", { contentDocument: doc(body) })))).toMatchObject({ none: true });
+  });
+});
