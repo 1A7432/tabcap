@@ -39,6 +39,8 @@ import { chainOf, dataBearing, type ChainResult } from "../analyze/chain.ts";
 import RUNTIME from "../../templates/python/_runtime.py" with { type: "text" };
 import CHAIN_RUNTIME from "../../templates/python/_chain.py" with { type: "text" };
 import VERIFY from "../../templates/python/_verify.py" with { type: "text" };
+import WIRE from "../../templates/python/_wire.py" with { type: "text" };
+import MAIN from "../../templates/python/_main.py" with { type: "text" };
 import CONFTEST from "../../templates/python/conftest.py" with { type: "text" };
 import TEST_REPLAY from "../../templates/python/test_replay.py" with { type: "text" };
 import PYPROJECT from "../../templates/python/pyproject.toml" with { type: "text" };
@@ -855,7 +857,12 @@ export function generateClientSource(fns: { code: string; types: string[] }[], h
     "# ---------------------------------------------------------------- calls",
     "",
     ...fns.flatMap((f) => [f.code, "", ""]),
-    ...(chainMode ? [VERIFY.trimEnd(), ""] : []),
+    ...(chainMode ? [VERIFY.trimEnd(), "", ""] : []),
+    WIRE.trimEnd(),
+    "",
+    "",
+    MAIN.trimEnd(),
+    "",
   ]
     .join("\n")
     .replace(/\n{3,}$/, "\n")

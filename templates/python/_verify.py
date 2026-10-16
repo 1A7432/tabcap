@@ -227,15 +227,3 @@ def verify(base_url: str | None = None, *, expected: str | Path | None = None, s
     failed = sum(1 for r in rows if r[4] != "pass")
     print(f"verify: {len(rows)} step(s), {len(rows) - failed} pass, {failed} fail (target {spec['target']}, bundle {spec['bundle']})")
     return 0 if failed == 0 else 1
-
-
-if __name__ == "__main__":
-    import argparse
-
-    _ap = argparse.ArgumentParser(description="Replay the recorded chain and compare every step with the recording.")
-    _ap.add_argument("command", choices=["verify"])
-    _ap.add_argument("--base-url", default=_os.environ.get("TABCAP_REPLAY") or None)
-    _ap.add_argument("--expected", default=None, help="verify_expected.json (default: next to client.py)")
-    _ap.add_argument("--storage-state", default=_os.environ.get("TABCAP_STORAGE_STATE") or None)
-    _ns = _ap.parse_args()
-    _sys.exit(verify(_ns.base_url, expected=_ns.expected, storage_state=_ns.storage_state))

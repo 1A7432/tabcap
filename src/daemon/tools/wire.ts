@@ -1,5 +1,5 @@
-// tabcap wire profile (docs/07 §6). Starts a local echo (src/wire/echo.ts)
-// on 127.0.0.1 for the duration of the command.
+// tabcap wire profile | wire probe (docs/07 §6). Both start a local echo
+// (src/wire/echo.ts) on 127.0.0.1 for the duration of the command.
 //
 // profile: opens a background tab in the session (the Chrome for Testing
 // tabcap launched, with its own flags), ignores certificate errors on that
@@ -8,17 +8,24 @@
 // closes the tab, and builds the profile with the component's `profile`
 // (navigation and fetch as two header-order roles). Cached under
 // <cache>/wire/profiles/ with the reports in a .samples directory.
+// probe: the baseline (cached when the CfT version and launch-flags hash
+// match), then `uv run client.py wire-report` against the same echo, then the
+// component's `check` and `diff`; with a recording open, the reports and
+// results become blobs and each differing layer one `finding` (tool wire).
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TOOL_VERSION } from "../../bundle/manifest.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
+import { caPath } from "../../wire/certs.ts";
 import { Echo, type EchoReport } from "../../wire/echo.ts";
 import { Wireprint } from "../../wire/native.ts";
-import { cftVersion, flagsSha256, normalizedFlags, profileArch, profileArgs, profileFile, profileOs, type TabcapSection } from "../../wire/profile.ts";
+import { cftVersion, flagsSha256, normalizedFlags, profileArch, profileArgs, profileFile, profileOs, reusable, type TabcapSection } from "../../wire/profile.ts";
+import { WIRE_NOTE, WIRE_SCHEMA, checksOf, claimOf, clientOf, labelsOf, layersOf, runClientReport, type WireResult } from "../../wire/probe.ts";
 import type { Daemon } from "../state.ts";
-import { checkSessionName, optNum, type Args } from "./args.ts";
+import { checkSessionName, optNum, optStr, type Args } from "./args.ts";
 import { timeoutOf, waitNavigation } from "./navigate.ts";
 
 const DEFAULT_SAMPLES = 3;
@@ -120,6 +127,23 @@ async function captureBaseline(d: Daemon, session: string, wp: Wireprint, echo: 
   return { file: loc.file, profile, navReport: nav, section, cached: false };
 }
 
+function cachedBaseline(d: Daemon): Baseline | null {
+  const facts = browserFacts(d);
+  const loc = profileFile(d.paths.cache, facts.version);
+  const section = reusable(loc.file, facts.version, facts.hash);
+  if (section === null) return null;
+  try {
+    const profile: unknown = JSON.parse(readFileSync(loc.file, "utf8"));
+    const navName = readdirSync(loc.samples).find((f) => f === "nav-1.json");
+    if (!isRecord(profile) || navName === undefined) return null;
+    const navReport: unknown = JSON.parse(readFileSync(join(loc.samples, navName), "utf8"));
+    if (!isRecord(navReport)) return null;
+    return { file: loc.file, profile, navReport, section, cached: true };
+  } catch {
+    return null;
+  }
+}
+
 export async function wireProfile(d: Daemon, a: Args, session: string): Promise<unknown> {
   const samples = samplesOf(a);
   const budget = timeoutOf(a);
@@ -132,4 +156,65 @@ export async function wireProfile(d: Daemon, a: Args, session: string): Promise<
   } finally {
     await echo.stop();
   }
+}
+
+export async function wireProbe(d: Daemon, a: Args, session: string): Promise<unknown> {
+  const client = optStr(a, "client");
+  if (client === null || client === "") throw new TabcapError("usage", "missing --client <dir>", "Usage: tabcap wire probe --client <export-python dir> [--port p] [--samples n] [--text]");
+  const budget = timeoutOf(a);
+  const samples = samplesOf(a);
+  d.need();
+  const wp = await Wireprint.locate({ cacheDir: d.paths.cache });
+  const echo = await Echo.start({ wireprint: wp, port: portOf(a) });
+  const work = mkdtempSync(join(tmpdir(), "tabcap-wire-probe-"));
+  try {
+    const baseline = cachedBaseline(d) ?? (await captureBaseline(d, session, wp, echo, samples, budget));
+    const out = join(work, "client-report.json");
+    await runClientReport({ client, url: echo.url("/client"), ca: caPath(d.paths.cache), out, timeoutMs: budget });
+    const clientReport = await echo.waitFor((r) => r["role"] === "client", 10_000, "client report");
+    const navFile = join(work, "browser-nav.json");
+    const clientFile = join(work, "client.json");
+    writeFileSync(navFile, JSON.stringify(baseline.navReport));
+    writeFileSync(clientFile, JSON.stringify(clientReport));
+    const check = (await wp.json(["check", "--claim", baseline.file, clientFile], { inconsistentOk: true })).value;
+    const diff = (await wp.json(["diff", "--json", navFile, clientFile])).value;
+    const result: WireResult = {
+      schema: WIRE_SCHEMA,
+      browser: { version: baseline.section.cftVersion, flagsHash: baseline.section.flagsSha256, profile: baseline.file, cached: baseline.cached },
+      client: clientOf(clientReport),
+      layers: layersOf(diff, baseline.navReport, clientReport),
+      checks: checksOf(check),
+      labels: labelsOf(diff),
+      note: WIRE_NOTE,
+    };
+    const saved = await saveFindings(d, session, result, { browserReport: baseline.navReport, clientReport, check, diff });
+    return saved === null ? result : { ...result, saved };
+  } finally {
+    await echo.stop();
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/** With a recording open: the four documents as blobs, one finding per layer that is not `same`. */
+async function saveFindings(d: Daemon, session: string, r: WireResult, docs: Record<string, unknown>): Promise<{ bundle: string; seqs: number[]; blobs: Record<string, string> } | null> {
+  const live = d.recorders.get(session);
+  if (live === undefined) return null;
+  const blobs: Record<string, string> = {};
+  for (const [name, doc] of Object.entries(docs)) {
+    const put = await live.putText(JSON.stringify(doc, null, 2));
+    if (put !== null) blobs[name] = put.blob;
+  }
+  const evidence = Object.values(blobs).map((blob) => ({ blob }));
+  const seqs: number[] = [];
+  for (const l of r.layers) {
+    if (l.verdict === "same") continue;
+    const seq = live.event(
+      "finding",
+      { tool: "wire", grade: "实测", claim: claimOf(l), evidence, input: { browser: r.browser, client: r.client, layer: l.layer }, output: { verdict: l.verdict, fields: l.fields.map((f) => f.field) } },
+      { actor: "ai" },
+    );
+    if (seq !== null) seqs.push(seq);
+  }
+  await live.flushEvents();
+  return { bundle: live.dir, seqs, blobs };
 }

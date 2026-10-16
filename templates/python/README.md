@@ -19,6 +19,16 @@ TABCAP_REPLAY=http://127.0.0.1:4500 uv run --group test pytest -q
 
 When the session cookies are needed, first `tabcap replay session <bundle> -o storage-state.json` (mode 0600, a real session: do not commit it), then add `TABCAP_STORAGE_STATE=storage-state.json`.
 
+## What this client looks like on the wire
+
+`tabcap wire probe --client <this directory>` compares what this client sends (TLS ClientHello, HTTP/2 settings, header order) with the Chrome for Testing tabcap launches, on a local echo at 127.0.0.1. It runs
+
+```sh
+uv run client.py wire-report --url https://localhost:<port>/client --ca <tabcap wire ca-path> --out report.json
+```
+
+which sends one GET with `Session()` exactly as generated, verifying the echo with its CA, and saves the echo's JSON report. Diagnostic only: the probe says which layer differs, not why a site answered the way it did.
+
 ## What was not generated
 
 {{todo}}
