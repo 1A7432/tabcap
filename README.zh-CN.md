@@ -104,7 +104,7 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap bundle redact <in> <out>` | write a redacted copy of a bundle (the original is never changed) |
 | `tabcap bundle info <bundle>` | bundle summary: counts, event kinds, finished or not, issues |
 | `tabcap analyze find <bundle> <text> [--ignore-case] [--text] [--save]` | which request / WebSocket frame / console line carries this text, through a bounded decode chain (base64, gzip / br, urldecode, JSON, html entities …); 0 hits come with hints |
-| `tabcap analyze diff <bundle1> <bundle2> [<bundles>] [--text] [--save]` | compare recordings of the same action: which parameters are constant, per session, timestamps or varying |
+| `tabcap analyze diff <bundle1> <bundle2> [<bundles>...] [--text] [--save]` | compare recordings of the same action: which parameters are constant, per session, timestamps or varying |
 | `tabcap analyze deps <bundle> [--session name] [--request r-N] [--text] [--write-findings]` | value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else computed-in-page / unrecorded; exact matches only, never guessed |
 | `tabcap analyze chain <bundle> [--request r-N] [--session name] [--text]` | the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input) |
 | `tabcap analyze recon <bundle> [--text]` | the recon dossier offline (as `tabcap recon`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); writes exports/dossier.json and exports/dossier.md |
@@ -122,6 +122,7 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap fingerprint ref show <name>` | one saved reference with all its fields |
 | `tabcap fingerprint ref remove <name>` | delete a saved reference |
 | `tabcap fingerprint diff <bundle> --ref <name> [--text]` | the last `state` env event of a bundle (from `fingerprint probe`) against a saved reference, offline: the same output as `fingerprint probe --ref` |
+| `tabcap mcp [--print-config host] [--all-tools]` | serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human |
 | `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
 <!-- END GENERATED: commands -->
 
@@ -143,6 +144,10 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 - 类签名参数和加密正文不复现：生成的客户端把它们标成 TODO，这些请求留在真实浏览器会话里。
 - 用于分析和调试你自己在有权使用的站点上的会话；本仓库的测试只对本地页面跑。
 - 凭据库是明文，靠文件权限保护（0700 目录里的 0600 文件，和 `~/.netrc` 一样）；能用测试账号就用测试账号。
+
+## MCP
+
+给只认 Model Context Protocol、不跑命令行的宿主：`tabcap mcp` 在 stdin / stdout 上把 tabcap 作为 MCP 工具提供，返回与命令行相同的 JSON 信封。宿主会把所有工具定义放进模型上下文，所以默认只列 24 个核心工具、每个一行说明（约 8.5 KB）：会话、`navigate`、`snapshot`、`outline`、`click`、`fill`、`type`、`press-key`、`hover`、`wait`、`screenshot`、`evaluate`、`net start` / `stop` / `list` / `show` / `body`、`handoff status` / `continue`、`tabcap_handoff_wait`，外加跑任意其它命令的 `tabcap_run {argv}` 和按需查命令表或单条命令选项的 `tabcap_help {command?}`；`tabcap mcp --all-tools` 改为每条命令一个工具（83 个，约 58 KB）。Claude Code 里 `claude mcp add tabcap -- tabcap mcp` 注册；`tabcap mcp --print-config <宿主>` 给出 `claude-code`、`cursor`、`codex`、`gemini-cli`、`windsurf`（待验）、`claude-desktop` 的配置文件位置与条目。交给人的会话立即返回 `waiting`，`tabcap_handoff_wait` 等人处理完。
 
 ## 安装
 

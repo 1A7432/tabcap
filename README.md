@@ -104,7 +104,7 @@ Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `
 | `tabcap bundle redact <in> <out>` | write a redacted copy of a bundle (the original is never changed) |
 | `tabcap bundle info <bundle>` | bundle summary: counts, event kinds, finished or not, issues |
 | `tabcap analyze find <bundle> <text> [--ignore-case] [--text] [--save]` | which request / WebSocket frame / console line carries this text, through a bounded decode chain (base64, gzip / br, urldecode, JSON, html entities …); 0 hits come with hints |
-| `tabcap analyze diff <bundle1> <bundle2> [<bundles>] [--text] [--save]` | compare recordings of the same action: which parameters are constant, per session, timestamps or varying |
+| `tabcap analyze diff <bundle1> <bundle2> [<bundles>...] [--text] [--save]` | compare recordings of the same action: which parameters are constant, per session, timestamps or varying |
 | `tabcap analyze deps <bundle> [--session name] [--request r-N] [--text] [--write-findings]` | value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else computed-in-page / unrecorded; exact matches only, never guessed |
 | `tabcap analyze chain <bundle> [--request r-N] [--session name] [--text]` | the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input) |
 | `tabcap analyze recon <bundle> [--text]` | the recon dossier offline (as `tabcap recon`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); writes exports/dossier.json and exports/dossier.md |
@@ -122,6 +122,7 @@ Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `
 | `tabcap fingerprint ref show <name>` | one saved reference with all its fields |
 | `tabcap fingerprint ref remove <name>` | delete a saved reference |
 | `tabcap fingerprint diff <bundle> --ref <name> [--text]` | the last `state` env event of a bundle (from `fingerprint probe`) against a saved reference, offline: the same output as `fingerprint probe --ref` |
+| `tabcap mcp [--print-config host] [--all-tools]` | serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human |
 | `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
 <!-- END GENERATED: commands -->
 
@@ -159,6 +160,10 @@ Most agent browsers start from "give the agent a clean, isolated browser and let
 - **Coming**: Homebrew, npm (a `tabcap` package with one optional dependency per platform) and Scoop. The templates are in `packaging/`; nothing is published to a registry yet.
 - **From source**: Bun 1.4 or newer, `bun install`, then `bun run build` (this machine) or `bun run build:<platform>` (`darwin-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`); `bun run release` builds and packs all four; `bun test test/unit` runs the offline tests.
 - **Files**: `~/.config/tabcap/` (socket, log, profile, config, `state.db`, `plugins/`, `fingerprint/refs/`), `~/.cache/tabcap/` (the browser), `~/.local/share/tabcap/` (screenshots, bundles). On Linux `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME` are honoured. On Windows all three are `%LOCALAPPDATA%\tabcap\config`, `\cache` and `\data`; the files there keep the user-default ACL of your profile (tabcap sets no ACLs of its own, and there is no socket: `config\daemon.json` holds the port and the token). `TABCAP_HOME` moves all of them into one directory.
+
+## MCP
+
+For hosts that speak the Model Context Protocol instead of running shell commands: `tabcap mcp` serves tabcap as MCP tools over stdin / stdout, each returning the same JSON envelope as the command line. Hosts load every tool definition into the model's context, so by default it lists a core set of 24 tools with one-line descriptions (about 8.5 KB): sessions, `navigate`, `snapshot`, `outline`, `click`, `fill`, `type`, `press-key`, `hover`, `wait`, `screenshot`, `evaluate`, `net start` / `stop` / `list` / `show` / `body`, `handoff status` / `continue`, `tabcap_handoff_wait`, plus `tabcap_run {argv}` for any other command and `tabcap_help {command?}` for the command list or one command's options; `tabcap mcp --all-tools` lists one tool per command instead (83 tools, about 58 KB). Register it with `claude mcp add tabcap -- tabcap mcp` in Claude Code; `tabcap mcp --print-config <host>` prints the config file and the entry for `claude-code`, `cursor`, `codex`, `gemini-cli`, `windsurf` (unverified) and `claude-desktop`. A handed-over session answers `waiting` at once; `tabcap_handoff_wait` waits for the human.
 
 ## Credentials store
 

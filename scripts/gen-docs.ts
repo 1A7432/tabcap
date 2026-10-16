@@ -58,7 +58,7 @@ function commandSection(c: CommandSpec): string {
 /** The whole reference file for the skill (references/commands.md). */
 export function referenceDoc(): string {
   const groups: Array<[string, (c: CommandSpec) => boolean]> = [
-    ["Setup and lifecycle", (c) => ["setup", "daemon", "browser"].includes(c.path[0] ?? "")],
+    ["Setup and lifecycle", (c) => ["setup", "daemon", "browser", "mcp"].includes(c.path[0] ?? "")],
     ["Sites, sessions and tabs", (c) => ["site", "session", "tab"].includes(c.path[0] ?? "")],
     ["Navigation and page reading", (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "")],
     ["Input", (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "")],

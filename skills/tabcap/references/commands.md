@@ -87,6 +87,21 @@ tabcap browser status
 
 Example: `tabcap browser status`
 
+### `tabcap mcp`
+
+serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human
+
+```
+tabcap mcp [--print-config host] [--all-tools]
+```
+
+Example: `tabcap mcp --print-config claude-code`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--print-config <host>` |  | print where and how to register tabcap mcp in one host instead of serving: claude-code \| cursor \| codex \| gemini-cli \| windsurf \| claude-desktop |
+| `--all-tools` |  | one tool per command with its full help (about 80 tools, ~58 KB of definitions in the model's context) instead of the core set |
+
 ## Sites, sessions and tabs
 
 ### `tabcap site add`
@@ -859,7 +874,7 @@ Example: `tabcap analyze find ./b 'Order placed'`
 compare recordings of the same action: which parameters are constant, per session, timestamps or varying
 
 ```
-tabcap analyze diff <bundle1> <bundle2> [<bundles>] [--text] [--save]
+tabcap analyze diff <bundle1> <bundle2> [<bundles>...] [--text] [--save]
 ```
 
 Example: `tabcap analyze diff ./b1 ./b2`

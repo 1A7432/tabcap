@@ -18,6 +18,8 @@ When `ok` is false, **do what `error.next` says**. Do not guess around it.
 
 The full command reference (every option, default and example) is in [references/commands.md](references/commands.md); `tabcap <command> --help` prints one entry, `tabcap schema --json` all of them as JSON.
 
+MCP hosts (no shell) can run `tabcap mcp` instead: the everyday commands are `tabcap_<command>` tools (spaces as `_`, e.g. `tabcap_net_list`) returning the same envelope, `tabcap_run` runs any other command, `tabcap_help` explains one, and `tabcap_handoff_wait` waits for the human after a `waiting`.
+
 ## Setup (once per machine)
 
 ```sh

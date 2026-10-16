@@ -66,6 +66,7 @@
 | `watch` | 定时重放，字段结构或签名方式变了就告警 | — |
 | `wire` | 线路层诊断（0.4-W2）：本机 127.0.0.1 上的 TLS echo（Bun 终结 TLS，原始 ClientHello 与解密后的请求交给原生组件 `native/wireprint/` 出报告）；浏览器基准 = tabcap 集成的 Chrome for Testing 按 tabcap 自己的启动参数采的画像；`wire probe` 拿生成的 Python 客户端对比基准，按 tls / h2 / headers 三层说哪层不同、哪些字段不同。只诊断，不说原因、不给改值建议；作者个人浏览器的画像不进仓库 | `11`、`07` §6 |
 | 接口 | 命令行统一 JSON 信封；同时提供 MCP 和 skill；报错写成「下一步该做什么」 | 私有笔记 |
+| `mcp` | `tabcap mcp`（0.5-A）：stdio 上的 MCP 服务，手写 JSON-RPC 2.0（零依赖，MCP 2025-11-25 的 initialize 生命周期）；工具由命令注册表生成：默认 24 个核心工具（一行说明、裸 schema，约 8.5 KB）+ `tabcap_run` / `tabcap_help`，`--all-tools` 每条命令一个（约 58 KB）；`tools/call` 在进程内走 CLI 同一条 `run()`，返回同一个信封；`waiting` 不阻塞，另给 `tabcap_handoff_wait`；`--print-config <宿主>` 给六个宿主的配置 | `07` §7 |
 | 插件 | hook 套件（fetch / XHR / crypto / WebSocket）、AST 反混淆、作者自己的 JS 分析研究项目；已有的 JS 分析类 MCP 能接就接。线路层（TLS / h2 指纹）诊断工具（复现被拒时指出是哪一层对不上）现在是本仓库的原生组件 `native/wireprint/`（Zig），不再是外部工具 | — |
 
 ## 6. 不做什么
