@@ -333,7 +333,7 @@
 
 ## 17. 0.2-D 裁决（10-15）
 
-按实现定案：`net list --failed` 表示只看失败项，`--all` 看全部，默认隐藏失败与 `data:`；`--since c-N` 与 `net wait` 回看都以请求写入包的时刻为基准；录制中动作命令的输出带 `cmd` 字段；新增错误码 `needs-await`；`net list` 从最早开始分页、每页 100；`net show` 的 initiator 行列号从 1 起，包内保持 CDP 原始从 0 起，script 类发起者从调用栈顶帧补 url / 行 / 列；`find.ref` 仍是最近带 ref 的祖先，该点的是 `clickable`；还前台的判据是「每条命令结束后读到的最前应用」。
+按实现定案：`net list --failed` 表示只看失败项，`--all` 看全部，默认隐藏失败与 `data:`；`--since c-N` 与 `net wait` 回看都以请求写入包的时刻为基准；录制中动作命令的输出带 `cmd` 字段；新增错误码 `needs-await`；`net list` / `console list` 从最早开始分页：不给分页参数时返回第 0 页、每页 100（还有下一页时带 `nextPageIdx`），`--page-size 0` 返回全部（0.4 作者定）；`net show` 的 initiator 行列号从 1 起，包内保持 CDP 原始从 0 起，script 类发起者从调用栈顶帧补 url / 行 / 列；`find.ref` 仍是最近带 ref 的祖先，该点的是 `clickable`；还前台的判据是「每条命令结束后读到的最前应用」。
 代码待改：`timing.responseStart` 可能晚于 `end`（两个时间戳来源不同），录制器统一到 CDP 单调时钟；HAR 导出文件改 0600；`type` 对当前焦点元素补 `isConnected` 检查。
 
 ## 18. 0.3-A 裁决（10-15）

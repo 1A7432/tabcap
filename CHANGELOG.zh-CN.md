@@ -20,6 +20,10 @@
 
 - 删除 0.3 的全部弃用别名，不保留兼容：命令 `tabs`（用 `tab list`）、`tab use`（`tab select`）、`press`（`press-key`）、裸 `console`（`console list`）；参数 `net list --type`（`--resource-types`）、`--limit`（`--page-size`）、`--offset`（`--page-idx`），`screenshot --out`（`--file-path`）、`--full`（`--full-page`）；`net list` 输出字段 `offset`、`limit`、`nextOffset`；`--help` 与生成文档里的「deprecated」行；`tabcap schema --json` 的 `deprecatedFor` / `deprecatedAliases` / `deprecated` 字段。旧名现在报普通的 `unknown command` / `unknown option` 用法错误。`console list --limit`（最后 N 条）和 `dialog --prompt-text`（`--text` 的普通别名）保留。
 
+### 变更
+
+- `net list` 与 `console list` 默认分页：不给分页参数时返回第 0 页、每页 100（还有更多时带 `nextPageIdx`）；`--page-size 0` 返回全部（原来的默认行为）。`--page-size 0` 同时给大于 0 的 `--page-idx` 报用法错误。
+
 ## 0.3.0（2026-10-16）
 
 - **命令名对齐 Chrome DevTools MCP**（docs/08 §5）：`press` → `press-key`，`tabs` / `tab use` → `tab list` / `tab select`，`console` → `console list`（新增 `--types`、`--page-size`、`--page-idx`、`--include-stack-traces`，`--level`、`--limit` 保留）与 `console show <msgid>`；`net list --type / --limit / --offset` → `--resource-types / --page-size / --page-idx`（页码语义，`nextPageIdx`；不给分页参数时返回全部匹配，给了默认每页 100；默认仍藏失败与 `data:`，`--all` 全列）；`screenshot --out / --full` → `--file-path / --full-page`，新增 `--format png|jpeg|webp`、`--quality`、`--ref`；`snapshot` 新增 `--verbose`、`--file-path`；`type --submit-key`；`click --dbl-click`；`dialog --prompt-text`；`wait --text` 可重复（任一命中），并在所有帧里找；`evaluate --function` / `--args`；`reload --ignore-cache`。旧名保留到 0.4，`--help` 标为弃用；`net list` 输出仍带旧的 `offset` / `limit` / `nextOffset` 字段一版。
