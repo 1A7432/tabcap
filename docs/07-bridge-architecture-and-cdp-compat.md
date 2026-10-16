@@ -42,7 +42,7 @@
 - **第一级**：`Runtime.evaluate` 调 `el.click()`。不抢焦点、不改可见性，但只触发 `click`、`isTrusted:false`、没有 pointer 事件；带 `userGesture:true` 可让 `userActivation.isActive` 为 true。填表用 `el.focus()` + `Input.insertText` 不需要仿真即可（`beforeinput` / `input` 可信）；`Input.dispatchKeyEvent` 必须开仿真。
 - **第二级**：`Emulation.setFocusEmulationEnabled {enabled:true}`，然后 CDP `Input.*`。`hasFocus` 变 true，点击的 pointerdown / mousedown / pointerup / mouseup / click 全部 `isTrusted:true`，按键可用；macOS 前台应用不变、标签不被激活、窗口不动。代价：页面变成 `visible`，定时器 10 Hz、rAF 120 Hz 全速跑，页面能察觉 `visibilitychange`。做完立即关闭；关闭后 `hasFocus` 不回落。
 - **第三级**：`Page.bringToFront` 会把 Chrome 抢到 macOS 前台并激活标签，只在人要接手时用。
-- 以上三级作为焦点阶梯采纳（10-15 作者定），接受第二级让页面短暂变 visible 的代价；`Target.activateTarget` 与 `Page.bringToFront` 在 AI 命令路径上一律改写成第二级。
+- 以上三级作为焦点阶梯采纳（10-15 作者定），接受第二级让页面短暂变 visible 的代价；`Target.activateTarget` 与 `Page.bringToFront` 在 AI 命令路径上一律改写成第二级。唯一例外：显式 `tab select --bring-to-front`（第三级，输出标明）。
 - 启动本身会抢前台：Chrome 进程起来时 macOS 前台从终端变成 Chrome。【实测 格 3】加 `--no-startup-window` 后启动和第一次 `createTarget` 开窗都不抢前台，已设为默认；`osascript activate` 归还作兜底（单次可能失败，最多重试 4 次）。守护进程被 SIGKILL 时管道断开，Chrome 自行退出。隐藏标签截图靠 `CDPScreenshotNewSurface` 直接非空白，不需要焦点仿真【实测】。
 - 此结果同时回答了私有笔记里的待验项「焦点模拟是否让 `document.hasFocus()` 变真」：是。
 - 弹窗拦截的识别：`userGesture:false` 时 `window.open` 返回 null、不建目标，但 host 会收到 `Page.windowOpen {userGesture:false}`，守护进程可据此报「弹窗被拦截」并给下一步。
