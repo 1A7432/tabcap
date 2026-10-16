@@ -549,6 +549,31 @@ crypto.subtle.digest("SHA-256", new TextEncoder().encode(q + "|" + page + "|" + 
 const SEARCH_PAGE = searchPage(false);
 const SEARCH_PAGE_SID = searchPage(true);
 
+// 0.6-G: `GET /api/list` on the same site, a list endpoint whose second
+// variant (`?v=2`) is the "site changed a field" case of `analyze
+// schema-diff`: `title` renamed to `name`, `price` from a decimal string to a
+// JSON number, `currency` added; everything else (code, total, id, status,
+// created) unchanged. LIST_DRIFT is the scenario's expected drift, read off
+// the two bodies by hand in the notation of docs/04 §32 (`path:type`): the
+// variant is selected by the query, so `query:v` is added too.
+const LIST_ITEMS = [
+  { id: 101, title: "Blue mug", price: "12.50", status: "active", created: "2026-10-01T09:00:00Z" },
+  { id: 102, title: "Red pot", price: "8.00", status: "active", created: "2026-10-02T10:30:00Z" },
+  { id: 103, title: "Tea set", price: "30.25", status: "sold", created: "2026-10-03T08:15:00Z" },
+  { id: 104, title: "Oak tray", price: "5.75", status: "active", created: "2026-10-04T16:45:00Z" },
+];
+export const LIST_V1 = JSON.stringify({ code: 0, total: LIST_ITEMS.length, items: LIST_ITEMS });
+export const LIST_V2 = JSON.stringify({
+  code: 0,
+  total: LIST_ITEMS.length,
+  items: LIST_ITEMS.map((i) => ({ id: i.id, name: i.title, price: Number(i.price), currency: "EUR", status: i.status, created: i.created })),
+});
+export const LIST_DRIFT = {
+  added: ["$.items[].currency:string", "$.items[].name:string", "query:v:string(int)"],
+  removed: ["$.items[].title:string"],
+  changed: [{ path: "$.items[].price", from: "string(float)", to: "number(float)" }],
+};
+
 export function startSearchSite(opts: { sid?: boolean } = {}): SearchSite {
   const served = new Map<string, string>();
   const hits: string[] = [];
@@ -580,6 +605,7 @@ export function startSearchSite(opts: { sid?: boolean } = {}): SearchSite {
         const body = JSON.stringify({ q, page, client: u.searchParams.get("client"), hits: [`${q}-${page}-a`, `${q}-${page}-b`], total: 20, build: req.headers.get("x-client-build") });
         return send(u.pathname + u.search, body, "application/json");
       }
+      if (u.pathname === "/api/list") return send(u.pathname + u.search, u.searchParams.get("v") === "2" ? LIST_V2 : LIST_V1, "application/json");
       return new Response("not found", { status: 404 });
     },
   });
