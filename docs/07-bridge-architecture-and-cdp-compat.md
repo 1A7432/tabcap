@@ -43,10 +43,12 @@
 - 【实测 spike，0.4-F e2e 复测】装断点用 `EventBreakpoints.setInstrumentationBreakpoint {eventName:"scriptFirstStatement"}`：它的暂停（`reason:"EventListener"`，`data.eventName:"instrumentation:scriptFirstStatement"`）里命令照常响应，`Debugger.evaluateOnCallFrame` 取各 API 的 getter / 函数，再 `Debugger.setBreakpointOnFunctionCall`，然后 resume；新文档（顶层、同源 iframe、OOPIF）的第一条语句前就装好，页面零注入。不要用 `Debugger.setInstrumentationBreakpoint beforeScriptExecution`：它的暂停里除 resume 外的命令都卡到 resume 之后。Worker 在等待调试器时 `Runtime.evaluate` 取 `WorkerNavigator.prototype.*` 并装好再放行。
 - isolated world 里读 Blink 的 getter（如 `navigator.userAgent`）不会命中主世界的断点【实测 spike】；但在 isolated world 里读 `new Date().getTimezoneOffset()` 的值后，表里多出一条脚本 URL 为空的 `Date.prototype.getTimezoneOffset` 读取，丢弃栈里有 isolated world 脚本或追踪自身求值脚本的暂停后消失【实测 0.4-F e2e】。原因是 V8 内建函数的断点跨上下文共享【推断】。
 
-观察模式 sink 断点（0.6-L，spike-06l exp1–exp5 + e2e v06l，CfT 155）：
-- 【实测 exp4】`Debugger.setBreakpointOnFunctionCall` 的暂停里 `data:null`、没有被调函数的帧（栈里只有 caller，`arguments` 是 caller 自己的）：**读不到被调实参**，明文只能从暂停帧的 local/closure 里恢复（`Runtime.getProperties` 的字符串值直接收；ArrayBuffer/TypedArray 经 objectId 用只读 `callFunctionOn` 复制成 CSV，`CryptoKey` 从不触碰）。
+观察模式 sink 断点（0.6-L / 0.6-L2，spike-06l exp1–exp5 + spike-06l2 E1–E10 + e2e v06l，CfT 155）：
+- 【实测 exp4】`Debugger.setBreakpointOnFunctionCall` 的暂停里 `data:null`、没有被调函数的帧（栈里只有 caller，`arguments` 是 caller 自己的）：**暂停里读不到被调实参**。0.6-L2 的明文主通道是 condition 里的 log-point（下面一条），作用域 walk 只做密文归属和守卫失败时的回退。
+- 【实测 spike-06l2 E6 / E7】condition 里的 `arguments` 是被调方的。`console.dirxml(nonce, arguments[0])` 在同一次 parse 的 `Debugger.paused` 之前到达 `Runtime.consoleAPICalled`（严格有序）。页面把 `console.dirxml` 换成匿名函数时 `name !== "dirxml"`，守卫失败、condition 退成普通暂停，**不调用页面函数**。20 MiB 实参经 log-point 完整到达（约 0.3 s）。
+- 【实测 spike-06l2】页面侧 500 次 1 KB `JSON.parse`：不设断点 0.2 ms；只有 length condition 9 ms；log-point 26 ms；暂停后立即恢复（不含 walk）107 ms。表格密集或 WebSocket 高频 parse 的页面会明显变慢，也改变时序——诊断可接受，录完就关。
 - 【实测 v06l e2e】JS 内建函数的断点**跨 realm 不共享**：装在 about:blank realm 的 `JSON.parse` 断点拦不住新文档 realm 的调用（与上面「跨上下文共享」相对——共享只发生在同一个 V8 context 的多个 world 之间）；所以每个 realm 都要在自己的 `scriptFirstStatement` 暂停里装（0.4-F 的安装通道），同进程重复装报 "already exists"、容忍。
-- 【实测 exp2】断点开销由 condition 兜底：heavy 页 2000 次短 `JSON.parse`，无 condition 中位 +837 ms，带 `length >= 32` condition 中位 +15 ms；s59 整页加载到 12 行（一次解密），unarmed 中位 11.5 ms、armed（带 condition、无 walk）约 19–21 ms；walk 本身（4 帧×每 scope `getProperties` ≈ 一打 CDP 往返）只发生在明文源暂停里。
+- 【实测 exp2】断点开销由 condition 兜底：heavy 页 2000 次短 `JSON.parse`，无 condition 中位 +837 ms，带 `length >= 32` condition 中位 +15 ms；s59 整页加载到 12 行（一次解密），unarmed 中位 11.5 ms、armed（带 condition、无 walk）约 19–21 ms；walk 本身（4 帧×每 scope `getProperties` ≈ 一打 CDP 往返）在 0.6-L2 有 log-point 明文时不再复制字节缓冲，只哈希作用域字符串。
 - 【实测 v06l e2e】页面可以在一个微任务串里跑完 fetch→解密→`JSON.parse`，而 arm 由录制 index 推送驱动、晚几毫秒：观察模式把这种情况 walk 的结果先暂存 10 s（≤8 个），arm 一到补判。
 
 帧与帧路径 ref（0.4-I，spike 10-16 无头 CfT 155 + e2e v04i 有头后台标签，docs/05 s22）：

@@ -1758,16 +1758,17 @@ document.getElementById("s55-load").addEventListener("click", () => {
   return { origin: `http://127.0.0.1:${server.port}`, served, api, stop: () => server.stop(true) };
 }
 
-// ---------------------------------------------------------------- 0.6-L: s59 in-page decoding (docs/05 s59)
+// ---------------------------------------------------------------- 0.6-L / L2: s59 in-page decoding (docs/05 s59)
 // /api/enc answers {"code":0,"data":"<base64>"}: the 12-row JSON below either
 // XORed with S59_XOR_KEY (default) or, with ?mode=webcrypto, AES-128-GCM
 // encrypted with S59_AES_KEY_HEX / S59_AES_IV_HEX (data = base64(iv ||
-// ciphertext || tag)). The page /s59 (and /s59?mode=webcrypto) fetches it,
-// decrypts in its own JS (a plain XOR loop, or crypto.subtle.decrypt +
-// TextDecoder.decode), JSON.parses the plaintext and renders the rows, then
-// fetches /api/plain (plain JSON, parsed via response.text() + JSON.parse) as
-// the control. Rows and keys are literals here; no plaintext value appears in
-// any raw /api/enc body.
+// ciphertext || tag)). Variants: worker (XOR in a dedicated worker, main
+// thread JSON.parse of the posted string), axios (transformResponse parses
+// the envelope then the plaintext), inline (JSON.parse(decrypt(data))),
+// bare (whole body is one base64 token), big (~1.2 MiB plaintext, not
+// rendered). The page fetches, decrypts in its own JS, JSON.parses, renders
+// (except big), then fetches /api/plain as the control. Rows and keys are
+// literals here; no plaintext value appears in any raw /api/enc body.
 export const S59_XOR_KEY = "s59-page-key-31";
 export const S59_AES_KEY_HEX = "5a59a1c3d2e1f00f1e2d3c4b5a697887";
 export const S59_AES_IV_HEX = "0f1e2d3c4b5a69788796a5b4";
@@ -1793,6 +1794,16 @@ export function s59Gcm(plain: string, ivHex: string = S59_AES_IV_HEX): string {
 export const S59_ENC_XOR = JSON.stringify({ code: 0, data: s59Xor(S59_PLAIN) });
 export const S59_ENC_GCM = JSON.stringify({ code: 0, data: s59Gcm(S59_PLAIN) });
 export const S59_ENC_GCM2 = JSON.stringify({ code: 0, data: s59Gcm(S59_PLAIN2, S59_AES_IV2_HEX) });
+/** Bare ciphertext: the body is one base64 token, no JSON envelope (0.6-L2 item 6). */
+export const S59_BARE_XOR = s59Xor(S59_PLAIN);
+/** Plaintext just over the old 1 MiB cap (0.6-L2 item 3). Built lazily so
+ * importing this module does not allocate it on every other range. */
+export const S59_BIG_MARKER = "S59-BIG-0001";
+let s59BigPlainMemo: string | null = null;
+export function s59BigPlain(): string {
+  if (s59BigPlainMemo === null) s59BigPlainMemo = JSON.stringify({ marker: S59_BIG_MARKER, pad: "a".repeat(1_200_000) });
+  return s59BigPlainMemo;
+}
 
 const S59_PAGE = `<!doctype html><meta charset=utf-8><title>s59 in-page decode</title>
 <h1>s59 in-page decode</h1>
@@ -1802,11 +1813,16 @@ const S59_PAGE = `<!doctype html><meta charset=utf-8><title>s59 in-page decode</
 const S59_KEY = ${JSON.stringify(S59_XOR_KEY)};
 const S59_AES = ${JSON.stringify(S59_AES_KEY_HEX)};
 function s59Bytes(b64) { const raw = atob(b64); const out = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out; }
-function s59Xor(data) {
+function s59XorPlain(data) {
   const raw = atob(data);
   let plain = "";
   for (let i = 0; i < raw.length; i++) plain += String.fromCharCode(raw.charCodeAt(i) ^ S59_KEY.charCodeAt(i % S59_KEY.length));
-  return JSON.parse(plain);
+  return plain;
+}
+function s59Xor(data) { return JSON.parse(s59XorPlain(data)); }
+function s59Axios(text) {
+  const env = JSON.parse(text);
+  return JSON.parse(s59XorPlain(env.data));
 }
 async function s59Gcm(data) {
   const buf = s59Bytes(data);
@@ -1828,6 +1844,26 @@ function s59Worker(data) {
   });
 }
 async function s59Enc(mode) {
+  if (mode === "bare") {
+    const data = (await (await fetch("/api/enc?mode=bare", { cache: "no-store" })).text()).trim();
+    s59Render(s59Xor(data).rows);
+    return;
+  }
+  if (mode === "big") {
+    const env = JSON.parse(await (await fetch("/api/enc?mode=big", { cache: "no-store" })).text());
+    const obj = s59Xor(env.data);
+    document.getElementById("status").dataset.marker = obj.marker;
+    return;
+  }
+  if (mode === "axios") {
+    s59Render(s59Axios(await (await fetch("/api/enc", { cache: "no-store" })).text()).rows);
+    return;
+  }
+  if (mode === "inline") {
+    const env = JSON.parse(await (await fetch("/api/enc", { cache: "no-store" })).text());
+    s59Render(JSON.parse(s59XorPlain(env.data)).rows);
+    return;
+  }
   const two = mode === "webcrypto" && new URLSearchParams(location.search).get("two") === "1";
   if (!two) {
     const res = await fetch(mode === "webcrypto" ? "/api/enc?mode=webcrypto" : "/api/enc", { cache: "no-store" });
@@ -1855,7 +1891,7 @@ async function s59Main(mode) {
   document.getElementById("status").textContent = "ready " + c.control;
 }
 const s59Mode = new URLSearchParams(location.search).get("mode");
-s59Main(s59Mode === "webcrypto" || s59Mode === "worker" ? s59Mode : "xor");
+s59Main(s59Mode === "webcrypto" || s59Mode === "worker" || s59Mode === "axios" || s59Mode === "inline" || s59Mode === "bare" || s59Mode === "big" ? s59Mode : "xor");
 </script>`;
 
 // ?mode=worker: the XOR runs in a dedicated worker, which posts the plaintext
@@ -1885,7 +1921,10 @@ export function startInPageDecodeSite(): Site {
       if (u.pathname === "/s59") return send(key, S59_PAGE, "text/html; charset=utf-8");
       if (u.pathname === "/s59/worker.js") return send(key, S59_WORKER_JS, "text/javascript");
       if (u.pathname === "/api/enc") {
-        const body = u.searchParams.get("mode") === "webcrypto" ? (u.searchParams.get("slot") === "2" ? S59_ENC_GCM2 : S59_ENC_GCM) : S59_ENC_XOR;
+        const mode = u.searchParams.get("mode");
+        if (mode === "bare") return send(key, S59_BARE_XOR, "text/plain; charset=utf-8");
+        if (mode === "big") return send(key, JSON.stringify({ code: 0, data: s59Xor(s59BigPlain()) }), "application/json");
+        const body = mode === "webcrypto" ? (u.searchParams.get("slot") === "2" ? S59_ENC_GCM2 : S59_ENC_GCM) : S59_ENC_XOR;
         return send(key, body, "application/json");
       }
       if (u.pathname === "/api/plain") return send(key, S59_CONTROL, "application/json");

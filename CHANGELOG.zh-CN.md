@@ -2,6 +2,16 @@
 
 [English](CHANGELOG.md) | 中文
 
+## Unreleased
+
+### 观察模式补丁（0.6-L2）
+
+- **明文改走 log-point**：`JSON.parse` 断点的 condition 在 `console.dirxml` 仍是原生函数时发出被调实参（页面换掉它则退回暂停+作用域，不调用页面函数）。axios 式 `transformResponse`、内联 `JSON.parse(decrypt(…))`、worker 回字符串再 parse，都能归到对应响应；信封和 `/api/plain` 对照按原文 sha 排除，不再写成 `by:"page"` 视图。
+- **明文上限 16 MiB**（原 1 MiB，仍低于 blob 的 32 MiB）。
+- **裸 base64 / hex 正文**（≥64 字符、无 JSON 信封）也进嫌疑窗口。
+- **single-suspect 先等 500 ms** 再写，避免对照接口的 parse 抢到唯一嫌疑。
+- **录完就关**：`trace start --decode` 的提示和 `references/trace-and-probes.md` 写明每次 ≥32 字符的 parse 都暂停，表格密集或 WebSocket 高频 parse 会变慢。请求侧加密、SSE / 分块、Worker `postMessage` 对象仍不覆盖。
+
 ## 0.6.0（2026-10-16）
 
 ### 代理也看得到 loopback；mitmproxy 导入有类型和耗时（0.6-N）

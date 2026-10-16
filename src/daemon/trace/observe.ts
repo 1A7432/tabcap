@@ -15,15 +15,23 @@
 // one suspect armed; otherwise the row is unattributed (`request: null`) with
 // the candidates it was confused with. Never by recency.
 //
-// Reading the plaintext (spike-06l exp4, CfT 155): a function-call breakpoint
-// pauses with only the caller frame — the callee's arguments are not exposed
-// (data: null, no callee frame, `arguments` is the caller's own). The
-// plaintext is recovered from the pausing scope instead: every string value
-// that parses as JSON, and every ArrayBuffer / typed array copied read-only
-// through its objectId (`Array.from`, bounded to 1 MiB — a CryptoKey object
-// is never touched). If no scope value yields the plaintext the row is not
-// written (counted as plaintextMissing); a page that keeps the plaintext in
-// no reachable local cannot be served by observe mode.
+// Reading the plaintext (spike-06l exp4, spike-06l2 E1-E10, CfT 155): a
+// function-call breakpoint pauses with only the caller frame — the callee's
+// arguments are not exposed (data: null, no callee frame, `arguments` is the
+// caller's own), so the real argument of `JSON.parse(decrypt(…))` (a
+// temporary that is never a local) was out of reach and the old scope walk
+// filed the wrong value — the raw envelope — for the common axios / crypto-js
+// shapes. The primary channel is now a log-point: the JSON.parse breakpoint
+// condition calls `console.dirxml(nonce, arguments[0])` (guarded by the native
+// function name, so a page that overrode `console.dirxml` falls back to the
+// pause; spike E7), which emits the exact argument on `Runtime.consoleAPICalled`
+// before the pause (spike E6, strictly ordered) without running page code on
+// the value. The pausing scope is still walked — but only to match the
+// ciphertext (scope-string attribution) and only when more than one suspect is
+// armed or the log-point was suppressed; its strings are the fallback plaintext
+// when the guard failed. A plaintext whose sha256 equals a recorded response
+// body is the page parsing a raw body (the envelope, the plain control): it is
+// dropped (`drops.rawBody`), which is what keeps ciphertext out of the views.
 //
 // The sinks stay up while decode is on (design fix 10-16, NOTES): arming a
 // breakpoint from the recording's index push loses the race with the page's
@@ -46,14 +54,37 @@ export const PAGE_BY = "page";
 export const SUSPECT_WINDOW_MS = 5000;
 /** Unattributed rows kept per recording (docs/04 §33, D7). */
 export const UNATTRIBUTED_CAP = 50;
-/** A plaintext over this size is evidence only (no row). */
-export const PLAINTEXT_CAP = 1024 * 1024;
+/** A plaintext over this size is evidence only (no row). 0.6-L2: raised from
+ * 1 MiB to 16 MiB (a scraper's large list pages are exactly what is wanted;
+ * still under the 32 MiB blob cap of docs/04 §5.2.4). */
+export const PLAINTEXT_CAP = 16 * 1024 * 1024;
 /** Caller frames walked for the scope-string match and the plaintext. */
 export const SCOPE_FRAMES = 4;
 /** Properties read per scope object. */
 export const SCOPE_PROPS = 200;
 /** Breakpoint condition of the JSON.parse sink (evaluated inside V8). */
 export const JSON_PARSE_CONDITION = `typeof arguments[0] === "string" && arguments[0].length >= 32`;
+/** Plaintext shorter than this is not a row (docs/04 §33). */
+export const PLAINTEXT_MIN = 32;
+/** Scope strings shorter than this do not take part in the scope-string hash. */
+export const SCOPE_STRING_MIN = 16;
+
+/**
+ * The JSON.parse breakpoint condition (0.6-L2): the length gate, then — only
+ * when `console.dirxml` is still the native function (spike E7: a page that
+ * replaced it with an anonymous function fails the guard and the condition
+ * falls through to a plain pause, the page function is never called) — a
+ * log-point that emits the exact argument on `Runtime.consoleAPICalled` with
+ * the per-trace `nonce` as its marker, or `null` when the argument is over the
+ * cap. The condition always resolves truthy, so the breakpoint still pauses:
+ * the pause carries the scope for scope-string attribution. `nonce` is random
+ * and the recorder's console capture drops messages that carry it, so the
+ * plaintext never lands in `console list`.
+ */
+export function jsonParseLogpoint(nonce: string, cap: number): string {
+  const guard = `typeof console === "object" && console !== null && typeof console.dirxml === "function" && console.dirxml.name === "dirxml"`;
+  return `${JSON_PARSE_CONDITION} && (${guard} ? (console.dirxml(${JSON.stringify(nonce)}, arguments[0].length <= ${cap} ? arguments[0] : null), true) : true)`;
+}
 /** Sinks stay up while decode is on (design fix 10-16, NOTES): a body-cap
  * gate for the decoder keeps ordinary byte shuffling out of the pauses too. */
 export const TEXT_DECODER_CONDITION = `typeof arguments[0] === "object" && arguments[0] !== null && arguments[0].byteLength >= 32`;
@@ -66,8 +97,23 @@ const BASE64ish = /^[A-Za-z0-9+/=_-]+$/;
 const HEXish = /^[0-9a-fA-F]+$/;
 /** docs/04 §33: a JSON string leaf this long that looks like base64 / hex. */
 const LEAF_MIN = 64;
+/** docs/04 §33 (0.6-L2): a whole body that is one base64 / hex token this long. */
+const BARE_TOKEN_MIN = 64;
 
 export const sha256Text = (s: string): string => createHash("sha256").update(s, "utf8").digest("hex");
+
+/**
+ * A whole response body that is a single base64 / hex token (0.6-L2, item 6):
+ * low-entropy encodings (a custom-alphabet base-N dictionary stays within
+ * [A-Za-z0-9+/=_-]) never reach `looksEncrypted`, so a bare-token body — no
+ * JSON envelope — went unarmed and its plaintext fell into the unattributed
+ * pile. The sha256 of the trimmed token, or null. Surrounding whitespace is
+ * ignored so the page's own `atob(body.trim())` still matches in a scope.
+ */
+export function looksBareToken(text: string): string | null {
+  const t = text.trim();
+  return t.length >= BARE_TOKEN_MIN && (BASE64ish.test(t) || HEXish.test(t)) ? sha256Text(t) : null;
+}
 
 // ------------------------------------------------------------ suspect test (pure)
 
@@ -83,7 +129,7 @@ export type SuspectBody = { candidates: SuspectCandidates; jsonLeaf: boolean };
  * by the caller; `bytes` the stored body.
  */
 export function suspectOf(bytes: Uint8Array, text: string): SuspectBody | null {
-  const whole = looksEncrypted(bytes.length, shannonEntropy(bytes)) ? sha256Text(text) : null;
+  let whole = looksEncrypted(bytes.length, shannonEntropy(bytes)) ? sha256Text(text) : null;
   const leaves: string[] = [];
   let leaf = false;
   if (text.startsWith("{") || text.startsWith("[")) {
@@ -97,6 +143,9 @@ export function suspectOf(bytes: Uint8Array, text: string): SuspectBody | null {
       // not JSON: only the whole-body rule applies
     }
   }
+  // 0.6-L2: a bare base64 / hex body (no JSON envelope, below the entropy
+  // threshold) is a suspect on its trimmed token (item 6).
+  if (whole === null && leaves.length === 0) whole = looksBareToken(text);
   if (whole === null && leaves.length === 0) return null;
   return { candidates: { whole, leaves }, jsonLeaf: leaf };
 }
@@ -188,7 +237,7 @@ export function attribute(armed: readonly ArmedSuspect[], scopeShas: readonly st
 
 // ------------------------------------------------------------ plaintext candidates (pure)
 
-export type PlainCandidate = { text: string; from: "string" | "bytes" };
+export type PlainCandidate = { text: string; from: "console" | "string" | "bytes" };
 
 /**
  * The plaintext among scope values (spike-06l exp3/exp4: the callee argument
@@ -219,6 +268,16 @@ export function plaintextOf(scopeStrings: readonly string[], byteBuffers: readon
   for (const s of scopeStrings) tryIt(s, "string");
   for (const s of byteBuffers) tryIt(s, "bytes");
   return { best, oversize };
+}
+
+/**
+ * A plaintext candidate that is really a recorded raw body (0.6-L2): the page
+ * handing an envelope or the plain control to `JSON.parse` logs the raw text,
+ * whose sha256 is one the recording already stored. Dropped — this is what
+ * keeps the ciphertext envelope and the plain control out of the page views.
+ */
+export function rawBodyExcluded(text: string, rawBodyShas: ReadonlySet<string>): boolean {
+  return rawBodyShas.has(sha256Text(text));
 }
 
 /** "1,2,3,…" (Array.from(...).join(",")) → UTF-8 text; null on malformed / huge input. */

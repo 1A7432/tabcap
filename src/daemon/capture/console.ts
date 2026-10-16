@@ -325,6 +325,9 @@ export class ConsoleLog {
   private rings = new Map<string, RingBuffer<StoredConsole>>();
   private seqs = new Map<string, number>();
   private listeners = new Set<ConsoleListener>();
+  /** 0.6-L2: markers of the observe log-point; messages whose first argument is
+   * one of these carry decrypted plaintext and are dropped, never stored. */
+  private suppressed = new Set<string>();
   private off: () => void;
 
   constructor(
@@ -345,6 +348,20 @@ export class ConsoleLog {
     return () => this.listeners.delete(fn);
   }
 
+  /** 0.6-L2: drop console messages whose first argument is `marker` (observe
+   * mode's log-point plaintext); returns the unregister callback. */
+  suppressMarker(marker: string): () => void {
+    if (marker !== "") this.suppressed.add(marker);
+    return () => this.suppressed.delete(marker);
+  }
+
+  private isSuppressed(e: CdpEvent): boolean {
+    if (this.suppressed.size === 0 || e.method !== "Runtime.consoleAPICalled") return false;
+    const args = Array.isArray(e.params["args"]) ? e.params["args"] : [];
+    const first = isRecord(args[0]) ? args[0] : null;
+    return first !== null && first["type"] === "string" && typeof first["value"] === "string" && this.suppressed.has(first["value"]);
+  }
+
   ring(tabId: string): RingBuffer<StoredConsole> {
     let r = this.rings.get(tabId);
     if (r === undefined) {
@@ -357,6 +374,7 @@ export class ConsoleLog {
   private onEvent(e: CdpEvent): void {
     if (e.sessionId === null) return;
     if (e.method !== "Runtime.consoleAPICalled" && e.method !== "Runtime.exceptionThrown" && e.method !== "Log.entryAdded") return;
+    if (this.isSuppressed(e)) return;
     const tabId = this.tabs.hostOf(e.sessionId)?.id;
     if (tabId === undefined) return;
     const en = parseConsoleEvent(e, Date.now());

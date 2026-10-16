@@ -2,6 +2,16 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### Observe-mode patch (0.6-L2)
+
+- **Plaintext from a log-point**: the `JSON.parse` breakpoint condition emits the callee argument when `console.dirxml` is still native (a page that replaced it falls back to the pausing scope; the page function is never called). Axios-style `transformResponse`, inline `JSON.parse(decrypt(…))`, and a worker that posts a string then parses it, all attribute to their response; the envelope and the `/api/plain` control are excluded by raw-body sha and no longer filed as a `by:"page"` view.
+- **Plaintext cap 16 MiB** (was 1 MiB; still under the 32 MiB blob cap).
+- **A bare base64 / hex body** (≥64 chars, no JSON envelope) is a suspect.
+- **Single-suspect rows settle 500 ms** so a control parse cannot take the only armed suspect.
+- **Turn it off after the recording**: `trace start --decode` and `references/trace-and-probes.md` say every parse of a string ≥32 chars pauses, and a table-heavy or high-frequency WebSocket page will slow down. Request-side encryption, SSE / chunked decrypts, and a Worker `postMessage` of an object stay out of scope.
+
 ## 0.6.0 (2026-10-16)
 
 ### Analysis and output scrubbing from a real-project test (0.6-E)

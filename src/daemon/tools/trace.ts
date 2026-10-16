@@ -43,7 +43,7 @@ export function loadSignalList(configDir: string, file: string | null): SignalLi
 
 export async function traceStart(d: Daemon, a: Args, session: string): Promise<unknown> {
   checkSessionName(session);
-  const { t, tabs } = d.need();
+  const { t, tabs, console: consoleLog } = d.need();
   const have = d.tracers.get(session);
   if (have !== undefined) return { session, alreadyOn: true, notice: TRACE_NOTICE, ...statusLite(have) };
   const limits: TraceLimits = {
@@ -66,6 +66,7 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     scrub: (s) => d.secrets.scrub(s),
     paused: d.guard.isWaiting(session),
     decode,
+    suppressConsole: (marker) => consoleLog.suppressMarker(marker),
   });
   d.tracers.set(session, tr);
   const recording = d.recorders.get(session)?.dir ?? null;
@@ -75,7 +76,7 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     notice: TRACE_NOTICE,
     ...statusLite(tr),
     recording,
-    ...(decode ? { decode: tr.status()["decode"], decodeNotice: "observe mode on: JSON.parse pauses of every suspect window; the plaintext the page parses is filed by \"page\" as a decoded view" } : {}),
+    ...(decode ? { decode: tr.status()["decode"], decodeNotice: "observe mode on: every JSON.parse of a string ≥32 chars pauses (~0.4 ms plus a round trip); turn it off after the recording (trace stop / --no-decode). The plaintext the page parses is filed by \"page\" as a decoded view" } : {}),
     ...(recording === null ? { warning: "the session is not recording: signal events reach a bundle only while `tabcap net start` records; trace status still counts reads" } : {}),
   };
 }

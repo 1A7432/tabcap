@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { parseSidecarText } from "../../src/bundle/decoded.ts";
 import { isRecord } from "../../src/shared/json.ts";
-import { S59_ENC_GCM, S59_ENC_GCM2, S59_ENC_XOR, S59_PLAIN, S59_PLAIN2, startInPageDecodeSite, type Site } from "./site.ts";
+import { S59_BARE_XOR, S59_BIG_MARKER, S59_ENC_GCM, S59_ENC_GCM2, S59_ENC_XOR, S59_PLAIN, S59_PLAIN2, s59BigPlain, startInPageDecodeSite, type Site } from "./site.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -229,4 +229,49 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     // The control stays findable (the page's plain JSON) — the recording itself is sound.
     expect(recs((await ok("analyze", "find", bundle, "s59-plain-control"))["hits"]).length).toBe(1);
   }, 120_000);
+
+  test("s59 axios / inline / worker: the log-point captures a temporary plaintext; the envelope stays out of the view", async () => {
+    for (const mode of ["axios", "inline", "worker"] as const) {
+      const session = `s59-${mode}`;
+      const S = ["--session", session];
+      const { bundle, enc } = await runPage(session, `/s59?mode=${mode}`, ["--decode"]);
+      const rows = await until(`${mode} page row`, () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.some((r) => viewText(BundleReader.open(bundle), r.decoded) === S59_PLAIN));
+      const reader = BundleReader.open(bundle);
+      const hit = rows.find((r) => viewText(reader, r.decoded) === S59_PLAIN);
+      expect(hit?.request).toBe(enc[0]?.id);
+      expect(hit?.decoded["by"]).toBe("page");
+      // No sidecar row is the raw envelope (the axios-shape bug of 0.6-L).
+      for (const r of rows) expect(viewText(reader, r.decoded)).not.toBe(S59_ENC_XOR);
+      const { decode } = await stopBoth(session);
+      expect(Number(rec(decode?.["rows"])["attributed"] ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"]).some((h) => h["decode"] !== undefined && JSON.stringify(h["decode"]).includes("page"))).toBe(true);
+    }
+  }, 180_000);
+
+  test("s59 bare: a whole-body base64 token (below the entropy rule) is a suspect and the plaintext is attributed", async () => {
+    const S = ["--session", "s59b"];
+    const { bundle, enc } = await runPage("s59b", "/s59?mode=bare", ["--decode"]);
+    const rows = await until("the bare page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
+    const reader = BundleReader.open(bundle);
+    const hit = rows.find((r) => viewText(reader, r.decoded) === S59_PLAIN);
+    expect(hit?.request).toBe(enc[0]?.id);
+    expect(rec(hit?.decoded["evidence"] ?? {})["match"]).toBe(sha(S59_BARE_XOR));
+    await stopBoth("s59b");
+    expect(recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"]).length).toBe(1);
+  }, 120_000);
+
+  test("s59 big: a plaintext over the old 1 MiB cap is filed (new cap 16 MiB)", async () => {
+    const S = ["--session", "s59g"];
+    const { bundle, enc } = await runPage("s59g", "/s59?mode=big", ["--decode"]);
+    const want = s59BigPlain();
+    const rows = await until("the big page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.some((r) => viewText(BundleReader.open(bundle), r.decoded) === want), 30_000);
+    const reader = BundleReader.open(bundle);
+    const hit = rows.find((r) => viewText(reader, r.decoded) === want);
+    expect(hit?.request).toBe(enc[0]?.id);
+    expect(hit?.decoded["bytes"]).toBe(new TextEncoder().encode(want).length);
+    expect(want.length).toBeGreaterThan(1024 * 1024);
+    expect(want).toContain(S59_BIG_MARKER);
+    await stopBoth("s59g");
+    expect(recs((await ok("analyze", "find", bundle, S59_BIG_MARKER))["hits"]).some((h) => JSON.stringify(h["decode"] ?? []).includes("page"))).toBe(true);
+  }, 180_000);
 });

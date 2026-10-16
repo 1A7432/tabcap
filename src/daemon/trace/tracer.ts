@@ -36,7 +36,7 @@ import type { Tab, Tabs } from "../browser/targets.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../transport/types.ts";
 import { classifyPause, signalFields, TraceBook, type Aggregate, type BpInfo, type DocRef, type DocSummary, type PauseFrame, type ScriptInfo, type TraceLimits } from "./aggregate.ts";
 import { hashBulkData, INSTRUMENTATION_EVENTS, notRecorded, resolverExpression, SCRIPT_FIRST_STATEMENT, VALUE_INLINE_MAX, valueExpression, type SignalList } from "./signals.ts";
-import { Armed, attribute, JSON_PARSE_CONDITION, observeRow, OBSERVE_VERSION, PAGE_BY, plaintextOf, PLAINTEXT_CAP, SCOPE_FRAMES, SCOPE_PROPS, sha256Text, SINKS, suspectOf, SUSPECT_WINDOW_MS, TEXT_DECODER_CONDITION, UNATTRIBUTED_CAP, type PageEvidence, type SinkName } from "./observe.ts";
+import { Armed, attribute, jsonParseLogpoint, observeRow, OBSERVE_VERSION, PAGE_BY, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, sha256Text, SINKS, suspectOf, SUSPECT_WINDOW_MS, TEXT_DECODER_CONDITION, type PageEvidence, type PlainCandidate, type SinkName } from "./observe.ts";
 import type { NetEntry } from "../capture/recorder.ts";
 
 export const TRACE_NOTICE = "Trace mode installs debugger breakpoints in the page: scripts run slower and the timing is observable.";
@@ -109,6 +109,9 @@ export type TracerOptions = {
   paused: boolean;
   /** 0.6-L observe mode: arm the decode sinks on encrypted responses. */
   decode: boolean;
+  /** 0.6-L2: register the observe log-point marker so the recorder's console
+   * capture drops the plaintext it carries; returns an unregister callback. */
+  suppressConsole?: (marker: string) => () => void;
 };
 
 export class Tracer {
@@ -153,16 +156,51 @@ export class Tracer {
   private evidenceHits = 0;
   private sinksInstalled = 0;
   private sinksSkipped = 0;
-  private drops = { plaintextMissing: 0, tooLarge: 0, afterStop: 0, unattributedCapped: 0 };
+  private walks = 0;
+  private recovered = { console: 0, scope: 0 };
+  private drops = { plaintextMissing: 0, tooLarge: 0, afterStop: 0, unattributedCapped: 0, rawBody: 0, orphan: 0 };
+  /** Requests that already have a page row (0.6-L2): one row per response. */
+  private filedRequests = new Set<string>();
   /**
-   * JSON.parse pauses whose plaintext was walked while no suspect was armed
+   * Single-suspect rows waiting out a short settle (0.6-L2): single-suspect is a
+   * weak link (only one armed, no cryptographic scope-string match), so a page
+   * that fetches and parses an unrelated plain response while a suspect is armed
+   * (s59's /api/plain control) could be mis-filed before that response's own
+   * body reaches the raw-body set. Scope-string rows file at once; these wait
+   * `SETTLE_MS`, then file only if still not a recorded raw body and the request
+   * has no row yet.
+   */
+  private settle: Array<{ request: string; text: string; from: PlainCandidate["from"]; frames: PageEvidence["frames"]; at: number }> = [];
+  private static readonly SETTLE_MS = 500;
+  /** 0.6-L2: the per-trace log-point marker (random); its console messages carry
+   * the plaintext and are dropped by the recorder's console capture. */
+  private readonly nonce: string;
+  private unsuppressConsole: (() => void) | null = null;
+  /**
+   * The plaintext each JSON.parse breakpoint logged (0.6-L2): the log-point in
+   * the condition emits `console.dirxml(nonce, arg)` on `Runtime.consoleAPICalled`
+   * strictly before the pause of the same parse (spike E6), per session. The
+   * pause shifts this FIFO to pair the exact argument with the scope it paused
+   * in. `oversize` is a parse over the cap (the log-point sent null).
+   */
+  private pendingPlain = new Map<string, Array<{ text: string | null; oversize: boolean; at: number }>>();
+  private static readonly PENDING_MAX = 64;
+  /** sha256 of every recorded response body text (0.6-L2): a plaintext candidate
+   * that is one of these is the page parsing a raw body (envelope, plain
+   * control), not a decrypted plaintext. Bounded; oldest keys are not evicted
+   * individually (cleared with the recording). */
+  private rawShas = new Set<string>();
+  private static readonly RAW_SHAS_MAX = 8192;
+  /**
+   * JSON.parse pauses whose plaintext was logged while no suspect was armed
    * yet: a page can decrypt and parse in the same microtask burst the
    * recorder's index push (the arm) is still a few ms away from (s59 xor,
    * spike: the plaintext pause lost the race). Held for `HOLD_MS` and matched
    * as soon as a suspect is armed; the attribution rules are unchanged —
-   * only the timing gap is bridged.
+   * only the timing gap is bridged. `consolePlain` is the log-point argument
+   * when the guard was in force.
    */
-  private held: Array<{ scopeShas: string[]; strings: string[]; byteCsvs: string[]; evFrames: PageEvidence["frames"]; at: number }> = [];
+  private held: Array<{ scopeShas: string[]; strings: string[]; byteCsvs: string[]; consolePlain: { text: string | null; oversize: boolean } | null; evFrames: PageEvidence["frames"]; at: number }> = [];
   private static readonly HOLD_MS = 10_000;
   private static readonly HOLD_MAX = 8;
 
@@ -175,6 +213,10 @@ export class Tracer {
     this.limits = o.limits;
     this.paused = o.paused;
     this.book = new TraceBook(o.limits);
+    // 0.6-L2: a random marker the log-point carries; the recorder's console
+    // capture drops its messages so the plaintext never reaches `console list`.
+    this.nonce = o.decode ? `tabcap-observe-${crypto.randomUUID()}` : "";
+    if (o.decode && o.suppressConsole !== undefined) this.unsuppressConsole = o.suppressConsole(this.nonce);
   }
 
   get mode(): TraceMode {
@@ -308,6 +350,9 @@ export class Tracer {
       case "Debugger.paused":
         this.onPaused(st, p);
         return;
+      case "Runtime.consoleAPICalled":
+        if (this.opts.decode) this.onConsole(st, p);
+        return;
       case "Debugger.scriptParsed": {
         const id = str(p, "scriptId");
         if (id === null) return;
@@ -411,15 +456,39 @@ export class Tracer {
 
   // ------------------------------------------------------------ observe (0.6-L, docs/04 §33)
 
+  /**
+   * A JSON.parse log-point fired (0.6-L2): `console.dirxml(nonce, arg)` reaches
+   * us on `Runtime.consoleAPICalled` before the pause of the same parse (spike
+   * E6). Queue the exact argument per session for the pause to pair with its
+   * scope; `null` means the argument was over the cap (oversize). Anything
+   * whose first argument is not our marker is a page's own console call.
+   */
+  private onConsole(st: Sess, params: Record<string, unknown>): void {
+    const args = Array.isArray(params["args"]) ? params["args"] : [];
+    const first = isRecord(args[0]) ? args[0] : null;
+    if (first === null || first["type"] !== "string" || first["value"] !== this.nonce) return;
+    const payload = isRecord(args[1]) ? args[1] : null;
+    const text = payload !== null && payload["type"] === "string" && typeof payload["value"] === "string" ? (payload["value"] as string) : null;
+    const q = this.pendingPlain.get(st.sid) ?? [];
+    if (q.length >= Tracer.PENDING_MAX) q.shift();
+    q.push({ text, oversize: text === null, at: Date.now() });
+    this.pendingPlain.set(st.sid, q);
+  }
+
   /** A finished response was stored: arm its body when it looks like ciphertext (D3). */
   private onEntryIndexed(e: NetEntry): void {
     if (!this.opts.decode || this.stopped) return;
     this.armed.expire(Date.now());
-    // A body the decode plugin already turned into a view has nothing to observe.
-    if (e.outcome !== "finished" || e.blob === null || e.decoded !== undefined) return;
+    if (e.outcome !== "finished" || e.blob === null) return;
     const bytes = this.opts.recorder()?.readBlob(e.blob) ?? null;
     if (bytes === null || bytes.length === 0) return;
     const text = Buffer.from(bytes).toString("utf8");
+    // 0.6-L2: every recorded body text is a raw-body sha — a plaintext candidate
+    // that equals one is the page parsing a raw body (the envelope, the plain
+    // control), not a decrypted plaintext.
+    if (this.rawShas.size < Tracer.RAW_SHAS_MAX) this.rawShas.add(sha256Text(text));
+    // A body the decode plugin already turned into a view has nothing to observe.
+    if (e.decoded !== undefined) return;
     const s = suspectOf(bytes, text);
     if (s === null) return;
     const shas = [...(s.candidates.whole !== null ? [s.candidates.whole] : []), ...s.candidates.leaves];
@@ -448,10 +517,21 @@ export class Tracer {
   private sweep(): void {
     if (this.stopped) return;
     this.armed.expire(Date.now());
+    this.expireHeld(Date.now());
+    void this.settleFlush(false);
     const live = this.armed.live();
-    if (live.length === 0) return;
-    const next = Math.min(...live.map((x) => x.expiresAt)) - Date.now();
-    this.sweepLater(Math.max(next, 0) + 50);
+    const waits = [...live.map((x) => x.expiresAt), ...this.settle.map((s) => s.at + Tracer.SETTLE_MS), ...this.held.map((h) => h.at + Tracer.HOLD_MS)];
+    if (waits.length === 0) return;
+    this.sweepLater(Math.max(Math.min(...waits) - Date.now(), 0) + 50);
+  }
+
+  /** Held pauses whose window elapsed without a suspect are orphans (0.6-L2,
+   * owner decision 10-16: count only, no row, `find` untouched). */
+  private expireHeld(now: number): void {
+    const cut = now - Tracer.HOLD_MS;
+    const expired = this.held.filter((h) => h.at <= cut);
+    if (expired.length > 0) this.drops.orphan += expired.length;
+    this.held = this.held.filter((h) => h.at > cut);
   }
 
   private sweepLater(ms: number): void {
@@ -508,7 +588,7 @@ export class Tracer {
           this.sinksSkipped++;
           continue;
         }
-        const condition = sink === "JSON.parse" ? JSON_PARSE_CONDITION : sink === "TextDecoder.prototype.decode" ? TEXT_DECODER_CONDITION : null;
+        const condition = sink === "JSON.parse" ? jsonParseLogpoint(this.nonce, PLAINTEXT_CAP) : sink === "TextDecoder.prototype.decode" ? TEXT_DECODER_CONDITION : null;
         const bp = await this.t.send("Debugger.setBreakpointOnFunctionCall", { objectId, ...(condition === null ? {} : { condition }) }, st.sid, CMD_MS);
         const id = str(bp, "breakpointId");
         if (id === null) {
@@ -528,9 +608,11 @@ export class Tracer {
   }
 
   /**
-   * A hit of an observe sink. Function-call breakpoints see no callee frame
+   * A hit of an observe sink. A function-call breakpoint sees no callee frame
    * (spike exp4: `data:null`, the caller's `arguments` are its own), so the
-   * row is built from the caller scopes; the evidence sinks are counted,
+   * plaintext comes from the JSON.parse log-point (the exact argument, queued
+   * on `Runtime.consoleAPICalled` before this pause), with the pausing scope
+   * walked only to match the ciphertext. The evidence sinks are counted,
    * nothing more (D1). Every exit resumes.
    */
   private async onSinkPause(st: Sess, params: Record<string, unknown>, sink: SinkName): Promise<void> {
@@ -546,41 +628,40 @@ export class Tracer {
           const id = str(f, "scriptId") ?? "";
           return st.tabcapScripts.has(id) || st.internalScripts.has(id) || (st.scripts.get(id)?.isDefault === false);
         })
-      )
+      ) {
+        // Still consume this realm's log-point so the FIFO stays paired.
+        if (sink === "JSON.parse") this.shiftPending(st.sid);
         return;
+      }
       if (sink !== "JSON.parse") {
         this.evidenceHits++;
         return;
       }
       this.armed.expire(Date.now());
+      const consolePlain = this.shiftPending(st.sid);
       const rec = this.opts.recorder();
       if (rec === undefined || !rec.recording) {
         this.drops.afterStop++;
         return;
       }
-      // The walk must happen inside the pause whatever the armed list says:
-      // a page that decrypts and parses in the same microtask burst as its
-      // fetch is ahead of the recorder's arm (the index push) — the walked
-      // result is held and matched as soon as a suspect is armed.
-      const w = await this.walkScopes(st, frames);
+      const evFrames = this.framesOf(st, frames);
       const live = this.armed.live();
+      // Walk the pausing scope for the scope-string match (which ciphertext this
+      // plaintext came from — the evidence, and the disambiguation when several
+      // suspects are armed). 0.6-L2: when the log-point already gave the exact
+      // plaintext, the walk hashes the scope strings only and skips the costly
+      // read-only byte-buffer copy — the scope is no longer the plaintext source.
+      const w = await this.walkScopeStrings(st, frames, consolePlain === null);
+      this.walks++;
+      const plaintext = this.plaintextFrom(consolePlain, w);
       if (live.length === 0) {
         if (this.held.length >= Tracer.HOLD_MAX) this.held.shift();
-        this.held.push({ scopeShas: w.scopeShas, strings: w.strings, byteCsvs: w.byteCsvs, evFrames: w.evFrames, at: Date.now() });
+        this.held.push({ scopeShas: w.scopeShas, strings: w.strings, byteCsvs: w.byteCsvs, consolePlain, evFrames, at: Date.now() });
         return;
       }
       const attribution = attribute(live, w.scopeShas);
-      log.debug("observe: paused", { sink, frames: frames.length, strings: w.strings.length, byteBuffers: w.byteCsvs.length, shas: w.scopeShas.length, attribution: attribution.kind, live: live.length });
-      const plaintext = plaintextOf(w.strings, w.byteCsvs);
-      const now = Date.now();
-      const decided = observeRow({ attribution, scopeShas: w.scopeShas, frames: w.evFrames, plaintext, now, sink }, this.unattributedKept);
-      if (!("row" in decided)) {
-        if (decided.skip === "plaintext-missing") this.drops.plaintextMissing++;
-        else if (decided.skip === "plaintext-too-large") this.drops.tooLarge++;
-        else this.drops.unattributedCapped++;
-        return;
-      }
-      await this.fileDecidedRow(decided.row, now);
+      log.debug("observe: paused", { sink, frames: frames.length, console: consolePlain !== null, shas: w.scopeShas.length, attribution: attribution.kind, live: live.length });
+      await this.decideRow(attribution, w.scopeShas, evFrames, plaintext, Date.now());
     } catch (e) {
       log.debug("trace: observe pause failed", { error: String(e) });
     } finally {
@@ -588,8 +669,65 @@ export class Tracer {
     }
   }
 
+  /** Pop the plaintext this realm's log-point queued for the current parse. */
+  private shiftPending(sid: string): { text: string | null; oversize: boolean } | null {
+    const q = this.pendingPlain.get(sid);
+    const v = q === undefined || q.length === 0 ? undefined : q.shift();
+    return v === undefined ? null : { text: v.text, oversize: v.oversize };
+  }
+
+  /** The plaintext of a pause: the log-point argument when the guard was in
+   * force, else the longest JSON-parsing scope value (fallback). */
+  private plaintextFrom(consolePlain: { text: string | null; oversize: boolean } | null, w: { strings: readonly string[]; byteCsvs: readonly string[] }): { best: PlainCandidate | null; oversize: boolean } {
+    if (consolePlain !== null) {
+      if (consolePlain.text !== null && consolePlain.text.length >= PLAINTEXT_MIN) return { best: { text: consolePlain.text, from: "console" }, oversize: false };
+      return { best: null, oversize: consolePlain.oversize };
+    }
+    return plaintextOf(w.strings, w.byteCsvs);
+  }
+
+  /** Decide one JSON.parse pause's row and file it; the counters say why not.
+   * The raw-body exclusion runs here (not before the hold): a page that parses
+   * the envelope and the plaintext in the same microtask burst can hold both
+   * before the arm populates the raw-body set — by filing time it is populated. */
+  private async decideRow(attribution: ReturnType<typeof attribute>, scopeShas: readonly string[], frames: PageEvidence["frames"], plaintext: { best: PlainCandidate | null; oversize: boolean }, now: number): Promise<void> {
+    // A plaintext that is a recorded raw body (the envelope, the plain control)
+    // is the page parsing a raw body, not a decrypted plaintext.
+    if (plaintext.best !== null && rawBodyExcluded(plaintext.best.text, this.rawShas)) {
+      this.drops.rawBody++;
+      return;
+    }
+    const decided = observeRow({ attribution, scopeShas, frames, plaintext, now, sink: "JSON.parse" }, this.unattributedKept);
+    if (!("row" in decided)) {
+      if (decided.skip === "plaintext-missing") this.drops.plaintextMissing++;
+      else if (decided.skip === "plaintext-too-large") this.drops.tooLarge++;
+      else this.drops.unattributedCapped++;
+      return;
+    }
+    const row = decided.row;
+    // Single-suspect: weak link, settle it (see `settle`); the strong
+    // scope-string and the (kept) unattributed rows file at once.
+    if (attribution.kind === "single-suspect" && row.request !== null && plaintext.best !== null) {
+      if (this.filedRequests.has(row.request)) return;
+      this.settle.push({ request: row.request, text: plaintext.best.text, from: plaintext.best.from, frames: row.evidence.frames, at: now });
+      this.sweepLater(Tracer.SETTLE_MS + 50);
+      return;
+    }
+    if (plaintext.best?.from === "console") this.recovered.console++;
+    else this.recovered.scope++;
+    await this.fileDecidedRow(row, now);
+  }
+
   /** Store the plaintext blob, append the sidecar line; the counters say why not. */
   private async fileDecidedRow(row: { request: string | null; direction: "response"; mime: string; text: string; evidence: PageEvidence }, at: number): Promise<void> {
+    // One row per request: the suspect is forgotten and the request marked
+    // before the awaits so a parse that slips into the async gap (s59's control
+    // during the real plaintext's write) cannot take the same suspect again.
+    if (row.request !== null) {
+      if (this.filedRequests.has(row.request)) return;
+      this.filedRequests.add(row.request);
+      this.armed.forget(row.request);
+    }
     const rec = this.opts.recorder();
     if (rec === undefined || !rec.recording) {
       this.drops.afterStop++;
@@ -610,8 +748,27 @@ export class Tracer {
       this.unattributedKept++;
     } else {
       this.attributedRows++;
-      // The request has its plaintext row: later pauses must not duplicate it.
-      this.armed.forget(row.request);
+    }
+  }
+
+  /** File the single-suspect rows whose settle has elapsed (0.6-L2): drop those
+   * that turned out to be a recorded raw body, or whose request already has a
+   * row (a scope-string match won). `all` flushes every pending row (trace /
+   * recording stop) so a weak axios-style match is not lost on a quick stop. */
+  private async settleFlush(all = false): Promise<void> {
+    if (this.settle.length === 0) return;
+    const cut = Date.now() - Tracer.SETTLE_MS;
+    const due = all ? this.settle : this.settle.filter((s) => s.at <= cut);
+    this.settle = all ? [] : this.settle.filter((s) => s.at > cut);
+    for (const s of due) {
+      if (this.filedRequests.has(s.request)) continue;
+      if (rawBodyExcluded(s.text, this.rawShas)) {
+        this.drops.rawBody++;
+        continue;
+      }
+      if (s.from === "console") this.recovered.console++;
+      else this.recovered.scope++;
+      await this.fileDecidedRow({ request: s.request, direction: "response", mime: "application/json", text: s.text, evidence: { sink: "JSON.parse", match: null, frames: s.frames, at: s.at } }, s.at);
     }
   }
 
@@ -623,7 +780,7 @@ export class Tracer {
   private async matchHeld(): Promise<void> {
     if (this.held.length === 0 || this.stopped) return;
     const now = Date.now();
-    this.held = this.held.filter((h) => h.at > now - Tracer.HOLD_MS);
+    this.expireHeld(now);
     if (this.held.length === 0) return;
     this.armed.expire(now);
     const live = this.armed.live();
@@ -634,44 +791,43 @@ export class Tracer {
       const attribution = attribute(live, h.scopeShas);
       // No live suspect for this pause: keep it held for a later arm.
       if (attribution.kind === "armed-empty") continue;
-      const plaintext = plaintextOf(h.strings, h.byteCsvs);
-      const decided = observeRow({ attribution, scopeShas: h.scopeShas, frames: h.evFrames, plaintext, now: h.at, sink: "JSON.parse" }, this.unattributedKept);
-      if (!("row" in decided)) {
-        if (decided.skip === "plaintext-missing") this.drops.plaintextMissing++;
-        else if (decided.skip === "plaintext-too-large") this.drops.tooLarge++;
-        else this.drops.unattributedCapped++;
-        this.held = this.held.filter((x) => x !== h);
-        continue;
-      }
-      await this.fileDecidedRow(decided.row, h.at);
+      const plaintext = this.plaintextFrom(h.consolePlain, { strings: h.strings, byteCsvs: h.byteCsvs });
+      await this.decideRow(attribution, h.scopeShas, h.evFrames, plaintext, h.at);
       this.held = this.held.filter((x) => x !== h);
       this.armed.expire(Date.now());
     }
+  }
+
+  /** The caller frames for a pause's evidence (docs/04 §33, ≤5): cheap, no CDP. */
+  private framesOf(st: Sess, frames: readonly Record<string, unknown>[]): PageEvidence["frames"] {
+    const out: PageEvidence["frames"] = [];
+    for (const f of frames.slice(0, 5)) {
+      const info = st.scripts.get(str(f, "scriptId") ?? "");
+      const loc = isRecord(f["location"]) ? f["location"] : null;
+      out.push({ url: info?.url ?? "", line: loc === null ? 0 : (num(loc, "lineNumber") ?? 0), column: loc === null ? 0 : (num(loc, "columnNumber") ?? 0), function: str(f, "functionName") || "(anonymous)" });
+    }
+    return out;
   }
 
   /**
    * Read-only walk of the pausing frames' scopes (docs/04 §33): every string
    * value long enough to be a ciphertext leaf (hashed — the scope-string
    * attribution), every ArrayBuffer / typed array copied as CSV through its
-   * objectId, never a CryptoKey, and the caller frames for the evidence.
+   * objectId (the fallback plaintext when the log-point was suppressed), never
+   * a CryptoKey. `block` scopes are walked too (0.6-L2, spike E3: a plaintext
+   * assigned to a block-scoped `const` sits in a `block`, not a `local`).
    */
-  private async walkScopes(st: Sess, frames: readonly Record<string, unknown>[]): Promise<{ scopeShas: string[]; strings: string[]; byteCsvs: string[]; evFrames: PageEvidence["frames"] }> {
+  private async walkScopeStrings(st: Sess, frames: readonly Record<string, unknown>[], wantBytes: boolean): Promise<{ scopeShas: string[]; strings: string[]; byteCsvs: string[] }> {
     const scopeShas: string[] = [];
     const strings: string[] = [];
     const byteCsvs: string[] = [];
-    const evFrames: PageEvidence["frames"] = [];
     for (const f of frames.slice(0, SCOPE_FRAMES)) {
-      const info = st.scripts.get(str(f, "scriptId") ?? "");
-      const loc = isRecord(f["location"]) ? f["location"] : null;
-      if (evFrames.length < 5) {
-        evFrames.push({ url: info?.url ?? "", line: loc === null ? 0 : (num(loc, "lineNumber") ?? 0), column: loc === null ? 0 : (num(loc, "columnNumber") ?? 0), function: str(f, "functionName") || "(anonymous)" });
-      }
       const callFrameId = str(f, "callFrameId");
       if (callFrameId === null) continue;
       const scopes = Array.isArray(f["scopeChain"]) ? f["scopeChain"].filter(isRecord) : [];
       for (const s of scopes) {
         const type = str(s, "type");
-        if (type !== "local" && type !== "closure") continue;
+        if (type !== "local" && type !== "closure" && type !== "block") continue;
         const obj = isRecord(s["object"]) ? s["object"] : null;
         const scopeId = obj === null ? null : str(obj, "objectId");
         if (scopeId === null) continue;
@@ -683,10 +839,10 @@ export class Tracer {
           const kind = str(v, "type");
           if (kind === "string" && typeof v["value"] === "string") {
             const sv = v["value"] as string;
-            if (sv.length < 16) continue;
+            if (sv.length < SCOPE_STRING_MIN) continue;
             strings.push(sv);
             scopeShas.push(sha256Text(sv));
-          } else if (kind === "object") {
+          } else if (wantBytes && kind === "object") {
             const sub = str(v, "subtype");
             if (sub !== "arraybuffer" && sub !== "typedarray") continue;
             const oid = str(v, "objectId");
@@ -704,7 +860,7 @@ export class Tracer {
         }
       }
     }
-    return { scopeShas, strings, byteCsvs, evFrames };
+    return { scopeShas, strings, byteCsvs };
   }
 
   // ------------------------------------------------------------ install
@@ -929,8 +1085,13 @@ export class Tracer {
     if (this.opts.decode) {
       this.indexOff?.();
       this.indexOff = null;
+      await this.settleFlush(true);
       this.drops.afterStop += this.armed.clear("recording stopped");
       this.held = [];
+      this.settle = [];
+      this.filedRequests.clear();
+      this.pendingPlain.clear();
+      this.rawShas.clear();
       await this.removeSinks("recording stopped");
     }
   }
@@ -946,6 +1107,10 @@ export class Tracer {
   async setPaused(on: boolean): Promise<void> {
     if (this.stopped || this.paused === on) return;
     this.paused = on;
+    // 0.6-L2: while the session waits for the human, pauses are skipped so
+    // nothing is filed; drop any plaintext the log-point queued meanwhile so it
+    // is not paired with a later parse's scope when the handoff ends.
+    if (on) this.pendingPlain.clear();
     const rec = this.opts.recorder();
     rec?.event("note", { text: on ? `trace paused: ${TRACE_PAUSED_NOTE}` : "trace resumed: the handoff ended (Debugger.setSkipAllPauses false)", refs: [] });
     await Promise.all([...this.sessions.values()].map((st) => this.t.send("Debugger.setSkipAllPauses", { skip: on }, st.sid, CMD_MS).catch(() => undefined)));
@@ -976,8 +1141,15 @@ export class Tracer {
       clearTimeout(this.sweepTimer);
       this.sweepTimer = null;
     }
+    await this.settleFlush(true);
     this.drops.afterStop += this.armed.clear("trace stopped");
     this.held = [];
+    this.settle = [];
+    this.filedRequests.clear();
+    this.pendingPlain.clear();
+    this.rawShas.clear();
+    this.unsuppressConsole?.();
+    this.unsuppressConsole = null;
     for (const key of keys) {
       const s = this.book.summary(key);
       if (s !== null) this.recent.push(s);
@@ -1017,6 +1189,8 @@ export class Tracer {
               armed: this.armed.live().length,
               rows: { attributed: this.attributedRows, unattributed: this.unattributedRows, unattributedKept: this.unattributedKept },
               evidenceHits: this.evidenceHits,
+              recovered: { ...this.recovered },
+              walks: this.walks,
               sinks: { resolved: this.sinksInstalled, skipped: this.sinksSkipped, on: this.sinksOn },
               drops: { ...this.drops },
             },

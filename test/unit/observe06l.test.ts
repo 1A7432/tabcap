@@ -16,9 +16,12 @@ import {
   attribute,
   bytesCsvToText,
   JSON_PARSE_CONDITION,
+  jsonParseLogpoint,
+  looksBareToken,
   observeRow,
   plaintextOf,
   PLAINTEXT_CAP,
+  rawBodyExcluded,
   sha256Text,
   suspectOf,
   SUSPECT_WINDOW_MS,
@@ -77,6 +80,38 @@ describe("suspectOf (docs/04 §33 D3)", () => {
   test("short leaves are not", () => {
     const body = '{"data":"QmFzZTY0"}';
     expect(suspectOf(new TextEncoder().encode(body), body)).toBeNull();
+  });
+  test("a bare base64 / hex token body is a suspect on its trimmed token (0.6-L2 item 6)", () => {
+    const s = suspectOf(new TextEncoder().encode(`  ${LEAF}  `), `  ${LEAF}  `);
+    expect(s?.candidates).toEqual({ whole: sha(LEAF), leaves: [] });
+    expect(s?.jsonLeaf).toBe(false);
+    // A bare token under 64 chars does not arm.
+    expect(suspectOf(new TextEncoder().encode("QmFzZTY0bG9va2luZw=="), "QmFzZTY0bG9va2luZw==")).toBeNull();
+    // Plain prose is not a token (it has spaces).
+    expect(looksBareToken("the quick brown fox jumps over the lazy dog many times over here")).toBeNull();
+  });
+});
+
+describe("0.6-L2 additions", () => {
+  test("the plaintext cap is 16 MiB, under the 32 MiB blob cap", () => {
+    expect(PLAINTEXT_CAP).toBe(16 * 1024 * 1024);
+  });
+  test("jsonParseLogpoint keeps the length gate, guards the native dirxml, carries the nonce and the cap", () => {
+    const lp = jsonParseLogpoint("NONCE-123", 42);
+    expect(lp).toContain(JSON_PARSE_CONDITION);
+    expect(lp).toContain('console.dirxml.name === "dirxml"');
+    expect(lp).toContain('console.dirxml("NONCE-123", arguments[0].length <= 42 ? arguments[0] : null)');
+  });
+  test("looksBareToken: 64+ base64 / hex token (trimmed) or null", () => {
+    expect(looksBareToken(LEAF)).toBe(sha(LEAF));
+    expect(looksBareToken(`\n${"ab".repeat(40)}\n`)).toBe(sha("ab".repeat(40))); // 80 hex chars
+    expect(looksBareToken('{"rows":[]}')).toBeNull();
+  });
+  test("rawBodyExcluded: a plaintext that is a recorded raw body (envelope, control) is dropped", () => {
+    const envelope = '{"code":0,"data":"' + LEAF + '"}';
+    const raw = new Set([sha256Text(envelope), sha256Text("other")]);
+    expect(rawBodyExcluded(envelope, raw)).toBe(true);
+    expect(rawBodyExcluded(PLAIN_ROWS, raw)).toBe(false);
   });
 });
 
