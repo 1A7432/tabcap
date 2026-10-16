@@ -1009,6 +1009,23 @@ Example: `tabcap analyze recon ./b --text`
 |---|---|---|
 | `--text` |  | print the Markdown dossier instead of the JSON envelope |
 
+### `tabcap analyze shape`
+
+response and request shape per endpoint (method + path template, all its exchanges): a type tree of the decoded JSON bodies (kinds, unions, formats date / datetime / int / float / id / url / email, presence counts, optional, ≤ 8 enum literals of non-sensitive fields) plus query names and request body fields; never values
+
+```
+tabcap analyze shape <bundle> [--request r-N] [--template 'GET /path'] [--text] [--write]
+```
+
+Example: `tabcap analyze shape ./b --template 'GET /api/list' --text`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--request <r-N>` |  | only this exchange (its endpoint, shaped from this request alone) |
+| `--template <'GET /path'>` |  | only this endpoint: method + path template as listed (key) |
+| `--text` |  | print one line per field instead of JSON (the envelope's data is schema tabcap-shape/0) |
+| `--write` |  | also store the result as exports/shape.json in the bundle |
+
 ### `tabcap replay serve`
 
 serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256; repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k); no match → 404 with the nearest recordings and what differs

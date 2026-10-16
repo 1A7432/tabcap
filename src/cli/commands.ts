@@ -897,6 +897,19 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap analyze recon ./b --text",
   },
   {
+    path: ["analyze", "shape"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--request", key: "request", kind: "string", help: "only this exchange (its endpoint, shaped from this request alone)", metavar: "r-N" },
+      { flag: "--template", key: "template", kind: "string", help: "only this endpoint: method + path template as listed (key)", metavar: "'GET /path'" },
+      { flag: "--text", key: "text", kind: "bool", help: "print one line per field instead of JSON (the envelope's data is schema tabcap-shape/0)" },
+      { flag: "--write", key: "write", kind: "bool", help: "also store the result as exports/shape.json in the bundle" },
+    ],
+    summary:
+      "response and request shape per endpoint (method + path template, all its exchanges): a type tree of the decoded JSON bodies (kinds, unions, formats date / datetime / int / float / id / url / email, presence counts, optional, ≤ 8 enum literals of non-sensitive fields) plus query names and request body fields; never values",
+    example: "tabcap analyze shape ./b --template 'GET /api/list' --text",
+  },
+  {
     path: ["replay", "serve"],
     pos: ["bundle"],
     flags: [
