@@ -8,7 +8,9 @@
 // Target: loopback by default (`replay serve` of the same bundle must give zero
 // differences). A non-loopback target needs --live, a stored site whose
 // domains include the host, and is paced through the store's guard counters
-// (1 request per 2 s unless --rate). Tests never use --live.
+// (1 request per 2 s unless --rate). Tests never use --live against a real
+// site. A live check goes out through the proxy of the bundle's account when
+// it is bound to a pool proxy (0.4-D); the result names the proxy, never its URL.
 // Oracle: the bundle (recorded status / headers / blobs). Reproduce:
 //   bun test test/unit/replay-check.test.ts test/unit/replay-integration.test.ts
 
@@ -17,6 +19,8 @@ import type { RequestEvent } from "../bundle/types.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
 import { Store } from "../daemon/store/db.ts";
+import { accountProxy, type AccountProxy } from "./proxyenv.ts";
+import type { HttpClient } from "../daemon/pool/proxy.ts";
 import { isBinaryMime, parseJsonDoc, utf8 } from "../analyze/decoders.ts";
 import { HOP_BY_HOP, flattenJson, globMatcher, headerJoined, isLoopbackHost, replayableRequests, requestBodyBytes, type Skipped } from "./common.ts";
 
@@ -59,6 +63,8 @@ export type CheckResult = {
   bundle: string;
   against: string;
   live: boolean;
+  /** Pool proxy name a live check went out through (0.4-D), else null. */
+  proxy?: string | null;
   headers: string[];
   totals: CheckTotals;
   rows: CheckRow[];
@@ -156,6 +162,8 @@ export type CheckOptions = {
   configDir: string;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /** Tests: the HTTP client. */
+  fetch?: HttpClient;
 };
 
 /** Reasons a recorded body cannot be compared (not a difference). */
@@ -229,9 +237,18 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
   const sleep = opts.sleep ?? ((ms: number) => Bun.sleep(ms));
   const now = opts.now ?? Date.now;
   const guard = !loopback && opts.live ? openLiveGuard(opts, base, reader.manifest.session.site) : null;
+  // 0.4-D: the account's pool proxy, as the browser session used it (system / none / unbound: none).
+  let egress: AccountProxy | null = null;
+  try {
+    egress = guard === null ? null : accountProxy(opts.configDir, guard.site, reader.manifest.session.site === guard.site ? reader.manifest.session.account : null);
+  } catch (e) {
+    guard?.store.close();
+    throw e;
+  }
   const warnings: string[] = [];
   if (!reader.isComplete()) warnings.push("bundle is not finished: recording in progress or interrupted");
   if (guard !== null) warnings.push(`live target: requests paced at one per ${guard.intervalMs} ms and counted for site ${guard.site}`);
+  if (egress !== null) warnings.push(`live target: sent through proxy ${egress.proxy} (account ${egress.site}.${egress.account})`);
   if (opts.withCookies) warnings.push("--with-cookies: the recorded cookie header is sent; it may have expired (docs/03 §4: sessions expire)");
 
   const { requests, skipped } = replayableRequests(reader);
@@ -247,7 +264,7 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
 
   const rows: CheckRow[] = [];
   try {
-    for (const r of chosen) rows.push(await checkOne(r, reader, base, opts, guard, sleep, now));
+    for (const r of chosen) rows.push(await checkOne(r, reader, base, opts, guard, sleep, now, egress));
   } finally {
     guard?.store.close();
   }
@@ -258,10 +275,19 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
     else if (row.result === "error") totals.errors++;
     else totals.unverified++;
   }
-  return { bundle: opts.bundle, against: base.href, live: guard !== null, headers: [...opts.headers], totals, rows, skipped, warnings };
+  return { bundle: opts.bundle, against: base.href, live: guard !== null, proxy: egress?.proxy ?? null, headers: [...opts.headers], totals, rows, skipped, warnings };
 }
 
-async function checkOne(r: RequestEvent, reader: BundleReader, base: URL, opts: CheckOptions, guard: LiveGuard | null, sleep: (ms: number) => Promise<void>, now: () => number): Promise<CheckRow> {
+async function checkOne(
+  r: RequestEvent,
+  reader: BundleReader,
+  base: URL,
+  opts: CheckOptions,
+  guard: LiveGuard | null,
+  sleep: (ms: number) => Promise<void>,
+  now: () => number,
+  egress: AccountProxy | null,
+): Promise<CheckRow> {
   const u = new URL(r.url);
   const row: CheckRow = { id: r.id, method: r.method, path: `${u.pathname}${u.search}`, status: { recorded: r.response?.status ?? null, got: null }, result: "same", diffs: {}, notes: [] };
   const target = targetUrl(base, r.url);
@@ -277,15 +303,17 @@ async function checkOne(r: RequestEvent, reader: BundleReader, base: URL, opts: 
   }
   let res: Response;
   try {
-    res = await fetch(target, {
+    res = await (opts.fetch ?? fetch)(target, {
       method,
       headers: requestHeaders(r, opts.withCookies),
       redirect: "manual",
       ...(bytes.length > 0 && method !== "GET" && method !== "HEAD" ? { body: bytes } : {}),
+      ...(egress === null ? {} : { proxy: egress.url }),
     });
   } catch (e) {
     row.result = "error";
-    row.error = e instanceof Error ? e.message : String(e);
+    const msg = e instanceof Error ? e.message : String(e);
+    row.error = egress === null ? msg : egress.scrub(msg); // a proxy error may echo the credentialed URL
     return row;
   }
   row.status.got = res.status;

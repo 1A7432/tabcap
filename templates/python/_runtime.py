@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +18,8 @@ class Session:
 
     def __init__(self, cookies: list[dict[str, Any]] | None = None, values: dict[str, str] | None = None, timeout: float = 30.0) -> None:
         self.values: dict[str, str] = dict(values or {})
-        self.client = httpx.Client(timeout=timeout, follow_redirects=False)
+        # TABCAP_PROXY_URL: the recording account's proxy (tabcap replay export-python --proxy-env), else no proxy.
+        self.client = httpx.Client(timeout=timeout, follow_redirects=False, proxy=os.environ.get("TABCAP_PROXY_URL") or None)
         for c in cookies or []:
             if isinstance(c, dict) and isinstance(c.get("name"), str) and isinstance(c.get("value"), str):
                 self.client.cookies.set(c["name"], c["value"], domain=str(c.get("domain", "")), path=str(c.get("path", "/")))

@@ -28,3 +28,4 @@ These functions raise `NotImplementedError` when called. Signature-like paramete
 
 - The default `base_url` is the origin of the recording; think about the account risk before calling a real site (docs/03 §4: offline replay first, sessions expire).
 - Session values (`session.value(...)`) default to the recorded ones; override them with `Session(values={...})`.
+- When the recording's account is bound to a proxy from the pool, the client must leave through the same proxy: `tabcap replay export-python <bundle> -o <dir> --proxy-env proxy.env` writes `TABCAP_PROXY_URL` into `proxy.env` (0600, carries the proxy credentials, never commit it); run `set -a; . ./proxy.env; set +a` before the client; `Session` reads that variable (no proxy without it).
