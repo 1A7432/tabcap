@@ -597,7 +597,7 @@ export const COMMANDS: CommandSpec[] = [
     pos: [],
     flags: [
       ...T,
-      { flag: "--ref", key: "ref", kind: "string", help: "add this reference (saved with `fingerprint serve`) as a second column with a verdict per field: same / differs / missing (the reference lacks it) / extra (this browser lacks it)", metavar: "name" },
+      { flag: "--ref", key: "ref", kind: "string", help: "add this reference (saved with `fingerprint serve`) as a second column with a verdict per field: same / differs / missing (this browser lacks a field the reference has) / extra (this browser has a field the reference lacks)", metavar: "name" },
       { flag: "--text", key: "text", kind: "bool", help: "print a text table instead of JSON" },
     ],
     summary:

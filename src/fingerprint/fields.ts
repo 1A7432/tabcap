@@ -176,15 +176,16 @@ const shown = (f: Field | undefined): FieldValue => (f === undefined || "error" 
 
 /**
  * The verdict of one field. Hashes compare as strings, arrays in order.
- * `missing`: the reference lacks it (absent or no value); `extra`: this
- * browser lacks it; both lacking reads as `same` (both present nothing).
+ * `missing`: this browser lacks a field the reference has (absent or no
+ * value); `extra`: this browser has a field the reference lacks; both
+ * lacking reads as `same` (both present nothing). Owner ruling 10-16 (0.4-G2).
  */
 export function verdictOf(cur: Field | undefined, ref: Field | undefined): Verdict {
   const a = presented(cur);
   const b = presented(ref);
   if (a === null && b === null) return "same";
-  if (b === null) return "missing";
-  if (a === null) return "extra";
+  if (a === null) return "missing";
+  if (b === null) return "extra";
   return a.kind === b.kind && a.json === b.json ? "same" : "differs";
 }
 

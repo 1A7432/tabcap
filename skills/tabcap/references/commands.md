@@ -1113,7 +1113,7 @@ Example: `tabcap fingerprint probe --ref daily --text`
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--ref <name>` |  | add this reference (saved with `fingerprint serve`) as a second column with a verdict per field: same / differs / missing (the reference lacks it) / extra (this browser lacks it) |
+| `--ref <name>` |  | add this reference (saved with `fingerprint serve`) as a second column with a verdict per field: same / differs / missing (this browser lacks a field the reference has) / extra (this browser has a field the reference lacks) |
 | `--text` |  | print a text table instead of JSON |
 
 ### `tabcap fingerprint serve`

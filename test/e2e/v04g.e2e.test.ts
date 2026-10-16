@@ -6,7 +6,7 @@
 //     for the user's own browser here); two loads of the same browser must
 //     give `same` for every field, so a field that varies per load fails here;
 //   - the edited reference: the three edits below decide the verdicts
-//     (two values changed → differs, one field removed → missing);
+//     (two values changed → differs, one field removed from the reference → extra);
 //   - the bundle: the `state` env events read back from events.jsonl.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -192,7 +192,7 @@ describe.skipIf(!enabled)("tabcap 0.4-G L2 (signal probe: this browser vs a refe
     expect(text.raw.trimEnd().split("\n").at(-1)).toBe("same 49, differs 0, missing 0, extra 0");
   }, 60_000);
 
-  test("an edited reference: two changed values are differs, a removed field is missing", async () => {
+  test("an edited reference: two changed values are differs, a field removed from the reference is extra", async () => {
     const doc = rec(JSON.parse(readFileSync(refFile, "utf8")));
     const fields = recs(doc["fields"])
       .filter((f) => f["name"] !== "Navigator.prototype.vendor")
@@ -204,9 +204,9 @@ describe.skipIf(!enabled)("tabcap 0.4-G L2 (signal probe: this browser vs a refe
     writeFileSync(refFile, JSON.stringify({ ...doc, fields }, null, 2));
     edited = await ok("fingerprint", "probe", "--ref", "daily", ...S);
     expect(byVerdict(edited, "differs")).toEqual(["Navigator.prototype.userAgent", "Screen.prototype.width"]);
-    expect(byVerdict(edited, "missing")).toEqual(["Navigator.prototype.vendor"]);
-    expect(byVerdict(edited, "extra")).toEqual([]);
-    expect(edited["summary"]).toEqual({ same: 46, differs: 2, missing: 1, extra: 0 });
+    expect(byVerdict(edited, "missing")).toEqual([]);
+    expect(byVerdict(edited, "extra")).toEqual(["Navigator.prototype.vendor"]);
+    expect(edited["summary"]).toEqual({ same: 46, differs: 2, missing: 0, extra: 1 });
   }, 60_000);
 
   test("the bundle has the probes as state env events; fingerprint diff on it gives the same verdicts", async () => {
@@ -224,7 +224,7 @@ describe.skipIf(!enabled)("tabcap 0.4-G L2 (signal probe: this browser vs a refe
     expect(d["summary"]).toEqual(edited["summary"]);
     expect(rec(d["browser"])["version"]).toBe(rec(edited["browser"])["version"]);
     const text = await tabcap(["fingerprint", "diff", bundle, "--ref", "daily", "--text"]);
-    expect(text.raw.trimEnd().split("\n").at(-1)).toBe("same 46, differs 2, missing 1, extra 0");
+    expect(text.raw.trimEnd().split("\n").at(-1)).toBe("same 46, differs 2, missing 0, extra 1");
   }, 60_000);
 
   test("ref remove; daemon stop leaves no browser process of this TABCAP_HOME", async () => {
