@@ -179,3 +179,8 @@
 - 做了什么：按作者 10-16 的裁决改文案：README 边界删去挑战处理一条；去掉仓库文本里的跨项目名（旧 NOTES 条目只替换名字本身）；docs/07 焦点阶梯补 `tab select --bring-to-front` 例外；docs/05 增 s40 locale-numbers；docs/04 `finding.tool` 加 `where`；docs/09 响应 schema 推断命令改名 `shape`；docs/08 §3 追加 0.4 补充。只动文档，未碰代码、测试、CHANGELOG。
 - 卡在哪：中文 README 没有独立的「边界」条目，对应内容是「站点与账号库」段末一句，按字面删了那一句；README.md 第 5、111 行的 captcha 字样不在指定条目内，原样保留。
 - 下一格从哪开始：0.4 各代码格；s40 与 `where` 的归一化规则随 `where` 实现时落地靶场页与 expected。
+
+## 2026-10-16 · 0.4-C · where 与值归一化（分支 0.4-C，草稿 PR #5，未合并）
+- 做了什么：`src/analyze/normalize.ts`（表驱动 14 条规则，列出全部解释，规则少的在前）、`src/analyze/where.ts` + `htmltext.ts`（纯函数：JSON 叶子走 `find` 解码链、其它文本整段、HTML 文本节点带标签路径选择器；exact 1 分、normalized 1/(1+规则数)，JSON 候选排在 HTML 前，同分早请求在前）、守护进程 `where` 工具（ref 取可见文字与整页文字做日月消歧，读本会话正在写的包，不发请求；`--write-findings` 录制中走录制器、已停写入已收尾的包）、命令表 / `--text` / 生成文档 / SKILL 段 / CHANGELOG；靶场 s40（两行 `/api/rows`、五种 locale 手写字符串）。【实测】Bun 1.4.2 的 `new TextDecoder("gbk")` 可用（gbk/gb2312/gb18030/big5/shift_jis 都能构造），GBK 正文走 TextDecoder 后进解码链；单测 / tsc / skill / 全量 e2e 94 条全过。
+- 卡在哪：几处按最字面读法自定、待作者确认：① s40 五个 locale 在同一个包里，各页文档本身就以原样显示同一值（exact 1 分），为让「首个候选是 /api/rows」成立，排序加了「JSON / 文本候选先于 HTML 文本节点」一级；② `find` 并无选择器语法，HTML 选择器是新定的（标签路径 + `:nth-of-type`，指向响应源码，不补 tbody）；③ 只搜 HTTP 响应，不搜 WS 帧 / console；④ 日月消歧只对 ref 入参用整页文字，文字入参一律 `ambiguous`；⑤ YYYYMM / YYYYMMDD 纯数字日期限 1900–2100 年（否则 `100101` 会被读成日期）；⑥ `dotted-code` 按定义对任何「只有数字和点」的值都给一种解读（`1234.56` 也有 `123456`）；⑦ 位置参数名用 `<query>` 而非 `<ref|text>`；⑧ 录制中的 `where` 本身照常留一条 cmd 事件（与 `net list` 同）。backlog：相对时间（「2 days ago」）、时区换算。
+- 下一格从哪开始：作者审 PR #5 上面八点（尤其 ① 的排序层级）；合并时主循环重生成 `aliases.test.ts.snap`；之后 0.4 其余格（内嵌状态解码器接进 `where` 的解码链、帧路径 ref）。
