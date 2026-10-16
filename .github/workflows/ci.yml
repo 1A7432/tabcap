@@ -187,16 +187,23 @@ jobs:
           path: ${{ runner.temp }}/wire-profile
           if-no-files-found: warn
           retention-days: 30
+      # upload-artifact takes one root: everything goes into ci-logs/ in the workspace first
+      # (the default config dir is outside it: ~/.config/tabcap or %LOCALAPPDATA%\tabcap\config).
+      - name: collect logs
+        if: failure() || cancelled()
+        run: |
+          shopt -s nullglob
+          mkdir -p ci-logs/config
+          for f in e2e.log probe.log setup.json; do if [ -f "$f" ]; then cp "$f" ci-logs/; fi; done
+          for d in "$HOME/.config/tabcap" "$HOME/AppData/Local/tabcap/config"; do
+            for f in "$d"/*.log; do cp "$f" ci-logs/config/; done
+          done
+          find ci-logs -type f | sort
       - name: upload logs
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-logs-${{ matrix.os }}
-          path: |
-            e2e.log
-            probe.log
-            setup.json
-            ~/.config/tabcap/*.log
-            ~/AppData/Local/tabcap/config/*.log
+          path: ci-logs/
           if-no-files-found: ignore
           retention-days: 7
