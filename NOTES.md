@@ -375,3 +375,8 @@
 - 做了什么：`docs/12-comparison.md`（来源引文表 I/A/U/P/V/C、能力对照表逐格标依据、靶场复现、【待验】行、tabcap 不做的事、找不到来源的说法）；`docs/compare/` 放靶场脚本 `range.ts`（s22 原样用 `startFrameSite`；s21 在 site.ts 里还没有，按 docs/05 §s21 实现，12 行 AES-GCM 密文）、derive-client 第 2、3 步的 `derive-steps.sh`、tabcap 与 agent-browser 0.39.0 在 s21 / s22 上的输出和两份 HAR；README 与中文 README 在「五点不同」后加「Where it sits / 位置」一段 + 能力表；两份 CHANGELOG 的 Unreleased 各一条。
 - 卡在哪（按最字面读法定，待作者审）：表里「–」定义为「按读到的公开文档没有描述」，不是「做不到」；README 的 decode 插件一格依赖 0.6-B，合入前是【待验】；Integuru 没有 `OPENAI_API_KEY` 未跑、Unbrowse 托管连不到 127.0.0.1 未跑，命令写在 docs/12 §4.3；agent-browser 用独立配置与 namespace，不碰作者那份指向 9222 的配置；它加 `allowedDomains` 时 s22 的 `open` 失败，表用默认设置那次。tabcap 侧发现两处：密文短于 256 B 时 `find` 不标疑似加密（已知下限）；s22 的 `deps` 把 `q=abc` 归为 `constant [single-sample]`，没关联到帧内的 `fill`【待验】。
 - 下一格从哪开始：0.6-B 合入后用 s21 补跑 decode 插件（docs/12 §4.3 最后一条），去掉该格【待验】；主循环合并时 README「Where it sits」紧挨 0.6-B 加在「五点不同」后的 decode 插件段，按段落合；作者决定是否自己跑 Integuru / Unbrowse。
+
+## 2026-10-16 · 0.6-K · decode 格补跑（s21 + decode 插件）
+- 做了什么：`docs/compare/plugins/s21-aes-gcm/`（Bun 插件，WebCrypto AES-GCM，密钥 IV 是靶场字面量）；s21 装插件后【实测】`net body --decoded` 见明文、`where` 与 `analyze find` 命中（链 `plugin:s21-aes-gcm`），无插件录的包用 `bundle decode` 补解后 `find` 同样命中；输出 `docs/compare/tabcap-s21-decode.txt`；docs/12 §4 表格、§4.1、§4.3 对应处更新。
+- 卡在哪：`where` 只读会话自己的录制、不收包路径，所以离线路径只测了 `find`；README 里对这一格的措辞未动（按要求），主循环合并时可核对。
+- 下一格从哪开始：作者审 docs/12；Integuru / Unbrowse / derive-client 第 4、5 步仍【待验】（§4.3）。
