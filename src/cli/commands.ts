@@ -741,7 +741,20 @@ export const COMMANDS: CommandSpec[] = [
     summary: "send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference",
     example: "tabcap replay check ./b --against http://127.0.0.1:4500",
   },
+  // Wire level (0.4-W2, docs/07 §6): the local echo, the browser baseline and the probe; 127.0.0.1 only.
   {
+    path: ["wire", "serve"],
+    pos: [],
+    flags: [
+      { flag: "--port", key: "port", kind: "number", help: "port on 127.0.0.1 (0: any free port)", default: 0, metavar: "port" },
+      { flag: "--capture-dir", key: "captureDir", kind: "string", help: "also write every report with its raw ClientHello and request bytes here", metavar: "dir" },
+    ],
+    summary:
+      "local TLS echo on 127.0.0.1 until Ctrl-C (prints {url, port, caPath} first): answers every request with the wire report of its own connection (TLS ClientHello, JA3 / JA4, HTTP/2 settings and frames, header order) as JSON; trust it with the CA from `tabcap wire ca-path`",
+    example: "tabcap wire serve --port 4443",
+  },
+  { path: ["wire", "version"], pos: [], flags: [], summary: "version, path and sha256 of the native wire component (extracted from the tabcap binary into the cache on first use)", example: "tabcap wire version" },
+  { path: ["wire", "ca-path"], pos: [], flags: [], summary: "path of the wire echo's CA certificate (a test CA for 127.0.0.1 only), for clients that verify TLS", example: "tabcap wire ca-path" },
     path: ["fingerprint", "serve"],
     pos: [],
     flags: [
