@@ -4,6 +4,13 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## 0.6.0 (2026-10-17)
 
+### Re-test fixes: usage intervals, fixtures summary, popup field, decode-plugin notice (0.6-U)
+
+- **`bundle info --usage` intervals leave CORS preflights out**: a row's `minIntervalMs`, `meanIntervalMs` and `maxBurst1s` are computed over its non-preflight requests. A real bundle's `fetch` row showed a 0.2 ms minimum — the gap between a preflight and its request. Preflights are still counted in `requests`, `byMethod` and `preflights`; `firstMono` / `lastMono` still span the whole row.
+- **`bundle export fixtures` summarises `skipped`**: the answer's `skipped` counts the left-out exchanges per reason (`{"websocket": 113, "preflight": 26}`) and `skippedExamples` names up to 3 request ids per reason; before, it listed every one (a hundred websocket lines on a real bundle). `index.json` keeps the full per-exchange list.
+- **`click` keeps looking for a popup until it answers**: on a real site a click that sent a request and then opened a popup answered `effect: "request"` with no `popup`, because the popup target arrived after the post-action wait. A popup seen any time before the click answers now gives `effect: "popup"` with the `popup` field. After the wait, the click keeps looking only while a request it saw is still in flight or ended under 300 ms ago, within the existing 2 s registration grace, so clicks without such a request take no longer. A popup tab that joined the session is found even when the target events did not name it.
+- **`trace start --decode` names enabled decode plugins**: `decodePlugins` lists them and `decodePluginsNotice` says that a body a plugin already decoded is not observed and that plugin views outrank `by:"page"` views; `tabcap plugin disable <name>` to observe the page instead.
+
 ### Observe mode recall (0.6-Q)
 
 - **Ciphertext in the forms the page holds it**: every candidate (a high-entropy body, a base64 / hex JSON leaf, a bare token) is hashed as served, whitespace-stripped, without surrounding quotes and URL-decoded. MIME-style base64 (a line break every 76 chars, stripped by the page before decrypting) now gives strong rows — on a real site 76 of 91 encrypted bodies were of that kind and none was attributed. Strong rows say which form matched in `evidence.matchForm` (`raw` / `stripped` / `unquoted` / `urldecoded`). MIME-wrapped, quoted and URL-encoded bare bodies are suspects too.

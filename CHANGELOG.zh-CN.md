@@ -4,6 +4,13 @@
 
 ## 0.6.0（2026-10-17）
 
+### 复测修正：usage 间隔、fixtures 汇总、popup 字段、解码插件提示（0.6-U）
+
+- **`bundle info --usage` 的间隔不算 CORS 预检**：每行的 `minIntervalMs`、`meanIntervalMs`、`maxBurst1s` 只按非预检请求算。一个真实包的 `fetch` 行最短间隔是 0.2 ms——那是预检和它的请求之间的距离。预检照旧计入 `requests`、`byMethod`、`preflights`；`firstMono` / `lastMono` 仍跨整行。
+- **`bundle export fixtures` 汇总 `skipped`**：回答里的 `skipped` 按原因计数（`{"websocket": 113, "preflight": 26}`），`skippedExamples` 每个原因列至多 3 个请求 id；以前逐条列出（真实包里一百多行 websocket）。`index.json` 仍是逐条的完整列表。
+- **`click` 回答之前一直在看弹窗**：真实站点上一次点击先发请求、再开弹窗，回答是 `effect: "request"` 且没有 `popup`，因为弹窗目标在点击后的等待结束之后才到。现在回答之前任何时候看到弹窗，都给 `effect: "popup"` 和 `popup` 字段。等待结束后，只在点击期间看到的请求仍未结束、或结束不到 300 ms 时继续看，总长不超过原有的 2 s 注册宽限，所以没有这种请求的点击不变慢。已进会话的弹窗标签即使目标事件没点名也能找到。
+- **`trace start --decode` 列出已启用的解码插件**：`decodePlugins` 列名字，`decodePluginsNotice` 说明插件已解过的正文不再观察、插件视图优先于 `by:"page"` 视图；想看页面就 `tabcap plugin disable <name>`。
+
 ### 观察模式召回（0.6-Q）
 
 - **按页面手里的形式比对密文**：每个候选（高熵整段 body、base64 / hex 的 JSON 叶子、裸 token）按原样、去空白、去首尾引号、URL 解码各算一份哈希。MIME 式 base64（每 76 字符一个换行，页面解密前自己去掉）现在能出 strong 行——某真实站点 91 条加密响应里 76 条是这种，此前一条也归不上。strong 行用 `evidence.matchForm`（`raw` / `stripped` / `unquoted` / `urldecoded`）说明命中的是哪种形式。带换行、带引号、URL 编码的裸 body 也进嫌疑。
