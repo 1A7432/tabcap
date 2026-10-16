@@ -4,6 +4,10 @@
 
 ## 0.6.0（2026-10-17）
 
+### README 重写
+
+- 两份 README 改回给人读的样子：是什么、为什么、快速开始、做什么、命令分组一览、同类对照、边界、平台、文档。生成的全量命令表从 README 里拿掉，完整参考只在 `skills/tabcap/references/commands.md`（`bun run gen:docs` 现在只写这一个文件）。
+
 ### 观察模式补丁（0.6-L2）
 
 - **明文改走 log-point**：`JSON.parse` 断点的 condition 在 `console.dirxml` 仍是原生函数时发出被调实参（页面换掉它则退回暂停+作用域，不调用页面函数）。axios 式 `transformResponse`、内联 `JSON.parse(decrypt(…))`、worker 回字符串再 parse，都能归到对应响应；信封和 `/api/plain` 对照按原文 sha 排除，不再写成 `by:"page"` 视图。

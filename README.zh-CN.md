@@ -2,163 +2,89 @@
 
 [English](README.md) | 中文
 
-给 AI agent 用的浏览器，在你旁边干活，不占你的屏幕：专属 Chrome 里的后台标签，页面读成带 ref 的无障碍树，每个请求连正文一起录下，遇到登录、验证码或需要人拿主意的地方就交还给人。为采集和分析网页流量而做，不做无人值守的自动化。
+**给 AI agent 用的浏览器：不占你的屏幕，全程录下，该交给人的时候交给人。**
 
-状态：0.6.0（alpha）。macOS arm64 日常使用、测试全过；Linux x64 与 Windows x64 在 CI 上跑，有已知缺口（见「[安装](#安装)」）；Linux arm64 只编译、未测试。Apache-2.0。
+tabcap 给 agent 一份自己的 Chrome，在后台标签里干活，不抢你的前台。每个请求连正文一起录下。碰到登录、验证码或要人拿主意的地方，会话交还给你，agent 等着。录下来的东西可以搜索、对比、回放，也能生成代码。
+
+它只做一件事：搞清楚一个站点的流量是怎么回事，好让你的爬虫复现。它不是无人值守的采集平台。
+
+状态：0.6.0，alpha。macOS arm64 日常在用；Linux x64 与 Windows x64 在 CI 上跑，有已知缺口；Linux arm64 只编译过、没运行过。Apache-2.0。
+
+## 为什么做它
+
+多数 agent 浏览器的出发点是「给 agent 一个干净隔离的浏览器，让它自己跑」。真实的采集工作不是这样：你得先登录、把流程走一遍；agent 会卡在验证页上；总得有人确认「数据在这个请求里，那个参数是签名」。
+
+tabcap 就是这个循环的工作台：agent 探路、重复；你给凭据、过验证、核结论；全程录下来，每条结论事后都能回放核对。
 
 ## 快速开始
 
-`tabcap` 是一个命令行工具加一个后台守护进程，守护进程自己管一份 Chrome for Testing（独立 profile）。agent 在后台标签里操作，从不抢 macOS 前台；页面读成带 ref（`e12`）的无障碍树，用来点击和填写；网络请求连正文录进证据包。0.1.0 曾以 `bbl` 为名发布；环境变量只认 `TABCAP_*`（0.2.x 对旧 `BBL_*` 的回退已在 0.3 删除）。
+**1. 安装。** 从 release 页下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，校验值在 `SHA256SUMS`），解开，把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`。macOS 上用浏览器下载的，先跑一次 `xattr -d com.apple.quarantine tabcap`。或者从源码编：Bun 1.4 以上，`bun install && bun run build`。
 
-1. **拿二进制**：从 release 下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，可用 `SHA256SUMS` 核对），解开后把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`（macOS 上浏览器下载的要先 `xattr -d com.apple.quarantine tabcap`）；或者在本仓库 `bun install && bun run build` 自己编。
-2. **装浏览器**：`tabcap setup`。从 Chrome for Testing 官方 JSON 下载 Stable 到 `~/.cache/tabcap/chrome/<版本>/`，写 `~/.config/tabcap/config.json`；不交互，可重复跑。已有 Chrome for Testing 的话用 `tabcap setup --executable-path <二进制路径>`。
-3. **启动**：`tabcap daemon start && tabcap browser start`。要求浏览器只连 127.0.0.1 / localhost 时加 `--proxy none`；默认跟随系统代理。
-
-**agent 宿主**：skill 在 `skills/tabcap/`（agentskills.io 格式：`SKILL.md` + `references/commands.md`，不含任何脚本）。Claude Code 拷到 `~/.claude/skills/tabcap/`；Claude Code 与 DeepSeek harness 也认 `~/.agents/skills/tabcap/`；Hermes Agent 拷进它的 skills 目录。之后直接让 agent「用 tabcap 打开某页、看它调了哪些接口」。
-
-**其它 agent / 直接用命令行**：每条命令在 stdout 打印一个 JSON 信封，`{"ok":true,"data":…}` 或 `{"ok":false,"error":{"code","message","next"}}`，失败时照 `next` 做。
+**2. 装浏览器，启动。**
 
 ```sh
-tabcap navigate http://127.0.0.1:8080/      # 后台标签打开并等就绪
-tabcap snapshot --interactive               # 控件树，带 ref（e12）
-tabcap click e12                            # DOM 点击，等导航与 DOM 稳定后返回；--trusted 走真实鼠标事件
-tabcap fill e7 alice                        # 填输入框；密码框的值在所有输出里都是 <masked>
-tabcap net start; tabcap click e9; tabcap net list --resource-types xhr,fetch; tabcap net body r-11
-tabcap screenshot                           # 只回图片路径
-tabcap --help                               # 全部命令；tabcap <命令> --help 看选项和例子
-tabcap daemon stop                          # 关浏览器、收尾录制、退出
+tabcap setup                                 # 下载 Chrome for Testing 到 ~/.cache/tabcap，不问任何问题
+tabcap daemon start && tabcap browser start  # 守护进程和它自己的 Chrome，独立 profile
 ```
 
-命令名与参数名对齐 Chrome DevTools MCP（`press-key`、`tab list` / `tab select`、`console list` / `console show`、`--page-size` / `--page-idx`、`--file-path` …），0.3 的旧名已在 0.4 删除。命令一览（`--session`、`--timeout` 省略；`tabcap <命令> --help` 看全部选项和例子，`skills/tabcap/references/commands.md` 是完整参考，`tabcap schema --json` 是机器可读版）：
+**3. 打开页面，看一眼。**
 
-<!-- BEGIN GENERATED: commands (from src/cli/commands.ts; run `bun run gen:docs`) -->
-| 命令 | 作用 |
+```sh
+tabcap navigate https://example.com         # 在后台标签打开，等到就绪
+tabcap snapshot --interactive               # 页面控件树，带 ref（e12）
+tabcap click e12                            # 按 ref 点击，等导航稳定
+tabcap fill e7 alice                        # 密码框的值在所有输出里都是 <masked>
+tabcap screenshot                           # 存一张 PNG，打印路径
+```
+
+**4. 录下页面调了什么。**
+
+```sh
+tabcap net start                            # 录请求、正文、WebSocket 帧、控制台
+tabcap click e9
+tabcap net list --resource-types xhr,fetch  # 接口调用，按时间先后
+tabcap net body r-11                        # 一条响应正文
+tabcap net stop                             # 录制是 ~/.local/share/tabcap 下的一个证据包
+tabcap daemon stop
+```
+
+每条命令在 stdout 打印一个 JSON 信封：`{"ok":true,"data":…}` 或 `{"ok":false,"error":{"code","message","next"}}`。失败了就照 `next` 做。`tabcap --help` 按组列出命令，`tabcap <命令> --help` 看选项和例子。
+
+**交给 agent。** skill 在 `skills/tabcap/`（`SKILL.md` 加 `references/`，没有脚本）。Claude Code 拷到 `~/.claude/skills/tabcap/`（它也认 `~/.agents/skills/tabcap/`），Hermes Agent 等宿主拷进各自的 skills 目录。只认 MCP 的宿主：`claude mcp add tabcap -- tabcap mcp`；`tabcap mcp --print-config <宿主>` 打印 Cursor、Codex、Gemini CLI、Windsurf（没验证过）、Claude Desktop 的配置条目。然后对 agent 说：「用 tabcap 打开这个页面，看它调了哪些接口」。
+
+## 它做什么
+
+- **从不占你的屏幕。** 标签在后台打开；需要焦点的输入，在一条命令的时长里用 Chrome 的焦点仿真；抢走前台的弹窗会被交还；只有显式的 `tab select --bring-to-front` 会把标签提到前面。
+- **把流量录成证据。** `net start` 把请求、响应正文、WebSocket 帧、控制台输出和命令时间线写进一个证据包。可以导出成 HAR（默认打码），也可以导入别处录的 HAR；录制中就能用 `net list`、`net show`、`net body`、`net wait` 读。
+- **凭据不经过模型。** 站点、账号、密码存在本地库里（`tabcap site add`，在提示符下输入或用管道喂）。agent 只写引用（`fill e6 --secret example.password`）；所有输出、日志和证据包事件里，已知的秘密值一律替换成 `<secret:…>`。
+- **交还给人，不硬闯。** 每个站点每个会话只试一次登录。撞上验证页，会话进入 `waiting` 并附截图，直到你在浏览器里处理完、跑 `tabcap handoff continue`。tabcap 不带任何验证码或挑战的解法；插件接口可以加载你自己写的处理程序。
+- **让你的爬虫经已登录的标签发请求。** `tabcap fetch <url>` 由页面自己发请求（带它的 cookie，受它的 CORS 规则），录下并打标，并发也不会混。同一主机按间隔排队（默认 3 秒，没有跳过的开关）；`status>=400`、`json:$.code!=0` 这类停手规则一命中就停下该站点，直到 `tabcap guard resume`。Python 爬虫可以经守护进程的套接字做同样的事。
+- **录完离线干活。** `analyze find` 和 `where` 把页面上显示的一个值追到携带它的响应，解码和归一化都算在内。`analyze deps` 与 `analyze chain` 指出每个请求输入从哪来、复现它需要哪些请求。`analyze diff` 跨多次录制给参数分类；`analyze shape` 与 `schema-diff` 描述端点的形状和漂移。`replay export-python` 把一条链生成为带测试的 httpx 客户端；`replay serve` 用证据包应答；`replay check` 把一次真实运行逐字段比对；`bundle export fixtures` 给你已有的测试框架写夹具，一条交换一个。
+- **加密正文用你自己的代码读。** 解码插件是你自己的一个进程（一行一个 JSON，密钥留在它自己的配置里），把编码或加密的正文变成明文视图，`find`、`where`、`deps`、`replay check` 都读它。页面自己在 JS 里解密的站点，`trace start --decode` 观察页面交给 `JSON.parse` 的明文，归到对应的响应，并标出关联是强是弱。
+- **会话交给脚本。** `session export --for requests|httpx|playwright` 把 cookie、页面真正发过的认证头和本地存储写进一个 0600 文件，量交给你自己的脚本去跑。
+- **说清楚什么是测出来的。** 请求输入只认精确匹配，其余标 `computed-in-page`。诊断探针（本浏览器呈现的信号；生成的客户端的 TLS、HTTP/2、头顺序对照浏览器）只说哪一层不同，不说站点为什么拒绝、也不说怎么改。
+
+## 命令
+
+命令分组；`tabcap help <组>` 列一组，比如 `tabcap help network`。
+
+| 组 | 命令 |
 |---|---|
-| `tabcap setup [--executable-path path] [--platform platform]` | download Chrome for Testing (Stable) into the cache and record it in config.json |
-| `tabcap daemon start` | start the background daemon |
-| `tabcap daemon stop` | stop the daemon (closes the browser, finishes recordings) |
-| `tabcap daemon status` | daemon and browser status, open recordings |
-| `tabcap browser start [--proxy mode] [--foreground] [--executable-path path]` | launch the dedicated Chrome for Testing (own profile, CDP over a pipe) |
-| `tabcap browser stop` | close the browser (recordings are finished first) |
-| `tabcap browser status` | browser status |
-| `tabcap site add <name> --url <entry> --user <username> [--domains a,b] [--notes text] [--password-stdin]` | add a site and its account to the local store (state.db, 0600): the password is typed at a prompt (recommended: by the human) or piped with --password-stdin (an agent the user handed it to), never passed as an argument; afterwards only the references are used |
-| `tabcap site list` | stored sites: name, entry URL, domains, usernames and the secret references to use (never secret values) |
-| `tabcap site remove <name>` | delete a site with its accounts and guard counters from the store |
-| `tabcap proxy add <name> --url <scheme://host:port> [--user username] [--password-stdin] [--bypass list]` | add a proxy to the local store (state.db, 0600) for the account pool: the password is typed at a prompt (recommended: by the human) or piped with --password-stdin, never passed as an argument, and never shown in tabcap output |
-| `tabcap proxy list` | stored proxies: name, scheme, host:port, user, hasAuth, bypass, state, last check (never the password) |
-| `tabcap proxy remove <name>` | delete a proxy no account is bound to |
-| `tabcap proxy check <name> [--url url]` | one health check through the proxy: unknown → up on success; 3 failures in a row → down (rechecked after 1 / 5 / 15 min) |
-| `tabcap proxy set-state <name> active\|disabled` | disable a proxy by hand (skipped by allocation and rotation, never checked) or set it active again (back to unknown until the next check) |
-| `tabcap account add <site> --user <username> [--password-stdin] [--totp-stdin]` | add another account to a stored site (the password is typed at a prompt, recommended: by the human, or piped with --password-stdin; never an argument, never shown); a duplicate <site>.<user> is refused |
-| `tabcap account remove <account>` | delete a stored account with its saved cookies and counters; refused while a session uses it |
-| `tabcap account bind <account> --proxy <name\|system\|none>` | bind a stored account (<site>.<user>) to a proxy, or to the browser's own network (system / none) |
-| `tabcap account list [--site site]` | stored accounts: state (active / cooling / needs-human / disabled), coolUntil, proxy, lastUsedAt (never passwords) |
-| `tabcap account set-state <account> active\|disabled` | set an account active (also clears cooling and needs-human) or disabled (never allocated) |
-| `tabcap session start <name> [--site site] [--account user\|auto]` | create a session (navigate also creates it); --site binds a stored site → entryUrl, the secret references, account and proxy (names only) |
-| `tabcap session stop <name>` | close the session's own tabs (never tabs it did not open) and finish its recording |
-| `tabcap session list` | list sessions |
-| `tabcap session export [--tab t2] --for <requests\|httpx\|playwright> --out <file> [--origin url]` | hand the logged-in tab's session to a script: its cookies, the authentication headers the page sent (sensitive or page-set headers of the latest recorded request to the origin's host; needs net start) and its localStorage / sessionStorage (values over 64 KB skipped), written to a 0600 file; prints the path, counts and header names, never a value |
-| `tabcap navigate <url> [--tab t2] [--new-tab] [--no-wait]` | load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav |
-| `tabcap tab list` | list the session's tabs (never other tabs): tab id, url, title, owned, popup opener, current |
-| `tabcap tab select <tab> [--bring-to-front]` | make one of the session's tabs (e.g. a popup) its current tab for later commands; never brings it to the front unless --bring-to-front |
-| `tabcap tab new <url> [--background] [--no-wait]` | open a new tab in the session, load a URL and make it the current tab (same as navigate --new-tab) |
-| `tabcap tab close <tab>` | close one of the session's tabs |
-| `tabcap go back\|forward [--tab t2] [--no-wait]` | history back / forward, waits until ready and the DOM is quiet |
-| `tabcap reload [--tab t2] [--ignore-cache] [--no-wait]` | reload the current tab, waits until ready and the DOM is quiet |
-| `tabcap snapshot [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path] [--frames] [--frame f2/f1] [--grep regex] [--css selector] [--xpath expr] [--ref e12] [--depth n] [--context n] [--max-matches n]` | accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected / frames, counts toward --max-chars); child frames are header lines until --frames / --frame |
-| `tabcap outline [--tab t2] [--max-chars n]` | page map head: tab line, overlays (dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs; also inside frames), detected (adapters, with confidence), frames (path, url, same-origin / cross-origin, depth, title), popups; read-only, never closes anything |
-| `tabcap find <text> [--tab t2]` | search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs), clickable ones first |
-| `tabcap html [<ref>] [--tab t2] [--css selector] [--inner] [--text] [--attrs] [--max-chars n]` | one element's markup: outerHTML (default), --inner, --text or --attrs, by ref (frame refs too) or --css; read in an isolated world, read-only, secret-scrubbed |
-| `tabcap click <ref> [--tab t2] [--trusted] [--dbl-click] [--no-wait] [--snapshot]` | click an element by ref (default: DOM el.click(), eventShape incomplete), then wait for a navigation it starts and for the DOM to settle; fails with `covered` when an overlay is in front (its close-button refs are in the error; tabcap never closes it) |
-| `tabcap hover <ref> [--tab t2] [--no-wait] [--snapshot]` | move the mouse over an element by ref (trusted input via focus emulation: a mouse path ending on its centre; menus and tooltips open as for a real pointer); needs a painted tab |
-| `tabcap fill <ref> [<text>] [--tab t2] [--trusted] [--secret site.field] [--confirm] [--no-wait] [--snapshot]` | set a text field's value, React-safe (password values are masked everywhere); --secret fills from the store, one password fill per site per session (guard.login-limit) |
-| `tabcap type <text> [--tab t2] [--trusted] [--delay ms] [--insert] [--submit-key key] [--no-wait] [--snapshot]` | type into the element that has focus now (focus it first with click or fill). Default / --insert: one insertText, no key events (eventShape insert); --trusted: per-key events |
-| `tabcap press-key <key> [--tab t2] [--no-wait] [--snapshot]` | press a key or a combination on the focused element: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a, Control+Shift+R … (modifiers: Control, Shift, Alt, Meta) |
-| `tabcap upload <ref> <files>... [--tab t2] [--snapshot]` | put local files into a file input by ref (DOM.setFileInputFiles); for an element that opens a file chooser instead, it is clicked and the chooser answered |
-| `tabcap evaluate [<expression>] [--tab t2] [--await] [--function js] [--args json]` | run JavaScript in the page (an expression, or --function with --args) and return a JSON value (truncated at 60000 chars) |
-| `tabcap screenshot [--tab t2] [--file-path path] [--full-page] [--format png\|jpeg\|webp] [--quality 0-100] [--ref e12]` | save an image of the tab, the full page or one element (works on background tabs) → path, width, height (never the image itself) |
-| `tabcap resize <width> <height> [--tab t2]` | resize the tab's window so the page gets this content size in CSS px (other tabs in the same window change too) |
-| `tabcap emulate [--tab t2] [--viewport WxHxDPR] [--user-agent ua] [--color-scheme dark\|light\|auto] [--network-conditions preset] [--cpu-throttling-rate n] [--geolocation lat,lon]` | emulate a device on the tab: viewport, user agent, colour scheme, network and CPU throttling, geolocation. Each call replaces all earlier settings of the tab: a setting left out is cleared |
-| `tabcap dialog status\|accept\|dismiss [--tab t2] [--text text]` | status \| accept \| dismiss the JavaScript dialog blocking the tab (while one is open other commands fail with code dialog) |
-| `tabcap net start [--bodies mode]` | record the session's traffic (requests with bodies, WebSocket frames, console) into a bundle under ~/.local/share/tabcap/bundles/ |
-| `tabcap net stop` | finish the recording (bundle manifest gets `finished`) |
-| `tabcap net list [--filter s] [--host s] [--status code] [--method M] [--resource-types xhr,fetch] [--tab t2] [--since c-12] [--failed] [--no-failed] [--all] [--page-size n] [--page-idx n] [--kind http\|ws] [--reveal]` | recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34) |
-| `tabcap net body [<id>] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--file] [--pretty] [--decoded] [--raw] [--reveal]` | a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); a body with a decode plugin's view shows the view (--raw: the original); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep) |
-| `tabcap net show <id> [--reveal]` | one request in full: method, url, status, request / response headers, postData (over 2 KB: path + first 2 KB), body path, timing, initiator, nav, tab, outcome; r-12:34 shows a WebSocket frame; sensitive headers, cookie values and query / body fields read <redacted:name> unless --reveal |
-| `tabcap net grep <regex> [--resource-types script,xhr] [--max-matches n] [--context n] [--pretty]` | raw-text regex search over every recorded response body of the session (decoded, secret-scrubbed): per request {request, url, resourceType, count, matches}; at most 50 requests (more: n), bodies over 8 MB listed under skipped. Not `analyze find`, which follows values through decode chains |
-| `tabcap console list [--tab t2] [--types error,warn] [--level level] [--page-size n] [--page-idx n] [--limit n] [--include-stack-traces] [--clear]` | the tab's console, oldest first (last 500 messages, kept even when not recording): msgid, type, level, source, text (4 KB max), url:line:col |
-| `tabcap console show <msgid> [--tab t2]` | one console message by msgid (from console list): text, arguments, location, stack trace |
-| `tabcap wait [--tab t2] [--text text]... [--selector css] [--url s] [--idle [ms]] [--fn js]` | wait for one condition on the current tab; returns what matched, or error timeout naming what is still outstanding |
-| `tabcap net wait --url <s> [--method M] [--tab t2] [--since c-12\|start] [--fresh]` | wait until a matching request finished with its body stored (needs net start). Counts requests since the start of the last action command (navigate, tab new, click, hover, fill, type, press-key, upload, go, reload, evaluate) → id, status, body path |
-| `tabcap fetch [<url>] [--tab t2] [--method M] [--header k:v]... [--body text\|@file] [--json text\|@file] [--form k=v]... [--stop-on rule]... [--out file] [--raw] [--batch file.jsonl] [--reveal]` | send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) \| bodyFile, timing, waitedMs} |
-| `tabcap where <query> [--as ref\|text] [--top n] [--text] [--write-findings]` | which recorded response carries a value the page shows (a snapshot ref's visible text, or a text): JSON paths through analyze find's decode chain, then HTML text nodes (selectors), matched exactly or after normalisation (thousands / decimal separators, accounting negatives, full-width, nbsp, YYYY-MM dates, dotted codes, DR / CR); searches only the session's recording and sends no request |
-| `tabcap recon [--text] [--reveal]` | recon dossier v0 of the session's recording and current page: tech stack (adapter detect results, header / session-cookie hints), data channels (method, path template, type, body class) with the share of the page's visible text found in recorded responses, cookie classification (origin, lifetime, flags, role, requiredBy from analyze deps), protection identification (guard detections, response signals; identification only). Writes exports/dossier.json (schema tabcap-dossier/0) and exports/dossier.md into the bundle; sends no request |
-| `tabcap handoff status` | is the session handed to the human? state running \| waiting \| resumed, reason, screenshot, handler answers |
-| `tabcap handoff continue` | end a waiting state after the human finished in the browser (run it only when they say so) |
-| `tabcap guard resume --site <site>` | resume a site after a stop rule fired: `tabcap fetch` sends to it again, and a session a site rule (config.json sites.<s>.guard) put into waiting goes on (decide first: look at the stopped response) |
-| `tabcap plugin list` | challenge handlers and decode plugins installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, kind, hooks / match, enabled, errors |
-| `tabcap plugin enable <name>` | opt a plugin in: a challenge handler is asked before a challenge goes to the human; a decode plugin decodes matching bodies of recordings started from now on |
-| `tabcap plugin disable <name>` | stop using this handler or decode plugin |
-| `tabcap bundle export har <bundle> [--out file] [--tab t1] [--types xhr,fetch] [--embed-events] [--no-redact] [--rules file]` | export a bundle as HAR 1.2 (redacted by default) |
-| `tabcap bundle import har <file> -o <bundle>` | import a HAR (DevTools, Charles, mitmproxy …) as a bundle, so analyze works on it |
-| `tabcap bundle redact <in> <out>` | write a redacted copy of a bundle (the original is never changed) |
-| `tabcap bundle info <bundle> [--usage] [--text] [--business-code $.path=ok]...` | bundle summary: counts, event kinds, finished or not, issues; --usage for the account-usage report |
-| `tabcap bundle decode <bundle> [--plugin name]` | run decode plugins over a finished bundle: plaintext views of matching request / response bodies are appended to the bundle's decoded.jsonl sidecar (events.jsonl never changes) and read as request.decoded / response.decoded by net body / find / where / deps / recon / replay check; a re-run appends only new or changed views |
-| `tabcap bundle export fixtures <bundle> --out <dir> [--rules file] [--format json\|plugin] [--no-redact]` | one fixture per recorded exchange: {key {method, path, query, body} as the replay rules read it, request {headers, body}, response {status, headers, body \| bodyFile, decoded?}, meta {request, rule, recordedAt}}; --format <plugin> hands each fixture to a fixture plugin (tabcap-fixture/1) that returns the files to write |
-| `tabcap analyze find <bundle> <text> [--ignore-case] [--text] [--save]` | which request / WebSocket frame / console line carries this text, through a bounded decode chain (base64, gzip / br, urldecode, JSON, html entities …); 0 hits come with hints |
-| `tabcap analyze diff <bundle1> <bundle2> [<bundles>...] [--text] [--save]` | compare recordings of the same action: which parameters are constant, per session, timestamps or varying |
-| `tabcap analyze deps <bundle> [--session name] [--request r-N] [--text] [--write-findings]` | value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else caller-input (paging, periods, search terms the caller picks) / computed-in-page / unrecorded; exact matches only (a header also without its Bearer / Basic / Token / JWT prefix or quotes), never guessed |
-| `tabcap analyze chain <bundle> [--request r-N] [--session name] [--text]` | the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input; caller-input values listed apart under inputs) |
-| `tabcap analyze recon <bundle> [--text]` | the recon dossier offline (as `tabcap recon`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); writes exports/dossier.json and exports/dossier.md |
-| `tabcap analyze shape <bundle> [--request r-N] [--template 'GET /path'] [--text] [--write]` | response and request shape per endpoint (method + path template, all its exchanges): a type tree of the decoded JSON bodies (kinds, unions, formats date / datetime / int / float / id / url / email, presence counts, optional, ≤ 8 enum literals of non-sensitive fields) plus query names and request body fields; never values |
-| `tabcap analyze schema-diff <old> <new> [--template 'GET /path'] [--text] [--write]` | schema drift between two recordings: per endpoint the fields added, removed, changed type, changed optionality or enum, and endpoints only in one bundle; verdict same / drift / new / gone; exits 1 when any endpoint drifted (for cron) |
-| `tabcap replay serve <bundle> [--port port] [--host host] [--strict h1,h2] [--match-cookies] [--rules file] [--json] [--once seconds]` | serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k[;rule=id]); no match → 404 with the nearest recordings and what differs |
-| `tabcap replay session [<bundle>] --out <file> [--site site]` | write the recording's cookies (latest state snapshot), or with --site and no bundle the store's saved session, as a Playwright storageState file, mode 0600; it holds live session cookies, values are never printed |
-| `tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--browser-headers] [--proxy-env file]` | generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs |
-| `tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--rules file] [--json]` | send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference |
-| `tabcap mcp [--print-config host] [--all-tools]` | serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human |
-| `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
+| 生命周期 | `setup`、`daemon start/stop/status`、`browser start/stop/status`、`mcp` |
+| 站点、会话、标签 | `site`、`account`、`proxy`、`session start/stop/list/export`、`tab list/select/new/close` |
+| 页面 | `navigate`、`go`、`reload`、`snapshot`、`outline`、`find`、`wait`、`html` |
+| 输入 | `click`、`hover`、`fill`、`type`、`press-key`、`upload`、`dialog` |
+| 页面工具 | `evaluate`、`screenshot`、`resize`、`emulate`、`console list/show` |
+| 网络 | `net start/stop/list/show/body/grep/wait`、`fetch`、`where`、`recon` |
+| 交接 | `handoff status/continue`、`guard resume`、`plugin list/enable/disable` |
+| 离线 | `bundle export/import/redact/info/decode`、`analyze find/diff/deps/chain/shape/schema-diff/recon`、`replay serve/check/session/export-python`、`schema` |
+| 诊断 | `trace`、`fingerprint`、`wire` |
 
-**诊断（可选）**
+每个选项的完整参考在 [`skills/tabcap/references/commands.md`](skills/tabcap/references/commands.md)；`tabcap schema --json` 是机器可读版。命令名和参数名在重合处对齐 Chrome DevTools MCP（`press-key`、`tab list`、`console list`、`--page-size` …）。
 
-| 命令 | 作用 |
-|---|---|
-| `tabcap trace start [--apis file] [--stack n] [--first-n n] [--max-hits n] [--decode] [--no-decode]` | trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; changes no page state, but scripts run slower and the timing is observable; --decode is the observe mode instead (in-page decoding): JSON.parse breakpoints file the plaintext the page parses, never a CryptoKey |
-| `tabcap trace stop` | end trace mode: breakpoints removed, debugger off, open documents written to the recording |
-| `tabcap trace status` | trace mode state: on \| paused (handoff) \| off, active APIs, names skipped in this browser, per-document read counts |
-| `tabcap trace list [--api name] [--script url] [--text] [--reveal]` | API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded |
-| `tabcap fingerprint probe [--ref name] [--text]` | the values this browser presents for a fixed signal list (navigator, UA client hints, screen, time zone, canvas / audio hashes, WebGL, voices, fonts, permissions, media queries): the probe page in a new background tab, closed afterwards; while recording, a `state` env event in the bundle. Read-only |
-| `tabcap wire serve [--port port] [--capture-dir dir]` | local TLS echo on 127.0.0.1 until Ctrl-C (prints {url, port, caPath} first): answers every request with the wire report of its own connection (TLS ClientHello, JA3 / JA4, HTTP/2 settings and frames, header order) as JSON; trust it with the CA from `tabcap wire ca-path` |
-| `tabcap wire version` | version, path and sha256 of the native wire component (extracted from the tabcap binary into the cache on first use) |
-| `tabcap wire ca-path` | path of the wire echo's CA certificate (a test CA for 127.0.0.1 only), for clients that verify TLS |
-| `tabcap wire profile [--samples n] [--port port]` | capture the browser baseline: a background tab of the session (the Chrome for Testing tabcap launched, its own flags) ignores certificate errors for itself only, navigates to the local echo and runs a page fetch, N times each; writes the wire profile (navigation and fetch header orders, TLS from all samples, CfT version and the launch flags' sha256) to the cache and prints it |
-| `tabcap wire probe --client <dir> [--port port] [--samples n] [--text]` | compare the generated Python client with the browser baseline on the local echo: `uv run client.py wire-report` sends one GET to 127.0.0.1, then per layer (tls, h2, headers) same / differs / missing with the differing fields, and the checks against the profile; diagnostic only (says which layer differs, not why a site refused anything); with a recording open, one finding per differing layer |
-| `tabcap fingerprint serve [--port port] [--once] [--force]` | serve the signal probe page on 127.0.0.1 for your own browser: open the printed URL by hand and press Save as reference (written to config/fingerprint/refs/<name>.json, 0600); Ctrl-C to stop |
-| `tabcap fingerprint ref list` | saved references: name, savedAt, userAgent, file |
-| `tabcap fingerprint ref show <name>` | one saved reference with all its fields |
-| `tabcap fingerprint ref remove <name>` | delete a saved reference |
-| `tabcap fingerprint diff <bundle> --ref <name> [--text]` | the last `state` env event of a bundle (from `fingerprint probe`) against a saved reference, offline: the same output as `fingerprint probe --ref` |
-<!-- END GENERATED: commands -->
+## 和同类工具的区别
 
-## 它是什么
-
-多数 agent 浏览器的出发点是「给 agent 一个干净、隔离的浏览器，让它自己跑」。真实的采集工作不是这样：你先登录、把流程走一遍，agent 会卡在验证页上，还得有人确认「这个请求带着数据、那个参数是签名」。tabcap 是这个循环的工作台：agent 探路、重复，人给凭据、过验证、核结论；全程录下，每个结论都能回放验证。
-
-## 五点不同
-
-1. **从不占你的屏幕。** 标签在后台打开；需要焦点的输入在一条命令的时长里用 Chrome 的焦点仿真；会抢焦点的 CDP 调用一律拒绝（只有显式要求的 `tab select --bring-to-front` 会把标签提到前面），抢走 macOS 前台的弹窗会被交还。
-2. **把流量录成证据。** `net start` 把请求、响应正文、WebSocket 帧、控制台输出和命令时间线写进证据包，可导出 HAR（默认打码）；录制中就能用 `net list`、`net show`、`net body`、`net wait` 读。
-3. **凭据存一次，之后只用引用。** 站点、账号、密码住在本地库里。推荐你自己输入密码（`tabcap site add`，在提示符下输入或用 `--password-stdin`），这样明文不经过模型；也可以把值交给 agent 一次，由它用同样的方式存入。此后 agent 只写引用（`fill e6 --secret example.password`），每个已知的值在所有输出、日志和证据包事件里都替换成 `<secret:…>`。
-4. **交还给人，不硬闯。** 每个站点每个会话只试一次登录；撞上验证页时会话进入 `waiting` 并附截图，直到人处理完、执行 `tabcap handoff continue`。tabcap 不带任何验证码或挑战的解法。插件接口（`~/.config/tabcap/plugins/`、`tabcap plugin …`、[docs/04 §18](docs/04-evidence-bundle-spec-v0.md)）加载你自己写的验证页处理程序，会话交给人之前先问它们；它们怎么处理由你自己决定。
-5. **录下来就能离线干活。** `analyze find` 和 `where` 把一个值（一段文本，或页面上显示的值）追到携带它的已录响应，经过解码链和归一化（分隔符、全角数字、日期 …）；`analyze diff` 跨多次录制给参数分类；`analyze shape` 按端点推断响应形状（类型与格式，从不含值），`analyze schema-diff` 列出两次录制之间新增、消失或改了类型的字段，有漂移时退出码 1（可放 cron）；`analyze deps` 与 `analyze chain` 指出每个请求输入从哪来、复现一个请求需要哪些请求，`replay export-python` 把这条链生成为带测试的 httpx 客户端，附回放整条链的 `verify()`；`replay serve` 用证据包应答，`replay check` 把一次真实或回放的运行逐字段比对；`recon` 写出技术栈、数据通道、cookie 与防护的侦查档案（只识别）。追踪模式把哪个页面脚本读了哪些浏览器信号记成 `signal` 事件，只读。信号探针（`fingerprint probe`：本浏览器呈现的值，对照参考值）与线路层探针（`wire probe`：生成的客户端的 TLS、HTTP/2 与头顺序，在本机 echo 上对照浏览器）只做诊断：只说哪个信号或哪一层不同，从不说站点为什么拒绝、也不说怎么改值。
-
-**解码插件。** 站点把请求 / 响应正文编码或加密时，把你自己的解码器放进同一个插件目录（`manifest.json` 写 `"kind": "decode"`，按 host、路径、内容类型匹配，方向为请求 / 响应 / 两者），再 `tabcap plugin enable`。它作为独立的长驻进程运行，stdin / stdout 上一行一个 JSON；密钥留在它自己的 `config.json`，不进 tabcap 的库，也不进证据包。明文作为派生视图存在原正文旁边（`request.decoded` / `response.decoded`），`analyze find`、`where`、`analyze deps`、`recon`、`replay check` 都读它，解码步骤记作 `plugin:<名字>`；`net body` 默认给视图（`--raw` 给原文）；`tabcap bundle decode <包>` 给插件出现之前录的包补上视图。Python runner 模板（`templates/plugins/decode-python/`，仿 mitmproxy 的 `decode(flow)`，用 `uv run` 或 `python3` 运行）让 mitmproxy addon、Burp 扩展里已有的解密代码少改就能复用。协议与字段：[docs/04 §28](docs/04-evidence-bundle-spec-v0.md)。
-
-**回放键规则。** 爬虫发的请求和录到的只差在易变的部分时，写一份规则文件，不必再手写离线回放脚本：`replay-rules.json`（schema `tabcap-replay-rules/0`，也可以写进 `config.json` 的 `replay` / `sites.<名>.replay`，让站点的规则跟着站点走）按 host / 路径 / 方法说明忽略哪些 query 参数（`t`、`nonce` …）、正文按表单对、规范 JSON（去掉忽略的字段）、解码插件的明文还是不比，以及回答怎么比（`status`、`status+body`、`status+decoded-body`、忽略的 JSON 路径）。`replay serve --rules`、`replay check --rules` 用它，`tabcap bundle export fixtures <包> --out <目录>` 也用它：每条录到的交换一个夹具，键按同样的规则算，默认像 HAR 导出一样脱敏；`--format <插件>` 把每个夹具交给你自己的夹具插件，写成你的测试框架要的格式。不给规则时一切照旧。细节：[docs/04 §31](docs/04-evidence-bundle-spec-v0.md)。
-
-## 位置
-
-有几类工具把录到的浏览器流量变成 agent 能调用的东西：Integuru 让 LLM 从 HAR 建请求依赖图并生成 Python，agent-browser 的 derive-client skill 让 agent 读 HAR 写出独立客户端，Unbrowse 把站点自己的一方请求编译成托管的 MCP 工具，Playwright `routeFromHAR` 与 VCR.py 在测试里回放录制。tabcap 在录制本身上干活：每个请求输入都确定性地追来源（只认精确匹配，其余标 `computed-in-page`），写下的每条结论分级为实测或推断；录制留成证据包，可以 diff、重新分析、对服务端逐字段 `replay check`；`replay serve` 与生成的 fixture 喂给你已有的采集代码，不只是另起一个新客户端；每站每会话只试一次登录，线上检查按站点限速、计数，验证页交给人；多层、跨源 iframe 与基于 iframe 的老式控件通过帧路径 ref 触达，加密正文会被标出，并由你自己写的 decode 插件转成明文。
+有几类工具把录到的浏览器流量变成 agent 能调用的东西：Integuru 让 LLM 从 HAR 建请求依赖图、生成 Python；agent-browser 的 derive-client skill 让 agent 读 HAR 写客户端；Unbrowse 把站点的一方请求编译成托管的 MCP 工具；Playwright `routeFromHAR` 与 VCR.py 在测试里回放录制。tabcap 在录制本身上干活，每个请求输入都确定性地追来源，并且把人留在循环里。
 
 | | tabcap | Integuru | derive-client | Unbrowse | HAR 回放¹ |
 |---|---|---|---|---|---|
@@ -168,59 +94,41 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | 给已有代码喂录到的响应 | ✓（`replay serve`） | – | – | – | ✓（测试内） |
 | 对服务端逐字段回放比对 | ✓ | – | agent 比对响应形状 | ✓（托管） | – |
 | 多层 / 跨源 iframe | ✓ | – | 部分² | – | – |
-| 加密正文 | 标出；decode 插件 | – | – | – | – |
+| 加密正文 | 标出；解码插件 | – | – | – | – |
 | 登录 / 验证交给人 | ✓ | 录制前 | 录制前 | ✓ | – |
 | 线上请求按站点限速 | ✓ | – | 文字建议 | – | – |
 | MCP | ✓ | – | ✓（agent-browser） | ✓ | – |
 | 在哪跑 | 本机 | 本机 + OpenAI API | 本机 | 托管 | 本机 |
 
-✓：产品自己的文档写明，或在 tabcap 本地靶场复现。LLM 推断：文档把这一步交给 LLM 或 agent。–：按读到的公开文档没有描述这项，不表示它做不到。¹ Playwright `routeFromHAR`、VCR.py。² 本地靶场上跑的是 agent-browser（skill 读的就是它录的 HAR）：用 `frame` 进入了跨源帧，试过的命令进不了第 3 层帧；HAR 里没有第 3 层帧文档这一条，跨源帧文档没有正文。来源与复现：[docs/12](docs/12-comparison.md)，2026-10-16 读取。
+✓：产品自己的文档写明，或在 tabcap 的本地测试页上复现。LLM 推断：文档把这一步交给 LLM 或 agent。–：按读到的公开文档没有描述，不表示它做不到。¹ Playwright `routeFromHAR`、VCR.py。² agent-browser 在本地测试页上：跨源帧进得去，第 3 层帧用试过的命令进不去；它的 HAR 里没有那个帧的文档，跨源帧也没有正文。来源与复现：[docs/12](docs/12-comparison.md)，2026-10-16 读取。
 
 ## 边界
 
 - 不是无人值守的采集平台，也不是云浏览器。
 - 类签名参数和加密正文不复现：生成的客户端把它们标成 TODO，这些请求留在真实浏览器会话里。
-- 用于分析和调试你自己在有权使用的站点上的会话；本仓库的测试只对本地页面跑。
+- 用来分析和调试你自己在有权使用的站点上的会话；本仓库的测试只对本地页面跑。
 - 凭据库是明文，靠文件权限保护（0700 目录里的 0600 文件，和 `~/.netrc` 一样）；能用测试账号就用测试账号。
 
-## 让你自己的爬虫经浏览器发请求
+## 平台
 
-只录人的浏览，只能录到页面当时发过的请求。`tabcap fetch <url>` 让已登录的标签替你发一个请求（页面自己的 `fetch()`，带它的 cookie、受它的 CORS 规则）并录下，每条带 `fetchId`，并发的请求也不会混；`--batch file.jsonl` 按序发一批。同一主机的请求按间隔排队（`config.json` `fetch.minIntervalMs`，默认 3000 ms，命令行没有跳过它的开关）；停手规则（`--stop-on 'json:$.code!=0'`、`status>=400`、`empty-body` …）一旦命中，该站点就停下，直到你运行 `tabcap guard resume --site <站点>`。已有的 Python 爬虫可以经守护进程的套接字做同样的事（`POST /fetch`）：`replay export-python` 会写出 `_tabcap_fetch.py`，`TabcapFetch(session).fetch(url, …)` 返回 `(status, headers, bytes)`。闭环是：录制 → 爬虫的请求经标签发出 → 导出 HAR / 夹具 → 离线回放。这类会话用 `net start --bodies api+script` 录（不存图片 / 字体 / 样式表 / 媒体的正文，`api` 连脚本也不存），并在 `config.json` 里给站点配自己的停手规则（`sites.<名>.guard: {stopOn: [...], consecutiveNon200: 3}`）：它们对会话的全部流量生效（包括页面自己的请求），命中即转交（`waiting`）。
+| | 状态 | 说明 |
+|---|---|---|
+| macOS arm64 | 日常在用；端到端全套 | 弹窗的前台交还用 osascript |
+| Linux x64 | CI；端到端在 Xvfb 下跑 | Chrome 沙箱需要非特权 user namespace（Ubuntu 23.10 起：`sysctl kernel.apparmor_restrict_unprivileged_userns=0`）；后台标签的帧被限速时，`click --trusted` 和 `hover` 在鼠标移动期间开一个很小的 screencast |
+| Windows x64 | CI；单测，端到端部分 | 守护进程监听 127.0.0.1 的随机端口，每次启动换令牌（`daemon.json`）；开第一个标签时出现一个普通的 Chrome 窗口，没有前台交还；不做 POSIX 权限检查 |
+| Linux arm64 | 交叉编译，没运行过 | |
 
-## MCP
+文件：`~/.config/tabcap/`（配置、凭据库、插件、socket、日志）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）。Linux 认 `XDG_*`；Windows 上三者都在 `%LOCALAPPDATA%\tabcap\` 下。设 `TABCAP_HOME` 可整体搬到一个目录。
 
-给只认 Model Context Protocol、不跑命令行的宿主：`tabcap mcp` 在 stdin / stdout 上把 tabcap 作为 MCP 工具提供，返回与命令行相同的 JSON 信封。宿主会把所有工具定义放进模型上下文，所以默认只列 24 个核心工具、每个一行说明（约 8.5 KB）：会话、`navigate`、`snapshot`、`outline`、`click`、`fill`、`type`、`press-key`、`hover`、`wait`、`screenshot`、`evaluate`、`net start` / `stop` / `list` / `show` / `body`、`handoff status` / `continue`、`tabcap_handoff_wait`，外加跑任意其它命令的 `tabcap_run {argv}` 和按需查命令表或单条命令选项的 `tabcap_help {command?}`；`tabcap mcp --all-tools` 改为每条命令一个工具（83 个，约 58 KB）。Claude Code 里 `claude mcp add tabcap -- tabcap mcp` 注册；`tabcap mcp --print-config <宿主>` 给出 `claude-code`、`cursor`、`codex`、`gemini-cli`、`windsurf`（待验）、`claude-desktop` 的配置文件位置与条目。交给人的会话立即返回 `waiting`，`tabcap_handoff_wait` 等人处理完。
-
-## 安装
-
-- **二进制**：见「快速开始」。各平台验证到什么程度（GitHub Actions runner，2026-10-16，Chrome for Testing 155）：
-
-  | 平台 | 包 | 单元测试、类型检查 | 端到端 | 已知缺口 |
-  |---|---|---|---|---|
-  | macOS arm64 | `.tar.gz` | 通过（CI，macOS 14） | 81 / 81（本机；CI 不跑） | 无已知 |
-  | Linux x64 | `.tar.gz` | 通过（CI，Ubuntu） | 81 / 81（CI，Ubuntu + Xvfb，连续 2 次） | 后台标签上的 `click --trusted` / `hover` 在标签帧被限速时，鼠标移动期间开一个极小的 screencast（输出里标 `paint.held`）；Chrome 沙箱需要非特权 user namespace（CI 关掉了 Ubuntu 24.04 的 AppArmor 限制） |
-  | Windows x64 | `.zip` | 通过（CI） | 63 / 81（CI，非必过项） | 12 个用例没真正跑到（所在套件第一条就检查 Unix socket）；POSIX 权限检查不适用；`resize 900 700` 得到 693 px 高的页面 |
-  | Linux arm64 | `.tar.gz` | — | — | 交叉编译，从未运行 |
-
-  Windows：守护进程监听 127.0.0.1 的随机端口，每次启动换新令牌（写在 `daemon.json`）；浏览器走 `--remote-debugging-pipe`；开第一个标签前没有窗口，之后出现一个普通的 Chrome 窗口（Windows 上没有前台归还）。Linux：Ubuntu 23.10 起 Chrome 沙箱需要非特权 user namespace，CI 用 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` 打开（桌面环境没测过）。
-- **即将提供**：Homebrew、npm（`tabcap` 包，每个平台一个可选依赖）、Scoop。模板在 `packaging/`，还没有发布到任何仓库。
-- **从源码**：Bun 1.4 或更新，`bun install` 后 `bun run build`（本机）或 `bun run build:<平台>`（`darwin-arm64`、`linux-x64`、`linux-arm64`、`windows-x64`）；`bun run release` 一次构建并打包四个平台；`bun test test/unit` 跑离线测试。
-- **文件**：`~/.config/tabcap/`（socket、日志、profile、配置、`state.db`、`plugins/`、`fingerprint/refs/`）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）。Linux 认 `XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_DATA_HOME`。Windows 上三者是 `%LOCALAPPDATA%\tabcap\config`、`\cache`、`\data`，文件沿用用户目录的默认 ACL（tabcap 不另设 ACL；没有 socket，`config\daemon.json` 里是端口和令牌）。设 `TABCAP_HOME` 可整体搬到一个目录。
-
-## 把会话交给脚本
-
-在浏览器里登录、过检查，量交给你自己的脚本：`tabcap session export --for requests --out session.json`（或 `--for httpx --out example_session.py`，可直接 import、带 `client()` 的模块；`--for playwright` 出 storageState）把会话当前标签的 cookie、页面真正发出的认证头（`Authorization`、`x-csrf`、`*-token` …，取自发往该源的最近一条录下的请求，所以页面发请求前先 `tabcap net start`）和 localStorage / sessionStorage 写进权限 0600 的文件。输出只有路径、计数和头名，不出任何值。文件里是活的凭据：别进仓库；会话过期它也跟着失效。`replay export-python` 生成的包里附 `_tabcap_session.py`，不依赖 tabcap 就能把这个 JSON 变成 httpx 客户端。
-
-## 凭据库
-
-`tabcap site add <名> --url <入口> --user <账号>` 在提示符下要密码（或用 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。文件或目录权限比 0600 / 0700 宽时守护进程拒绝启动（macOS 与 Linux；Windows 上文件沿用 `%LOCALAPPDATA%` 的用户默认 ACL）。agent 只看得到站点名、入口网址和账号名，除非你把密码交给它存：`site add` 和 `account add` 不需要终端也能跑，agent 用 `--password-stdin` 存一次，此后只用引用。只有登录请求本身在证据包里保留真实值，导出 HAR 时会被打码。
+Homebrew、npm、Scoop 的模板在 `packaging/`，还没发布到任何仓库。
 
 ## 文档
 
-`docs/` 是规范与设计笔记（中文）：证据包格式（`04`）、本地靶场（`05`）、验收测试（`06`）、架构与 CDP 兼容（`07`）、实施计划与命名表（`08`）、侦查与页面理解（`09`，草案）、click / type 的输入保真（`10`，提案）、线路层指纹组件（`11`）。`CHANGELOG.zh-CN.md` 按版本列出变更。
+- [`skills/tabcap/`](skills/tabcap/)：agent skill，`SKILL.md` 和录制、搜索、分析、回放、池、MCP、追踪的参考。
+- [`docs/`](docs/)：证据包格式（`04`）、本地测试页（`05`）、验收测试（`06`）、架构与 CDP 笔记（`07`）、实施计划（`08`）、侦查（`09`）、输入保真（`10`）、线路层指纹组件（`11`）、同类工具对照（`12`）、代理与互操作（`13`）。
+- [`CHANGELOG.zh-CN.md`](CHANGELOG.zh-CN.md)：按版本的变更。
+- 参与开发：`AGENTS.md`（AI 协作规则）、`NOTES.md`（每格三行，最后一条是下一步的入口）、`docs/03`（定位与路线）。`bun test test/unit` 跑离线测试，`bun run test:e2e` 需要一份 Chrome for Testing。
 
-参与开发从这几处进：`NOTES.md`（每格三行，最新一条是下一步入口）、`docs/03-product-thesis-and-roadmap.md`（定位、核心工作流、模块、路线与待定决策，以这份为准）、`docs/01-background-and-options.md`（起因、已有同类项目、最初的方案）、`AGENTS.md`（本目录的 AI 协作规则）。
+## 许可
 
-## 版权边界
-
-闭源工具只借思路，不复制其代码。要抄代码就抄 Apache-2.0 的 Playwright `cdpRelay.ts` 或 agent-browser-stealth，并保留其 NOTICE。
+Apache-2.0。派生自 Apache-2.0 代码的部分见 `NOTICE`。

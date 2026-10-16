@@ -7,12 +7,11 @@ import { REPO_ROOT } from "./_fixtures.ts";
 
 describe("release README (quick start only)", () => {
   const out = standaloneReadme(readFileSync(join(REPO_ROOT, "README.md"), "utf8"), "9.9.9");
-  test("cut from the quick start, with the generated table and without markers", () => {
+  test("cut from the quick start: install, setup, first session, the agent hook-up; nothing after it", () => {
     expect(out.startsWith("# tabcap 9.9.9\n\n## Quick start\n")).toBe(true);
-    expect(out).toContain("| `tabcap net body [<id>] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--file] [--pretty] [--decoded] [--raw] [--reveal]` |");
-    expect(out).toContain("0.1.0 was released under the name `bbl`");
+    for (const s of ["xattr -d com.apple.quarantine tabcap", "tabcap setup", "tabcap daemon start && tabcap browser start", "tabcap net start", "claude mcp add tabcap -- tabcap mcp", "skills/tabcap/"]) expect(out).toContain(s);
     expect(out).not.toContain("<!--");
-    expect(out).not.toContain("## What it is");
+    expect(out).not.toContain("## What it does");
   });
   test("no lab or internal wording", () => {
     for (const re of FORBIDDEN) expect(re.test(out)).toBe(false);

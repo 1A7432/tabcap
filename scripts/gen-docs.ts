@@ -1,36 +1,19 @@
-// `bun run gen:docs`: regenerate the command tables in README.md and
-// README.zh-CN.md and the whole of skills/tabcap/references/commands.md from
-// the command registry (src/cli/commands.ts), the same source as `--help` and
-// `tabcap schema --json`. In the READMEs only the text between the
-// BEGIN/END GENERATED markers is replaced; hand-written prose around it stays.
-// test/unit/schema.test.ts fails when the committed files are out of date.
+// `bun run gen:docs`: regenerate skills/tabcap/references/commands.md (the
+// full command reference) from the command registry (src/cli/commands.ts),
+// the same source as `--help` and `tabcap schema --json`. The READMEs are
+// written by hand and carry no generated table (they link to the reference).
+// test/unit/schema.test.ts fails when the committed file is out of date.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { COMMON_FLAGS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, currentCommands, groupedCommands, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
+import { OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, groupedCommands, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export const SKILL_DIR = "skills/tabcap";
 export const SKILL_FILE = `${SKILL_DIR}/SKILL.md`;
 export const REFERENCE_FILE = `${SKILL_DIR}/references/commands.md`;
-export const README_FILE = "README.md";
-export const README_ZH_FILE = "README.zh-CN.md";
 
 const cell = (s: string) => s.replace(/\|/g, "\\|");
-
-/**
- * Markdown table of every current command: usage (common flags left out) and one-line help, in registry
- * order; the commands of the `last` groups (0.6-E: Diagnostics (optional)) follow in their own table under
- * that group's title (`titles` translates it for the Chinese README).
- */
-export function commandTable(header: [string, string], titles: Readonly<Record<string, string>> = {}): string {
-  const row = (c: CommandSpec) => `| \`${cell(usageOf(c, COMMON_FLAGS))}\` | ${cell(c.summary)} |`;
-  const head = [`| ${header[0]} | ${header[1]} |`, "|---|---|"];
-  const trailing = groupedCommands().filter((g) => g.last && g.commands.length > 0);
-  const later = new Set(trailing.flatMap((g) => g.commands));
-  const main = [...head, ...currentCommands().filter((c) => !later.has(c)).map(row)].join("\n");
-  return [main, ...trailing.map((g) => [`**${titles[g.id] ?? g.title}**`, "", ...head, ...g.commands.map(row)].join("\n"))].join("\n\n");
-}
 
 function flagValue(f: FlagSpec): string {
   if (f.kind === "bool") return "";
@@ -88,30 +71,8 @@ export function referenceDoc(): string {
     .concat("\n");
 }
 
-const begin = (name: string) => `<!-- BEGIN GENERATED: ${name} (from src/cli/commands.ts; run \`bun run gen:docs\`) -->`;
-const end = (name: string) => `<!-- END GENERATED: ${name} -->`;
-
-/** Replace the body between the named markers; throws when they are missing or out of order. */
-export function replaceGenerated(text: string, name: string, body: string): string {
-  const b = begin(name);
-  const e = end(name);
-  const i = text.indexOf(b);
-  const j = text.indexOf(e);
-  if (i < 0 || j < 0 || j < i) throw new Error(`markers for "${name}" not found (expected ${b} … ${e})`);
-  if (text.indexOf(b, i + 1) >= 0 || text.indexOf(e, j + 1) >= 0) throw new Error(`markers for "${name}" appear more than once`);
-  return text.slice(0, i + b.length) + "\n" + body + "\n" + text.slice(j);
-}
-
-/** The files as they should be, given their current hand-written parts. */
+/** The generated files as they should be (today only the skill reference). */
 export function generatedDocs(root: string = ROOT): { file: string; current: string; wanted: string }[] {
-  const spec: [string, [string, string], Record<string, string>][] = [
-    [README_FILE, ["Command", "What it does"], {}],
-    [README_ZH_FILE, ["命令", "作用"], { diagnostics: "诊断（可选）" }],
-  ];
-  const tables = spec.map(([file, header, titles]) => {
-    const current = readFileSync(join(root, file), "utf8");
-    return { file, current, wanted: replaceGenerated(current, "commands", commandTable(header, titles)) };
-  });
   const ref = join(root, REFERENCE_FILE);
   let current = "";
   try {
@@ -119,7 +80,7 @@ export function generatedDocs(root: string = ROOT): { file: string; current: str
   } catch {
     current = "";
   }
-  return [...tables, { file: REFERENCE_FILE, current, wanted: referenceDoc() }];
+  return [{ file: REFERENCE_FILE, current, wanted: referenceDoc() }];
 }
 
 if (import.meta.main) {

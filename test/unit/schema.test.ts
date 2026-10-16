@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COMMANDS, SCHEMA_ID, helpAll, schema } from "../../src/cli/commands.ts";
 import { run } from "../../src/cli/main.ts";
-import { REFERENCE_FILE, ROOT, generatedDocs, replaceGenerated } from "../../scripts/gen-docs.ts";
+import { REFERENCE_FILE, ROOT, generatedDocs } from "../../scripts/gen-docs.ts";
 
 const pkg: unknown = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const pkgVersion = typeof pkg === "object" && pkg !== null && "version" in pkg ? pkg.version : null;
@@ -60,29 +60,22 @@ describe("tabcap schema", () => {
 });
 
 describe("generated docs (bun run gen:docs)", () => {
-  test("README.md, README.zh-CN.md and the skill's references/commands.md are up to date with the registry", () => {
+  test("the skill's references/commands.md is up to date with the registry", () => {
     for (const d of generatedDocs()) {
       if (d.current !== d.wanted) throw new Error(`${d.file} is out of date: run \`bun run gen:docs\` and commit the result`);
     }
   });
 
-  test("only the text between the markers is replaced", () => {
-    const b = "<!-- BEGIN GENERATED: t (from src/cli/commands.ts; run `bun run gen:docs`) -->";
-    const e = "<!-- END GENERATED: t -->";
-    const doc = `intro\n${b}\nold\n${e}\noutro\n`;
-    expect(replaceGenerated(doc, "t", "new")).toBe(`intro\n${b}\nnew\n${e}\noutro\n`);
-    expect(() => replaceGenerated("no markers", "t", "x")).toThrow();
-    expect(() => replaceGenerated(`${e}\n${b}`, "t", "x")).toThrow();
-  });
-
-  test("the generated docs list every user-facing command and no removed alias", () => {
+  test("the reference lists every user-facing command and no removed alias; the README has no generated table", () => {
     const ref = readFileSync(join(ROOT, REFERENCE_FILE), "utf8");
-    const readme = readFileSync(join(ROOT, "README.md"), "utf8");
     for (const c of COMMANDS.filter((x) => x.internal !== true)) {
-      const name = c.path.join(" ");
-      expect(ref).toContain(`### \`tabcap ${name}\``);
-      expect(readme).toContain(`| \`tabcap ${name}`);
+      expect(ref).toContain(`### \`tabcap ${c.path.join(" ")}\``);
     }
-    for (const doc of [ref, readme]) expect(doc).not.toMatch(/[Dd]eprecated/);
+    for (const file of ["README.md", "README.zh-CN.md"]) {
+      const readme = readFileSync(join(ROOT, file), "utf8");
+      expect(readme).not.toContain("GENERATED");
+      expect(readme).toContain("skills/tabcap/references/commands.md");
+    }
+    for (const doc of [ref]) expect(doc).not.toMatch(/[Dd]eprecated/);
   });
 });

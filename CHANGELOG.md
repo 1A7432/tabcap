@@ -4,6 +4,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## 0.6.0 (2026-10-17)
 
+### README rewritten
+
+- Both READMEs are written for a reader again: what it is, why, a quick start, what it does, a one-table overview of the command groups, the comparison, boundaries, platforms, docs. The generated table of every command left the README; the full reference stays in `skills/tabcap/references/commands.md` (the only file `bun run gen:docs` writes now).
+
 ### Observe-mode patch (0.6-L2)
 
 - **Plaintext from a log-point**: the `JSON.parse` breakpoint condition emits the callee argument when `console.dirxml` is still native (a page that replaced it falls back to the pausing scope; the page function is never called). Axios-style `transformResponse`, inline `JSON.parse(decrypt(…))`, and a worker that posts a string then parses it, all attribute to their response; the envelope and the `/api/plain` control are excluded by raw-body sha and no longer filed as a `by:"page"` view.
