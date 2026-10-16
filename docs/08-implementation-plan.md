@@ -147,3 +147,5 @@ CLI 契约的输出层（`src/cli/main.ts`，命令跑完、打印之前；经 M
 | `skills/tabcap/SKILL.md`（触发时整份载入） | - | – | – | 29649 → 7507 |
 
 「list 页」取 s20 noise 页（60 个端口扫描失败请求 + 10 张 `data:` 图，默认被藏，所以默认 `net list` 本来就小）；「+ 40 fetches」是在同页用 `evaluate` 再发 40 个 `/api/look`，让默认可见行数超过 30。`--text` 输出不算 `data`，不受预算限制（`analyze deps --text` 35 KB、`analyze diff --text` 26 KB 照旧）。
+
+0.5-F 增（tabcap 独有，Chrome DevTools MCP 没有对应名字，按上表的拼写习惯取名）：`snapshot --grep <regex> / --css <selector> / --xpath <expr> / --ref <e12> --depth <n>`（带 `--context`、`--max-matches`）；新命令 `html <ref|--css selector> [--inner|--text|--attrs] [--max-chars]`；`net body` 加 `--grep`、`--lines a-b`、`--at line:col`、`--url`、`--pretty`、`--context`、`--max-matches`（id 改为可省，与 `--url` 二选一）；新命令 `net grep <regex> [--resource-types] [--max-matches] [--context] [--pretty]`。完整契约以 `tabcap schema --json` 为准。

@@ -20,6 +20,15 @@
 - **`tabcap mcp --print-config <宿主>`**：`claude-code`（`claude mcp add tabcap -- tabcap mcp`）、`cursor`、`codex`（TOML）、`gemini-cli`、`windsurf`、`claude-desktop` 的配置文件位置、条目与宿主自己的添加命令，2026-10-16 对照各家官方文档（windsurf 的页面已跳到 Devin Desktop，`verified: false`）。
 - `analyze diff` 末尾的证据包是列表：用法行写成 `[<bundles>...]`。
 
+### 命令内搜索（0.5-F）
+
+- **快照过滤**：`snapshot --grep <正则>` 只输出角色、名字、值、状态或描述命中的行，每行连同祖先行、缩进与完整树相同（`--context N` 前后各加 N 个兄弟行，`--max-matches` 默认 50）；`snapshot --css <选择器>` / `--xpath <表达式>` 在每个显示的文档里、在 tabcap 的隔离世界中解析，输出命中元素的行和祖先（没有无障碍行的元素写成 `(no accessible node) <tag#id.class>`）；`snapshot --ref e12 --depth n` 输出某元素下 n 层子树（帧 ref 用它自己的帧）。三者都能与 `--frames` / `--frame`、`--interactive` 组合；ref 与完整快照相同，头部保留，`search` 给出命中数 / 显示数，凡截断都说明怎样拿到更多。正则：JavaScript、`u` 标志、至多 256 字符，无效即 `usage` 错误。
+- **`tabcap html <ref | --css 选择器> [--inner | --text | --attrs] [--max-chars 4000]`**：一个元素的 outerHTML、innerHTML、textContent 或属性对象，在隔离世界里读（帧 ref 在其帧里读），先做秘密值替换再截断；`truncated` 与 `chars` 说明是否截断。只写平常的 `cmd` 事件。
+- **正文按行搜索**：`net body r-12 --grep <正则> [--context 3] [--max-matches 50]` 在解码后的正文（UTF-8，否则按响应 charset）上逐行搜索，每处命中 `{line, col, text, before, after}`，并给 `lines`、`bytes`、`mime`；`--lines a-b` 取行范围（每次至多 500 行，`note` 给出下一段）；`--at line:col [--context 5]` 取原始正文某位置附近的行（`trace list` 与控制台栈帧给的就是这种位置），`--url <脚本 URL>` 可代替 id 按 URL 找请求。长行以 500 字符窗口返回（`clip`）。
+- **`--pretty`**（`net body` / `net grep`）：JavaScript 正文在括号、字符串、模板字面量、正则字面量与注释之外的 `;`、`{`、`}`、`,` 后断行（只插入、不删改的小分词器，所以 `--at` 的位置能映射到美化后的文本）；JSON 正文重新缩进；超过 8 MB 的正文不美化，并在输出里说明。
+- **`tabcap net grep <正则> [--resource-types …] [--max-matches 20] [--context 1] [--pretty]`**：在会话录到的全部响应正文上做原文正则搜索：每个请求 `{request, url, resourceType, count, matches}`，至多列 50 个请求（`more`），超过 8 MB 的正文列在 `skipped`。与 `analyze find`（沿解码链追值）不同。
+- `net body` 的 id 现在可省（给 id 或 `--url`）；MCP 工具表保留 `html --text`（键名 `textContent`），只有改打印格式的 `--text` / `--json` 才不进表。
+
 ### 新增
 
 - **npm 打包脚本**：`bun run npm:pack [--version X] [--targets a,b]` 用 release 二进制在 `dist/npm/` 组装四个平台包（`tabcap-<os>-<cpu>`，改一个常量即为 `@tabcap/<os>-<cpu>`）和 `tabcap` 主包（shim、skill、README），离线 `npm pack` 并写 `SHA256SUMS`，打印发布顺序；本地安装验证与发布步骤见 `packaging/npm/README.md`。不发布任何东西。

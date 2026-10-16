@@ -293,7 +293,7 @@ Example: `tabcap reload --ignore-cache`
 accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected / frames, counts toward --max-chars); child frames are header lines until --frames / --frame
 
 ```
-tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path] [--frames] [--frame f2/f1]
+tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path] [--frames] [--frame f2/f1] [--grep regex] [--css selector] [--xpath expr] [--ref e12] [--depth n] [--context n] [--max-matches n]
 ```
 
 Example: `tabcap snapshot --interactive`
@@ -307,6 +307,13 @@ Example: `tabcap snapshot --interactive`
 | `--file-path <path>` |  | write the tree text to this file and return its path instead of the tree |
 | `--frames` |  | also expand every child frame (iframes, frameset frames, cross-origin too); their refs carry the frame path, e.g. f2/f1/e7; --max-chars applies per frame |
 | `--frame <f2/f1>` |  | expand only this frame and the frames inside it (the root document is listed in the header only) |
+| `--grep <regex>` |  | only the lines whose role, name, value, states or description match this regex (JavaScript, u flag, at most 256 chars), each with its ancestor lines; refs are the full snapshot's |
+| `--css <selector>` |  | only the lines of the elements this CSS selector matches in each shown document (read in an isolated world), with ancestors; elements without a line print as `(no accessible node) <tag#id.class>` |
+| `--xpath <expr>` |  | as --css, with an XPath 1.0 expression |
+| `--ref <e12>` |  | only the subtree under this element (its own frame for a frame ref) |
+| `--depth <n>` |  | with --ref: levels below the element (default: all); hidden deeper lines are counted |
+| `--context <n>` | `0` | with --grep / --css / --xpath: also this many sibling lines before and after each match (max 20) |
+| `--max-matches <n>` | `50` | with --grep / --css / --xpath: matches shown over all documents (max 1000); search.matches counts them all |
 
 ### `tabcap outline`
 
@@ -634,17 +641,24 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 
 ### `tabcap net body`
 
-a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline)
+a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first
 
 ```
-tabcap net body <id> [--session name] [--out path]
+tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--pretty]
 ```
 
-Example: `tabcap net body r-12`
+Example: `tabcap net body r-12 --grep 'sign|token' --pretty`
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--out <path>` |  | copy the body to this file |
+| `--url <url>` |  | instead of an id: the last recorded request for this URL (e.g. a script URL from `trace list`) |
+| `--grep <regex>` |  | lines of the decoded body matching this regex (JavaScript, u flag, at most 256 chars): {line, col, text, before, after} per match |
+| `--lines <a-b>` |  | this 1-based inclusive line range (at most 500 lines per call) |
+| `--at <line:col>` |  | the lines around this 1-based raw-body position, as `trace list` and console stacks print it (mapped into the pretty text with --pretty) |
+| `--context <n>` |  | lines before and after each match (--grep, default 3) or the position (--at, default 5) |
+| `--max-matches <n>` | `50` | with --grep: matches shown (max 1000); total counts them all |
+| `--pretty` |  | JavaScript / JSON bodies up to 8 MB: break minified JS into lines (newlines only, never inside strings, templates, regexes, comments), re-indent JSON; line numbers then refer to the pretty text |
 
 ### `tabcap net show`
 
@@ -655,6 +669,23 @@ tabcap net show <id> [--session name]
 ```
 
 Example: `tabcap net show r-12`
+
+### `tabcap net grep`
+
+raw-text regex search over every recorded response body of the session (decoded, secret-scrubbed): per request {request, url, resourceType, count, matches}; at most 50 requests (more: n), bodies over 8 MB listed under skipped. Not `analyze find`, which follows values through decode chains
+
+```
+tabcap net grep <regex> [--session name] [--resource-types script,xhr] [--max-matches n] [--context n] [--pretty]
+```
+
+Example: `tabcap net grep 'x-sign|signature' --resource-types script`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--resource-types <script,xhr>` |  | comma list: script,xhr,fetch,document … |
+| `--max-matches <n>` | `20` | matches shown per request (max 200); count has them all |
+| `--context <n>` | `1` | lines before and after each match (max 20) |
+| `--pretty` |  | search JavaScript / JSON bodies as `net body --pretty` prints them (line numbers then refer to the pretty text) |
 
 ### `tabcap net wait`
 
@@ -1158,6 +1189,25 @@ tabcap account set-state <account> active|disabled
 ```
 
 Example: `tabcap account set-state example.alice disabled`
+
+### `tabcap html`
+
+one element's markup: outerHTML (default), --inner, --text or --attrs, by ref (frame refs too) or --css; read in an isolated world, read-only, secret-scrubbed
+
+```
+tabcap html [<ref>] [--session name] [--timeout ms] [--tab t2] [--css selector] [--inner] [--text] [--attrs] [--max-chars n]
+```
+
+Example: `tabcap html e12 --inner`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--css <selector>` |  | the first element this CSS selector matches in the root document, instead of a ref (`matched` counts all) |
+| `--inner` |  | innerHTML instead of outerHTML |
+| `--text` |  | textContent instead of markup |
+| `--attrs` |  | only the element's attributes, as an object |
+| `--max-chars <n>` | `4000` | cut the markup / text (each attribute value with --attrs); `truncated` and `chars` (the whole length) say so |
 
 ### `tabcap fingerprint probe`
 
