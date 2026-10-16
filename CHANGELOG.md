@@ -2,6 +2,13 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### Changed
+
+- Credential rule: storing a password once is recommended for the human (`site add` / `account add` at a prompt or with `--password-stdin`), but no longer reserved to them: an agent the user hands a value to may store it once with `--password-stdin` (no terminal needed), and from then on only the `<secret:…>` references are used. The help of `site add`, `account add` and `proxy add`, the skill, docs/04 §8.1 and the README say so; the code already allowed it.
+- README: the five differences describe 0.4 (credentials stored once then referenced; the plugin interface for your own challenge handlers next to "ships no solvers"; `where`, `analyze deps` / `chain`, `export-python` `verify()`, `recon`, trace mode and the two probes), and the Chinese README carries the same information as the English one.
+
 ## 0.4.0 (2026-10-16)
 
 ### Frames: frame-path refs (0.4-I)

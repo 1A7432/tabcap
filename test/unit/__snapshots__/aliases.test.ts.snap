@@ -245,7 +245,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "add a site and its account to the local store (state.db, 0600); for the human, not the AI: the password is typed at a prompt or piped, never passed as an argument",
+      "summary": "add a site and its account to the local store (state.db, 0600): the password is typed at a prompt (recommended: by the human) or piped with --password-stdin (an agent the user handed it to), never passed as an argument; afterwards only the references are used",
       "usage": "tabcap site add <name> --url <entry> --user <username> [--domains a,b] [--notes text] [--password-stdin]",
     },
     {
@@ -346,7 +346,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "add a proxy to the local store (state.db, 0600) for the account pool; for the human: the password is typed at a prompt or piped, never passed as an argument, and never shown in tabcap output",
+      "summary": "add a proxy to the local store (state.db, 0600) for the account pool: the password is typed at a prompt (recommended: by the human) or piped with --password-stdin, never passed as an argument, and never shown in tabcap output",
       "usage": "tabcap proxy add <name> --url <scheme://host:port> [--user username] [--password-stdin] [--bypass list]",
     },
     {
@@ -499,7 +499,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "add another account to a stored site (for the human, not the AI: the password is typed at a prompt or piped, never an argument, never shown); a duplicate <site>.<user> is refused",
+      "summary": "add another account to a stored site (the password is typed at a prompt, recommended: by the human, or piped with --password-stdin; never an argument, never shown); a duplicate <site>.<user> is refused",
       "usage": "tabcap account add <site> --user <username> [--password-stdin] [--totp-stdin]",
     },
     {

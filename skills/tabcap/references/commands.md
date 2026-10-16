@@ -91,7 +91,7 @@ Example: `tabcap browser status`
 
 ### `tabcap site add`
 
-add a site and its account to the local store (state.db, 0600); for the human, not the AI: the password is typed at a prompt or piped, never passed as an argument
+add a site and its account to the local store (state.db, 0600): the password is typed at a prompt (recommended: by the human) or piped with --password-stdin (an agent the user handed it to), never passed as an argument; afterwards only the references are used
 
 ```
 tabcap site add <name> --url <entry> --user <username> [--domains a,b] [--notes text] [--password-stdin]
@@ -1008,7 +1008,7 @@ Example: `tabcap schema --json`
 
 ### `tabcap proxy add`
 
-add a proxy to the local store (state.db, 0600) for the account pool; for the human: the password is typed at a prompt or piped, never passed as an argument, and never shown in tabcap output
+add a proxy to the local store (state.db, 0600) for the account pool: the password is typed at a prompt (recommended: by the human) or piped with --password-stdin, never passed as an argument, and never shown in tabcap output
 
 ```
 tabcap proxy add <name> --url <scheme://host:port> [--user username] [--password-stdin] [--bypass list]
@@ -1069,7 +1069,7 @@ Example: `tabcap proxy set-state p1 disabled`
 
 ### `tabcap account add`
 
-add another account to a stored site (for the human, not the AI: the password is typed at a prompt or piped, never an argument, never shown); a duplicate <site>.<user> is refused
+add another account to a stored site (the password is typed at a prompt, recommended: by the human, or piped with --password-stdin; never an argument, never shown); a duplicate <site>.<user> is refused
 
 ```
 tabcap account add <site> --user <username> [--password-stdin] [--totp-stdin]

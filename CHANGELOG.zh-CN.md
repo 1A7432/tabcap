@@ -2,6 +2,13 @@
 
 [English](CHANGELOG.md) | 中文
 
+## Unreleased
+
+### 变更
+
+- 凭据规则：推荐由人录入密码（`site add` / `account add` 在提示符下输入或 `--password-stdin`），但不再只限于人：用户把值交给 agent 的，agent 可以用 `--password-stdin` 存一次（不需要终端），此后只用 `<secret:…>` 引用。`site add`、`account add`、`proxy add` 的帮助、skill、docs/04 §8.1 与 README 都改成这样写；代码原本就允许。
+- README：五点不同改写为 0.4 的样子（凭据存一次、之后只用引用；「不带任何解法」旁加上用户自己写挑战处理程序的插件接口；`where`、`analyze deps` / `chain`、`export-python` 的 `verify()`、`recon`、追踪模式与两个探针），中文版与英文版信息一致。
+
 ## 0.4.0（2026-10-16）
 
 - **帧路径 ref（0.4-I）**：`snapshot` 与 `outline` 的头里列出所有子帧（iframe、`frameset` 的 `frame`，跨源的也算），每帧一行 `f2/f1  <url>  same-origin|cross-origin  depth 2  "<标题>"`，按深度缩进；`f<n>` 的 `n` 是该帧在父文档子帧里按文档顺序的序号（从 1 起），同源 / 跨源相对父帧。JSON 多一个 `frames` 列表。没有子帧的页面输出与以前相同。

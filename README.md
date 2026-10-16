@@ -41,15 +41,15 @@ Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `
 | `tabcap browser start [--proxy mode] [--foreground] [--executable-path path]` | launch the dedicated Chrome for Testing (own profile, CDP over a pipe) |
 | `tabcap browser stop` | close the browser (recordings are finished first) |
 | `tabcap browser status` | browser status |
-| `tabcap site add <name> --url <entry> --user <username> [--domains a,b] [--notes text] [--password-stdin]` | add a site and its account to the local store (state.db, 0600); for the human, not the AI: the password is typed at a prompt or piped, never passed as an argument |
+| `tabcap site add <name> --url <entry> --user <username> [--domains a,b] [--notes text] [--password-stdin]` | add a site and its account to the local store (state.db, 0600): the password is typed at a prompt (recommended: by the human) or piped with --password-stdin (an agent the user handed it to), never passed as an argument; afterwards only the references are used |
 | `tabcap site list` | stored sites: name, entry URL, domains, usernames and the secret references to use (never secret values) |
 | `tabcap site remove <name>` | delete a site with its accounts and guard counters from the store |
-| `tabcap proxy add <name> --url <scheme://host:port> [--user username] [--password-stdin] [--bypass list]` | add a proxy to the local store (state.db, 0600) for the account pool; for the human: the password is typed at a prompt or piped, never passed as an argument, and never shown in tabcap output |
+| `tabcap proxy add <name> --url <scheme://host:port> [--user username] [--password-stdin] [--bypass list]` | add a proxy to the local store (state.db, 0600) for the account pool: the password is typed at a prompt (recommended: by the human) or piped with --password-stdin, never passed as an argument, and never shown in tabcap output |
 | `tabcap proxy list` | stored proxies: name, scheme, host:port, user, hasAuth, bypass, state, last check (never the password) |
 | `tabcap proxy remove <name>` | delete a proxy no account is bound to |
 | `tabcap proxy check <name> [--url url]` | one health check through the proxy: unknown → up on success; 3 failures in a row → down (rechecked after 1 / 5 / 15 min) |
 | `tabcap proxy set-state <name> active\|disabled` | disable a proxy by hand (skipped by allocation and rotation, never checked) or set it active again (back to unknown until the next check) |
-| `tabcap account add <site> --user <username> [--password-stdin] [--totp-stdin]` | add another account to a stored site (for the human, not the AI: the password is typed at a prompt or piped, never an argument, never shown); a duplicate <site>.<user> is refused |
+| `tabcap account add <site> --user <username> [--password-stdin] [--totp-stdin]` | add another account to a stored site (the password is typed at a prompt, recommended: by the human, or piped with --password-stdin; never an argument, never shown); a duplicate <site>.<user> is refused |
 | `tabcap account remove <account>` | delete a stored account with its saved cookies and counters; refused while a session uses it |
 | `tabcap account bind <account> --proxy <name\|system\|none>` | bind a stored account (<site>.<user>) to a proxy, or to the browser's own network (system / none) |
 | `tabcap account list [--site site]` | stored accounts: state (active / cooling / needs-human / disabled), coolUntil, proxy, lastUsedAt (never passwords) |
