@@ -13,12 +13,15 @@
 // the guard see it during the recording; the rest still closes at stop.
 // The recorder is active instrumentation (Fetch pauses responses ~2 ms), so
 // `net start` says so in its output (AGENTS.md: 默认最少打扰).
+// Trace mode (0.4-F, daemon/trace/) writes `signal` events through `signal()`,
+// opens / closes trace windows (`note` events, manifest `traceWindows`) and
+// flushes what it has seen through a before-stop hook.
 
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
 import { BundleWriter } from "../../bundle/writer.ts";
 import { TOOL_VERSION } from "../../bundle/manifest.ts";
-import type { Actor, BodyMissingReason, Headers, InlineOrBlob, ManifestTab, NavType, ResourceType, UnsequencedEvent } from "../../bundle/types.ts";
+import type { Actor, BodyMissingReason, Headers, InlineOrBlob, ManifestTab, NavType, ResourceType, TraceMode, UnsequencedEvent } from "../../bundle/types.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
 import { monotonicToMono, nowMs, wallTimeToTs } from "../../shared/time.ts";
@@ -792,7 +795,7 @@ export class Recorder {
       recording: !this.writerClosed,
       since: m.created,
       tabs: m.session.tabs.map((t) => t.tab),
-      counts: { ...m.counts, wsFrames: this.frames.filter((f) => f.phase === "frame").length, console: this.consoleCount, state: this.stateCount },
+      counts: { ...m.counts, wsFrames: this.frames.filter((f) => f.phase === "frame").length, console: this.consoleCount, state: this.stateCount, ...(this.signalCount > 0 ? { signals: this.signalCount } : {}) },
       inflight: this.pending.size,
     };
   }
@@ -1038,7 +1041,7 @@ export class Recorder {
    * Append a daemon-side event (`guard`, `handoff`, docs/04 §4.2) inside the
    * current command window. Returns its seq, or null when the bundle is closed.
    */
-  event(kind: "guard" | "handoff", fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor } = {}): number | null {
+  event(kind: "guard" | "handoff" | "note", fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor } = {}): number | null {
     if (this.writerClosed || this.stopping) return null;
     const ev = this.writer.append({
       ts: nowMs(),
@@ -1050,6 +1053,67 @@ export class Recorder {
       ...fields,
     });
     return ev.seq;
+  }
+
+  /**
+   * A `signal` event (docs/04 §4.1, trace mode). `tabId` is the daemon tab; the
+   * envelope `mono` is the aggregate's first read. Returns the seq, or null
+   * when the bundle is closed.
+   */
+  signal(tabId: string, fields: Record<string, unknown>, mono: number | null): number | null {
+    if (this.writerClosed) return null;
+    const ev = this.writer.append({ ts: nowMs(), mono, kind: "signal", actor: this.actor(), tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(), ...fields });
+    this.signalCount++;
+    return ev.seq;
+  }
+
+  signalCount = 0;
+
+  /** Store text as a blob (trace `signal.value` over 1 KB); null when the bundle is closed or the blob was refused. */
+  async putText(text: string): Promise<{ blob: string; size: number } | null> {
+    if (this.writerClosed) return null;
+    const put = await this.writer.putBlob(text);
+    return put.outcome === "stored" ? { blob: put.ref, size: put.size } : null;
+  }
+
+  private traceOpenSeq: number | null = null;
+
+  /**
+   * Open a trace window (docs/04 §7 `traceWindows`): a `note` event, its seq is
+   * `fromSeq`; `mode.trace` takes these settings.
+   */
+  traceOpen(mode: TraceMode, text: string): void {
+    if (this.writerClosed || this.stopping || this.traceOpenSeq !== null) return;
+    const seq = this.event("note", { text, refs: [] });
+    if (seq === null) return;
+    this.traceOpenSeq = seq;
+    this.writer.updateManifest((m) => {
+      m.mode.trace = mode;
+      m.traceWindows = [...(m.traceWindows ?? []), { fromSeq: seq, toSeq: null }];
+    });
+  }
+
+  /** Close the open trace window with a `note` event (its seq is `toSeq`). */
+  traceClose(text: string): void {
+    if (this.writerClosed || this.traceOpenSeq === null) return;
+    const from = this.traceOpenSeq;
+    this.traceOpenSeq = null;
+    const ev = this.writer.append({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(), text, refs: [] });
+    this.writer.updateManifest((m) => {
+      m.traceWindows = (m.traceWindows ?? []).map((w) => (w.fromSeq === from ? { ...w, toSeq: ev.seq } : w));
+    });
+  }
+
+  get traceWindowOpen(): boolean {
+    return this.traceOpenSeq !== null;
+  }
+
+  private beforeStopHooks = new Set<() => Promise<void>>();
+
+  /** Run (and await) `fn` at the start of stop(), while events can still be written (trace mode flush). */
+  beforeStop(fn: () => Promise<void>): () => void {
+    this.beforeStopHooks.add(fn);
+    return () => this.beforeStopHooks.delete(fn);
   }
 
   /** `cmd` start event; its id `c-<seq>` tags every event until the matching end. */
@@ -1107,6 +1171,12 @@ export class Recorder {
   /** Stop: wait for in-flight bodies, close the rest as `stopped`, finish the bundle. */
   async stop(): Promise<{ dir: string; requests: number; counts: unknown }> {
     if (this.writerClosed) return { dir: this.dir, requests: this.index.length, counts: this.writer.snapshot().counts };
+    // Trace mode writes what it has seen so far while the bundle is still open.
+    for (const fn of [...this.beforeStopHooks]) {
+      await fn().catch((e: unknown) => log.warn("recorder: before-stop hook failed", { error: String(e) }));
+    }
+    this.beforeStopHooks.clear();
+    this.traceClose("trace window closed: the recording stopped");
     const deadline = Date.now() + 10_000;
     while (this.inflight.size > 0 && Date.now() < deadline) await Promise.race([...this.inflight, Bun.sleep(200)]);
     this.flush(() => true, "stopped");
@@ -1127,7 +1197,7 @@ export class Recorder {
     for (const c of [...this.activeCmds]) {
       this.cmdEnd(c.id, { tab: null, ok: true, error: null, durationMs: Date.now() - c.started, outputSummary: { recordingStopped: true } });
     }
-    this.writer.append({ ts: nowMs(), mono: null, kind: "session", actor: "system", tab: null, cmd: null, phase: "stop", name: this.session, mode: { capture: "mixed", trace: false, raw: true } });
+    this.writer.append({ ts: nowMs(), mono: null, kind: "session", actor: "system", tab: null, cmd: null, phase: "stop", name: this.session, mode: { capture: "mixed", trace: this.writer.snapshot().mode.trace, raw: true } });
     this.writerClosed = true;
     const m = await this.writer.close();
     await new Promise<void>((r) => this.raw.end(() => r()));

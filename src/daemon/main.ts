@@ -22,6 +22,7 @@ import { TOOLS } from "./tools/index.ts";
 import { scrubValue } from "./secrets.ts";
 import { listen, newToken, type Listening } from "./listener.ts";
 import { CdpClosedError, CdpError, CdpTimeoutError } from "./transport/direct/cdp.ts";
+import { TRACE_PAUSED_NOTE } from "./trace/tracer.ts";
 
 function toEnvelope(e: unknown): FailEnvelope {
   if (e instanceof CdpTimeoutError) return fail("timeout", e.message, "The browser did not answer in time; check the tab with `tabcap screenshot`, or retry.");
@@ -97,6 +98,7 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   } catch (e) {
     env = toEnvelope(e);
   }
+  env = withTraceField(d, session, env);
   const durationMs = Date.now() - started;
   // Which app the human is in, for handing the foreground back when a page opens a window.
   d.browser?.t.noteFront();
@@ -117,6 +119,19 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     }
   }
   return env;
+}
+
+/**
+ * 0.4-F: while trace mode is on in the session every answer carries
+ * `"trace": "on"`; while the session waits for the human it says `"paused"`
+ * and why (failures included: the `waiting` error itself).
+ */
+export function withTraceField(d: Daemon, session: string, env: Envelope<unknown>): Envelope<unknown> {
+  const tr = d.tracers.get(session);
+  if (tr === undefined || tr.stoppedNow) return env;
+  const field: Record<string, unknown> = tr.paused ? { trace: "paused", traceNote: TRACE_PAUSED_NOTE } : { trace: "on" };
+  if (!env.ok) return { ok: false, error: { ...env.error, ...field } };
+  return isRecord(env.data) ? ok({ ...env.data, ...field }) : env;
 }
 
 /** The wire form of every daemon answer: known secret values replaced (docs/04 §8.1). */

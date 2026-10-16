@@ -37,6 +37,8 @@ export async function netStart(d: Daemon, _a: Args, session: string): Promise<un
   d.store?.noteBundle({ path: dir, site: bound?.site ?? null, sessionName: session });
   d.guard.watch(r);
   d.recorders.set(session, r);
+  // Trace mode already on: this recording gets a trace window from now on (0.4-F).
+  d.tracers.get(session)?.attachRecorder(r);
   return {
     session,
     bundle: dir,

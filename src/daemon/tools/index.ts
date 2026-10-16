@@ -14,6 +14,7 @@ import { sessionList, sessionStart, sessionStop, tabClose, tabUse, tabsList } fr
 import { find, snapshot } from "./snapshot.ts";
 import { outline } from "./outline.ts";
 import { netWait, wait } from "./wait.ts";
+import { traceList, traceStart, traceStatus, traceStop } from "./trace.ts";
 
 export type Tool = (d: Daemon, a: Args, session: string) => Promise<unknown> | unknown;
 
@@ -56,4 +57,8 @@ export const TOOLS: Record<string, Tool> = {
   "net.wait": netWait,
   "handoff.status": handoffStatus,
   "handoff.continue": handoffContinue,
+  "trace.start": traceStart,
+  "trace.stop": traceStop,
+  "trace.status": traceStatus,
+  "trace.list": traceList,
 };

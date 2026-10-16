@@ -179,6 +179,7 @@ export class Guard {
     };
     // Block first; everything else is bookkeeping.
     this.handoffs.set(session, h);
+    this.emitState(session, "waiting");
     rec.event("guard", { event: "breaker", site: h.site, account: bound?.account ?? null, detail: { reason, request: e.id, url: e.url, status: e.status, mime: e.mime } }, { tab: e.tab });
     await Bun.sleep(this.deps.settleMs ?? 400);
     h.screenshot = await this.deps.screenshot(session, e.tab).catch(() => null);
@@ -244,7 +245,31 @@ export class Guard {
     h.resumedAt = Date.now();
     h.resumedBy = by;
     this.recorder?.(session)?.event("handoff", { state: "resumed", reason: h.reason, question: null, timeoutMs: null, answerRef, by }, { tab: h.tab });
+    this.emitState(session, "resumed");
     return h;
+  }
+
+  private stateListeners = new Set<(session: string, state: "waiting" | "resumed") => void>();
+
+  /** Called when a session starts or stops waiting for the human (trace mode pauses meanwhile). */
+  onState(fn: (session: string, state: "waiting" | "resumed") => void): () => void {
+    this.stateListeners.add(fn);
+    return () => this.stateListeners.delete(fn);
+  }
+
+  private emitState(session: string, state: "waiting" | "resumed"): void {
+    for (const fn of [...this.stateListeners]) {
+      try {
+        fn(session, state);
+      } catch (e) {
+        log.warn("guard: state listener failed", { session, error: String(e) });
+      }
+    }
+  }
+
+  /** True while the session waits for the human. */
+  isWaiting(session: string): boolean {
+    return this.handoffs.get(session)?.state === "waiting";
   }
 
   /** Set by the daemon: the session's current recorder (for resume events). */
