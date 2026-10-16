@@ -1100,3 +1100,79 @@ tabcap account set-state <account> active|disabled
 ```
 
 Example: `tabcap account set-state example.alice disabled`
+
+### `tabcap fingerprint probe`
+
+the values this browser presents for a fixed signal list (navigator, UA client hints, screen, time zone, canvas / audio hashes, WebGL, voices, fonts, permissions, media queries): the probe page in a new background tab, closed afterwards; while recording, a `state` env event in the bundle. Read-only
+
+```
+tabcap fingerprint probe [--session name] [--timeout ms] [--ref name] [--text]
+```
+
+Example: `tabcap fingerprint probe --ref daily --text`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--ref <name>` |  | add this reference (saved with `fingerprint serve`) as a second column with a verdict per field: same / differs / missing (the reference lacks it) / extra (this browser lacks it) |
+| `--text` |  | print a text table instead of JSON |
+
+### `tabcap fingerprint serve`
+
+serve the signal probe page on 127.0.0.1 for your own browser: open the printed URL by hand and press Save as reference (written to config/fingerprint/refs/<name>.json, 0600); Ctrl-C to stop
+
+```
+tabcap fingerprint serve [--port port] [--once] [--force]
+```
+
+Example: `tabcap fingerprint serve --once`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--port <port>` | `0` | port on 127.0.0.1 (0: any free port) |
+| `--once` |  | exit after the first saved reference |
+| `--force` |  | let a save replace an existing reference of the same name |
+
+### `tabcap fingerprint ref list`
+
+saved references: name, savedAt, userAgent, file
+
+```
+tabcap fingerprint ref list
+```
+
+Example: `tabcap fingerprint ref list`
+
+### `tabcap fingerprint ref show`
+
+one saved reference with all its fields
+
+```
+tabcap fingerprint ref show <name>
+```
+
+Example: `tabcap fingerprint ref show daily`
+
+### `tabcap fingerprint ref remove`
+
+delete a saved reference
+
+```
+tabcap fingerprint ref remove <name>
+```
+
+Example: `tabcap fingerprint ref remove daily`
+
+### `tabcap fingerprint diff`
+
+the last `state` env event of a bundle (from `fingerprint probe`) against a saved reference, offline: the same output as `fingerprint probe --ref`
+
+```
+tabcap fingerprint diff <bundle> --ref <name> [--text]
+```
+
+Example: `tabcap fingerprint diff ./b --ref daily`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--ref <name>` |  | the reference to compare with (required) |
+| `--text` |  | print a text table instead of JSON |
