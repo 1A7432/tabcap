@@ -30,6 +30,8 @@ export type FlagSpec = {
   required?: boolean;
   /** May be given more than once; the value is then a list of strings. */
   repeat?: boolean;
+  /** A bool flag this value sets when given (for `--no-x` spellings: false). */
+  value?: boolean;
 };
 
 export type CommandSpec = {
@@ -741,10 +743,12 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--stack", key: "stack", kind: "number", help: "stack frames kept per signal event", default: 8, metavar: "n" },
       { flag: "--first-n", key: "firstN", kind: "number", help: "signal events with a stack per (api, caller); later ones only count", default: 20, metavar: "n" },
       { flag: "--max-hits", key: "maxHits", kind: "number", help: "reads of one API in one document before its breakpoint is removed (the event gets truncated: true)", default: 500, metavar: "n" },
+      { flag: "--decode", key: "decode", kind: "bool", help: "observe mode: a response that looks like ciphertext arms JSON.parse for 5 s and the plaintext the page itself parses is filed as a decoded view by \"page\" (config.json trace.decode sets the default; TextDecoder / SubtleCrypto pauses are evidence only)" },
+      { flag: "--no-decode", key: "decode", kind: "bool", help: "start without the observe mode, whatever config.json says", value: false },
     ],
     summary:
-      "trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable",
-    example: "tabcap trace start",
+      "trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable; with --decode also in-page decoding: breakpoints pause JSON.parse, the plaintext is recovered from the pausing scope, never a CryptoKey",
+    example: "tabcap trace start --decode",
     action: "trace.start",
     localPaths: ["apis"],
   },
@@ -1402,7 +1406,7 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
       if (value === undefined) throw new TabcapError("usage", `${name} needs a value`, usage);
     }
     if (spec.key === "session") session = value ?? null;
-    else if (spec.kind === "bool") args[spec.key] = true;
+    else if (spec.kind === "bool") args[spec.key] = spec.value ?? true;
     else if (spec.repeat === true) {
       const prev = args[spec.key];
       args[spec.key] = [...(Array.isArray(prev) ? prev : []), value ?? ""];

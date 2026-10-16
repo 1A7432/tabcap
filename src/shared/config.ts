@@ -239,3 +239,30 @@ export function siteGuardsFrom(raw: Record<string, unknown>): Map<string, SiteGu
 export function readSiteGuards(file: string): Map<string, SiteGuardConfig> {
   return siteGuardsFrom(readRaw(file));
 }
+
+// ------------------------------------------------------------ trace (0.6-L)
+
+/**
+ * `config.json` `trace` (docs/04 §33): {decode: false}. `decode` turns on the
+ * observe mode of `tabcap trace start` for every session that does not pass
+ * an explicit `--decode` / `--no-decode`.
+ */
+export type TraceConfig = { decode: boolean };
+
+export const TRACE_DEFAULTS: TraceConfig = { decode: false };
+
+export function parseTraceConfig(raw: unknown, base: TraceConfig = TRACE_DEFAULTS, where = "trace"): TraceConfig {
+  const out: TraceConfig = { ...base };
+  if (raw === undefined || raw === null) return out;
+  if (!isRecord(raw)) throw new TabcapError("bad-input", `config.json ${where} is invalid`, `Set ${where} to an object {decode: true|false}, or remove it.`);
+  const d = raw["decode"];
+  if (d !== undefined) {
+    if (typeof d !== "boolean") throw new TabcapError("bad-input", `config.json ${where}.decode is invalid`, `Set ${where}.decode to true or false, or remove it.`);
+    out.decode = d;
+  }
+  return out;
+}
+
+export function readTraceConfig(file: string): TraceConfig {
+  return parseTraceConfig(readRaw(file)["trace"]);
+}

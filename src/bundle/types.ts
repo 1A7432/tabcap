@@ -46,6 +46,8 @@ export type TraceMode = {
   stack: number;
   firstN: number;
   maxHits: number;
+  /** 0.6-L observe mode on (docs/04 §33): in-page decoding sinks armed on suspects. */
+  decode?: boolean;
 };
 
 /** `manifest.traceWindows[]`: seqs of the `note` events that opened and closed one trace window (toSeq null while open). */

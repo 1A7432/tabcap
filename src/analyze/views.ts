@@ -1,9 +1,10 @@
-// Decoded views for the analysis commands (0.6-B, docs/04 §28). A request or
-// response side whose `decoded` view is ok is read from the plugin's
-// plaintext instead of the original bytes, with `plugin:<name>` as the first
-// decode step; `find`, `where`, `deps`, `recon` and `replay check` all go
-// through here. A view whose blob is missing or over the step cap is not
-// used (the original is read, as before 0.6-B).
+// Decoded views for the analysis commands (0.6-B, docs/04 §28; page rows
+// 0.6-L, docs/04 §33). A request or response side whose `decoded` view is ok
+// is read from the view's plaintext instead of the original bytes: a plugin's
+// with `plugin:<name>` as the first decode step, the observe mode's `by:"page"`
+// row with the built-in step `page`. `find`, `where`, `deps`, `recon` and
+// `replay check` all go through here. A view whose blob is missing or over
+// the step cap is not used (the original is read, as before 0.6-B).
 // Oracle: test/unit/decode-views.test.ts (bundles with planted views).
 
 import type { DecodedView } from "../bundle/decoded.ts";
@@ -16,7 +17,7 @@ export function decodedPayload(reader: { readBlob(ref: string): Uint8Array | nul
   if (d === undefined || !d.ok || d.blob === null) return null;
   const bytes = reader.readBlob(d.blob);
   if (bytes === null || bytes.length > STEP_CAP) return null;
-  return { bytes, mime: d.mime, prefix: [pluginStep(d.by)], by: d.by };
+  return { bytes, mime: d.mime, prefix: [d.by === "page" ? "page" : pluginStep(d.by)], by: d.by };
 }
 
 /** Why an ok view could not be read (find's `searched.skipped`), or null when it can be / there is none. */

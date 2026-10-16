@@ -59,7 +59,9 @@ export type BuiltinStep =
   | "ndjson"
   | "script-json"
   | "inline-assign"
-  | "viewstate";
+  | "viewstate"
+  /** 0.6-L: the plaintext of a `by:"page"` observe row (docs/04 §33). */
+  | "page";
 
 /** A decode plugin's view (0.6-B): `plugin:<plugin name>`. */
 export type PluginStep = `plugin:${string}`;
@@ -75,6 +77,8 @@ export const isStepName = (s: string): s is StepName => (STEP_NAMES as readonly 
 export const STEP_NAMES: readonly BuiltinStep[] = [
   "gzip", "br", "deflate", "base64", "json", "json-unescape", "json-string", "urldecode", "html-entities", "jsonp", "sse", "ndjson",
   "script-json", "inline-assign", "viewstate",
+  // 0.6-L: a page row's plaintext enters a chain like any other step.
+  "page",
 ];
 
 // ------------------------------------------------------------ small codecs

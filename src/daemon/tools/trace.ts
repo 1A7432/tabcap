@@ -1,7 +1,10 @@
-// tabcap trace start | stop | status | list (0.4-F): which page scripts read
-// which browser signals. Explicit and announced (docs/03 §10.3): the output
-// says that debugger breakpoints make scripts slower and timing observable.
-// Read-only: no value in the page is changed, and no output suggests changing one.
+// tabcap trace start | stop | status | list (0.4-F, 0.6-L): which page scripts
+// read which browser signals, and — with `--decode` — the observe mode: the
+// plaintext the page itself parses out of an encrypted response, filed as a
+// `decoded` view `by:"page"`. Explicit and announced (docs/03 §10.3): the
+// output says that debugger breakpoints make scripts slower and timing
+// observable. Read-only: no value in the page is changed, no output suggests
+// changing one, and the observe sinks read scopes only (never a CryptoKey).
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,7 +15,8 @@ import { DEFAULT_LIMITS, type TraceLimits } from "../trace/aggregate.ts";
 import { builtinSignalList, parseSignalList, type SignalList } from "../trace/signals.ts";
 import { traceTable } from "../trace/table.ts";
 import { TRACE_NOTICE, Tracer } from "../trace/tracer.ts";
-import { checkSessionName, optNum, optStr, type Args } from "./args.ts";
+import { readTraceConfig } from "../../shared/config.ts";
+import { checkSessionName, optBool, optNum, optStr, type Args } from "./args.ts";
 import { redactUrl, revealOf } from "./liveredact.ts";
 
 export const SIGNALS_FILE = "signals.json";
@@ -48,6 +52,9 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     maxHits: limitArg(a, "maxHits", "--max-hits", DEFAULT_LIMITS.maxHits, 1, 1_000_000),
   };
   const list = loadSignalList(d.paths.config, optStr(a, "apis"));
+  // 0.6-L: --decode / --no-decode override config.json `trace.decode`.
+  const cfg = readTraceConfig(d.paths.configFile);
+  const decode = "decode" in a ? optBool(a, "decode") : cfg.decode;
   tabs.ensureSession(session);
   const tr = await Tracer.start({
     session,
@@ -58,6 +65,7 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     recorder: () => d.recorders.get(session),
     scrub: (s) => d.secrets.scrub(s),
     paused: d.guard.isWaiting(session),
+    decode,
   });
   d.tracers.set(session, tr);
   const recording = d.recorders.get(session)?.dir ?? null;
@@ -67,6 +75,7 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     notice: TRACE_NOTICE,
     ...statusLite(tr),
     recording,
+    ...(decode ? { decode: tr.status()["decode"], decodeNotice: "observe mode on: JSON.parse pauses of every suspect window; the plaintext the page parses is filed by \"page\" as a decoded view" } : {}),
     ...(recording === null ? { warning: "the session is not recording: signal events reach a bundle only while `tabcap net start` records; trace status still counts reads" } : {}),
   };
 }
@@ -81,8 +90,9 @@ export async function traceStop(d: Daemon, _a: Args, session: string): Promise<u
   if (tr === undefined) throw new TabcapError("not-found", `trace mode is not on in session "${session}"`, "Run `tabcap trace start` first.");
   d.tracers.delete(session);
   const hits = tr.hits;
+  const decode = tr.status()["decode"];
   await tr.stop("trace stop");
-  return { session, stopped: true, hits, bundle: d.recorders.get(session)?.dir ?? null };
+  return { session, stopped: true, hits, ...(decode === undefined ? {} : { decode }), bundle: d.recorders.get(session)?.dir ?? null };
 }
 
 export function traceStatus(d: Daemon, _a: Args, session: string): unknown {

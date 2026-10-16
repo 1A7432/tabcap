@@ -534,7 +534,7 @@ function hintMessage(suspects: readonly SuspectEncrypted[], totalMissing: number
       `${suspects.length} payload(s) look encrypted (entropy > ${ENTROPY_THRESHOLD} bits/byte from ${ENTROPY_LARGE_SIZE} B, > ${ENTROPY_THRESHOLD_SMALL} from ${ENTROPY_MIN_SIZE} B; not compressed or media): ${suspects
         .slice(0, 10)
         .map((s) => s.ref)
-        .join(", ")}; the page probably decrypts them in JS (consider trace mode).`,
+        .join(", ")}; the page probably decrypts them in JS — \`trace start --decode\` observes the plaintext the page parses (docs/04 §33) and re-run \`find\` then searches the decoded view.`,
     );
   }
   if (totalMissing > 0) {

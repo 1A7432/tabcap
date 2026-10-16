@@ -50,6 +50,7 @@ import { cookieArray, cookieStateFields, navCookieParams, navWantsCookies, state
 import { continueHeaders, initiatorMatch, markerOf, withoutMarker, type FetchReg } from "./fetchmark.ts";
 import { decodedField, type DecodeDirection, type DecodeJob, type DecodeOutcome } from "../hooks/decode.ts";
 import { BODIES_DEFAULT, keepsBody, SKIPPED_REASON, type BodiesMode } from "../../shared/bodies.ts";
+import { appendSidecar, readSidecar } from "../../bundle/decoded.ts";
 
 const NETWORK_ENABLE = { maxTotalBufferSize: 256 * 1024 * 1024, maxResourceBufferSize: 64 * 1024 * 1024, maxPostDataSize: 1024 * 1024 };
 const FETCH_ENABLE = {
@@ -1359,6 +1360,30 @@ export class Recorder {
     if (this.writerClosed) return null;
     const put = await this.writer.putBlob(text);
     return put.outcome === "stored" ? { blob: put.ref, size: put.size } : null;
+  }
+
+  /** Read a stored blob (0.6-L: the suspect test of a finished body); null when it is gone. */
+  readBlob(ref: string): Uint8Array | null {
+    return this.writer.blobs.tryRead(ref);
+  }
+
+  private sidecarSeq: number | null = null;
+
+  /**
+   * Append a decoded.jsonl sidecar line of the observe mode: 0.6-B's shape
+   * `{seq, request, direction, decoded, at}`, `request: null` for an
+   * unattributed row (docs/04 §33 D7). This recorder is the only writer of
+   * the live bundle, so the seq continues the file's in memory. Returns the
+   * line's seq, or null when the bundle is already closing.
+   */
+  async appendDecodedSidecar(request: string | null, decoded: Record<string, unknown>, at: number): Promise<number | null> {
+    if (this.writerClosed || this.stopping) return null;
+    if (this.sidecarSeq === null) this.sidecarSeq = readSidecar(this.dir)?.lastSeq ?? 0;
+    const direction = typeof decoded["direction"] === "string" ? (decoded["direction"] as "request" | "response") : "response";
+    const seq = this.sidecarSeq + 1;
+    appendSidecar(this.dir, { seq, request, direction, decoded, at });
+    this.sidecarSeq = seq;
+    return seq;
   }
 
   private traceOpenSeq: number | null = null;

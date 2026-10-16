@@ -28,6 +28,20 @@ export type DecodedView = {
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
+/**
+ * The `evidence` of an observe row (docs/04 §33; 0.6-L): where the plaintext
+ * was read. Carried through to readers as is; untrusted like the rest.
+ */
+export type DecodedEvidence = { sink: string; match: string | null; frames: unknown[]; at: number; candidates?: string[] };
+
+const evidenceOf = (v: unknown): DecodedEvidence | undefined => {
+  if (!isRecord(v) || typeof v["sink"] !== "string" || typeof v["at"] !== "number") return undefined;
+  const out: DecodedEvidence = { sink: v["sink"], match: str(v, "match"), frames: Array.isArray(v["frames"]) ? v["frames"] : [], at: v["at"] };
+  const c = v["candidates"];
+  if (Array.isArray(c) && c.every((x) => typeof x === "string")) out.candidates = c as string[];
+  return out;
+};
+
 /** The `decoded` field of a request / response side, or undefined when absent or malformed. */
 export function parseDecoded(v: unknown): DecodedView | undefined {
   if (!isRecord(v)) return undefined;
@@ -38,6 +52,7 @@ export function parseDecoded(v: unknown): DecodedView | undefined {
   const ok = v["ok"] && blob !== null;
   const error = str(v, "error") ?? (ok ? null : "not decoded");
   const note = str(v, "note");
+  const evidence = evidenceOf(v["evidence"]);
   return {
     by,
     version: str(v, "version") ?? "",
@@ -48,6 +63,7 @@ export function parseDecoded(v: unknown): DecodedView | undefined {
     ok,
     ...(error === null ? {} : { error }),
     ...(note === null ? {} : { note }),
+    ...(evidence === undefined ? {} : { evidence }),
   };
 }
 
@@ -61,21 +77,27 @@ export function decodedOf(v: unknown): { decoded?: DecodedView } {
 
 /**
  * `tabcap bundle decode` never changes events.jsonl (docs/04 §1: a recording
- * does not change after the fact). Views it adds go to `<bundle>/decoded.jsonl`,
+ * does not change after the fact). Views added later — offline decode, and
+ * the observe mode of a live recording (0.6-L) — go to `<bundle>/decoded.jsonl`,
  * append-only, one JSON object per line:
- *   {seq, request:"r-N", direction, decoded:{…same shape as inline…}, at}
- * `seq` numbers the sidecar's own lines from 1. The last line per (request,
- * direction) wins, and it wins over a view written inline while recording.
- * Readers overlay it onto the request events they return; a damaged line is
- * skipped and reported.
+ *   {seq, request:"r-N"|null, direction, decoded:{…same shape as inline…}, at}
+ * `seq` numbers the sidecar's own lines from 1. The winner per (request,
+ * direction): an ok plugin view outranks an ok `by:"page"` view however late
+ * the page line is (0.6-L D4); within one rank the last line wins, and it wins
+ * over a view written inline while recording. An observe row without an
+ * attribution (`request: null`) overlays nothing: the reader lists it apart.
+ * A damaged line is skipped and reported.
  */
 export const SIDECAR_FILE = "decoded.jsonl";
 
-export type SidecarEntry = { seq: number; request: string; direction: "request" | "response"; decoded: Record<string, unknown>; at: number };
+export type SidecarEntry = { seq: number; request: string | null; direction: "request" | "response"; decoded: Record<string, unknown>; at: number };
 export type SidecarIssue = { line: number; detail: string };
 export type Sidecar = { entries: SidecarEntry[]; issues: SidecarIssue[]; lastSeq: number };
 
 const REQ_ID = /^r-[1-9][0-9]*$/;
+
+/** docs/04 §33 D4: an ok plugin view (2) outranks an ok page view (1); ok:false stays last-wins (0). */
+const viewRank = (v: Record<string, unknown>): number => (v["ok"] === true && v["by"] !== "page" ? 2 : v["ok"] === true ? 1 : 0);
 
 export function parseSidecarText(text: string): Sidecar {
   const entries: SidecarEntry[] = [];
@@ -100,8 +122,9 @@ export function parseSidecarText(text: string): Sidecar {
       typeof seq !== "number" ||
       !Number.isSafeInteger(seq) ||
       seq < 1 ||
-      typeof request !== "string" ||
-      !REQ_ID.test(request) ||
+      // 0.6-L D7: an unattributed observe row files its plaintext with
+      // `request: null` — kept for the reader, overlaid onto nothing.
+      (!(typeof request === "string" && REQ_ID.test(request)) && request !== null) ||
       (direction !== "request" && direction !== "response") ||
       !isRecord(decoded) ||
       view === undefined ||
@@ -125,10 +148,17 @@ export function readSidecar(dir: string): Sidecar | null {
 
 export const sideKey = (request: string, direction: "request" | "response"): string => `${request}\t${direction}`;
 
-/** The winning `decoded` field per (request, direction): the last entry in file order. */
+/** The winning `decoded` field per (request, direction): the highest-ranked view
+ * (an ok plugin view over an ok page view), the last line within a rank. An
+ * unattributed row (`request: null`) is not on a request — never a winner. */
 export function latestViews(s: Sidecar | null): Map<string, Record<string, unknown>> {
   const out = new Map<string, Record<string, unknown>>();
-  for (const e of s?.entries ?? []) out.set(sideKey(e.request, e.direction), e.decoded);
+  for (const e of s?.entries ?? []) {
+    if (e.request === null) continue;
+    const key = sideKey(e.request, e.direction);
+    const prev = out.get(key);
+    if (prev === undefined || viewRank(e.decoded) >= viewRank(prev)) out.set(key, e.decoded);
+  }
   return out;
 }
 
@@ -136,12 +166,18 @@ export function latestViews(s: Sidecar | null): Map<string, Record<string, unkno
 export function overlayEvent<T extends Record<string, unknown>>(e: T, views: ReadonlyMap<string, Record<string, unknown>>): T {
   if (views.size === 0 || e["kind"] !== "request" || typeof e["id"] !== "string") return e;
   const id = e["id"];
-  const req = views.get(sideKey(id, "request"));
-  const resp = views.get(sideKey(id, "response"));
-  if (req === undefined && resp === undefined) return e;
+  const inlineRank = (side: "request" | "response"): number => {
+    const s = isRecord(e[side]) ? e[side] : null;
+    const d = s !== null && isRecord(s["decoded"]) ? s["decoded"] : null;
+    return d === null ? -1 : viewRank(d);
+  };
   const out: Record<string, unknown> = { ...e };
-  if (req !== undefined && isRecord(e["request"])) out["request"] = { ...e["request"], decoded: req };
-  if (resp !== undefined && isRecord(e["response"])) out["response"] = { ...e["response"], decoded: resp };
+  const reqV = views.get(sideKey(id, "request"));
+  const respV = views.get(sideKey(id, "response"));
+  // D4 applies to an inline view too: an ok plugin view recorded with the
+  // event wins over a later page row; within a rank the later line wins.
+  if (reqV !== undefined && isRecord(e["request"]) && viewRank(reqV) >= inlineRank("request")) out["request"] = { ...e["request"], decoded: reqV };
+  if (respV !== undefined && isRecord(e["response"]) && viewRank(respV) >= inlineRank("response")) out["response"] = { ...e["response"], decoded: respV };
   return { ...e, ...out };
 }
 
