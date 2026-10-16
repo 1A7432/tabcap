@@ -34,6 +34,12 @@ export function parseEvalArgs(raw: string | null): Array<{ value: unknown } | { 
   return v.map((x: unknown) => (isRecord(x) && Object.keys(x).length === 1 && typeof x["ref"] === "string" ? { ref: x["ref"] } : { value: x }));
 }
 
+/** A tabcap evaluate in flight on the tab: trace mode tags the reads it triggers `caller.kind: "tabcap"` (0.4-F). */
+function asTabcap<T>(d: Daemon, session: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
+  const tr = d.tracers.get(session);
+  return tr === undefined ? fn() : tr.markEval(sessionId, fn);
+}
+
 export async function evaluate(d: Daemon, a: Args, session: string): Promise<unknown> {
   const fn = optStr(a, "function");
   const given = optStr(a, "expression");
@@ -48,7 +54,7 @@ export async function evaluate(d: Daemon, a: Args, session: string): Promise<unk
   const release = () => t.send("Runtime.releaseObjectGroup", { objectGroup: EVAL_GROUP }, tab.sessionId, 5000).then(() => undefined, () => undefined);
   return tabs.run(
     tab,
-    async () => {
+    () => asTabcap(d, session, tab.sessionId, async () => {
       // Without --await, ask for a handle first: a Promise returned by value comes
       // back as a bare {} (no subtype), which reads like a real empty object.
       const r = await t.send("Runtime.evaluate", { expression, returnByValue: awaitPromise, awaitPromise, objectGroup: EVAL_GROUP }, tab.sessionId, budget);
@@ -83,7 +89,7 @@ export async function evaluate(d: Daemon, a: Args, session: string): Promise<unk
         return { tab: tab.id, type, valueText: text.slice(0, MAX_OUTPUT_CHARS), truncated: true, chars: text.length, note: `output truncated at ${MAX_OUTPUT_CHARS} chars; return a smaller value` };
       }
       return { tab: tab.id, type, value, truncated: false };
-    },
+    }),
     { timeoutMs: budget },
   );
 }
@@ -102,7 +108,7 @@ async function evaluateFunction(d: Daemon, a: Args, session: string, fn: string)
   const release = () => t.send("Runtime.releaseObjectGroup", { objectGroup: EVAL_GROUP }, tab.sessionId, 5000).then(() => undefined, () => undefined);
   return tabs.run(
     tab,
-    async () => {
+    () => asTabcap(d, session, tab.sessionId, async () => {
       try {
         const callArgs: Array<{ value: unknown } | { objectId: string }> = [];
         for (const x of args) callArgs.push("ref" in x ? { objectId: (await resolveRef(t, tab, x.ref)).objectId } : { value: x.value });
@@ -130,7 +136,7 @@ async function evaluateFunction(d: Daemon, a: Args, session: string, fn: string)
       } finally {
         await release();
       }
-    },
+    }),
     { timeoutMs: budget },
   );
 }

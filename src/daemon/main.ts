@@ -23,6 +23,7 @@ import { scrubValue } from "./secrets.ts";
 import { listen, newToken, type Listening } from "./listener.ts";
 import { budgetBlock } from "./tools/pool.ts";
 import { CdpClosedError, CdpError, CdpTimeoutError } from "./transport/direct/cdp.ts";
+import { TRACE_PAUSED_NOTE } from "./trace/tracer.ts";
 
 /** How often the daemon looks for proxies whose health check is due (pool.health.intervalS, down back-off). */
 const HEALTH_TICK_MS = 15_000;
@@ -104,6 +105,7 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     env = toEnvelope(e);
   }
   env = markFetchAuth(d, env);
+  env = withTraceField(d, session, env);
   const durationMs = Date.now() - started;
   // Which app the human is in, for handing the foreground back when a page opens a window.
   d.browser?.t.noteFront();
@@ -135,6 +137,19 @@ export function markFetchAuth(d: Daemon, env: Envelope<unknown>): Envelope<unkno
   if (!d.pool.fetchAuth) return env;
   if (!env.ok) return { ok: false, error: { ...env.error, fetchAuth: "on" } };
   return isRecord(env.data) ? ok({ ...env.data, fetchAuth: "on" }) : env;
+}
+
+/**
+ * 0.4-F: while trace mode is on in the session every answer carries
+ * `"trace": "on"`; while the session waits for the human it says `"paused"`
+ * and why (failures included: the `waiting` error itself).
+ */
+export function withTraceField(d: Daemon, session: string, env: Envelope<unknown>): Envelope<unknown> {
+  const tr = d.tracers.get(session);
+  if (tr === undefined || tr.stoppedNow) return env;
+  const field: Record<string, unknown> = tr.paused ? { trace: "paused", traceNote: TRACE_PAUSED_NOTE } : { trace: "on" };
+  if (!env.ok) return { ok: false, error: { ...env.error, ...field } };
+  return isRecord(env.data) ? ok({ ...env.data, ...field }) : env;
 }
 
 /** The wire form of every daemon answer: known secret values replaced (docs/04 §8.1). */

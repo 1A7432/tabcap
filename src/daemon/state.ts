@@ -4,6 +4,7 @@
 import { TabcapError } from "../shared/envelope.ts";
 import type { Paths } from "../shared/paths.ts";
 import type { Recorder } from "./capture/recorder.ts";
+import type { Tracer } from "./trace/tracer.ts";
 import { Tabs, type Tab } from "./browser/targets.ts";
 import type { ConsoleLog } from "./capture/console.ts";
 import type { DirectTransport } from "./transport/direct/index.ts";
@@ -77,7 +78,17 @@ export class Daemon {
       onBreaker: (s) => this.coolAccount(s),
     });
     this.guard.recorder = (s) => this.recorders.get(s);
+    // Trace mode skips debugger pauses while a session waits for the human (0.4-F).
+    this.guard.onState((s, state) => {
+      void this.tracers
+        .get(s)
+        ?.setPaused(state === "waiting")
+        .catch(() => undefined);
+    });
   }
+
+  /** Trace mode per session (0.4-F `tabcap trace start`). */
+  readonly tracers = new Map<string, Tracer>();
 
   /** Re-read the store's secrets so replacement covers sites added since (`tabcap site add` runs in the CLI). */
   refreshSecrets(): void {
@@ -128,6 +139,8 @@ export class Daemon {
       void res;
     }
     this.recorders.clear();
+    for (const tr of this.tracers.values()) await tr.stop("the browser went away").catch(() => undefined);
+    this.tracers.clear();
     this.browser?.tabs.dispose();
     this.browser?.console.dispose();
     this.browser = null;

@@ -10,6 +10,7 @@ import { extContextError } from "../pool/runtime.ts";
 import { checkSiteName, type Store } from "../store/db.ts";
 import type { Transport } from "../transport/types.ts";
 import { checkSessionName, optBool, optStr, reqStr, type Args } from "./args.ts";
+import { stopTrace } from "./trace.ts";
 
 const START_USAGE = "tabcap session start <name> [--site <site>] [--account <user>|auto]";
 
@@ -149,6 +150,8 @@ export async function sessionStop(d: Daemon, a: Args): Promise<unknown> {
   const { tabs } = d.need();
   if (tabs.session(name) === undefined) throw new TabcapError("not-found", `no session named "${name}"`, "Run `tabcap session list` to see sessions.");
   let bundle: string | null = null;
+  // Trace mode ends with the session; what it saw goes into the recording first.
+  await stopTrace(d, name, "session stop");
   const r = d.recorders.get(name);
   if (r !== undefined) {
     bundle = (await r.stop()).dir;
