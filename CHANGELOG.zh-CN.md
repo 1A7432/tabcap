@@ -20,6 +20,10 @@
 - **`tabcap mcp --print-config <宿主>`**：`claude-code`（`claude mcp add tabcap -- tabcap mcp`）、`cursor`、`codex`（TOML）、`gemini-cli`、`windsurf`、`claude-desktop` 的配置文件位置、条目与宿主自己的添加命令，2026-10-16 对照各家官方文档（windsurf 的页面已跳到 Devin Desktop，`verified: false`）。
 - `analyze diff` 末尾的证据包是列表：用法行写成 `[<bundles>...]`。
 
+### 正文导出（0.5-F2）
+
+- **`tabcap net body <r-N | --url u> --file [--pretty]`**：把解码后的正文（按字符集解码、内容编码已解开，与 `--grep` / `--lines` 搜索的文本完全一致；`--pretty` 用同一套断行）写成文件，返回 `{id, url, mime, bytes, lines, pretty, file, scrubbed}`，不内联正文，方便有 shell 的 agent 直接对路径用 `rg` / `grep`。文件在会话打开中的录制的 `exports/bodies/<r-N>[.pretty].<ext>`（扩展名按 MIME：js、json、html、css、txt，其余 bin），无录制则 `<cache>/outputs/bodies/<时间戳>-<r-N>…`；权限 0600；重复调用覆盖。已知秘密值在写入前换成 `<secret:…>`（`scrubbed: true`）；二进制正文原样写出，报 `scrubbed: false` 并附说明。`--file` 不能与 `--grep` / `--lines` / `--at` / `--out` 同用（usage 错误）。
+
 ### 命令内搜索（0.5-F）
 
 - **快照过滤**：`snapshot --grep <正则>` 只输出角色、名字、值、状态或描述命中的行，每行连同祖先行、缩进与完整树相同（`--context N` 前后各加 N 个兄弟行，`--max-matches` 默认 50）；`snapshot --css <选择器>` / `--xpath <表达式>` 在每个显示的文档里、在 tabcap 的隔离世界中解析，输出命中元素的行和祖先（没有无障碍行的元素写成 `(no accessible node) <tag#id.class>`）；`snapshot --ref e12 --depth n` 输出某元素下 n 层子树（帧 ref 用它自己的帧）。三者都能与 `--frames` / `--frame`、`--interactive` 组合；ref 与完整快照相同，头部保留，`search` 给出命中数 / 显示数，凡截断都说明怎样拿到更多。正则：JavaScript、`u` 标志、至多 256 字符，无效即 `usage` 错误。

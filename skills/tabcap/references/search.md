@@ -40,6 +40,10 @@ Filtering happens in the daemon. Ask for the part you need instead of reading a 
 - `--pretty`: JavaScript gets line breaks after `;`, `{`, `}` and `,` outside brackets, strings, template literals, regex literals and comments (insertions only, no reformatting); JSON is re-indented. Line numbers then refer to the pretty text. Bodies over 8 MB are not prettified (`note` says so).
 - Without these flags `net body` answers as before: a path and a 10000-character preview.
 
+## A large body, with a shell: export it
+
+With a shell: `tabcap net body r-12 --file` (or `--url <u> --file`, add `--pretty` for minified JavaScript / JSON), then `rg` / `grep` on the `file` path it returns. The file holds the decoded body, exactly the text `--grep` / `--lines` search, with known secret values already replaced by `<secret:…>` (`scrubbed: true`); it lands in the open recording's `exports/bodies/<r-N>[.pretty].<ext>` (else `<cache>/outputs/bodies/<stamp>-<r-N>…`), mode 0600, and a repeat overwrites it. The answer is `{id, url, mime, bytes, lines, pretty, file, scrubbed}`, with no body inline. A binary body is written as recorded and reports `scrubbed: false`. Not combinable with `--grep` / `--lines` / `--at` / `--out`. Without a shell: `net body --grep` / `net grep`.
+
 ## `net grep`
 
 `tabcap net grep <regex> [--resource-types script,xhr,fetch,document] [--max-matches 20] [--context 1] [--pretty]` searches every recorded response body of the session. Per request: `{request, url, resourceType, count, matches}`; at most 50 requests (`more` counts the rest); bodies over 8 MB are listed under `skipped` (search them one at a time with `net body --grep`); binary bodies are counted under `binary`.

@@ -641,10 +641,10 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 
 ### `tabcap net body`
 
-a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first
+a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)
 
 ```
-tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--pretty]
+tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--file] [--pretty]
 ```
 
 Example: `tabcap net body r-12 --grep 'sign|token' --pretty`
@@ -658,6 +658,7 @@ Example: `tabcap net body r-12 --grep 'sign|token' --pretty`
 | `--at <line:col>` |  | the lines around this 1-based raw-body position, as `trace list` and console stacks print it (mapped into the pretty text with --pretty) |
 | `--context <n>` |  | lines before and after each match (--grep, default 3) or the position (--at, default 5) |
 | `--max-matches <n>` | `50` | with --grep: matches shown (max 1000); total counts them all |
+| `--file` |  | write the whole decoded body (charset-decoded, secret-scrubbed; with --pretty line-broken) to exports/bodies/<id>.<ext> of the open recording (else <cache>/outputs/bodies/), 0600, and answer {id, url, mime, bytes, lines, pretty, file, scrubbed}: for `rg` / grep on the path; not with --grep / --lines / --at / --out |
 | `--pretty` |  | JavaScript / JSON bodies up to 8 MB: break minified JS into lines (newlines only, never inside strings, templates, regexes, comments), re-indent JSON; line numbers then refer to the pretty text |
 
 ### `tabcap net show`
