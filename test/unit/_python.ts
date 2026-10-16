@@ -25,7 +25,7 @@ function findPython3(): string | null {
 export const PYTHON3 = findPython3();
 
 function works(python: string): boolean {
-  const r = Bun.spawnSync([python, "-I", "-c", "import httpx, pytest"], { stdout: "ignore", stderr: "ignore" });
+  const r = Bun.spawnSync([python, "-I", "-c", "import httpx, pytest; httpx.Client; pytest.main"], { stdout: "ignore", stderr: "ignore" });
   return r.exitCode === 0;
 }
 
