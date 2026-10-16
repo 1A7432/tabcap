@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
-import { exportFixtures, fixtureFileName, type Fixture } from "../../src/bundle/fixtures.ts";
+import { exportFixtures, fixtureFileName, SKIPPED_EXAMPLES, summariseSkipped, type Fixture } from "../../src/bundle/fixtures.ts";
 import { decodeBundle } from "../../src/bundle/decode.ts";
 import { DecodeHost, DecodeSession } from "../../src/daemon/hooks/decode.ts";
 import { asFixturePlugin, decodePlugins, listPlugins, parseManifest } from "../../src/daemon/hooks/plugins.ts";
@@ -61,12 +61,29 @@ describe("file naming", () => {
   });
 });
 
+describe("skipped summary (0.6-U)", () => {
+  test("counted per reason, at most 3 example ids each, first in recorded order", () => {
+    const list = [
+      ...Array.from({ length: 113 }, (_, i) => ({ id: `r-${i + 10}`, reason: "websocket" })),
+      { id: "r-2", reason: "preflight" },
+      { id: "r-200", reason: "no-response (redirect)" },
+      { id: "r-3", reason: "preflight" },
+    ];
+    expect(SKIPPED_EXAMPLES).toBe(3);
+    expect(summariseSkipped(list)).toEqual({
+      skipped: { websocket: 113, preflight: 2, "no-response (redirect)": 1 },
+      skippedExamples: { websocket: ["r-10", "r-11", "r-12"], preflight: ["r-2", "r-3"], "no-response (redirect)": ["r-200"] },
+    });
+    expect(summariseSkipped([])).toEqual({ skipped: {}, skippedExamples: {} });
+  });
+});
+
 describe("format json", () => {
   test("one fixture per exchange, keyed by the rules, plus index.json; secrets redacted like HAR export", async () => {
     const out = join(root, "out-json");
     const res = await exportFixtures(BundleReader.open(bundle), { out, rules: RULES, format: "json", redact: { salt: "00".repeat(16), knownSecrets: [] }, configDir: join(root, "cfg") });
     expect([res.fixtures, res.format, res.redacted, res.index]).toEqual([4, "json", true, join(out, "index.json")]);
-    expect(res.skipped).toEqual([{ id: "r-5", reason: "status 0" }]);
+    expect([res.skipped, res.skippedExamples]).toEqual([{ "status 0": 1 }, { "status 0": ["r-5"] }]);
     expect(res.files.filter((f) => f.startsWith("fixtures/"))).toEqual(["fixtures/1-GET-api-search.json", "fixtures/2-POST-api-login.json", "fixtures/3-GET-img-logo.png.json", "fixtures/4-GET-api-refuse.json"]);
     const s = fx(out, "fixtures/1-GET-api-search.json");
     expect(s.key).toEqual({ method: "GET", path: "/api/search", query: "page=1&q=apple", body: `sha256:${sha256Hex(new Uint8Array(0))}` });
@@ -83,6 +100,7 @@ describe("format json", () => {
     expect(sha256Hex(new Uint8Array(readFileSync(join(out, png.response.bodyFile ?? ""))))).toBe(sha256Hex(PNG));
     const index = read(join(out, "index.json"));
     expect(index).toMatchObject({ schema: "tabcap-fixtures/0", redacted: true, count: 4, rules: { source: "file", file: "replay-rules.json", rules: 2 } });
+    expect((index as { skipped: unknown }).skipped).toEqual([{ id: "r-5", reason: "status 0" }]); // index.json keeps the per-exchange list (0.6-U)
     expectMode(join(out, "index.json"), 0o600);
     expectMode(join(out, "fixtures"), 0o700);
   });

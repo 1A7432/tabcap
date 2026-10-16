@@ -24,6 +24,10 @@
 // --include-preflight; a key whose rule prefers "2xx" / "latest" exports only
 // the recordings `replay serve` answers it with, in recorded order, and lists
 // the others in `notPreferred`. Fixture numbers count the fixtures written.
+// Skipped summary (0.6-U): the answer's `skipped` counts the left-out
+// exchanges per reason ({websocket: 113, preflight: 26, …}) and
+// `skippedExamples` names at most 3 request ids per reason (the first in
+// recorded order); index.json keeps the full per-exchange list.
 // Oracle: the bundle (test/unit/fixtures-export.test.ts compares with the
 // builder's bytes), docs/04 §31. Reproduce: bun test test/unit/fixtures-export.test.ts
 
@@ -49,6 +53,8 @@ export const FIXTURES_INDEX_SCHEMA = "tabcap-fixtures/0";
 /** Text bodies up to this size are inline in the fixture. */
 export const MAX_INLINE_BODY = 64 * 1024;
 const MAX_LISTED = 500;
+/** Request ids named per skip reason in the answer (0.6-U). */
+export const SKIPPED_EXAMPLES = 3;
 const MAX_SLUG = 80;
 
 export type Fixture = {
@@ -92,7 +98,10 @@ export type FixturesResult = {
   index: string | null;
   rules: ReturnType<typeof rulesInfo>;
   redacted: boolean;
-  skipped: Skipped[];
+  /** Left-out exchanges per reason (0.6-U; index.json lists them one by one). */
+  skipped: Record<string, number>;
+  /** At most SKIPPED_EXAMPLES request ids per reason, in recorded order. */
+  skippedExamples: Record<string, string[]>;
   notPreferred: NotPreferred[];
   failed: { request: string; error: string }[];
   plugin?: { name: string; version: string };
@@ -211,6 +220,18 @@ async function buildFixture(r: RequestEvent, view: BundleView, rules: RuleSet, w
   };
 }
 
+/** Pure: skipped exchanges counted per reason, with the first few ids of each as examples. */
+export function summariseSkipped(list: readonly Skipped[], examples = SKIPPED_EXAMPLES): { skipped: Record<string, number>; skippedExamples: Record<string, string[]> } {
+  const skipped: Record<string, number> = {};
+  const skippedExamples: Record<string, string[]> = {};
+  for (const x of list) {
+    skipped[x.reason] = (skipped[x.reason] ?? 0) + 1;
+    const ids = (skippedExamples[x.reason] ??= []);
+    if (ids.length < examples) ids.push(x.id);
+  }
+  return { skipped, skippedExamples };
+}
+
 export async function exportFixtures(source: BundleView, opts: FixturesOptions): Promise<FixturesResult> {
   ensureEmptyDir(opts.out);
   const view: BundleView = opts.redact
@@ -305,7 +326,7 @@ export async function exportFixtures(source: BundleView, opts: FixturesOptions):
       index,
       rules: rulesInfo(opts.rules),
       redacted: Boolean(opts.redact),
-      skipped: skipped.slice(0, MAX_LISTED),
+      ...summariseSkipped(skipped),
       notPreferred: notPreferred.slice(0, MAX_LISTED),
       failed: failed.slice(0, MAX_LISTED),
       ...(runner === null ? {} : { plugin: { name: runner.plugin.name, version: runner.plugin.version } }),

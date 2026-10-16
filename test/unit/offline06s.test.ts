@@ -212,10 +212,10 @@ describe("CORS preflights", () => {
 
   test("bundle export fixtures skips them (reason preflight); --include-preflight keeps them", async () => {
     const res = await exportFixtures(BundleReader.open(bundle), { out: join(root, "fx-pf"), rules: NO_RULES, format: "json", redact: false, configDir: join(root, "cfg") });
-    expect(res.skipped).toEqual([{ id: I("preflight"), reason: "preflight" }]);
+    expect([res.skipped, res.skippedExamples]).toEqual([{ preflight: 1 }, { preflight: [I("preflight")] }]);
     expect(res.fixtures).toBe(7);
     const keep = await exportFixtures(BundleReader.open(bundle), { out: join(root, "fx-pf2"), rules: NO_RULES, format: "json", redact: false, configDir: join(root, "cfg"), includePreflight: true });
-    expect(keep.skipped).toEqual([]);
+    expect([keep.skipped, keep.skippedExamples]).toEqual([{}, {}]);
     expect(keep.fixtures).toBe(8);
   });
 
