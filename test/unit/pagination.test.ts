@@ -2,7 +2,7 @@
 // `net list` / `console list` turn their options into a page.
 
 import { describe, expect, test } from "bun:test";
-import { paginate, paginationLines } from "../../src/shared/pagination.ts";
+import { DEFAULT_PAGE_SIZE, paginate, paginationLines } from "../../src/shared/pagination.ts";
 import { pageOf, parsePaging } from "../../src/daemon/tools/netquery.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 
@@ -16,7 +16,8 @@ describe("paginate (chrome-devtools-mcp src/utils/pagination.ts)", () => {
     expect(paginate(items, {})).toMatchObject({ totalPages: 1, endIndex: 23 });
   });
 
-  test("page size alone starts at page 0; the default size is 100", () => {
+  test("page size alone starts at page 0; the default size is 30 (0.5-C)", () => {
+    expect(DEFAULT_PAGE_SIZE).toBe(30);
     expect(paginate(items, { pageSize: 10 })).toMatchObject({ items: items.slice(0, 10), currentPage: 0, totalPages: 3, hasNextPage: true });
     expect(paginate(items, { pageIdx: 0 })).toMatchObject({ totalPages: 1, endIndex: 23 });
   });
@@ -45,13 +46,13 @@ describe("paging options of net list / console list", () => {
     return "none";
   };
 
-  test("no paging option → page 0 of 100 (owner, 0.4); --page-size 0 → everything; the removed --limit / --offset keys change nothing", () => {
-    expect(parsePaging({}, "net list")).toEqual({ mode: "page", size: 100, idx: null });
+  test("no paging option → page 0 of 30 (owner, 0.5-C; 100 in 0.4); --page-size 0 → everything; the removed --limit / --offset keys change nothing", () => {
+    expect(parsePaging({}, "net list")).toEqual({ mode: "page", size: 30, idx: null });
     expect(parsePaging({ pageSize: 10 }, "net list")).toEqual({ mode: "page", size: 10, idx: null });
-    expect(parsePaging({ pageIdx: 2 }, "net list")).toEqual({ mode: "page", size: 100, idx: 2 });
+    expect(parsePaging({ pageIdx: 2 }, "net list")).toEqual({ mode: "page", size: 30, idx: 2 });
     expect(parsePaging({ pageSize: 0 }, "net list")).toEqual({ mode: "all" });
     expect(parsePaging({ pageSize: 0, pageIdx: 0 }, "console list")).toEqual({ mode: "all" });
-    expect(parsePaging({ limit: 25, offset: 50 }, "net list")).toEqual({ mode: "page", size: 100, idx: null });
+    expect(parsePaging({ limit: 25, offset: 50 }, "net list")).toEqual({ mode: "page", size: 30, idx: null });
   });
 
   test("bad values are usage errors", () => {

@@ -52,6 +52,7 @@ export async function outline(d: Daemon, a: Args, session: string): Promise<unkn
         popups,
         chars: full.length,
         truncated: cut.truncated,
+        ...(cut.truncated ? { note: `truncated at ${maxChars} chars (${full.length} in all); for more: --max-chars <n>, or snapshot --interactive / snapshot --frame <path>` } : {}),
         outline: cut.text,
       };
     },

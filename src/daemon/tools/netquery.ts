@@ -83,7 +83,7 @@ export function parseListQuery(a: Args, sinceOf: (cmd: string) => number | null)
   };
 }
 
-/** `--page-size` (default 100, 0: everything), `--page-idx` (default 0). */
+/** `--page-size` (default 30, 0: everything), `--page-idx` (default 0). */
 export function parsePaging(a: Args, cmd: string): Paging {
   const given = (k: string) => a[k] !== undefined && a[k] !== null;
   const size = count(a, "pageSize", "--page-size", LIST_DEFAULT_LIMIT, 0, LIST_MAX_LIMIT, cmd);

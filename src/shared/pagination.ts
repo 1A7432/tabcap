@@ -7,7 +7,7 @@
 // Derived from chrome-devtools-mcp src/utils/pagination.ts (paginate) and the
 // pagination lines of src/McpResponse.ts (#dataWithPagination), commit
 // e9000381f414bf5fd5fb83a9164fabfb8e0987b3, read 2026-10-15.
-// Modifications for tabcap (2026-10-15): the default page size is 100 instead
+// Modifications for tabcap (2026-10-15, 2026-10-16): the default page size is 30 instead
 // of 20; PaginationOptions is declared here; `paginationLines` returns the
 // result texts instead of pushing them onto a response; formatted with the
 // project's style.
@@ -28,7 +28,7 @@ export interface PaginationResult<Item> {
   invalidPage: boolean;
 }
 
-export const DEFAULT_PAGE_SIZE = 100;
+export const DEFAULT_PAGE_SIZE = 30;
 
 export function paginate<Item>(items: readonly Item[], options?: PaginationOptions): PaginationResult<Item> {
   const total = items.length;

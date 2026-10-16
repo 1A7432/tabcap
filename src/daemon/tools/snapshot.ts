@@ -18,8 +18,10 @@ import { isSensitiveField } from "../secrets.ts";
 import type { Daemon } from "../state.ts";
 import type { Transport } from "../transport/types.ts";
 import { optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
-import { MAX_OUTPUT_CHARS } from "./page.ts";
 import { timeoutOf } from "./navigate.ts";
+
+/** Default `--max-chars` of `snapshot` (and of `--snapshot` on actions): 0.5-C context budget, owner 10-16. */
+export const SNAPSHOT_MAX_CHARS = 12_000;
 
 export async function docIdentity(t: Transport, tab: Tab): Promise<DocIdentity> {
   const r = await t.send("Page.getFrameTree", {}, tab.sessionId, 10_000);
@@ -101,7 +103,7 @@ export function snapshotOptions(a: Args): SnapshotOptions {
   return {
     interactive: optBool(a, "interactive"),
     verbose: optBool(a, "verbose"),
-    maxChars: Math.max(1000, Math.min(optNum(a, "maxChars") ?? MAX_OUTPUT_CHARS, 4_000_000)),
+    maxChars: Math.max(1000, Math.min(optNum(a, "maxChars") ?? SNAPSHOT_MAX_CHARS, 4_000_000)),
     filePath: filePath === null || filePath === "" ? null : resolve(filePath),
     frames,
     frame,
@@ -182,7 +184,7 @@ export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: Snaps
     ...head,
     chars,
     truncated,
-    ...(truncated ? { note: `truncated at ${o.maxChars} chars per document (${chars} in all); use --interactive, --file-path, --frame <path> or tabcap find <text>` } : {}),
+    ...(truncated ? { note: `truncated at ${o.maxChars} chars per document (${chars} in all); for more: --max-chars <n>, --interactive (controls only), --frame <path> (one frame), --file-path <f> (whole tree to a file) or tabcap find <text>` } : {}),
     tree: [header, ...(body === null ? [] : [body.text]), ...frameTexts.map((x) => x.text)].join("\n"),
   };
 }
@@ -197,7 +199,7 @@ export async function snapshot(d: Daemon, a: Args, session: string): Promise<unk
 /** `--snapshot` on an interactive command: a default snapshot taken after the action (and its wait). */
 export async function snapshotAfter(d: Daemon, t: Transport, tab: Tab, a: Args): Promise<Record<string, unknown>> {
   if (!optBool(a, "snapshot")) return {};
-  const { tab: _tab, ...snap } = await renderSnapshot(d, t, tab, { interactive: false, verbose: false, maxChars: MAX_OUTPUT_CHARS, filePath: null, frames: false, frame: null });
+  const { tab: _tab, ...snap } = await renderSnapshot(d, t, tab, { interactive: false, verbose: false, maxChars: SNAPSHOT_MAX_CHARS, filePath: null, frames: false, frame: null });
   return { snapshot: snap };
 }
 

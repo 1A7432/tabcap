@@ -42,19 +42,20 @@ const q = (a: Record<string, unknown> = {}, cmds: Record<string, number> = {}) =
 describe("net list selection (docs/05 s20)", () => {
   test("default hides failed and data: but counts them; nothing silently dropped", () => {
     const r = selectNet(noise(), q());
-    // No paging flag: page 0 of 100 (owner, 0.4); everything fits on it here.
-    expect(r).toMatchObject({ total: 73, matched: 3, shown: 3, hidden: { failed: 60, data: 10 }, pageSize: 100, pageIdx: 0, totalPages: 1, nextPageIdx: null });
+    // No paging flag: page 0 of 30 (owner, 0.5-C; was 100 in 0.4); everything fits on it here.
+    expect(r).toMatchObject({ total: 73, matched: 3, shown: 3, hidden: { failed: 60, data: 10 }, pageSize: 30, pageIdx: 0, totalPages: 1, nextPageIdx: null });
     expect(r.pagination).toEqual(["Showing 1-3 of 3 (Page 1 of 1)."]);
     expect(r.total).toBe(r.matched + r.hidden.failed + r.hidden.data);
   });
 
-  test("default paging: without a paging option page 0 of 100 with nextPageIdx; --page-size 0 returns everything", () => {
+  test("default paging: without a paging option page 0 of 30 (0.5-C) with nextPageIdx; --page-size 0 returns everything", () => {
     const many = Array.from({ length: 250 }, (_, i) => entry({ url: `http://127.0.0.1:8080/api/m${i}`, at: 2000 + i }));
     const first = selectNet(many, q());
-    expect(first).toMatchObject({ matched: 250, shown: 100, pageSize: 100, pageIdx: 0, totalPages: 3, nextPageIdx: 1 });
-    expect(first.rows.map((e) => e.id)).toEqual(many.slice(0, 100).map((e) => e.id));
-    expect(first.pagination).toEqual(["Showing 1-100 of 250 (Page 1 of 3).", "Next page: 1"]);
-    expect(selectNet(many, q({ pageIdx: 2 }))).toMatchObject({ shown: 50, pageIdx: 2, nextPageIdx: null });
+    expect(first).toMatchObject({ matched: 250, shown: 30, pageSize: 30, pageIdx: 0, totalPages: 9, nextPageIdx: 1 });
+    expect(first.rows.map((e) => e.id)).toEqual(many.slice(0, 30).map((e) => e.id));
+    expect(first.pagination).toEqual(["Showing 1-30 of 250 (Page 1 of 9).", "Next page: 1"]);
+    expect(selectNet(many, q({ pageIdx: 2 }))).toMatchObject({ shown: 30, pageIdx: 2, nextPageIdx: 3 });
+    expect(selectNet(many, q({ pageIdx: 8 }))).toMatchObject({ shown: 10, pageIdx: 8, nextPageIdx: null });
     const all = selectNet(many, q({ pageSize: 0 }));
     expect(all).toMatchObject({ matched: 250, shown: 250, pageSize: null, pageIdx: 0, totalPages: 1, nextPageIdx: null });
     expect(all.rows.map((e) => e.id)).toEqual(many.map((e) => e.id));
@@ -62,7 +63,8 @@ describe("net list selection (docs/05 s20)", () => {
   });
 
   test("--failed shows only the failed ones; --all shows everything", () => {
-    expect(selectNet(noise(), q({ failed: true }))).toMatchObject({ matched: 60, shown: 60, hidden: { failed: 0, data: 10 } });
+    expect(selectNet(noise(), q({ failed: true }))).toMatchObject({ matched: 60, shown: 30, nextPageIdx: 1, hidden: { failed: 0, data: 10 } });
+    expect(selectNet(noise(), q({ failed: true, pageSize: 0 }))).toMatchObject({ matched: 60, shown: 60 });
     expect(selectNet(noise(), q({ all: true }))).toMatchObject({ matched: 73, hidden: { failed: 0, data: 0 } });
     expect(selectNet(noise(), q({ noFailed: true })).matched).toBe(3);
   });
