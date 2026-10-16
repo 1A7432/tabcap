@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
 import { parseStopRules } from "../../src/daemon/fetch/stoprules.ts";
-import { Guard, bodyFacts, nextNon200, ruleSubject, waitingError, type GuardRecorder } from "../../src/daemon/guard.ts";
+import { Guard, bodyFacts, insertArrival, ruleSubject, waitingError, type ArrivalMark, type GuardRecorder } from "../../src/daemon/guard.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
 import { allSiteRules } from "../../src/daemon/siterules.ts";
 import { parseSiteGuard, siteGuardsFrom } from "../../src/shared/config.ts";
@@ -40,8 +40,11 @@ class FakeRec implements GuardRecorder {
     this.fns.add(fn);
     return () => this.fns.delete(fn);
   }
-  emit(e: NetEntry): NetEntry {
-    for (const f of this.fns) f(e, { response: { charset: "utf-8" } });
+  /** `end`: the response's completion (CDP mono ms) as the recorded event's `timing.end`; default: one more than the last. */
+  private clock = 0;
+  emit(e: NetEntry, end?: number): NetEntry {
+    this.clock = end ?? this.clock + 1;
+    for (const f of this.fns) f(e, { response: { charset: "utf-8" }, timing: { start: this.clock - 0.5, responseStart: this.clock - 0.2, end: this.clock } });
     return e;
   }
   event(kind: "guard" | "handoff", fields: Record<string, unknown>): number | null {
@@ -73,12 +76,19 @@ function guard(stopOn: string[], consecutiveNon200: number | null, blobs: Record
 }
 
 describe("site stop rules: pure parts (0.6-I)", () => {
-  test("the counter: +1 on anything but 2xx, back to 0 on any 2xx", () => {
-    expect(nextNon200(0, 500)).toBe(1);
-    expect(nextNon200(1, 404)).toBe(2);
-    expect(nextNon200(2, 302)).toBe(3);
-    expect(nextNon200(2, 200)).toBe(0);
-    expect(nextNon200(2, 204)).toBe(0);
+  test("the counter: the run of non-2xx (by arrival) that contains the new response; any 2xx breaks it", () => {
+    const seq: ArrivalMark[] = [];
+    expect(insertArrival(seq, { mono: 10, bad: true })).toBe(1);
+    expect(insertArrival(seq, { mono: 20, bad: true })).toBe(2);
+    expect(insertArrival(seq, { mono: 30, bad: false })).toBe(0); // e.g. 200 or 204
+    expect(insertArrival(seq, { mono: 40, bad: true })).toBe(1);
+    // written late but arrived before the 2xx: joins the run before it
+    expect(insertArrival(seq, { mono: 25, bad: true })).toBe(3);
+    // arrived between two non-2xx runs where a 2xx was: still split by that 2xx
+    expect(insertArrival(seq, { mono: 35, bad: true })).toBe(2);
+    expect(seq.map((m) => m.mono)).toEqual([10, 20, 25, 30, 35, 40]);
+    // unknown time goes last
+    expect(insertArrival(seq, { mono: null, bad: true })).toBe(3);
   });
 
   test("subjects: final document / xhr / fetch responses; not static, script, redirect hops or failed requests", () => {
@@ -176,7 +186,29 @@ describe("site stop rules over the response stream (0.6-I)", () => {
     const third = rec.emit(entry({ status: 503 }));
     await g.settle();
     expect(g.get("ex")).toMatchObject({ state: "waiting", reason: "stop-rule", request: third.id, rule: "consecutiveNon200:3" });
-    expect(rec.events[0]).toMatchObject({ reason: "stop-rule", rule: "consecutiveNon200:3", detail: { detail: "3 responses in a row were not 2xx (last: status 503)" } });
+    expect(rec.events[0]).toMatchObject({ reason: "stop-rule", rule: "consecutiveNon200:3", detail: { detail: "3 responses in a row (by arrival) were not 2xx (this one: status 503)" } });
+  });
+
+  test("counted by arrival, not by write order: a page response written 1 s late lands where it arrived (owner ruling 10-16)", async () => {
+    // arrival: 200 @10, 500 @20 (page, unread: written last), 500 @30 (fetch, written first), 500 @40
+    const { g, rec } = guard([], 3);
+    rec.emit(entry({ status: 500, type: "fetch", fetchId: "c-9:f-1" }), 30);
+    rec.emit(entry({ status: 200 }), 10);
+    expect(g.get("ex")).toBeNull();
+    const last = rec.emit(entry({ status: 500 }), 40); // write order 500, 200, 500: no run of 3 yet
+    expect(g.get("ex")).toBeNull();
+    const late = rec.emit(entry({ status: 500 }), 20); // arrived second: now 20, 30, 40 are three in a row
+    await g.settle();
+    expect(g.get("ex")).toMatchObject({ request: late.id, rule: "consecutiveNon200:3" });
+    expect(g.stopRuleHit("ex", last.id)).toBeNull();
+    // the reverse: in write order three 500s follow each other, by arrival a 200 (written first) sits between them
+    const r2 = guard([], 3);
+    r2.rec.emit(entry({ status: 200 }), 25);
+    r2.rec.emit(entry({ status: 500 }), 10);
+    r2.rec.emit(entry({ status: 500 }), 20);
+    r2.rec.emit(entry({ status: 500 }), 30); // by arrival: 10 20 | 200 @25 | 30
+    await r2.g.settle();
+    expect(r2.g.get("ex")).toBeNull();
   });
 
   test("what does not count: other hosts, static resources, scripts, redirect hops, failed requests", async () => {

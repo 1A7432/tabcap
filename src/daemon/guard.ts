@@ -169,9 +169,50 @@ export function bodyFacts(
   return { bytes: bytes.length, text: decode(bytes) };
 }
 
-/** Pure: the consecutive non-2xx count after one more response (2xx resets it). */
-export function nextNon200(count: number, status: number): number {
-  return status >= 200 && status < 300 ? 0 : count + 1;
+/** One response in the consecutive-non-2xx window: when it arrived (CDP mono ms; null: unknown) and whether it was not 2xx. */
+export type ArrivalMark = { mono: number | null; bad: boolean };
+
+/** Responses kept per session and site for the counter (older ones cannot be part of a run that matters any more). */
+export const ARRIVAL_WINDOW = 256;
+
+/**
+ * Pure (owner ruling 10-16): consecutive non-2xx responses are counted in the
+ * order the responses arrived (`timing.end`, the response's completion
+ * time), not in the order the recorder wrote them (a response the page never
+ * reads is written 1 s late, docs/04 §5.2 rule 9). Inserts `m` into `seq`
+ * (sorted by arrival; an unknown time goes last, after equal times) and
+ * returns the length of the run of non-2xx responses that contains it (0 for
+ * a 2xx). The check still happens when the request is written.
+ */
+export function insertArrival(seq: ArrivalMark[], m: ArrivalMark): number {
+  const key = m.mono ?? Number.POSITIVE_INFINITY;
+  let i = seq.length;
+  while (i > 0) {
+    const prev = seq[i - 1];
+    if (prev === undefined || (prev.mono ?? Number.POSITIVE_INFINITY) <= key) break;
+    i--;
+  }
+  seq.splice(i, 0, m);
+  while (seq.length > ARRIVAL_WINDOW) {
+    seq.shift();
+    i--;
+  }
+  if (!m.bad) return 0;
+  let run = 1;
+  for (let j = i - 1; j >= 0 && seq[j]?.bad === true; j--) run++;
+  for (let j = i + 1; j < seq.length && seq[j]?.bad === true; j++) run++;
+  return run;
+}
+
+/** The arrival time of a recorded response from its event: `timing.end`, else `responseStart` (unread by the page), else `start`. */
+export function arrivalMono(ev: Record<string, unknown> | undefined): number | null {
+  const t = ev !== undefined && isRecord(ev["timing"]) ? ev["timing"] : null;
+  if (t === null) return null;
+  for (const k of ["end", "responseStart", "start"]) {
+    const v = t[k];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return null;
 }
 
 /** Commands refused while the session waits for the human. */
@@ -264,8 +305,8 @@ export class Guard {
 
   /** 0.6-I: fetches whose call gave its own --stop-on (the per-call override of the site's stopOn). */
   private overrides = new Set<string>();
-  /** 0.6-I: consecutive non-2xx responses per session and site. */
-  private non200 = new Map<string, number>();
+  /** 0.6-I: recent responses per session and site, in arrival order, for consecutiveNon200. */
+  private arrivals = new Map<string, ArrivalMark[]>();
   /** 0.6-I: the stop-rule trip each request caused (for the fetch whose response tripped it). */
   private tripsByRequest = new Map<string, { site: string; rule: string; detail: string }>();
 
@@ -351,13 +392,17 @@ export class Guard {
       hit = firstStop(usable, { status: e.status, bytes: facts?.bytes ?? 0, text: facts?.text ?? null });
     }
     const key = `${session}|${sr.site}`;
-    const n = nextNon200(this.non200.get(key) ?? 0, e.status);
-    this.non200.set(key, n);
+    let seq = this.arrivals.get(key);
+    if (seq === undefined) {
+      seq = [];
+      this.arrivals.set(key, seq);
+    }
+    const n = insertArrival(seq, { mono: arrivalMono(ev), bad: !(e.status >= 200 && e.status < 300) });
     if (hit === null && sr.consecutiveNon200 !== null && n >= sr.consecutiveNon200) {
-      hit = { rule: `consecutiveNon200:${sr.consecutiveNon200}`, detail: `${n} responses in a row were not 2xx (last: status ${e.status})` };
+      hit = { rule: `consecutiveNon200:${sr.consecutiveNon200}`, detail: `${n} responses in a row (by arrival) were not 2xx (this one: status ${e.status})` };
     }
     if (hit === null) return;
-    this.non200.set(key, 0);
+    this.arrivals.delete(key);
     this.track(this.tripStopRule(rec, e, sr.site, hit));
   }
 
