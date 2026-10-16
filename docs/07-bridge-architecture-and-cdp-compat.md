@@ -148,3 +148,7 @@ Playwright `connectOverCDP`、puppeteer `connect`、agent-browser `--cdp` 也是
 4. `Browser.setDownloadBehavior` 回成功但不生效，记警告。
 5. `ws /devtools/page/<id>` 先不做。
 6. 生产模式默认跟随系统代理，`tabcap browser start --proxy system|none|<url>` 和配置项可切换（10-15 作者定）；0.4-D 起账号绑了代理池里的代理时，`direct` 模式给它单独一个 browser context（`Target.createBrowserContext {proxyServer:"host:port", proxyBypassList, disposeOnDetach:false}`），Chrome 只拿到 `host:port`，代理认证由守护进程经 `Fetch.authRequired` 应答；绑 `system` / `none` 的账号仍用浏览器自己的 context 与上面的启动参数【实测 spike 10-16：context 级代理生效；本机代理要在 bypass 里写 `<-loopback>`，否则 loopback 静默直连】；Chrome 自身的后台外连（GCM、组件更新等）用 Playwright 的默认启动参数表压到最少（Apache-2.0，抄并保留 NOTICE）；端到端测试再叠加黑洞代理。
+
+## 5. 信号探针页（0.4-G）
+
+`src/fingerprint/probe.html` 是 tabcap 自己的页面，不属于靶场：自包含（CSP `default-src 'none'`，不加载任何外部资源），在页面自己的 world 里读一张固定字段表（名字沿用追踪模式 `signals.ts` 的 IDL 写法；canvas / audio 只留字节的 sha256，其余值 JSON 超过 1 KB 也只留 sha256），只读、不写 cookie / storage、什么都不改。它由两处提供，都只听 127.0.0.1：`tabcap fingerprint serve`（命令行本地，不要守护进程）给用户自己的日常浏览器手动打开，页面上「Save as reference」把字段表 POST 到 `/ref/<name>`，写成 `$TABCAP_HOME/config/fingerprint/refs/<name>.json`（文件 0600、目录 0700，仅 POSIX 检查）；`tabcap fingerprint probe` 由守护进程临时起在端口 0，在会话里开一个后台标签加载它、等页面自己的 `POST /probe`、关标签，录制中时写一条 `state` env 事件（`04` §4.3）。参照值只来自用户在自己浏览器里手动保存的这一份，从不经 CDP 采集，也不进仓库和文档；`probe --ref` / `diff` 只把本浏览器的值和参照值逐字段并排、给 `same` / `differs` / `missing` / `extra`，不打分、不给任何改值的建议。POST 要求本次启动的 token、`content-type: application/json`、本端口的 Host，带 Origin 时须同源。

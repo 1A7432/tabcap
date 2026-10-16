@@ -110,6 +110,7 @@
 
 - `type:"script"` 和 `document` 的正文不受 §5.2 第 4 条的大小上限约束；内联脚本随主文档正文一起在。加载顺序就是 `seq`。
 - `state` 新增 `what:"env"`：在隔离世界读 `navigator` / `screen` / 时区 / 语言 / UA 等**只读**属性的快照（不改页面，不注 hook）。
+  0.4-G 起 env 快照多两个字段（`source`、`fields` 10-16 作者定；字段名写法、1 KB 上限与事件其余字段按实现定案，待作者审）：`source` 说明快照从哪来，`fields` 是字段表本身（内联，没有 `blob`）。`tabcap fingerprint probe` 写 `{tab, what:"env", source:"fingerprint-probe", origin:<探针页的源>, count:<字段数>, reason:"manual", fields:[{name, value}|{name, hash:"sha256:…"}|{name, error}]}`：字段名是 `signals.ts` 的 IDL 名（同一 API 多个值时括号写参数，如 `WebGLRenderingContext.prototype.getParameter(VENDOR)`，或 `()` 后写结果成员，如 `Intl.DateTimeFormat.prototype.resolvedOptions().timeZone`），按代码单元序排列；值是 JSON 标量或标量数组、JSON ≤ 1 KB，超过的只留其 JSON 文本的 sha256；canvas、audio 只留字节的 sha256；所有文本过守护进程的已知秘密值替换。探针页由 tabcap 自己提供（`07` §5），在页面自己的 world 里读、只读；这一条不依赖 `sample` profile，录制中都会写。`tabcap fingerprint diff <包> --ref <名>` 取包里最后一条 `what:"env"`。
 - 挑战相关的 cookie / storage 变化：在每条 `document` / `script` 请求完成后多取一次 `state`，让「哪段脚本跑完后多了哪个 cookie」能从时间线上读出来。
 - `manifest.sample`：`{challengeRequests:["r-…"], scripts:[{request:"r-…", sha256, inline:false}], env:"<state seq>"}` 索引，由录制器在 `session stop` 时生成。
 

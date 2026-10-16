@@ -94,6 +94,7 @@ Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `
 | `tabcap trace stop` | end trace mode: breakpoints removed, debugger off, open documents written to the recording |
 | `tabcap trace status` | trace mode state: on \| paused (handoff) \| off, active APIs, names skipped in this browser, per-document read counts |
 | `tabcap trace list [--api name] [--script url] [--text]` | API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded |
+| `tabcap fingerprint probe [--ref name] [--text]` | the values this browser presents for a fixed signal list (navigator, UA client hints, screen, time zone, canvas / audio hashes, WebGL, voices, fonts, permissions, media queries): the probe page in a new background tab, closed afterwards; while recording, a `state` env event in the bundle. Read-only |
 | `tabcap plugin list` | challenge handlers installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, hooks, enabled, errors |
 | `tabcap plugin enable <name>` | let the guard ask this handler before handing a challenge to the human |
 | `tabcap plugin disable <name>` | stop asking this handler |
@@ -109,6 +110,11 @@ Command and option names follow Chrome DevTools MCP (`press-key`, `tab list` / `
 | `tabcap replay session [<bundle>] --out <file> [--site site]` | write the recording's cookies (latest state snapshot), or with --site and no bundle the store's saved session, as a Playwright storageState file, mode 0600; it holds live session cookies, values are never printed |
 | `tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--proxy-env file]` | generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs |
 | `tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--json]` | send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference |
+| `tabcap fingerprint serve [--port port] [--once] [--force]` | serve the signal probe page on 127.0.0.1 for your own browser: open the printed URL by hand and press Save as reference (written to config/fingerprint/refs/<name>.json, 0600); Ctrl-C to stop |
+| `tabcap fingerprint ref list` | saved references: name, savedAt, userAgent, file |
+| `tabcap fingerprint ref show <name>` | one saved reference with all its fields |
+| `tabcap fingerprint ref remove <name>` | delete a saved reference |
+| `tabcap fingerprint diff <bundle> --ref <name> [--text]` | the last `state` env event of a bundle (from `fingerprint probe`) against a saved reference, offline: the same output as `fingerprint probe --ref` |
 | `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
 <!-- END GENERATED: commands -->
 
@@ -145,7 +151,7 @@ Most agent browsers start from "give the agent a clean, isolated browser and let
   Windows specifics: the daemon listens on 127.0.0.1 with a random port and a per-start token (`daemon.json`); the browser connects over `--remote-debugging-pipe`; no window appears until the first tab opens, and then a normal Chrome window does (there is no foreground hand-back on Windows). Linux specifics: on Ubuntu 23.10 and later Chrome's sandbox needs unprivileged user namespaces; CI enables them with `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` (desktop setups not tested).
 - **Coming**: Homebrew, npm (a `tabcap` package with one optional dependency per platform) and Scoop. The templates are in `packaging/`; nothing is published to a registry yet.
 - **From source**: Bun 1.4 or newer, `bun install`, then `bun run build` (this machine) or `bun run build:<platform>` (`darwin-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`); `bun run release` builds and packs all four; `bun test test/unit` runs the offline tests.
-- **Files**: `~/.config/tabcap/` (socket, log, profile, config, `state.db`, `plugins/`), `~/.cache/tabcap/` (the browser), `~/.local/share/tabcap/` (screenshots, bundles). On Linux `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME` are honoured. On Windows all three are `%LOCALAPPDATA%\tabcap\config`, `\cache` and `\data`; the files there keep the user-default ACL of your profile (tabcap sets no ACLs of its own, and there is no socket: `config\daemon.json` holds the port and the token). `TABCAP_HOME` moves all of them into one directory.
+- **Files**: `~/.config/tabcap/` (socket, log, profile, config, `state.db`, `plugins/`, `fingerprint/refs/`), `~/.cache/tabcap/` (the browser), `~/.local/share/tabcap/` (screenshots, bundles). On Linux `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME` are honoured. On Windows all three are `%LOCALAPPDATA%\tabcap\config`, `\cache` and `\data`; the files there keep the user-default ACL of your profile (tabcap sets no ACLs of its own, and there is no socket: `config\daemon.json` holds the port and the token). `TABCAP_HOME` moves all of them into one directory.
 
 ## Credentials store
 
