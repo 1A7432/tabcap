@@ -1116,6 +1116,73 @@ Example: `tabcap fingerprint probe --ref daily --text`
 | `--ref <name>` |  | add this reference (saved with `fingerprint serve`) as a second column with a verdict per field: same / differs / missing (this browser lacks a field the reference has) / extra (this browser has a field the reference lacks) |
 | `--text` |  | print a text table instead of JSON |
 
+### `tabcap wire serve`
+
+local TLS echo on 127.0.0.1 until Ctrl-C (prints {url, port, caPath} first): answers every request with the wire report of its own connection (TLS ClientHello, JA3 / JA4, HTTP/2 settings and frames, header order) as JSON; trust it with the CA from `tabcap wire ca-path`
+
+```
+tabcap wire serve [--port port] [--capture-dir dir]
+```
+
+Example: `tabcap wire serve --port 4443`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--port <port>` | `0` | port on 127.0.0.1 (0: any free port) |
+| `--capture-dir <dir>` |  | also write every report with its raw ClientHello and request bytes here |
+
+### `tabcap wire version`
+
+version, path and sha256 of the native wire component (extracted from the tabcap binary into the cache on first use)
+
+```
+tabcap wire version
+```
+
+Example: `tabcap wire version`
+
+### `tabcap wire ca-path`
+
+path of the wire echo's CA certificate (a test CA for 127.0.0.1 only), for clients that verify TLS
+
+```
+tabcap wire ca-path
+```
+
+Example: `tabcap wire ca-path`
+
+### `tabcap wire profile`
+
+capture the browser baseline: a background tab of the session (the Chrome for Testing tabcap launched, its own flags) ignores certificate errors for itself only, navigates to the local echo and runs a page fetch, N times each; writes the wire profile (navigation and fetch header orders, TLS from all samples, CfT version and the launch flags' sha256) to the cache and prints it
+
+```
+tabcap wire profile [--session name] [--timeout ms] [--samples n] [--port port]
+```
+
+Example: `tabcap wire profile --samples 3`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--samples <n>` | `3` | navigations and page fetches to capture (2 or more tell a random extension order from a fixed one) |
+| `--port <port>` | `0` | echo port on 127.0.0.1 (0: any free port) |
+
+### `tabcap wire probe`
+
+compare the generated Python client with the browser baseline on the local echo: `uv run client.py wire-report` sends one GET to 127.0.0.1, then per layer (tls, h2, headers) same / differs / missing with the differing fields, and the checks against the profile; diagnostic only (says which layer differs, not why a site refused anything); with a recording open, one finding per differing layer
+
+```
+tabcap wire probe [--session name] [--timeout ms] --client <dir> [--port port] [--samples n] [--text]
+```
+
+Example: `tabcap wire probe --client ./client --text`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--client <dir>` |  | directory of a client from `tabcap replay export-python` (required) |
+| `--port <port>` | `0` | echo port on 127.0.0.1 (0: any free port) |
+| `--samples <n>` | `3` | samples when the baseline has to be captured |
+| `--text` |  | print a table instead of JSON (the envelope's data is schema tabcap-wire/0) |
+
 ### `tabcap fingerprint serve`
 
 serve the signal probe page on 127.0.0.1 for your own browser: open the printed URL by hand and press Save as reference (written to config/fingerprint/refs/<name>.json, 0600); Ctrl-C to stop

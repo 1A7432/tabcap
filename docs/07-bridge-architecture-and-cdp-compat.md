@@ -152,3 +152,28 @@ Playwright `connectOverCDP`、puppeteer `connect`、agent-browser `--cdp` 也是
 ## 5. 信号探针页（0.4-G）
 
 `src/fingerprint/probe.html` 是 tabcap 自己的页面，不属于靶场：自包含（CSP `default-src 'none'`，不加载任何外部资源），在页面自己的 world 里读一张固定字段表（名字沿用追踪模式 `signals.ts` 的 IDL 写法；canvas / audio 只留字节的 sha256，其余值 JSON 超过 1 KB 也只留 sha256），只读、不写 cookie / storage、什么都不改。它由两处提供，都只听 127.0.0.1：`tabcap fingerprint serve`（命令行本地，不要守护进程）给用户自己的日常浏览器手动打开，页面上「Save as reference」把字段表 POST 到 `/ref/<name>`，写成 `$TABCAP_HOME/config/fingerprint/refs/<name>.json`（文件 0600、目录 0700，仅 POSIX 检查）；`tabcap fingerprint probe` 由守护进程临时起在端口 0，在会话里开一个后台标签加载它、等页面自己的 `POST /probe`、关标签，录制中时写一条 `state` env 事件（`04` §4.3）。参照值只来自用户在自己浏览器里手动保存的这一份，从不经 CDP 采集，也不进仓库和文档；`probe --ref` / `diff` 只把本浏览器的值和参照值逐字段并排、给 `same` / `differs` / `missing`（本浏览器缺、参照里有）/ `extra`（本浏览器有、参照里缺），不打分、不给任何改值的建议。POST 要求本次启动的 token、`content-type: application/json`、本端口的 Host，带 Origin 时须同源。
+
+## 6. 线路层 echo、浏览器基准与 probe（0.4-W2）
+
+`src/wire/`，只听、只连 127.0.0.1。TLS 在 Bun 里终结，指纹由原生组件 `native/wireprint/` 算（规范 `11`）。
+
+**echo（`src/wire/echo.ts`，`tabcap wire serve` / `wire profile` / `wire probe` 各起一个）**
+
+- 前端 `Bun.listen`（端口默认 0）：每条连接按 record 长度累积到 ClientHello 完整为止（可以跨 record），记下这些原始字节，整条流原样转发给内部的 `node:tls` 服务器（另一个 127.0.0.1 端口），回程原样转回。两边按 relay socket 的本地端口（= TLS 侧的 `remotePort`）配对；TLS 侧可能晚于前端关闭才报告，配对保留 10 s【实测 spike：180 条连接 0 条配不上；relay 与 OpenSSL 直连两边的 ClientHello 除 random / session_id 外逐字段相同】。
+- TLS 侧：`ALPNProtocols: ["h2","http/1.1"]`；`secureOptions: SSL_OP_NO_TICKET`、`sessionTimeout: 0`，不发会话票据。【实测：`openssl s_client` 对默认配置收到 NewSessionTicket，对此配置收不到；CfT 155 按 tabcap 参数 3 次导航 + 3 次 fetch，6 份报告都不带 `pre_shared_key`（0029）】。所以基准里没有恢复连接这一类；万一客户端仍带 PSK，报告的 `echo.psk` 为 true，`diff` 把它当标签 `psk` 单列，画像按 `session.resumed_ja4` 另记。
+- 握手后读明文：ALPN 为 h2 → 前言 + 帧到首个带 END_HEADERS 的 HEADERS（含 CONTINUATION）；http/1.1 或没有 ALPN → 到空行为止的请求头。原始字节写临时文件交给 `wireprint report --client-hello … --h2|--h1 … --alpn … --sni … --peer …`；echo 再补 TLS 侧看到的 version / cipher / session_reused，顶层加 `role`（`/` navigation、`/fetch` fetch、`/client` client，其余 other）与 `echo{conn, path, role, alpn, sni, psk, sessionReused, protocol, receivedAt}`。报告留在内存（环形 64 份），`--capture-dir` 时连同原始字节落盘，并作为响应体回给客户端：h2 是手写的 SETTINGS、SETTINGS ACK、HEADERS（`:status` 等四个字面量头，never-indexed、无 Huffman）、DATA（≤16384 一帧）、GOAWAY；h1 是带 `connection: close` 的 200。回完就关，下一个请求必然是新连接、新 ClientHello。
+- 证书：`src/wire/certs/` 的测试 CA + leaf（SAN `localhost`、`127.0.0.1`、`probe.test`，带 Authority Key Identifier——Python 3.13 严格校验与 rustls 都要）。私钥公开、故意入库，只给 127.0.0.1 用；CA 私钥没保存。客户端用 `tabcap wire ca-path`（写在缓存目录）。浏览器不装 CA。
+
+**原生组件的调用（`src/wire/native.ts`）**
+
+编译版 tabcap 用 `with { type: "file" }` 嵌入四个目标的二进制（`src/wire/embedded.ts`，约 2.8 MB），按本机选一个，首次用时解到 `<cache>/native/wireprint-<sha256>/wireprint[.exe]`（目录 0700、文件 0755，先写临时名再 rename）；每次 spawn 前核对文件 sha256，不符就重解。源码运行用 `native/dist/<目标>/`，没有就用 Zig 现编（`bun scripts/native.ts build --host`）。一律 argv 调用，不经 shell；退出码 1 → `bad-input`，3 只在 `check` 时接受，其它非零 → `internal`。
+
+**浏览器基准（`tabcap wire profile`）**
+
+- 基准是 tabcap 启动的那个 Chrome for Testing、用 tabcap 自己的启动参数（`launcher.ts` 的 `buildArgs`），不另起裸 Chrome：只加 `--disable-field-trial-config` 一项就会让 ClientHello 少扩展 `12e0`、`accept-language` 换位置【实测 spike §2.4】。画像记 CfT 版本与参数的 sha256（参数里的本机路径换成 `<profile>` / `<extension>`），缓存按「版本 + 参数哈希」复用。
+- 在当前会话开一个后台标签，只对这个标签发 `Security.setIgnoreCertificateErrors {ignore:true}`；导航到 `https://localhost:<port>/?sample=i`，再在页面里 `fetch("/fetch?sample=i")`，各 N 次（默认 3），关标签、把会话的当前标签还原。用 `localhost` 而不是 IP 字面量：IP 不带 SNI，JA4 第 4 位不同【实测 spike】。CDP 方式忽略证书时 Chrome 每次导航前会先中止几次握手（`certificate_unknown`），这些连接没有请求、不出报告【实测：一次 3+3 采集 22 条连接、13 次 tlsClientError、6 份报告】。
+- 组件 `profile` 把 6 份报告组成画像：TLS 取全部样本，导航与 fetch 两种头顺序分进 `http.roles`；tabcap 再加顶层 `tabcap` 段。写到 `<cache>/wire/profiles/cft-<version>-<os>-<arch>.json`，报告在同名 `.samples/`。入库的只有 tabcap 采的 CfT 画像（`native/wireprint/corpus/chrome/<major>/<os>-<arch>/<version>.json`）；作者个人浏览器的画像不进仓库。
+
+**probe（`tabcap wire probe --client <dir>`）**
+
+基准（缓存命中就复用），然后在客户端目录跑 `uv run client.py wire-report --url https://localhost:<port>/client --ca <ca> --out <file>`（环境里去掉 `TABCAP_PROXY_URL`，`NO_PROXY` 加上 localhost / 127.0.0.1 / ::1：那次 GET 只到本机；uv 装包仍可走代理）。生成的客户端用自己原样的 `Session()`（HTTP/2、超时、不跟随跳转）发一次 GET，CA 经 `SSL_CERT_FILE` 交给 httpx（等同 `verify=<ca>`，不改 `Session` 的构造）。然后组件 `check --claim <画像> <客户端报告>` 与 `diff --json <一次浏览器导航报告> <客户端报告>`，按 `tls` / `h2`（`http2.*`）/ `headers`（`http.*`）三层给 `same` / `differs` / `missing`。只诊断：说哪层、哪些字段不同，不说原因、不给改值建议；输出固定带一句 note。会话正在录制时四份文档存 blob、每个不同的层一条 `finding`（`04` §4.1 `tool:"wire"`）。
