@@ -90,13 +90,13 @@ describe.skipIf(!enabled)("tabcap 0.3-D L2 (overlay adapter)", () => {
       const choices = recs(o["choices"]).map((b) => s(b["ref"]));
       expect(close.length).toBe(want.close.length);
       expect(choices.length).toBe(want.choices.length);
-      expect(s(out["outline"])).toContain(`遮挡    o1 ${want.kind}`);
+      expect(s(out["outline"])).toContain(`overlays  o1 ${want.kind}`);
       // named buttons: the refs are the ones find gives for the expected elements
       for (const [i, id] of want.close.entries()) if (BUTTON_TEXT[id] !== undefined) expect(close[i]).toBe(await refOf(BUTTON_TEXT[id] ?? ""));
       for (const [i, id] of want.choices.entries()) if (BUTTON_TEXT[id] !== undefined) expect(choices[i]).toBe(await refOf(BUTTON_TEXT[id] ?? ""));
       // snapshot carries the same header first, within --max-chars
       const snap = await ok("snapshot", "--interactive", ...S);
-      expect(s(snap["tree"]).startsWith(`遮挡    o1 ${want.kind}`)).toBe(true);
+      expect(s(snap["tree"]).startsWith(`overlays  o1 ${want.kind}`)).toBe(true);
       expect(recs(snap["overlays"]).map((x) => x["kind"])).toEqual([want.kind]);
       // the covered target: refused, nothing clicked, next names the close refs
       const target = await refOf(TARGET_TEXT[want.covered] ?? "");
@@ -139,27 +139,27 @@ describe.skipIf(!enabled)("tabcap 0.3-D L2 (overlay adapter)", () => {
     expect((await ok("evaluate", "document.getElementById('q').value", ...S))["value"]).toBe("");
   }, 60_000);
 
-  test("negative: app shell + hidden dialog → 遮挡 无, click works", async () => {
+  test("negative: app shell + hidden dialog → overlays none, click works", async () => {
     await ok("navigate", `${site.origin}/ov/shell`, ...S);
     const out = await ok("outline", ...S);
     expect(out["overlays"]).toEqual([]);
-    expect(s(out["outline"])).toContain("遮挡    无");
+    expect(s(out["outline"])).toContain("overlays  none");
     expect(await ok("click", await refOf("提交"), ...S)).toMatchObject({ overlayCheck: "clear" });
     expect((await hits())["submit"]).toBe(1);
   }, 60_000);
 
-  test("识别到 / detected: layer.js structure and global on the layer page; header within --max-chars", async () => {
+  test("detected: layer.js structure and global on the layer page; header within --max-chars", async () => {
     await ok("navigate", `${site.origin}/ov/layer`, ...S);
     const snap = await ok("snapshot", "--max-chars", "1000", ...S);
     const det = recs(snap["detected"]).find((d) => d["adapter"] === "overlay");
     expect(det?.["evidence"]).toEqual(["layer.js classes (layui-layer*)", "iframe inside a layui-layer", "global layer (layer.js)"]);
     expect(s(snap["tree"]).length).toBeLessThanOrEqual(1000);
-    expect(s(snap["tree"])).toContain("识别到  无"); // overlay findings live in 遮挡; no widget / framework adapter is installed
+    expect(s(snap["tree"])).toContain("detected  none"); // overlay findings live in overlays; no widget / framework adapter is installed
     const o = await ok("outline", "--max-chars", "500", ...S);
     expect(s(o["outline"]).length).toBeLessThanOrEqual(500);
   }, 60_000);
 
-  test("outline lists the popup as 新窗口 with its tab id", async () => {
+  test("outline lists the popup under popups with its tab id", async () => {
     const P = ["--session", "ovp"];
     await ok("navigate", `${site.origin}/ov/popup`, ...P);
     const opener = s((await ok("tab", "list", ...P))["current"]);
@@ -170,7 +170,7 @@ describe.skipIf(!enabled)("tabcap 0.3-D L2 (overlay adapter)", () => {
     const id = s(pop?.["tab"]);
     const out = await until("the popup title", () => ok("outline", ...P), (d) => s(d["outline"]).includes("参照选择"));
     expect(recs(out["popups"])).toEqual([{ tab: id, url: `${site.origin}/ov/popup-target`, title: "参照选择", opener }]);
-    expect(s(out["outline"])).toContain(`新窗口  ${id}「参照选择」 ${site.origin}/ov/popup-target（opener ${opener}）`);
+    expect(s(out["outline"])).toContain(`popups    ${id} "参照选择" ${site.origin}/ov/popup-target (opener ${opener})`);
     await ok("session", "stop", "ovp");
   }, 60_000);
 });

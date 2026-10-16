@@ -101,7 +101,7 @@ describe.skipIf(!enabled)("tabcap 0.3-E L2 (input fidelity on s46, unreadByPage)
     await ok("navigate", `${probe.origin}/probe?run=tc-dom`, ...P);
     const c = await ok("click", await refOf("默认框", P), ...P);
     expect(c).toMatchObject({ level: 1, trusted: false, eventShape: "incomplete" });
-    expect(s(c["warning"])).toContain("事件序残缺");
+    expect(s(c["warning"])).toContain("incomplete event sequence");
     const evs = recs((await report("tc-dom"))["events"]);
     const want = oracle("js_click");
     expect(evs.map((e) => [e["type"], e["isTrusted"], e["detail"], e["clientX"], e["clientY"]])).toEqual(want.map((e) => [e["type"], e["isTrusted"], e["detail"], e["clientX"], e["clientY"]]));
@@ -163,7 +163,7 @@ describe.skipIf(!enabled)("tabcap 0.3-E L2 (input fidelity on s46, unreadByPage)
       await ok("click", await refOf("type here", P), "--trusted", ...P);
       const i = await ok("type", TEXT, ...flags, ...P);
       expect(i).toMatchObject({ eventShape: "insert" });
-      expect(s(i["warning"])).toContain("事件序残缺");
+      expect(s(i["warning"])).toContain("incomplete event sequence");
       await ok("evaluate", "window.__probeReport().then(() => true)", "--await", ...P);
       const di = diffEvents(typingSegment(recs((await report(run))["events"])), typingSegment(oracle("fill")));
       if (run === "tc-insert") console.log(formatDiff("A7.5 type --insert vs Playwright fill() (headless)", di));
@@ -188,7 +188,7 @@ describe.skipIf(!enabled)("tabcap 0.3-E L2 (input fidelity on s46, unreadByPage)
       expect(rhythm.allTrusted).toBe(true);
     } else {
       expect(c).toMatchObject({ level: 1, eventShape: "incomplete", degraded: "not-painted" });
-      expect(s(c["warning"])).toContain("事件序残缺");
+      expect(s(c["warning"])).toContain("incomplete event sequence");
       expect(evs.filter((e) => e["type"] === "pointermove" || e["type"] === "mousemove")).toEqual([]);
     }
     const down = evs.find((e) => e["type"] === "pointerdown" || e["type"] === "click");

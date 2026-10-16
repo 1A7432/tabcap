@@ -1,7 +1,7 @@
 // Pure side of the overlay adapter's results: validate what the page script
 // returned (untrusted: the page controls the DOM it reads), turn node indexes
-// into refs, and render the "遮挡" / "识别到" header block of snapshot and
-// outline (docs/09 §2, §2.3 "遮挡排在最前").
+// into refs, and render the "overlays" / "detected" header block of snapshot and
+// outline (docs/09 §2, §2.3: overlays come first).
 
 import { isRecord } from "../../shared/json.ts";
 import type { Detection } from "./detect.ts";
@@ -77,42 +77,44 @@ export function parseOverlay(o: unknown, refOf: NodeRef, id: string): Overlay | 
   };
 }
 
-const btn = (b: Button) => (b.ref === null ? `「${b.label}」(no ref)` : `${b.ref}「${b.label}」`);
+const btn = (b: Button) => (b.ref === null ? `"${b.label}" (no ref)` : `${b.ref} "${b.label}"`);
 
 /** One header line for an overlay. */
 export function overlayLine(o: Overlay): string {
-  let line = `${o.id} ${o.kind}${o.name === "" ? "" : `「${o.name}」`}`;
-  if (o.coverage >= 90) line += o.covers.length > 0 ? ` 挡住 整页（${o.covers.join(", ")}）` : " 挡住 整页";
-  else if (o.covers.length > 0) line += ` 挡住 ${o.covers.join(", ")}`;
-  else line += ` 占视口 ${o.coverage}%`;
+  let line = `${o.id} ${o.kind}${o.name === "" ? "" : ` "${o.name}"`}`;
+  if (o.coverage >= 90) line += o.covers.length > 0 ? ` covers the whole page (${o.covers.join(", ")})` : " covers the whole page";
+  else if (o.covers.length > 0) line += ` covers ${o.covers.join(", ")}`;
+  else line += ` ${o.coverage}% of the viewport`;
   if (o.iframe !== null) line += ` · iframe ${o.iframe === "" ? "(no src)" : o.iframe}`;
-  if (o.kind === "consent") line += o.choices.length > 0 ? ` · 由人决定：${o.choices.map(btn).join(" / ")}` : " · 由人决定";
+  if (o.kind === "consent") line += o.choices.length > 0 ? ` · the human decides: ${o.choices.map(btn).join(" / ")}` : " · the human decides";
   else if (o.kind === "timeout-prompt") {
-    line += " · 提醒人";
-    if (o.choices.length > 0) line += `：${o.choices.map(btn).join(" / ")}`;
-    if (o.close.length > 0) line += ` · 关闭 ${o.close.map(btn).join(" / ")}`;
-  } else line += o.close.length > 0 ? ` · 关闭 ${o.close.map(btn).join(" / ")}` : " · 无关闭按钮";
+    line += " · tell the human";
+    if (o.choices.length > 0) line += `: ${o.choices.map(btn).join(" / ")}`;
+    if (o.close.length > 0) line += ` · close ${o.close.map(btn).join(" / ")}`;
+  } else line += o.close.length > 0 ? ` · close ${o.close.map(btn).join(" / ")}` : " · no close button";
   return line;
 }
 
 export function detectionText(d: Detection): string {
-  return `${d.adapter}（${d.category}）${d.confidence}${d.evidence.length > 0 ? `：${d.evidence.slice(0, 3).join(", ")}` : ""}`;
+  return `${d.adapter} (${d.category}) ${d.confidence}${d.evidence.length > 0 ? `: ${d.evidence.slice(0, 3).join(", ")}` : ""}`;
 }
 
 const MAX_LINES = 6;
+/** Header labels, padded to one column ("popups" is added by outline). */
+export const LABEL = { overlays: "overlays  ", detected: "detected  ", popups: "popups    ", more: "          " } as const;
 
 /** Header lines; `overlays` null means the check failed (`error` says why). */
 export function headerLines(x: { overlays: Overlay[] | null; detected: Detection[] | null; error: string | null }): string[] {
   const lines: string[] = [];
-  if (x.overlays === null) lines.push(`遮挡    ?（检查失败：${(x.error ?? "unknown").slice(0, 160)}）`);
-  else if (x.overlays.length === 0) lines.push("遮挡    无");
+  if (x.overlays === null) lines.push(`${LABEL.overlays}? (check failed: ${(x.error ?? "unknown").slice(0, 160)})`);
+  else if (x.overlays.length === 0) lines.push(`${LABEL.overlays}none`);
   else {
-    x.overlays.slice(0, MAX_LINES).forEach((o, i) => lines.push(`${i === 0 ? "遮挡    " : "        "}${overlayLine(o)}`));
-    if (x.overlays.length > MAX_LINES) lines.push(`        另有 ${x.overlays.length - MAX_LINES} 个（outline 列全）`);
+    x.overlays.slice(0, MAX_LINES).forEach((o, i) => lines.push(`${i === 0 ? LABEL.overlays : LABEL.more}${overlayLine(o)}`));
+    if (x.overlays.length > MAX_LINES) lines.push(`${LABEL.more}${x.overlays.length - MAX_LINES} more (outline lists them all)`);
   }
   const shown = (x.detected ?? []).filter((d) => d.category !== "overlay" && d.confidence > 0);
-  if (x.detected === null) lines.push("识别到  ?");
-  else lines.push(`识别到  ${shown.length === 0 ? "无" : shown.map(detectionText).join("；")}`);
+  if (x.detected === null) lines.push(`${LABEL.detected}?`);
+  else lines.push(`${LABEL.detected}${shown.length === 0 ? "none" : shown.map(detectionText).join("; ")}`);
   return lines;
 }
 

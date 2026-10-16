@@ -26,6 +26,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 - `net list` and `console list` page by default: without a paging option they return page 0 with 100 per page (`nextPageIdx` when there is more); `--page-size 0` returns everything (it used to be the default). `--page-size 0` with a `--page-idx` above 0 is a usage error.
 - While a session waits for the human (hand-off), `resize` and `emulate` are refused with the `waiting` error like the other commands that act on the page.
+- Output is English throughout: the `waiting` error's `next` ("complete the verification in the browser, then run `tabcap handoff continue`"), the `incomplete event sequence: …` warnings of the DOM click and of `type --insert`, `bundle is not finished: …` warnings and the `(unfinished)` mark of `analyze find` / `diff` text reports, the snapshot / outline header (`overlays` / `detected` / `popups` with English overlay lines, ASCII quotes around names), the `covered` error, and the README of the `replay export-python` package (template and action-chain section). Only the evidence grades (`实测` / `推断` / `待验` / `人确认`, a bundle format value) stay as they are.
 
 ## 0.3.0 (2026-10-16)
 

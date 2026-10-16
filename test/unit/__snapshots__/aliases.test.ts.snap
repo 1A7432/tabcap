@@ -821,7 +821,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         "snapshot",
       ],
       "positionals": [],
-      "summary": "accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. \`- button "Save" [e12] disabled\`); refs are for click / fill and expire when the document changes; starts with the overlay header (遮挡 / 识别到, counts toward --max-chars)",
+      "summary": "accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. \`- button "Save" [e12] disabled\`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected, counts toward --max-chars)",
       "usage": "tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path]",
     },
     {
@@ -879,7 +879,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         "outline",
       ],
       "positionals": [],
-      "summary": "page map head: tab line, 遮挡 (overlays: dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), 识别到 (adapters detected, with confidence), 新窗口 (popups); read-only, never closes anything",
+      "summary": "page map head: tab line, overlays (dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), detected (adapters, with confidence), popups; read-only, never closes anything",
       "usage": "tabcap outline [--session name] [--timeout ms] [--tab t2] [--max-chars n]",
     },
     {

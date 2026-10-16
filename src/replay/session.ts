@@ -165,7 +165,7 @@ export function exportSession(opts: { bundle: string | null; out: string; site?:
   mkdirSync(dirname(opts.out), { recursive: true, mode: 0o700 });
   writeFileAtomic(opts.out, JSON.stringify(state, null, 2) + "\n", 0o600);
   chmodSync(opts.out, 0o600);
-  if (reader !== null && !reader.isComplete()) warn("bundle is not finished (未收尾): the snapshot may not be the last one");
+  if (reader !== null && !reader.isComplete()) warn("bundle is not finished: the snapshot may not be the last one");
   warn("this file holds live session cookies: keep it out of the repository and do not share it; it expires with the session (docs/03 §4)");
   return {
     out: opts.out,

@@ -92,21 +92,21 @@ oracle：s06 `expected.json` 的分类表。输出形状冻结成快照。
 |---|---|---|---|
 | A6.1 验证页停下 | L2 | s15 | 第 6 次请求得 403 后，CLI 返回 `state:"waiting"`、`reason:"verify-page"`、截图路径；之后 10 秒 journal 无新增；`tabcap handoff continue` 后 `/api/verified` 与后续请求在包里 |
 | A6.2 登录限次 | L2 | s07 | 同一会话第二次对登录表单 `fill --secret` 返回 `guard.login-limit`，journal 无新增；带 `--confirm` 才放行 |
-| A6.3 提示可执行 | L2 | s15 | `waiting` 的 JSON 里 `next` 写明「在浏览器里完成验证后执行 `tabcap handoff continue`」；扩展角标同时变色（人工核对） |
+| A6.3 提示可执行 | L2 | s15 | `waiting` 的 JSON 里 `next` 写明「complete the verification in the browser, then run `tabcap handoff continue`」（0.4 改为英文，作者定）；扩展角标同时变色（人工核对） |
 | A6.4 人点完继续 | L3 | s15 | 人在浏览器点「我是人」，AI 继续，请求齐全 |
 
 oracle：靶场日志与 s15 / s07 的 `expected.json`。
 
 ### A7 「输入保真」（作者定 10-15；提案 `docs/10` §7，按作者决定修订；0.3-E 落地）
 
-作者决定：默认 `click` 仍是 DOM 点击（标「事件序残缺」），`--trusted` 打开整套可信输入（移动路径、按下抬起间隔、逐键打字）；`type --delay` 默认 0；散布默认关；不暴露随机种子；不要求与 Playwright 严格同形，形状以本地探针 oracle 为准（D7）。场景 `05` s46，oracle 是 `fixtures/probe/oracle/` 的 Playwright 导出。L2 在 `test/e2e/v03e.e2e.test.ts`，L0 在 `test/unit/input-fidelity.test.ts` 与 `test/unit/eventshape.test.ts`。
+作者决定：默认 `click` 仍是 DOM 点击（标「incomplete event sequence」），`--trusted` 打开整套可信输入（移动路径、按下抬起间隔、逐键打字）；`type --delay` 默认 0；散布默认关；不暴露随机种子；不要求与 Playwright 严格同形，形状以本地探针 oracle 为准（D7）。场景 `05` s46，oracle 是 `fixtures/probe/oracle/` 的 Playwright 导出。L2 在 `test/e2e/v03e.e2e.test.ts`，L0 在 `test/unit/input-fidelity.test.ts` 与 `test/unit/eventshape.test.ts`。
 
 | 测试 | 层 | 做法 | 通过 |
 |---|---|---|---|
 | A7.1 可信点击形状 | L2 | s46，`tabcap click <ref> --trusted`，读页面报告 | pointerdown 前 pointermove ≥ 1 条，最后一条与 pointerdown、与页面量得的目标中心都差 ≤ 1 px；到 click 为止全部 `isTrusted`；落在目标上那一段折叠后的类型序列等于 Playwright `click` 导出；pointerdown / pointerup / click 的按钮、`pressure`、`pointerType` 等字段等于导出值 |
 | A7.2 路径参数 | L0 | 纯函数 `planClick(from, to, rng)` 用固定种子跑 1000 次 | 点率 ≥ 25/s、至少 3 点；时长 ∈ [100, 400] ms；终点精确；不开散布时全部点在直线上，开散布时中间点偏离直线 ≤ 0.4 px；按压间隔 ∈ [50, 140] ms；同种子同结果 |
 | A7.3 隐藏标签不挂起 | L2 + L0 | L2：`navigate --new-tab` 开后台标签（`visibilityState:"hidden"`）后立即 `click --trusted`；L0：假 CDP 让 rAF 永不回调 / 页面一直 hidden | L2：命令在超时内返回，送达（完整形状）或标 `degraded:"not-painted"`，之后页面回到 hidden；L0：一条 `Input.dispatchMouseEvent` 都没发，改走 DOM 点击，仿真关闭 |
-| A7.4 DOM 点击标记 | L2 | s46，默认 `click`；以及 A7.3 的降级 | `level:1`、`eventShape:"incomplete"`、警告含「事件序残缺」；页面报告只有 1 个不可信 click，与 Playwright `js_click` 导出同 |
+| A7.4 DOM 点击标记 | L2 | s46，默认 `click`；以及 A7.3 的降级 | `level:1`、`eventShape:"incomplete"`、警告含「incomplete event sequence」；页面报告只有 1 个不可信 click，与 Playwright `js_click` 导出同 |
 | A7.5 逐键输入 | L2 | `click --trusted` 字段 → `type "aB3 中" --trusted`；另跑 `--insert` 与默认 `type` | 从第一个 keydown 起逐字段等于 Playwright `type` 导出（除 `seq` / `timeStamp` / `dt` / `screenX` / `screenY`）；`--insert` 与默认等于 Playwright `fill` 导出并标残缺；`--trusted --insert`、无 `--trusted` 的 `--delay` 报 `usage` |
 | A7.6 逐字段 diff 报告 | L2 | 测试把 tabcap 与 Playwright 导出逐事件、逐字段比对，打印到测试输出 | 结构字段按 A7.1 / A7.5 断言；节奏字段（timeStamp、move 条数、路径时长、按压间隔、`movementX/Y`）只列出，不断言相等；`screenX/Y` 剔除 |
 | A7.7 不重试 | L0 | 假 CDP：第 2 条 `mouseMoved` 超时；探针未送达 | `move-timeout`：只发了 2 条 move，没有按下，不再发；`not-delivered`：按下、抬起各 1 次，`next` 写明 tabcap 没有重试 |

@@ -1,12 +1,12 @@
 // tabcap outline: page map v0 (docs/09 §2). 0.3-D covers the head of the map:
-// the tab line, "遮挡" (overlays, from the overlay adapter), "识别到" (adapters
-// detected with their confidence) and "新窗口" (popups of the session, opened
+// the tab line, "overlays" (from the overlay adapter), "detected" (adapters
+// detected with their confidence) and "popups" (popups of the session, opened
 // by window.open; docs/04 §16 owned / handled). Regions, data blocks and
 // controls come in later cells.
 
 import type { Daemon } from "../state.ts";
 import { inspectPage } from "../adapters/runtime.ts";
-import { cutText, headerLines } from "../adapters/view.ts";
+import { cutText, headerLines, LABEL } from "../adapters/view.ts";
 import { optNum, optStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
 import { refreshTabInfo } from "./session.ts";
@@ -32,7 +32,7 @@ export async function outline(d: Daemon, a: Args, session: string): Promise<unkn
         .filter((x) => x.id !== tab.id && x.reason === "popup")
         .map((x) => ({ tab: x.id, url: x.url, title: x.title, opener: x.opener }));
       const lines = [`${tab.id} ${tab.title === "" ? "(no title)" : tab.title}  ${doc.url}${nav === null ? "" : `  ${nav}`}`, ...headerLines(page)];
-      popups.forEach((p, i) => lines.push(`${i === 0 ? "新窗口  " : "        "}${p.tab}${p.title === "" ? "" : `「${p.title}」`} ${p.url}${p.opener === null ? "" : `（opener ${p.opener}）`}`));
+      popups.forEach((p, i) => lines.push(`${i === 0 ? LABEL.popups : LABEL.more}${p.tab}${p.title === "" ? "" : ` "${p.title}"`} ${p.url}${p.opener === null ? "" : ` (opener ${p.opener})`}`));
       const full = lines.join("\n");
       const cut = cutText(full, maxChars);
       return {

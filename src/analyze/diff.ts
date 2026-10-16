@@ -308,7 +308,7 @@ export function diff(dirs: readonly string[]): DiffResult {
     const sessionKey = name !== "" ? name : reader.manifest.id;
     const requests = reader.requests();
     bundles.push({ dir, label, id: reader.manifest.id, session: name, sessionKey, complete: reader.isComplete(), requests: requests.length });
-    if (!reader.isComplete()) warnings.push(`${label}: bundle is not finished (未收尾)`);
+    if (!reader.isComplete()) warnings.push(`${label}: bundle is not finished`);
     sources.push({ label, sessionKey, requests, readBlob: (ref) => reader.readBlob(ref) });
   });
   const { groups, cookieValues } = groupRequests(sources, (w) => warnings.push(w));
@@ -462,7 +462,7 @@ const pad = (s: string, n: number): string => s + " ".repeat(Math.max(0, n - dis
 export function renderDiffText(r: DiffResult): string {
   const lines: string[] = [];
   lines.push(`diff of ${r.bundles.length} bundles, ${r.sessions} session(s)`);
-  for (const b of r.bundles) lines.push(`  ${b.label}  ${b.dir}  session=${b.session === "" ? b.id : b.session}${b.complete ? "" : " (未收尾)"}  requests=${b.requests}`);
+  for (const b of r.bundles) lines.push(`  ${b.label}  ${b.dir}  session=${b.session === "" ? b.id : b.session}${b.complete ? "" : " (unfinished)"}  requests=${b.requests}`);
   for (const g of r.groups) {
     lines.push("");
     lines.push(`${g.key}  samples ${g.samples} (${g.perBundle.join("/")}), sessions ${g.sessions}`);

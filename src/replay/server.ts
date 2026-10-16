@@ -94,7 +94,7 @@ export function startReplayServer(opts: ServeOptions): ReplayServer {
   const port = server.port ?? opts.port;
   const host = opts.host.includes(":") ? `[${opts.host}]` : opts.host;
   const warnings: string[] = [];
-  if (!reader.isComplete()) warnings.push("bundle is not finished (未收尾): recording in progress or interrupted");
+  if (!reader.isComplete()) warnings.push("bundle is not finished: recording in progress or interrupted");
   if (reader.truncatedLastLine) warnings.push("events.jsonl ends with a truncated line; it was skipped");
   if (index.hosts.size > 1) warnings.push(`the bundle spans ${index.hosts.size} hosts (${[...index.hosts].sort().join(", ")}): a request whose Host header names one of them matches that host only; any other Host matches on method, path, query and body alone`);
   if (requests.some((r) => r.request.postDataMissing !== undefined)) warnings.push("some recorded request bodies are missing: those recordings match any request body");

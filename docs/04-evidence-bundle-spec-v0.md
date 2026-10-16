@@ -29,7 +29,7 @@
   exports/                        导出产物（HAR、脱敏副本）；不参与分析
 ```
 
-- 包完整的判定：`manifest.json` 有 `finished`。没有就是录制中或异常中断，分析命令照样读，但在输出里标「未收尾」。
+- 包完整的判定：`manifest.json` 有 `finished`。没有就是录制中或异常中断，分析命令照样读，但在输出里标明（警告 `bundle is not finished: …`，文本报告里 `(unfinished)`）。
 - `blobs/` 写法：先写临时文件，`fsync`，再 `rename` 到哈希名；同内容只存一份。
 - `raw/` 默认开（lab 阶段要靠它查录制器漏没漏），以后再议默认关。（已定 a）
 
