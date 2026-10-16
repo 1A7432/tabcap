@@ -4,6 +4,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### Interop with mitmproxy and Burp (0.6-M)
+
+- Docs and a fixture only, no behaviour change: [docs/13](docs/13-interop-proxies.md) covers chaining mitmproxy / Burp behind `tabcap browser start --proxy <url>` (the Chrome flags passed; loopback targets such as 127.0.0.1 and localhost bypass the proxy, tested), importing a mitmproxy `hardump` HAR with its field-loss table (imported requests all get type `other`, so `replay export-python` finds nothing to generate), and mitmproxy's `response(flow)` next to tabcap's Python `decode(flow)`. New fixture `test/fixtures/har/mitmproxy-range.har` with import tests.
+
 ### Session export (0.6-F)
 
 - **`tabcap session export --for requests|httpx|playwright --out <file> [--origin <url>] [--tab t2]`** hands the logged-in tab's session to a script: its cookies (`Network.getCookies` for the origin, plus the session's own browser context for a pool account), the headers its page sent to authenticate (from the latest recorded request to the origin's host that carries one: sensitive headers by the `bundle redact` rule plus `x-csrf*`, `x-xsrf*`, `*-token`, `*-auth*`, `api-key`, and any header the page set that is not a browser default; `cookie` goes with the cookies, `proxy-*` never) and its localStorage / sessionStorage, read in tabcap's isolated world (values over 64 KB skipped and listed). Without a recording `headers` is empty and `source.headers` is `none`, with a hint to run `net start` first.

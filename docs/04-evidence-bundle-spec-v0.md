@@ -284,6 +284,7 @@
 - 正文：`content.text` 存在时，`encoding:"base64"` 先解码；若 `content-encoding` 头存在且字节像压缩流（gzip 魔数 / 尝试 br 解码成功），解压后存、`wireEncoding` 记原值；解不开就原样存并 `bodyMissing:null`、`body.decodeFailed:true`，让 `find` 的解码链再试。
 - `manifest.imported` 记来源与 `lossy` 列表；`actor` 一律 `"human"`（外部包无法区分），`tab` 一律 `t1`。
 - 验收用的来源：Chrome DevTools 导出、我们自己导出（往返）、mitmproxy `hardump`（若本机有）。Charles 没有样本就不承诺。
+- mitmproxy `hardump` 的实测样本在 `test/fixtures/har/mitmproxy-range.har`；它的字段丢失表与导入后各命令的行为见 [docs/13](13-interop-proxies.md) §2（导入后 `type` 全是 `other`，`replay export-python` 因此没有可生成的请求）。
 
 ### 9.3 往返性质（写成测试）
 
