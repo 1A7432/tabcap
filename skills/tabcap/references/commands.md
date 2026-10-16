@@ -533,8 +533,8 @@ Example: `tabcap console list --types error,warn`
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--types <error,warn>` |  | comma list of message types: log, debug, info, error, warn, dir, table, trace, assert, count, timeEnd, verbose … |
 | `--level <level>` |  | debug \| log \| info \| warn \| error: that level and more severe (log = info) |
-| `--page-size <n>` |  | messages per page; without --page-size / --page-idx every buffered message is returned |
-| `--page-idx <n>` |  | page to return, 0-based (100 per page unless --page-size) |
+| `--page-size <n>` | `100` | messages per page (max 1000); 0 returns every buffered message |
+| `--page-idx <n>` | `0` | page to return, 0-based; nextPageIdx names the next one |
 | `--limit <n>` |  | only the last N messages (instead of paging) |
 | `--include-stack-traces` |  | include each message's stack trace when there is one |
 | `--clear` |  | empty the tab's buffer after reading |
@@ -577,7 +577,7 @@ Example: `tabcap net stop`
 
 ### `tabcap net list`
 
-recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); paged only when asked (--kind ws: WebSocket frames r-12:34)
+recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 100 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)
 
 ```
 tabcap net list [--session name] [--filter s] [--host s] [--status code] [--method M] [--resource-types xhr,fetch] [--tab t2] [--since c-12] [--failed] [--no-failed] [--all] [--page-size n] [--page-idx n] [--kind http|ws]
@@ -597,8 +597,8 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 | `--failed` |  | only failed requests (hidden by default) |
 | `--no-failed` |  | hide failed requests (the default) |
 | `--all` |  | also failed requests and data: URLs |
-| `--page-size <n>` |  | requests per page (max 1000); without --page-size / --page-idx every match is returned |
-| `--page-idx <n>` |  | page to return, 0-based (100 per page unless --page-size); nextPageIdx names the next one |
+| `--page-size <n>` | `100` | requests per page (max 1000); 0 returns every match |
+| `--page-idx <n>` | `0` | page to return, 0-based; nextPageIdx names the next one |
 | `--kind <http\|ws>` | `http` | http (requests) \| ws (WebSocket frames: id, direction, opcode, size, ts) |
 
 ### `tabcap net body`

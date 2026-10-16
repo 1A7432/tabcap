@@ -11,8 +11,8 @@ export const LIST_DEFAULT_LIMIT = DEFAULT_PAGE_SIZE;
 export const LIST_MAX_LIMIT = 1000;
 
 /**
- * docs/08 §5 (chrome-devtools-mcp semantics): no paging flag → every match;
- * `--page-size` / `--page-idx` → page-index paging (100 per page by default).
+ * docs/08 §5 page-index paging (chrome-devtools-mcp names). Owner, 2026-10-16:
+ * no paging flag → page 0 of 100; `--page-size 0` → every match.
  */
 export type Paging = { mode: "all" } | { mode: "page"; size: number; idx: number | null };
 
@@ -83,12 +83,16 @@ export function parseListQuery(a: Args, sinceOf: (cmd: string) => number | null)
   };
 }
 
-/** `--page-size`, `--page-idx`. */
+/** `--page-size` (default 100, 0: everything), `--page-idx` (default 0). */
 export function parsePaging(a: Args, cmd: string): Paging {
   const given = (k: string) => a[k] !== undefined && a[k] !== null;
-  if (!given("pageSize") && !given("pageIdx")) return { mode: "all" };
-  const size = count(a, "pageSize", "--page-size", LIST_DEFAULT_LIMIT, 1, LIST_MAX_LIMIT, cmd);
-  return { mode: "page", size, idx: given("pageIdx") ? count(a, "pageIdx", "--page-idx", 0, 0, Number.MAX_SAFE_INTEGER, cmd) : null };
+  const size = count(a, "pageSize", "--page-size", LIST_DEFAULT_LIMIT, 0, LIST_MAX_LIMIT, cmd);
+  const idx = given("pageIdx") ? count(a, "pageIdx", "--page-idx", 0, 0, Number.MAX_SAFE_INTEGER, cmd) : null;
+  if (size === 0) {
+    if (idx !== null && idx > 0) throw usage("--page-size 0 returns every match on one page", `Leave --page-idx out, or give a page size, e.g. \`tabcap ${cmd} --page-size 50 --page-idx ${idx}\`.`);
+    return { mode: "all" };
+  }
+  return { mode: "page", size, idx };
 }
 
 export type Paged<T> = {

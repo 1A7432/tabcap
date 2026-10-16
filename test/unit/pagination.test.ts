@@ -45,15 +45,18 @@ describe("paging options of net list / console list", () => {
     return "none";
   };
 
-  test("no paging option → all; --page-size / --page-idx → page index; the removed --limit / --offset keys page nothing", () => {
-    expect(parsePaging({}, "net list")).toEqual({ mode: "all" });
+  test("no paging option → page 0 of 100 (owner, 0.4); --page-size 0 → everything; the removed --limit / --offset keys change nothing", () => {
+    expect(parsePaging({}, "net list")).toEqual({ mode: "page", size: 100, idx: null });
     expect(parsePaging({ pageSize: 10 }, "net list")).toEqual({ mode: "page", size: 10, idx: null });
     expect(parsePaging({ pageIdx: 2 }, "net list")).toEqual({ mode: "page", size: 100, idx: 2 });
-    expect(parsePaging({ limit: 25, offset: 50 }, "net list")).toEqual({ mode: "all" });
+    expect(parsePaging({ pageSize: 0 }, "net list")).toEqual({ mode: "all" });
+    expect(parsePaging({ pageSize: 0, pageIdx: 0 }, "console list")).toEqual({ mode: "all" });
+    expect(parsePaging({ limit: 25, offset: 50 }, "net list")).toEqual({ mode: "page", size: 100, idx: null });
   });
 
   test("bad values are usage errors", () => {
-    expect(code(() => parsePaging({ pageSize: 0 }, "net list"))).toBe("usage");
+    expect(code(() => parsePaging({ pageSize: -1 }, "net list"))).toBe("usage");
+    expect(code(() => parsePaging({ pageSize: 0, pageIdx: 1 }, "net list"))).toBe("usage");
     expect(code(() => parsePaging({ pageSize: 1001 }, "net list"))).toBe("usage");
     expect(code(() => parsePaging({ pageIdx: -1 }, "net list"))).toBe("usage");
     expect(code(() => parsePaging({ pageIdx: 1.5 }, "net list"))).toBe("usage");

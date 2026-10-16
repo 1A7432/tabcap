@@ -2,7 +2,7 @@
 // buffer (last 500 messages, kept whether or not the session records).
 // Names and paging follow chrome-devtools-mcp's list_console_messages /
 // get_console_message (docs/08 §5): `--types`, `--page-size` / `--page-idx`
-// (no paging flag: every buffered message), `--include-stack-traces`.
+// (100 per page by default, `--page-size 0`: every buffered message), `--include-stack-traces`.
 
 import { TabcapError } from "../../shared/envelope.ts";
 import { atLeast, CONSOLE_TYPES, isLevel, whereOf, type StoredConsole } from "../capture/console.ts";
@@ -53,7 +53,7 @@ export function consoleList(d: Daemon, a: Args, session: string): unknown {
   const types = parseTypes(optStr(a, "types"));
   const limit = limitArg(a, "console list");
   const paging = parsePaging({ pageSize: a["pageSize"], pageIdx: a["pageIdx"] }, "console list");
-  if (limit !== null && paging.mode !== "all") throw new TabcapError("usage", "--limit and --page-size / --page-idx exclude each other", "Use --limit N for the last N messages, or --page-size / --page-idx to page from the oldest.");
+  if (limit !== null && (a["pageSize"] !== undefined || a["pageIdx"] !== undefined)) throw new TabcapError("usage", "--limit and --page-size / --page-idx exclude each other", "Use --limit N for the last N messages, or --page-size / --page-idx to page from the oldest.");
   const stacks = optBool(a, "includeStackTraces");
   const { tabs, console } = d.need();
   const tab = tabs.pick(session, optStr(a, "tab"));
