@@ -15,6 +15,10 @@
 - **`tabcap mcp --print-config <宿主>`**：`claude-code`（`claude mcp add tabcap -- tabcap mcp`）、`cursor`、`codex`（TOML）、`gemini-cli`、`windsurf`、`claude-desktop` 的配置文件位置、条目与宿主自己的添加命令，2026-10-16 对照各家官方文档（windsurf 的页面已跳到 Devin Desktop，`verified: false`）。
 - `analyze diff` 末尾的证据包是列表：用法行写成 `[<bundles>...]`。
 
+### 新增
+
+- **npm 打包脚本**：`bun run npm:pack [--version X] [--targets a,b]` 用 release 二进制在 `dist/npm/` 组装四个平台包（`tabcap-<os>-<cpu>`，改一个常量即为 `@tabcap/<os>-<cpu>`）和 `tabcap` 主包（shim、skill、README），离线 `npm pack` 并写 `SHA256SUMS`，打印发布顺序；本地安装验证与发布步骤见 `packaging/npm/README.md`。不发布任何东西。
+
 ## 0.4.0（2026-10-16）
 
 - **帧路径 ref（0.4-I）**：`snapshot` 与 `outline` 的头里列出所有子帧（iframe、`frameset` 的 `frame`，跨源的也算），每帧一行 `f2/f1  <url>  same-origin|cross-origin  depth 2  "<标题>"`，按深度缩进；`f<n>` 的 `n` 是该帧在父文档子帧里按文档顺序的序号（从 1 起），同源 / 跨源相对父帧。JSON 多一个 `frames` 列表。没有子帧的页面输出与以前相同。

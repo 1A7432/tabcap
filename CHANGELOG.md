@@ -17,6 +17,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **`tabcap mcp --print-config <host>`**: the config file(s), the entry and the host's own add command for `claude-code` (`claude mcp add tabcap -- tabcap mcp`), `cursor`, `codex` (TOML), `gemini-cli`, `windsurf` and `claude-desktop`, checked against each host's official page on 2026-10-16 (`verified: false` for windsurf, whose page now redirects to Devin Desktop's).
 - `analyze diff`'s trailing bundles are a list: the usage line reads `[<bundles>...]`.
 
+### Added
+
+- **npm packaging script**: `bun run npm:pack [--version X] [--targets a,b]` assembles the four platform packages (`tabcap-<os>-<cpu>`, or `@tabcap/<os>-<cpu>` by flipping one constant) and the `tabcap` package (shim, skill, README) from the release binaries into `dist/npm/`, packs them offline with `SHA256SUMS`, and prints the publish order; `packaging/npm/README.md` is the local install check and publish runbook. Nothing is published.
+
 ## 0.4.0 (2026-10-16)
 
 ### Frames: frame-path refs (0.4-I)
