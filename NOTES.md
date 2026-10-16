@@ -299,3 +299,8 @@
 - 做了什么：`daemon/tools/bodyexport.ts`（扩展名按 MIME、`--file` 与 `--grep` / `--lines` / `--at` / `--out` 互斥、解码 → 已知秘密值替换 → 可选 `--pretty` → 写 0600 文件）；`net body <id|--url> --file [--pretty]` 返回 `{id, url, mime, bytes, lines, pretty, file, scrubbed}`（`bytes` 是写出文件的字节数；有录制写 `exports/bodies/<r-N>[.pretty].<ext>`，否则 `<cache>/outputs/bodies/<时间戳>-…`；二进制原样写出并报 `scrubbed:false`；WebSocket 帧 id 的 `:` 在文件名里换成 `-`）；单测 `bodyexport.test.ts`，e2e 在 `v05f.e2e.test.ts` 加一段；search.md、docs/04 §25、两份 CHANGELOG、`--help` 与 schema 快照已更新。
 - 卡在哪（按最字面读法定，待作者审）：`--file` 也与 `--out` 互斥（简报只列了三个）；「打开的录制」= 会话正在录制，录制已停则落到 cache；「登录页正文」在 e2e 里用靶场的 `/trace/min.html` 与 `min.js`（该文件里已有的范围）；`trace` 是守护进程在 trace 模式下给所有答案加的字段，不属于 `--file` 的信封。
 - 下一格从哪开始：主循环合并 0.5-F2（`commands.ts`、生成表、schema 快照会与并行分支冲突，重生快照）；作者审上面三处字面定案。
+
+## 2026-10-16 · 版本号改为 0.5.0
+- 做了什么：作者指出 0.5 的格（README、MCP、npm 打包、上下文预算、命令内搜索、正文导出）都已合入，包仍标 0.4.0；统一升到 0.5.0（package.json、README 状态行、打包模板与 npm 运行手册），CHANGELOG 的 Unreleased 定稿为 0.5.0（2026-10-16），样例证据包夹具与 schema 快照随版本重生成。单测 810、tsc、skill 通过。
+- 卡在哪：v0.3.0 草稿 Release 与未打的 v0.4.0 都不再对应任何要发的内容，建议只发 v0.5.0、删掉 v0.3.0 草稿，等作者定。
+- 下一格从哪开始：隔壁真实站点测试 → 作者发 npm 0.5.0 → 挪目录 → 翻公开 → 打 v0.5.0 → 发 Release。
