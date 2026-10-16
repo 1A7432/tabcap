@@ -128,7 +128,9 @@ describe.skipIf(!enabled)("tabcap 0.6-F L2 (session export --for requests / http
     expect(e.data).toMatchObject({ file: jsonFile, for: "requests", origin: guard.origin, mode: "0600", storage: { localStorage: 1, sessionStorage: 1 } });
     expect(e.data["cookies"]).toBe(1);
     expect(e.data["headers"]).toEqual(["authorization", "x-csrf"]);
-    const srcId = s(rec(e.data["source"])["headers"]);
+    // 0.6-P: source.headers is {request, origin, auto}
+    expect(rec(e.data["source"])["headers"]).toMatchObject({ origin: guard.origin, auto: false });
+    const srcId = s(rec(rec(e.data["source"])["headers"])["request"]);
     expect(srcId).toMatch(/^r-\d+$/);
     expectMode(jsonFile, 0o600);
     expectMode(join(home, "out"), 0o700);
@@ -171,7 +173,7 @@ describe.skipIf(!enabled)("tabcap 0.6-F L2 (session export --for requests / http
     if (!h.ok) throw new Error(h.raw);
     for (const v of values) expect(h.raw.includes(v)).toBe(false);
     const mod = join(pkg, "example_session.py");
-    expect(h.data).toMatchObject({ file: mod, for: "httpx", cookies: 1, headers: ["authorization", "x-csrf"], source: { headers: srcId } });
+    expect(h.data).toMatchObject({ file: mod, for: "httpx", cookies: 1, headers: ["authorization", "x-csrf"], source: { headers: { request: srcId, origin: guard.origin, auto: false } } });
     expectMode(mod, 0o600);
 
     // through uv offline in the package's own .venv; no uv / cache: 待验 locally, a failure under CI
@@ -216,7 +218,7 @@ describe.skipIf(!enabled)("tabcap 0.6-F L2 (session export --for requests / http
     const e = await ok("session", "export", "--for", "requests", "--out", out, ...S);
     // 0.6-D (owner 10-16): s07f's account session has its own browser context, so this session without an
     // account (default context) does not see the token s07f's login put into localStorage.
-    expect(e).toMatchObject({ headers: [], source: { headers: "none" }, storage: { localStorage: 0, sessionStorage: 0 } });
+    expect(e).toMatchObject({ headers: [], source: { headers: { request: null, origin: null, auto: false } }, storage: { localStorage: 0, sessionStorage: 0 } });
     expect(s(e["note"])).toContain("net start");
     expect(rec(JSON.parse(readFileSync(out, "utf8")))["headers"]).toEqual({});
     const bad = await tabcap(["session", "export", "--for", "csv", "--out", out, ...S]);

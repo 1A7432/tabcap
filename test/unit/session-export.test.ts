@@ -17,8 +17,12 @@ import {
   exportPath,
   exportSummary,
   headerClass,
+  authCount,
+  authSource,
   headerSource,
   mergeCookies,
+  originArg,
+  recordedOrigin,
   renderHttpx,
   renderPlaywright,
   renderRequests,
@@ -27,6 +31,8 @@ import {
   writeSecretFile,
   type SessionData,
 } from "../../src/daemon/tools/sessionexport.ts";
+import { TabcapError } from "../../src/shared/envelope.ts";
+import { isRecord } from "../../src/shared/json.ts";
 import { tmp } from "./_analyze.ts";
 import { POSIX_MODES, SLOW_IO_MS, expectMode } from "./_platform.ts";
 import { need, packageReason, pyCompile, runInPackageAsync, skipWithout, syncPackage } from "./_python.ts";
@@ -43,7 +49,7 @@ const DATA: SessionData = {
   ],
   headers: { authorization: `Bearer ${TOKEN}`, "x-csrf": CSRF },
   storage: { localStorage: { access_token: TOKEN, "line\nbreak": "ü €" }, sessionStorage: { tab: "1" } },
-  source: { headers: "r-7" },
+  source: { headers: { request: "r-7", origin: "http://127.0.0.1:4310", auto: false }, storage: "http://127.0.0.1:4310" },
 };
 
 let root = "";
@@ -111,6 +117,41 @@ describe("header selection", () => {
     expect(headerSource([lines[0] ?? "", lines[5] ?? ""], "127.0.0.1:4310")).toEqual({ id: "r-6", url: "http://127.0.0.1:4310/favicon.ico", headers: {} });
     expect(headerSource(lines, "example.com")).toBeNull();
     expect(headerSource([], "127.0.0.1:4310")).toBeNull();
+  });
+
+  // 0.6-P: the single-page app on origin A sends its Authorization to the API on origin B only.
+  const ev = (id: string, url: string, headers: Record<string, string>) => JSON.stringify({ seq: Number(id.slice(2)), kind: "request", id, url, request: { headers } });
+  const spa = [
+    ev("r-1", "http://127.0.0.1:4310/s60", { accept: "text/html" }),
+    ev("r-2", "http://127.0.0.1:4310/s60/app.js", { "x-page": "1" }),
+    ev("r-3", "http://127.0.0.1:4311/api/me", { authorization: "Bearer one", accept: "*/*" }),
+    ev("r-4", "http://127.0.0.1:4312/api/x", { "x-csrf": "c" }),
+    ev("r-5", "http://127.0.0.1:4311/api/list", { authorization: `Bearer ${TOKEN}`, "x-api-key": "k" }),
+    ev("r-6", "http://127.0.0.1:4312/api/y", { "x-auth-token": "a", "x-csrf": "c2" }),
+    '{"seq":7,"kind":"request","id":"r-7","url":"http://127.0.0.1:4313/x","request":{"headers":{"authorization":"torn',
+  ];
+
+  test("authCount: only the sensitive class counts as auth-looking (page-set headers do not)", () => {
+    expect(authCount({ authorization: "x", "x-csrf": "y", "x-page": "1" })).toBe(2);
+    expect(authCount({ "x-page": "1", "content-type": "a" })).toBe(0);
+  });
+
+  test("authSource: per host its latest request with auth-looking headers; the host with the most wins, a tie goes to the later request", () => {
+    expect(authSource(spa)).toEqual({ id: "r-6", url: "http://127.0.0.1:4312/api/y", headers: { "x-auth-token": "a", "x-csrf": "c2" } });
+    const noTie = [...spa.slice(0, 5)];
+    expect(authSource(noTie)?.id).toBe("r-5");
+    expect(authSource(spa.slice(0, 2))).toBeNull();
+    expect(authSource([])).toBeNull();
+  });
+
+  test("originArg: a URL gives its origin; a bare host takes the scheme its recorded requests used, else https; junk is usage", () => {
+    expect(originArg("http://127.0.0.1:4311/api/me?x=1", spa)).toBe("http://127.0.0.1:4311");
+    expect(originArg(" 127.0.0.1:4311 ", spa)).toBe("http://127.0.0.1:4311");
+    expect(originArg("API.Example.com", spa)).toBe("https://api.example.com");
+    expect(originArg("api.example.com:8443", [])).toBe("https://api.example.com:8443");
+    expect(recordedOrigin(spa, "127.0.0.1:4312")).toBe("http://127.0.0.1:4312");
+    expect(recordedOrigin(spa, "127.0.0.1:9")).toBeNull();
+    for (const bad of ["ftp://x.example.com", "a b", "/path", "x@y", ""]) expect(() => originArg(bad, spa)).toThrow(TabcapError);
   });
 });
 
@@ -194,11 +235,22 @@ describe("rendering", () => {
       capturedAt: DATA.capturedAt,
       cookies: DATA.cookies,
       headers: DATA.headers,
+      headersFrom: { request: "r-7", origin: DATA.origin, auto: false },
       storage: DATA.storage,
+      storageOrigin: DATA.origin,
       note: expect.stringContaining("headers from recorded request r-7"),
     });
-    const none: unknown = JSON.parse(renderRequests({ ...DATA, headers: {}, source: { headers: "none" } }));
-    expect(none).toMatchObject({ headers: {}, note: expect.stringContaining("tabcap net start") });
+    const none: unknown = JSON.parse(renderRequests({ ...DATA, headers: {}, source: { headers: { request: null, origin: null, auto: false }, storage: DATA.origin } }));
+    expect(none).toMatchObject({ headers: {}, headersFrom: { request: null, origin: null, auto: false }, note: expect.stringContaining("tabcap net start") });
+    // 0.6-P: the fallback says where the headers came from
+    const auto: unknown = JSON.parse(renderRequests({ ...DATA, source: { headers: { request: "r-5", origin: "http://127.0.0.1:4311", auto: true }, storage: DATA.origin } }));
+    expect(auto).toMatchObject({ headersFrom: { request: "r-5", origin: "http://127.0.0.1:4311", auto: true }, note: expect.stringContaining("the headers come from r-5 to http://127.0.0.1:4311") });
+  });
+
+  test("--for playwright: localStorage under the origin it was read on (0.6-P: the page's when --origin is an API origin)", () => {
+    const api = { ...DATA, origin: "http://127.0.0.1:4311", source: { ...DATA.source, storage: "http://127.0.0.1:4310" } };
+    const st: unknown = JSON.parse(renderPlaywright(api));
+    expect(isRecord(st) && Array.isArray(st["origins"]) && st["origins"].map((o) => (isRecord(o) ? o["origin"] : null))).toEqual(["http://127.0.0.1:4310"]);
   });
 
   test("--for playwright: the storageState shape of `replay session` (no headers, no sessionStorage)", () => {
@@ -219,7 +271,7 @@ describe("rendering", () => {
   test("the envelope has the path, counts and header names, never a value", () => {
     const all = [TOKEN, CSRF, SID, "ü €"];
     const r = exportSummary("requests", "/x/session.json", DATA, [{ storage: "localStorage", key: "blob", bytes: 70000 }], []);
-    expect(r).toMatchObject({ file: "/x/session.json", for: "requests", origin: DATA.origin, mode: "0600", cookies: 2, headers: ["authorization", "x-csrf"], storage: { localStorage: 2, sessionStorage: 1 }, source: { headers: "r-7" } });
+    expect(r).toMatchObject({ file: "/x/session.json", for: "requests", origin: DATA.origin, mode: "0600", cookies: 2, headers: ["authorization", "x-csrf"], storage: { localStorage: 2, sessionStorage: 1 }, source: { headers: { request: "r-7", origin: DATA.origin, auto: false }, storage: DATA.origin } });
     for (const v of all) expect(JSON.stringify(r)).not.toContain(v);
     const p = exportSummary("playwright", "/x/state.json", DATA, [], []);
     expect(p).toMatchObject({ headers: [], storage: { localStorage: 2, sessionStorage: 0 }, omitted: { headers: ["authorization", "x-csrf"], sessionStorage: 1 } });

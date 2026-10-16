@@ -1949,3 +1949,126 @@ export function startInPageDecodeSite(): Site {
   });
   return { origin: `http://127.0.0.1:${server.port}`, served, hits, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.6-P: s60 fetch credentials (docs/05 s60)
+// Origin A (the page) and origin B (its API) are two ports on 127.0.0.1:
+// different origins, one site, so B's cookies ride on A's credentialed
+// fetches. B's endpoints:
+//   /s60/api/wild     Access-Control-Allow-Origin: * and no -Allow-Credentials
+//                     (a credentialed read is blocked; omit reads it);
+//   /s60/api/double   ACAO: <A> and Access-Control-Allow-Credentials sent twice
+//                     ("true, true": blocked for a credentialed read);
+//   /s60/api/private  ACAO: <A> + ACAC true; 200 only with the s60b cookie,
+//                     401 without it;
+//   /s60/api/login    sets the s60b cookie (ACAO <A> + ACAC true);
+//   /s60/api/me       ACAO: *, the page's own call with Authorization.
+// The page on A logs in on B (credentials include), then calls /s60/api/me
+// with `Authorization: Bearer <S60_TOKEN>` and credentials omit, like the
+// real site's withCredentials: false. The access log (every request's
+// headers) is the oracle for which requests carried the cookie.
+export const S60_TOKEN = "s60-bearer-4c1d9e7a";
+export const S60_COOKIE = "s60b-session-91f2";
+export const S60_WILD = JSON.stringify({ code: 0, endpoint: "wild", from: "s60-b" });
+export const S60_DOUBLE = JSON.stringify({ code: 0, endpoint: "double" });
+export const S60_PRIVATE = JSON.stringify({ code: 0, endpoint: "private", user: "s60-user" });
+export const S60_NEED_COOKIE = JSON.stringify({ code: 401, error: "no s60b cookie" });
+export const S60_ME = JSON.stringify({ code: 0, me: "s60-me-ok" });
+export const S60_LOGIN = JSON.stringify({ code: 0, login: "s60-ok" });
+
+const s60Page = (b: string) => `<!doctype html><meta charset=utf-8><title>s60 fetch credentials</title>
+<h1>s60</h1><p id=s60-out>loading</p>
+<script>
+(async () => {
+  const out = document.getElementById("s60-out");
+  try {
+    await fetch(${JSON.stringify(b)} + "/s60/api/login", { method: "POST", credentials: "include" });
+    const r = await fetch(${JSON.stringify(b)} + "/s60/api/me", { headers: { Authorization: "Bearer " + ${JSON.stringify(S60_TOKEN)} }, credentials: "omit" });
+    out.textContent = (await r.json()).me;
+  } catch (e) {
+    out.textContent = "s60 failed: " + e;
+  }
+})();
+</script>`;
+
+export type S60Hit = { origin: "a" | "b"; method: string; path: string; headers: Record<string, string> };
+export type CredSite = { a: string; b: string; log: S60Hit[]; served: Map<string, string>; stop: () => void };
+
+export function startCredSite(): CredSite {
+  const log: S60Hit[] = [];
+  const served = new Map<string, string>();
+  const note = (origin: "a" | "b", req: Request): URL => {
+    const u = new URL(req.url);
+    log.push({ origin, method: req.method, path: u.pathname, headers: Object.fromEntries(req.headers) });
+    return u;
+  };
+  let aOrigin = "";
+  const b = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = note("b", req);
+      const p = u.pathname;
+      const h = new Headers({ "content-type": "application/json", "cache-control": "no-store" });
+      const send = (body: string, status = 200) => {
+        served.set(`b${p}`, body);
+        return new Response(body, { status, headers: h });
+      };
+      const exact = () => {
+        h.set("access-control-allow-origin", aOrigin);
+        h.set("access-control-allow-credentials", "true");
+        h.set("vary", "origin");
+      };
+      if (p === "/s60/api/me") {
+        h.set("access-control-allow-origin", "*");
+        if (req.method === "OPTIONS") {
+          h.set("access-control-allow-headers", "authorization");
+          h.set("access-control-allow-methods", "GET");
+          return new Response(null, { status: 204, headers: h });
+        }
+        return send(S60_ME);
+      }
+      if (p === "/s60/api/wild") {
+        h.set("access-control-allow-origin", "*");
+        return send(S60_WILD);
+      }
+      if (p === "/s60/api/double") {
+        h.set("access-control-allow-origin", aOrigin);
+        h.append("access-control-allow-credentials", "true");
+        h.append("access-control-allow-credentials", "true");
+        return send(S60_DOUBLE);
+      }
+      if (p === "/s60/api/login") {
+        exact();
+        h.append("set-cookie", `s60b=${S60_COOKIE}; Path=/; HttpOnly; SameSite=Lax`);
+        return send(S60_LOGIN);
+      }
+      if (p === "/s60/api/private") {
+        exact();
+        const has = /(?:^|;\s*)s60b=([^;]+)/.exec(req.headers.get("cookie") ?? "")?.[1] === S60_COOKIE;
+        return has ? send(S60_PRIVATE) : send(S60_NEED_COOKIE, 401);
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  const bOrigin = `http://127.0.0.1:${b.port}`;
+  const a = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = note("a", req);
+      if (u.pathname === "/s60") return new Response(s60Page(bOrigin), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      return new Response("nf", { status: 404 });
+    },
+  });
+  aOrigin = `http://127.0.0.1:${a.port}`;
+  return {
+    a: aOrigin,
+    b: bOrigin,
+    log,
+    served,
+    stop: () => {
+      a.stop(true);
+      b.stop(true);
+    },
+  };
+}

@@ -18,9 +18,9 @@ import { HostLimiter, type Clock } from "../../src/daemon/fetch/limiter.ts";
 import { helperResultOf, helperSource } from "../../src/daemon/fetch/helper.ts";
 import { FETCH_MARKER, parseFetchSpec, targetUrl } from "../../src/daemon/fetch/spec.ts";
 import { firstStop, parseStopRule, parseStopRules } from "../../src/daemon/fetch/stoprules.ts";
-import { handleFetch } from "../../src/daemon/main.ts";
+import { fetchInput, handleFetch } from "../../src/daemon/main.ts";
 import { Daemon } from "../../src/daemon/state.ts";
-import { envelopeHeaders, envelopeTiming, fetchRun, siteOf } from "../../src/daemon/tools/fetch.ts";
+import { blockedNext, credentialsBlock, envelopeHeaders, envelopeTiming, fetchRun, siteOf } from "../../src/daemon/tools/fetch.ts";
 import { guardResume } from "../../src/daemon/tools/handoff.ts";
 import { fetchConfigFrom, FETCH_DEFAULTS } from "../../src/shared/config.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
@@ -98,7 +98,7 @@ describe("CLI options → request (src/cli/fetch.ts)", () => {
 
 describe("request validation (fetch/spec.ts; the endpoint body is untrusted JSON)", () => {
   test("defaults, json / form bodies get their content-type unless given; method upper-cased", () => {
-    expect(parseFetchSpec({ url: "/x" })).toEqual({ url: "/x", method: "GET", headers: [], body: null, tab: null, timeoutMs: 30000, stopOn: [], out: null, rawBody: false, reveal: false });
+    expect(parseFetchSpec({ url: "/x" })).toEqual({ url: "/x", method: "GET", headers: [], body: null, credentials: "include", tab: null, timeoutMs: 30000, stopOn: [], out: null, rawBody: false, reveal: false });
     const j = parseFetchSpec({ url: "/x", method: "post", json: { a: [1] } });
     expect([j.method, j.body, j.headers]).toEqual(["POST", '{"a":[1]}', [["content-type", "application/json"]]]);
     const f = parseFetchSpec({ url: "/x", method: "POST", form: { a: "1 2", b: "&" }, headers: { "Content-Type": "text/plain" } });
@@ -131,7 +131,7 @@ describe("request validation (fetch/spec.ts; the endpoint body is untrusted JSON
 
   test("untrusted values never crash: every shape is a usage error or a valid spec", () => {
     const values: unknown[] = [null, undefined, 0, -1, 1e309, NaN, "", "x", [], [[]], {}, { a: 1 }, true, [1, "a"], { toString: 1 }, "\u0000", "a".repeat(20_000)];
-    const keys = ["url", "method", "headers", "body", "json", "form", "tab", "timeoutMs", "stopOn", "out", "rawBody"];
+    const keys = ["url", "method", "headers", "body", "json", "form", "credentials", "tab", "timeoutMs", "stopOn", "out", "rawBody"];
     for (const top of [...values, ...values.map((v) => ({ url: v }))]) expect(["usage", null]).toContain(codeOf(() => parseFetchSpec(top)));
     for (const k of keys) for (const v of values) expect(["usage", null]).toContain(codeOf(() => parseFetchSpec({ url: "/x", method: "POST", [k]: v })));
   });
@@ -286,7 +286,7 @@ describe("marker header and attribution helpers (capture/fetchmark.ts)", () => {
   });
 
   test("initiator fallback: the helper's function name and scriptId on the stack (or an async parent), same session only", () => {
-    const reg: FetchReg = { fetchId: "c-5:f-1", cmd: "c-5", sessionId: "S1", marker: null, fnName: "__tabcap_fetch_ab_1", scriptId: "42" };
+    const reg: FetchReg = { fetchId: "c-5:f-1", cmd: "c-5", sessionId: "S1", marker: null, fnName: "__tabcap_fetch_ab_1", scriptId: "42", credentials: "include" };
     const other: FetchReg = { ...reg, fetchId: "c-6:f-1", fnName: "__tabcap_fetch_cd_1", scriptId: "43" };
     const stack = (fn: string, sid: string) => ({ type: "script", stack: { callFrames: [{ functionName: fn, scriptId: sid, url: "", lineNumber: 0, columnNumber: 0 }] } });
     expect(initiatorMatch(stack("__tabcap_fetch_ab_1", "42"), [other, reg], "S1")?.fetchId).toBe("c-5:f-1");
@@ -299,10 +299,10 @@ describe("marker header and attribution helpers (capture/fetchmark.ts)", () => {
   });
 
   test("the helper source names its function and carries the marker only as data; results are validated", () => {
-    const src = helperSource("__tabcap_fetch_0a_1", { url: "http://127.0.0.1:9/x", method: "GET", headers: [["a", "b"]], body: null, marker: "c-1:f-1", timeoutMs: 100 });
+    const src = helperSource("__tabcap_fetch_0a_1", { url: "http://127.0.0.1:9/x", method: "GET", headers: [["a", "b"]], body: null, credentials: "include", marker: "c-1:f-1", timeoutMs: 100 });
     expect(src.startsWith("(function __tabcap_fetch_0a_1() {")).toBe(true);
     expect(src).toContain('"marker":"c-1:f-1"');
-    expect(() => helperSource("bad name()", { url: "", method: "GET", headers: [], body: null, marker: null, timeoutMs: 1 })).toThrow();
+    expect(() => helperSource("bad name()", { url: "", method: "GET", headers: [], body: null, credentials: "include", marker: null, timeoutMs: 1 })).toThrow();
     expect(helperResultOf({ ok: true, status: 200, bytes: 3 })).toMatchObject({ ok: true, status: 200, bytes: 3, marked: false });
     expect(helperResultOf({ ok: false, error: "TypeError: Failed to fetch" })).toMatchObject({ ok: false, aborted: false });
     expect(helperResultOf("x")).toBeNull();
@@ -357,7 +357,7 @@ function fakeBrowser(origin: string, serve: (url: string) => Served) {
   const sent: Array<{ method: string; params: CdpParams }> = [];
   const scripts = new Map<string, { fn: string; spec: Record<string, unknown> }>();
   const bodies = new Map<string, string>();
-  const seen: Array<{ url: string; headers: Record<string, string> }> = [];
+  const seen: Array<{ url: string; headers: Record<string, string>; credentials: unknown }> = [];
   let n = 0;
   const emit = (method: string, params: Record<string, unknown>) => {
     for (const l of [...listeners]) l({ method, params, sessionId: "S1" });
@@ -421,7 +421,7 @@ function fakeBrowser(origin: string, serve: (url: string) => Served) {
       const hs = c !== undefined && Array.isArray(c.params["headers"]) ? c.params["headers"] : null;
       if (hs !== null) wire = Object.fromEntries(hs.filter(isRecord).map((h) => [String(h["name"]), String(h["value"])]));
     }
-    seen.push({ url, headers: wire });
+    seen.push({ url, headers: wire, credentials: s.spec["credentials"] });
     emit("Network.requestWillBeSentExtraInfo", { requestId: rid, headers: wire });
     const r = serve(url);
     bodies.set(rid, r.body);
@@ -560,5 +560,81 @@ describe("POST /fetch body validation (untrusted JSON never crashes the daemon)"
     // a valid request without a browser: not-running, not a crash
     const env = await handleFetch(d, { session: "s", url: "http://127.0.0.1:9/x" }, () => undefined);
     expect(!env.ok && env.error.code).toBe("not-running");
+  });
+});
+
+// ------------------------------------------------------------------ 0.6-P credentials mode
+
+// Chrome's console messages for the s60 range (CfT 155; docs/05 s60), the oracle of the hint rule.
+const WILDCARD =
+  "Access to fetch at 'http://127.0.0.1:2/s60/api/wild' from origin 'http://127.0.0.1:1' has been blocked by CORS policy: The value of the 'Access-Control-Allow-Origin' header in the response must not be the wildcard '*' when the request's credentials mode is 'include'.";
+const DOUBLE =
+  "Access to fetch at 'http://127.0.0.1:2/s60/api/double' from origin 'http://127.0.0.1:1' has been blocked by CORS policy: The value of the 'Access-Control-Allow-Credentials' header in the response is 'true, true' which must be 'true' when the request's credentials mode is 'include'.";
+const NO_ACAO = "Access to fetch at 'http://127.0.0.1:2/api/nocors' from origin 'http://127.0.0.1:1' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.";
+
+describe("0.6-P --credentials", () => {
+  test("spec: include by default, same-origin and omit accepted, anything else is usage", () => {
+    expect(parseFetchSpec({ url: "/x" }).credentials).toBe("include");
+    expect(parseFetchSpec({ url: "/x", credentials: "omit" }).credentials).toBe("omit");
+    expect(parseFetchSpec({ url: "/x", credentials: "same-origin" }).credentials).toBe("same-origin");
+    expect(parseFetchSpec({ url: "/x", credentials: null }).credentials).toBe("include");
+    for (const bad of ["Omit", "none", "", 1, true, ["omit"]]) expect(codeOf(() => parseFetchSpec({ url: "/x", credentials: bad }))).toBe("usage");
+  });
+
+  test("CLI: --credentials goes through; with --batch it is the mode of the lines without their own", () => {
+    const dir = tmp("tabcap-fetch-cli-");
+    expect(fetchArgs({ url: "/u", credentials: "omit" }, dir)).toEqual({ url: "/u", credentials: "omit" });
+    writeFileSync(join(dir, "c.jsonl"), '{"url":"/a"}\n{"url":"/b","credentials":"include"}\n');
+    expect(fetchArgs({ batch: "c.jsonl", credentials: "omit" }, dir)).toEqual({ batch: [{ url: "/a", credentials: "omit" }, { url: "/b", credentials: "include" }] });
+    expect(fetchArgs({ batch: "c.jsonl" }, dir)).toEqual({ batch: [{ url: "/a" }, { url: "/b", credentials: "include" }] });
+  });
+
+  test("the helper passes the mode to fetch() as data", () => {
+    const src = helperSource("__tabcap_fetch_0p_1", { url: "http://127.0.0.1:9/x", method: "GET", headers: [], body: null, credentials: "omit", marker: null, timeoutMs: 100 });
+    expect(src).toContain('"credentials":"omit"');
+    expect(src).toContain("credentials: spec.credentials");
+    expect(src).not.toContain('credentials: "include"');
+  });
+
+  test("the cmd start event's input names the mode (default include); a batch counts its lines per mode", () => {
+    expect(fetchInput({ url: "/x" })).toEqual({ url: "/x", credentials: "include" });
+    expect(fetchInput({ url: "/x", credentials: "omit" })).toEqual({ url: "/x", credentials: "omit" });
+    expect(fetchInput({ batch: [{ url: "/a" }, { url: "/b", credentials: "omit" }, { url: "/c", credentials: "omit" }, 5] })).toEqual({ batch: { requests: 4, credentials: { include: 2, omit: 2 } } });
+    expect(fetchInput({ url: "/x", credentials: 7 })).toEqual({ url: "/x", credentials: "number" });
+  });
+
+  test("fetch.blocked next: --credentials omit first when only the credentials mode is in the way; the same-origin navigation second", () => {
+    expect(credentialsBlock(WILDCARD)).toBe("wildcard-origin");
+    expect(credentialsBlock(DOUBLE)).toBe("allow-credentials");
+    expect(credentialsBlock(NO_ACAO)).toBeNull();
+    for (const r of [WILDCARD, DOUBLE]) {
+      const n = blockedNext(r, "include", "http://127.0.0.1:2");
+      expect(n).toContain("--credentials omit");
+      expect(n).toContain("no cookies are sent");
+      expect(n).toContain("Origin / Referer");
+      expect(n.indexOf("--credentials omit")).toBeLessThan(n.indexOf("navigate the tab"));
+    }
+    expect(blockedNext(NO_ACAO, "include", "http://127.0.0.1:2")).not.toContain("--credentials");
+    expect(blockedNext(NO_ACAO, "include", "http://127.0.0.1:2")).toContain("navigate the tab to a page of http://127.0.0.1:2");
+    // already without credentials: omit is not the answer
+    expect(blockedNext(WILDCARD, "omit", "http://127.0.0.1:2")).not.toContain("--credentials omit");
+  });
+
+  test("the flow: the mode reaches the page fetch(); every request of the fetch carries fetchCredentials; batch lines keep their own", async () => {
+    const { d, rec, fb, b } = await fetchHome(ORIGIN, () => ({ status: 200, body: "{}" }));
+    const c = rec.cmdStart({ tab: null, argv: null, input: {} });
+    const one = await fetchRun(d, b, { url: "http://127.0.0.1:10/api/wild", credentials: "omit" }, "s1", { cmd: c });
+    expect(isRecord(one) && one["status"]).toBe(200);
+    const res = await fetchRun(d, b, { batch: [{ url: "/a" }, { url: "/b", credentials: "same-origin" }, { url: "/c", credentials: "omit" }] }, "s1", { cmd: c });
+    expect(isRecord(res) && res["failed"]).toBe(0);
+    expect(fb.seen.map((x) => x.credentials)).toEqual(["omit", "include", "same-origin", "omit"]);
+    await rec.stop();
+    const reqs = readFileSync(join(rec.dir, "events.jsonl"), "utf8").trim().split("\n").map((l): unknown => JSON.parse(l)).filter(isRecord).filter((e) => e["kind"] === "request");
+    expect(reqs.map((e) => [e["fetchId"], e["fetchCredentials"]])).toEqual([
+      [`${c}:f-1`, "omit"],
+      [`${c}:f-1`, "include"],
+      [`${c}:f-2`, "same-origin"],
+      [`${c}:f-3`, "omit"],
+    ]);
   });
 });
