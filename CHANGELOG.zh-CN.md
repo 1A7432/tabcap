@@ -11,6 +11,19 @@
 - 文件权限 0600（新建目录 0700），里面是活的凭据；输出只有路径、计数和头名（`{file, for, origin, mode, cookies, headers, storage, source, note}`），录制包里照常只记带计数的 `cmd` 事件。
 - `replay export-python` 生成的包附带 `_tabcap_session.py`（读 JSON 导出、建 httpx 客户端，运行时不依赖 tabcap），包里的 README 写了用法。
 
+## 未发布
+
+### 经已登录标签发请求（0.6-A）
+
+- **`tabcap fetch <url>`** 由会话的标签发一个请求并录下（需要 `net start`）：在标签主帧的 tabcap 隔离世界里用页面自己的 `fetch()`（`credentials: "include"`），带页面的 cookie、受页面的 CORS 规则。`--method`、`--header k:v`（可重复）、`--body <text|@file>` / `--json <text|@file>` / `--form k=v`（可重复）三选一；`--tab`、`--timeout`（含等本主机轮次的时间）。回答：`{id: "r-N", fetchId: "c-N:f-K", status, statusText, mime, bytes, headers（content-type、content-length、content-encoding、content-disposition、location、cache-control、etag、last-modified、retry-after，已脱敏）, body（≤ 8 KB 的文本）| bodyFile, timing: {startMono, endMono, ms}, waitedMs}`；`--out <file>` 把正文写到该文件，`--raw` 以 `bodyBase64` 返回（≤ 16 MB）。文本正文不论去哪都先做秘密值替换。
+- **确定的归属**：一次 fetch 录下的每个请求都带 `fetchId`，`cmd` 是这次 fetch 自己的命令窗口，同时开着几个命令也不串。同源请求带标记头 `x-tabcap-fetch`，录制器在 Fetch 的 Request 阶段把它去掉再放行（服务器收不到，录下的请求头里也没有）；跨源请求不带标记（会逼出 CORS 预检），按发起栈上助手脚本的唯一函数名与 scriptId 认。fetch 的 `cmd` 结束事件在 `outputSummary.requests` 里列出它的 `r-N`。
+- **按主机限速**：`config.json` `fetch: {minIntervalMs: 3000, concurrency: 1}`，可按库站点在 `sites.<name>.fetch` 覆盖；同一主机的请求按到达顺序排队，`waitedMs` 报告等了多久，命令行没有跳过它的开关。
+- **停手规则**：`--stop-on`（可重复，加在 `config.json` `fetch.stopOn` 之后）：`empty-body`、`status>=<n>`、`status=<n>`、`json:<$.path>=<value>`、`json:<$.path>!=<value>`、`text:<regex>`。命中时响应照常录下，命令以 `fetch.stopped` 失败（规则、说明、`request`，完整回答在 `result`），写一条原因为 `fetch-stop` 的 `guard` breaker 事件，此后发往该站点的 fetch 一律 `guard.stopped`，直到 **`tabcap guard resume --site <站点>`**（新命令），或会话恰在等人时 `handoff continue`。会话不会因此进入 `waiting`。
+- 被页面 CORS 规则拦下的 fetch 以 `fetch.blocked` 失败，附 Chrome 的控制台原话。会话交给人期间 `fetch` 与其他动页面的命令一样等待，并计入账号的每小时预算。
+- **`tabcap fetch --batch <file.jsonl>`**：每行一个请求，在一个命令里按序、按同样的限制发出（`fetchId` 为 `c-N:f-1`、`f-2` …），每行打印一个信封。
+- **`POST /fetch`**：守护进程原有监听上的新路由（Unix 套接字；Windows 上是回环 TCP 加 bearer token）：`{session, tab?, url, method?, headers?, body?|json?|form?, timeoutMs?, stopOn?, rawBody?}` → 同一个信封。`replay export-python` 在客户端旁写出 **`_tabcap_fetch.py`**，一个调用它的小 httpx 助手（`TabcapFetch(session).fetch(url, …) → (status, headers, bytes)`），生成的 README 里以「Route an existing scraper through the browser」一节说明。
+- `net start` 的 `instrumentation` 说明加了一句：同源 fetch 进行期间，该标签的 fetch() 请求也会在 Request 阶段停一下。
+
 ## 0.5.0（2026-10-16）
 
 ### 变更

@@ -723,6 +723,29 @@ Example: `tabcap net wait --url /api/search --method POST`
 | `--since <c-12\|start>` |  | look back to this command's start (c-12), or `start` for the whole recording |
 | `--fresh` |  | only requests finishing after the wait begins |
 
+### `tabcap fetch`
+
+send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) | bodyFile, timing, waitedMs}
+
+```
+tabcap fetch [<url>] [--session name] [--timeout ms] [--tab t2] [--method M] [--header k:v]... [--body text|@file] [--json text|@file] [--form k=v]... [--stop-on rule]... [--out file] [--raw] [--batch file.jsonl]
+```
+
+Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--method <M>` | `GET` | HTTP method |
+| `--header <k:v>` |  | request header (name:value) (repeatable) |
+| `--body <text\|@file>` |  | request body text, or @<file> to read it from a file |
+| `--json <text\|@file>` |  | JSON request body (checked; content-type application/json unless --header sets one), or @<file> |
+| `--form <k=v>` |  | form field of an application/x-www-form-urlencoded body (repeatable) |
+| `--stop-on <rule>` |  | stop rule, on top of config.json fetch.stopOn: empty-body \| status>=<n> \| status=<n> \| json:<$.path>=<v> \| json:<$.path>!=<v> \| text:<regex>; when one fires the site's fetches are refused until `tabcap guard resume --site` (repeatable) |
+| `--out <file>` |  | write the body (text secret-scrubbed) to this file instead of inline / bodyFile |
+| `--raw` |  | the body as base64 inline (bodyBase64, up to 16 MB; text secret-scrubbed) instead of inline text / bodyFile |
+| `--batch <file.jsonl>` |  | JSON lines file, one request per line {url, method?, headers?, body?\|json?\|form?, tab?, timeoutMs?, stopOn?}: sent in order under the same limits, one envelope printed per line |
+
 ### `tabcap where`
 
 which recorded response carries a value the page shows (a snapshot ref's visible text, or a text): JSON paths through analyze find's decode chain, then HTML text nodes (selectors), matched exactly or after normalisation (thousands / decimal separators, accounting negatives, full-width, nbsp, YYYY-MM dates, dotted codes, DR / CR); searches only the session's recording and sends no request
@@ -830,6 +853,20 @@ tabcap handoff continue [--session name]
 ```
 
 Example: `tabcap handoff continue`
+
+### `tabcap guard resume`
+
+resume fetches: let `tabcap fetch` send to a site again after one of its stop rules fired (decide first: look at the stopped response)
+
+```
+tabcap guard resume [--session name] --site <site>
+```
+
+Example: `tabcap guard resume --site example`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--site <site>` |  | the store site (or host) whose fetches a stop rule stopped (required) |
 
 ### `tabcap plugin list`
 

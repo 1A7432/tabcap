@@ -90,10 +90,12 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap console show <msgid> [--tab t2]` | one console message by msgid (from console list): text, arguments, location, stack trace |
 | `tabcap wait [--tab t2] [--text text]... [--selector css] [--url s] [--idle [ms]] [--fn js]` | wait for one condition on the current tab; returns what matched, or error timeout naming what is still outstanding |
 | `tabcap net wait --url <s> [--method M] [--tab t2] [--since c-12\|start] [--fresh]` | wait until a matching request finished with its body stored (needs net start). Counts requests since the start of the last action command (navigate, tab new, click, hover, fill, type, press-key, upload, go, reload, evaluate) → id, status, body path |
+| `tabcap fetch [<url>] [--tab t2] [--method M] [--header k:v]... [--body text\|@file] [--json text\|@file] [--form k=v]... [--stop-on rule]... [--out file] [--raw] [--batch file.jsonl]` | send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) \| bodyFile, timing, waitedMs} |
 | `tabcap where <query> [--as ref\|text] [--top n] [--text] [--write-findings]` | which recorded response carries a value the page shows (a snapshot ref's visible text, or a text): JSON paths through analyze find's decode chain, then HTML text nodes (selectors), matched exactly or after normalisation (thousands / decimal separators, accounting negatives, full-width, nbsp, YYYY-MM dates, dotted codes, DR / CR); searches only the session's recording and sends no request |
 | `tabcap recon [--text]` | recon dossier v0 of the session's recording and current page: tech stack (adapter detect results, header / session-cookie hints), data channels (method, path template, type, body class) with the share of the page's visible text found in recorded responses, cookie classification (origin, lifetime, flags, role, requiredBy from analyze deps), protection identification (guard detections, response signals; identification only). Writes exports/dossier.json (schema tabcap-dossier/0) and exports/dossier.md into the bundle; sends no request |
 | `tabcap handoff status` | is the session handed to the human? state running \| waiting \| resumed, reason, screenshot, handler answers |
 | `tabcap handoff continue` | end a waiting state after the human finished in the browser (run it only when they say so) |
+| `tabcap guard resume --site <site>` | resume fetches: let `tabcap fetch` send to a site again after one of its stop rules fired (decide first: look at the stopped response) |
 | `tabcap trace start [--apis file] [--stack n] [--first-n n] [--max-hits n]` | trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable |
 | `tabcap trace stop` | end trace mode: breakpoints removed, debugger off, open documents written to the recording |
 | `tabcap trace status` | trace mode state: on \| paused (handoff) \| off, active APIs, names skipped in this browser, per-document read counts |
@@ -147,6 +149,10 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 - 类签名参数和加密正文不复现：生成的客户端把它们标成 TODO，这些请求留在真实浏览器会话里。
 - 用于分析和调试你自己在有权使用的站点上的会话；本仓库的测试只对本地页面跑。
 - 凭据库是明文，靠文件权限保护（0700 目录里的 0600 文件，和 `~/.netrc` 一样）；能用测试账号就用测试账号。
+
+## 让你自己的爬虫经浏览器发请求
+
+只录人的浏览，只能录到页面当时发过的请求。`tabcap fetch <url>` 让已登录的标签替你发一个请求（页面自己的 `fetch()`，带它的 cookie、受它的 CORS 规则）并录下，每条带 `fetchId`，并发的请求也不会混；`--batch file.jsonl` 按序发一批。同一主机的请求按间隔排队（`config.json` `fetch.minIntervalMs`，默认 3000 ms，命令行没有跳过它的开关）；停手规则（`--stop-on 'json:$.code!=0'`、`status>=400`、`empty-body` …）一旦命中，该站点就停下，直到你运行 `tabcap guard resume --site <站点>`。已有的 Python 爬虫可以经守护进程的套接字做同样的事（`POST /fetch`）：`replay export-python` 会写出 `_tabcap_fetch.py`，`TabcapFetch(session).fetch(url, …)` 返回 `(status, headers, bytes)`。闭环是：录制 → 爬虫的请求经标签发出 → 导出 HAR / 夹具 → 离线回放。
 
 ## MCP
 
