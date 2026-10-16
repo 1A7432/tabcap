@@ -309,7 +309,7 @@ export const COMMANDS: CommandSpec[] = [
         help: "only the lines whose role, name, value, states or description match this regex (JavaScript, u flag, at most 256 chars), each with its ancestor lines; refs are the full snapshot's",
         metavar: "regex",
       },
-      { flag: "--css", key: "css", kind: "string", help: "only the lines of the elements this CSS selector matches in each shown document (read in an isolated world), with ancestors; elements without a line print as `(no accessible node) <tag#id.class>`", metavar: "selector" },
+      { flag: "--css", key: "css", kind: "string", help: "only the lines of the elements this CSS selector matches in each shown document (read in an isolated world), with ancestors; elements without a line print as `(no accessible node) <tag#id.class> [e12]` with a DOM-backed ref that click / fill / hover / upload / html / screenshot --ref take", metavar: "selector" },
       { flag: "--xpath", key: "xpath", kind: "string", help: "as --css, with an XPath 1.0 expression", metavar: "expr" },
       { flag: "--ref", key: "ref", kind: "string", help: "only the subtree under this element (its own frame for a frame ref)", metavar: "e12" },
       { flag: "--depth", key: "depth", kind: "number", help: "with --ref: levels below the element (default: all); hidden deeper lines are counted", metavar: "n" },

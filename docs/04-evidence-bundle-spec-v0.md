@@ -427,3 +427,9 @@
 - **停手规则**（`--stop-on` 可重复，加在 `fetch.stopOn` 之后，按序取第一条命中的）：`empty-body`（无正文、0 字节或只有空白）、`status>=<n>`、`status=<n>`、`json:<$.路径>=<值>`、`json:<$.路径>!=<值>`（路径 `$` 加 `.键` / `[下标]`；值能按 JSON 解析就按 JSON 比，否则按字符串；正文不是 JSON 或路径上没有值，算「无值」，与任何值都不相等）、`text:<正则>`（u 标志，≤ 256 字符，对脱敏后的文本）。命中时：响应照常录下；命令回 `ok:false`、`error.code:"fetch.stopped"`，带 `site`、`rule`、`detail`、`request`、`fetchId` 与完整信封 `result`（含 `stopped:{rule, detail}`）；写 `guard` breaker（§4.2）；此后该站点的 `fetch`（命令行与端点）一律 `guard.stopped`，直到 `tabcap guard resume --site <站点>`，或该会话恰在 `waiting` 时由 `handoff continue` 一并解除。会话不会因此自动进 `waiting`；停手状态只在守护进程内存里，重启守护进程即清。
 - **其他错误**：页面的 CORS 拦下 → `fetch.blocked`，`reason` 是 Chrome 写进控制台的那句（已脱敏），`request` 是录下的失败请求；页面里请求失败（连不上等）→ `page`；在页面里超时 → `timeout`。`fetch` 和其他动页面的命令一样受 `waiting`（§4.2）与账号小时预算约束。
 - **端点** `POST /fetch`：与 `/command` 同一监听、同一鉴权（POSIX 上 0600 的 Unix 套接字，Windows 上回环 TCP + 每次启动的 bearer token）；请求体 `{session, tab?, url, method?, headers?:{名:值}|[[名,值]…], body?(文本)|json?(任意 JSON 值)|form?:{字段:值}|[[字段,值]…], timeoutMs?, stopOn?, rawBody?}`，回与命令行相同的信封；不收 `batch`、`out`。请求体是不可信 JSON：形状不对一律 `usage`，不会让守护进程出错。每次调用一个命令窗口（`argv:null`）。
+
+## 27. 0.6-D 守护进程修补（10-16 作者定六条；字段按实现定案，待作者审）
+
+来自作者另一个项目在真实站点上试 v0.5.0 的报告（10-16）。不加新的事件 kind，请求事件格式不变。
+
+- **DOM 支撑的 ref**：`snapshot --css` / `--xpath` 命中、却没有无障碍行的元素（UI 库把输入框、按钮从无障碍树里藏掉），现在也铸 ref：同一张 ref 表、同样绑 `backendNodeId` + 帧 + loaderId、同样随文档失效，打印成 `- (no accessible node) <input#id.class> [e31]`（文本节点等拿不到 backendNodeId 的仍无 ref）。`click`、`fill`、`hover`、`upload`、`html`、`screenshot --ref` 照收（盒模型走 `DOM.getBoxModel`，焦点走元素自己的 `focus()`，与无障碍 ref 同一条路）；`type` 打进 `fill` / `click` 聚焦后的它。`search` 多 `domRefs`（铸了 ref 的无障碍外节点数），`refs` 把它们算进去。`snapshot --ref <DOM ref>` 没有行可展开，`not-found` 并提示 `html <ref>`。

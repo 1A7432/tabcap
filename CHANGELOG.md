@@ -22,6 +22,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **`POST /fetch`** on the daemon's own listener (the Unix socket; on Windows loopback TCP with the bearer token): `{session, tab?, url, method?, headers?, body?|json?|form?, timeoutMs?, stopOn?, rawBody?}` → the same envelope. `replay export-python` writes **`_tabcap_fetch.py`** next to the client, a small httpx helper for it (`TabcapFetch(session).fetch(url, …) → (status, headers, bytes)`), documented in the generated README as "Route an existing scraper through the browser".
 - `net start`'s `instrumentation` note says that during a same-origin fetch the tab's fetch() requests also pause at the Request stage.
 
+### Daemon fixes from a real-project test (0.6-D)
+
+- **DOM-backed refs**: an element that `snapshot --css` / `--xpath` matches but that has no accessibility node (UI libraries hide inputs and buttons from the tree) now gets a ref too, printed as `(no accessible node) <input#id.class> [e31]`: bound to its backend node id, frame and loaderId like any ref and expiring the same way. `click`, `fill`, `type` (after a `fill` / `click` focused it), `hover`, `upload`, `html` and `screenshot --ref` take it. `search.domRefs` counts them.
+
 ## 0.5.0 (2026-10-16)
 
 ### Changed

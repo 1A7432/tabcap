@@ -325,7 +325,7 @@ Example: `tabcap snapshot --interactive`
 | `--frames` |  | also expand every child frame (iframes, frameset frames, cross-origin too); their refs carry the frame path, e.g. f2/f1/e7; --max-chars applies per frame |
 | `--frame <f2/f1>` |  | expand only this frame and the frames inside it (the root document is listed in the header only) |
 | `--grep <regex>` |  | only the lines whose role, name, value, states or description match this regex (JavaScript, u flag, at most 256 chars), each with its ancestor lines; refs are the full snapshot's |
-| `--css <selector>` |  | only the lines of the elements this CSS selector matches in each shown document (read in an isolated world), with ancestors; elements without a line print as `(no accessible node) <tag#id.class>` |
+| `--css <selector>` |  | only the lines of the elements this CSS selector matches in each shown document (read in an isolated world), with ancestors; elements without a line print as `(no accessible node) <tag#id.class> [e12]` with a DOM-backed ref that click / fill / hover / upload / html / screenshot --ref take |
 | `--xpath <expr>` |  | as --css, with an XPath 1.0 expression |
 | `--ref <e12>` |  | only the subtree under this element (its own frame for a frame ref) |
 | `--depth <n>` |  | with --ref: levels below the element (default: all); hidden deeper lines are counted |

@@ -1313,3 +1313,130 @@ export function startFetchSite(): FetchSite {
     },
   };
 }
+
+// ---------------------------------------------------------------- 0.6-D: daemon fixes range (docs/05 s47–s52)
+// One origin, six small pages; every text and value a test expects is a
+// literal here, and the server's own log (`hits`, `posts`) is the oracle for
+// what the browser sent.
+//   /s47            s47 hidden-controls: inputs, a button, a file input and a
+//                   hover box inside aria-hidden (no accessibility node); the
+//                   page writes what it received into #s47-out (outside the
+//                   hidden part) and records hover / upload itself.
+//   /s48            s48 click-effects: a sub-menu title and a table cell whose
+//                   handlers ignore untrusted clicks, a counter button (DOM
+//                   change), a link (navigation), a ping button (request only).
+//   /s49            s49 post-redirect: a form POST → 302 → GET page, and a
+//                   fetch POST → 302 → GET JSON; `posts` keeps each body the
+//                   server received.
+//   /s50            s50 image-captcha: a login form with a captcha image and
+//                   its code input; /s50/plain is the same form without it.
+//   /s52            s52 frame-dates: an ambiguous date in the root document,
+//                   a date with a day over 12 inside an iframe.
+
+export const S47_USER = "s47-user-7f";
+export const S47_PASS = "S23-pass-e2e-91";
+export const S47_UPLOAD_NAME = "s47-upload.txt";
+export const S48_ITEM = "子项一";
+export const S49_FORM = { user: "s49-user", note: "备注 a&b=c" } as const;
+export const S49_FETCH_BODY = JSON.stringify({ q: "s49-fetch", n: 25 });
+export const S50_IMG_ALT = "验证码";
+export const S52_ROOT_DATE = "03/04/2026";
+export const S52_FRAME_DATE = "25/04/2026";
+
+export type DaemonFixSite = { origin: string; hits: string[]; posts: Map<string, string>; stop: () => void };
+
+export function startDaemonFixSite(): DaemonFixSite {
+  const hits: string[] = [];
+  const posts = new Map<string, string>();
+  const page = (title: string, body: string) =>
+    new Response(`<!doctype html><meta charset=utf-8><title>${title}</title>\n${body}`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  const json = (v: unknown) => new Response(JSON.stringify(v), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const u = new URL(req.url);
+      const p = u.pathname;
+      hits.push(`${req.method} ${p}${u.search}`);
+      if (p === "/s47")
+        return page(
+          "s47 hidden controls",
+          `<div class=el-form aria-hidden=true>
+  <div class=el-input><input class=el-input__inner id=s47-user type=text></div>
+  <div class=el-input><input class=el-input__inner id=s47-pass type=password></div>
+  <button type=button class=el-button id=s47-go><span class=el-icon></span></button>
+  <input type=file class=el-upload__input id=s47-file>
+  <div class=s47-hover id=s47-hover style="width:120px;height:30px;background:#ddd"></div>
+</div>
+<p id=s47-out></p>
+<script>
+window.__s23 = { hover: null, file: null };
+const $ = (id) => document.getElementById(id);
+$("s47-go").addEventListener("click", () => { $("s47-out").textContent = "user=" + $("s47-user").value + ";pass=" + $("s47-pass").value.length; });
+$("s47-hover").addEventListener("mouseover", (e) => { window.__s23.hover = e.isTrusted; });
+$("s47-file").addEventListener("change", () => { const f = $("s47-file").files[0]; window.__s23.file = f ? f.name : null; });
+</script>`,
+        );
+      if (p === "/s48")
+        return page(
+          "s48 click effects",
+          `<ul class=el-menu><li class=el-submenu><div class=el-submenu__title id=s48-sub>子菜单</div><ul id=s48-items style="display:none"><li>${S48_ITEM}</li></ul></li></ul>
+<table><tr><td id=s48-cell>单元格</td></tr></table>
+<button type=button id=s48-count>加一</button> <span id=s48-n>0</span>
+<a id=s48-link href="/s48/next">下一页</a>
+<button type=button id=s48-ping>只发请求</button>
+<script>
+const $ = (id) => document.getElementById(id);
+$("s48-sub").addEventListener("click", (e) => { if (e.isTrusted) $("s48-items").style.display = "block"; });
+$("s48-cell").addEventListener("click", (e) => { if (e.isTrusted) $("s48-cell").textContent = "已选"; });
+$("s48-count").addEventListener("click", () => { $("s48-n").textContent = String(Number($("s48-n").textContent) + 1); });
+$("s48-ping").addEventListener("click", () => { fetch("/s48/ping", { cache: "no-store" }); });
+</script>`,
+        );
+      if (p === "/s48/next") return page("s48 next", "<p>第二页</p>");
+      if (p === "/s48/ping") return json({ pong: 1 });
+      if (p === "/s49")
+        return page(
+          "s49 post redirect",
+          `<form id=s49-form method=post action="/s49/submit"><input name=user value="${S49_FORM.user}"><input name=note value="${S49_FORM.note.replace(/&/g, "&amp;")}"><button id=s49-go>提交</button></form>
+<button type=button id=s49-fetch>接口提交</button> <span id=s49-out></span>
+<script>
+document.getElementById("s49-fetch").addEventListener("click", () => {
+  fetch("/s49/api", { method: "POST", headers: { "content-type": "application/json" }, body: ${JSON.stringify(S49_FETCH_BODY)} })
+    .then((r) => r.json()).then((j) => { document.getElementById("s49-out").textContent = j.done; });
+});
+</script>`,
+        );
+      if (p === "/s49/submit" && req.method === "POST") {
+        posts.set(p, await req.text());
+        return new Response(null, { status: 302, headers: { location: "/s49/done", "cache-control": "no-store" } });
+      }
+      if (p === "/s49/done") return page("s49 done", "<p id=s49-done>已提交</p>");
+      if (p === "/s49/api" && req.method === "POST") {
+        posts.set(p, await req.text());
+        return new Response(null, { status: 302, headers: { location: "/s49/api/done", "cache-control": "no-store" } });
+      }
+      if (p === "/s49/api/done") return json({ done: "s49-api-done" });
+      if (p === "/s50" || p === "/s50/plain") {
+        const captcha =
+          p === "/s50"
+            ? `<p><label>验证码 <input name=verifyCode id=s50-code></label> <img id=s50-img class=captcha-img src="/s50/captcha.png" alt="${S50_IMG_ALT}" style="width:100px;height:40px;border:1px solid #888"></p>`
+            : "";
+        return page(
+          p === "/s50" ? "s50 captcha login" : "s50 plain login",
+          `<form id=s50-form onsubmit="return false">
+<p><label>用户名 <input name=username id=s50-user></label></p>
+<p><label>密码 <input type=password name=password id=s50-pass></label></p>
+${captcha}
+<button type=button id=s50-go>登录</button>
+</form>`,
+        );
+      }
+      if (p === "/s50/captcha.png") return new Response(PIXEL, { headers: { "content-type": "image/png", "cache-control": "no-store" } });
+      if (p === "/s52") return page("s52 frame dates", `<p id=s52-date>${S52_ROOT_DATE}</p>\n<iframe id=s52-frame src="/s52/frame" style="width:300px;height:80px"></iframe>`);
+      if (p === "/s52/frame") return page("s52 frame", `<p>截止 ${S52_FRAME_DATE}</p>`);
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, hits, posts, stop: () => server.stop(true) };
+}

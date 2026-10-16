@@ -23,7 +23,7 @@ Filtering happens in the daemon. Ask for the part you need instead of reading a 
 ## Snapshot filters
 
 - `--grep <regex>` matches each line's role, name, value, states and description (not the ref). Each match comes with its ancestor lines, indented as in the full snapshot; `--context N` adds N sibling lines on each side; `--max-matches` (default 50) caps the matches shown over all documents, `search.matches` counts them all.
-- `--css` / `--xpath` run in each document the snapshot shows (the root document, plus the frames `--frames` / `--frame f2` expand) and print the matched elements' lines with their ancestors. An element with no accessibility line prints as `(no accessible node) <div#id.class>`: use `tabcap html --css …` for its markup.
+- `--css` / `--xpath` run in each document the snapshot shows (the root document, plus the frames `--frames` / `--frame f2` expand) and print the matched elements' lines with their ancestors. An element with no accessibility line (UI libraries often hide inputs and buttons from it) prints as `(no accessible node) <input#id.class> [e31]` with a DOM-backed ref: `click`, `fill`, `type` (after `fill` / `click` focused it), `hover`, `upload`, `html` and `screenshot --ref` take it like any ref, and it expires the same way.
 - `--ref e12 --depth n` prints the subtree under the element, n levels; the ref's own frame is used for a frame ref (`f2/e7`), no `--frames` needed. Hidden deeper lines are counted in `search.hidden`.
 - Refs in a filtered snapshot are the full snapshot's refs: click / fill them as usual. The header (overlays, frames) is always there.
 - Regexes are JavaScript with the `u` flag, at most 256 characters; escape `. ( ) [ ] { } * + ? ^ $ | \` to match them literally (`\,` is not valid under `u`).

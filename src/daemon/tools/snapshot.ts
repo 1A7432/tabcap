@@ -312,6 +312,7 @@ async function renderFiltered(d: Daemon, t: Transport, tab: Tab, o: SnapshotOpti
   let total = 0;
   let shown = 0;
   let noAccessible = 0;
+  let domRefs = 0;
   let hidden = 0;
   const texts: string[] = [];
   for (const b of blocks) {
@@ -323,7 +324,7 @@ async function renderFiltered(d: Daemon, t: Transport, tab: Tab, o: SnapshotOpti
     refs += flat.refs;
     if (q.mode === "ref") {
       const i = flat.lines.findIndex((l) => l.backendId === refTarget);
-      if (i < 0) throw new TabcapError("not-found", `ref ${q.ref} has no line in the current tree${o.interactive ? " (--interactive keeps controls only)" : ""}`, o.interactive ? "Drop --interactive, or run snapshot again." : "The element is no longer in the accessibility tree; run snapshot again.");
+      if (i < 0) throw new TabcapError("not-found", `ref ${q.ref} has no line in the current tree${o.interactive ? " (--interactive keeps controls only)" : ""}`, o.interactive ? "Drop --interactive, or run snapshot again." : `The element is not in the accessibility tree (a DOM-backed ref from --css / --xpath has no line): \`tabcap html ${q.ref}\` shows its markup, or run snapshot again.`);
       const sub = subtreeLines(flat.lines, i, q.depth);
       shown = sub.shown;
       hidden = sub.hidden;
@@ -347,11 +348,18 @@ async function renderFiltered(d: Daemon, t: Transport, tab: Tab, o: SnapshotOpti
       const r = nodesAx(flat.lines, sel.nodes.flatMap((n) => (n.backendId === null ? [] : [n.backendId])));
       take = r.hits;
       const lost = new Set(r.missing);
-      missing = sel.nodes.filter((n) => n.backendId === null || lost.has(n.backendId)).map((n) => n.label);
+      // 0.6-D: a node without an AX line still gets a ref, bound to its backend node id (a DOM-backed ref, same table and expiry).
+      missing = sel.nodes
+        .filter((n) => n.backendId === null || lost.has(n.backendId))
+        .map((n) => {
+          if (n.backendId === null) return `<${n.label}>`;
+          domRefs++;
+          return `<${n.label}> [${b.refFor(n.backendId)}]`;
+        });
       noAccessible += missing.length;
     }
     if (take.length === 0 && missing.length === 0) continue;
-    const body = [pickLines(flat.lines, take, q.context), ...missing.map((l) => `- ${NO_AX} <${l}>`)].filter((x) => x !== "").join("\n");
+    const body = [pickLines(flat.lines, take, q.context), ...missing.map((l) => `- ${NO_AX} ${l}`)].filter((x) => x !== "").join("\n");
     texts.push(b.head === null ? body : `${b.head}\n${body}`);
   }
   const page = await inspectPage(t, tab, rootDoc(tab, doc), undefined, tree === null ? null : tree.root);
@@ -364,9 +372,9 @@ async function renderFiltered(d: Daemon, t: Transport, tab: Tab, o: SnapshotOpti
     search = { mode: "ref", ref: q.ref, depth: q.depth, shown, hidden };
     if (hidden > 0) notes.push(`${hidden} deeper line(s) hidden: raise --depth`);
   } else {
-    search = { mode: q.mode, query: q.query, matches: total, shown, context: q.context, ...(q.mode === "grep" ? {} : { noAccessible }) };
+    search = { mode: q.mode, query: q.query, matches: total, shown, context: q.context, ...(q.mode === "grep" ? {} : { noAccessible, domRefs }) };
     if (total > shown) notes.push(`${total - shown} more match(es): raise --max-matches (max 1000) or narrow the ${q.mode === "grep" ? "pattern" : "expression"}`);
-    if (noAccessible > 0) notes.push(`${noAccessible} node(s) have no accessibility line (no ref): \`tabcap html --css <selector>\` shows their markup`);
+    if (noAccessible > 0) notes.push(`${noAccessible} node(s) have no accessibility line; ${domRefs} of them got a DOM-backed ref (click, fill, hover, upload, html, screenshot --ref take it; it expires like any ref)`);
   }
   const text = [header, ...(texts.length === 0 ? ["(no matches)"] : texts)].join("\n");
   const head = {
@@ -376,7 +384,7 @@ async function renderFiltered(d: Daemon, t: Transport, tab: Tab, o: SnapshotOpti
     nav: d.navOf(tab),
     interactive: o.interactive,
     verbose: o.verbose,
-    refs,
+    refs: refs + domRefs,
     overlays: page.overlays,
     detected: (page.detected ?? []).filter((x) => x.confidence > 0),
     ...(frames.length > 0 ? { frames } : {}),

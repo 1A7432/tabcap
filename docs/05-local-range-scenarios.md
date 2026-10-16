@@ -230,3 +230,11 @@
   - `type --trusted "aB3 中"`：从第一个 `keydown` 起，除 `seq` / `timeStamp` / `dt` / `screenX` / `screenY` 外逐字段等于 Playwright `type` 导出；`'中'` 只有 beforeinput / textInput / input。
   - `type --insert` 与默认 `type`：同上逐字段等于 Playwright `fill` 导出；输出 `eventShape:"insert"`、警告含「incomplete event sequence」。
   - 默认 `click`：只有 1 个 `click`，`isTrusted:false`、`detail:0`、坐标 0,0（同 `js_click` 导出）；输出 `level:1`、`eventShape:"incomplete"`。
+
+## 7. 0.6-D 真实项目试用后补的场景（10-16，均 P1；s23–s29 已被 docs/09 的规划占用，从 s47 编起）
+
+### s47 hidden-controls（P1；0.6-D，DOM 支撑的 ref）
+- 页面 `/s47`（`test/e2e/site.ts` 的 `startDaemonFixSite`）：`aria-hidden=true` 的容器里有 `input#s47-user.el-input__inner`、`input#s47-pass.el-input__inner`（password）、无名字的 `button#s47-go.el-button`、`input#s47-file.el-upload__input`（file）、`div#s47-hover.s47-hover`（120×30）；容器外的 `p#s47-out` 由页面写下按钮收到的值，`window.__s23` 记下 hover（`isTrusted`）与上传的文件名。
+- 走法：`snapshot --css '#s47-user, #s47-pass, #s47-go, #s47-file, #s47-hover'` → `fill` 两个输入框、`type -t`、`click` 按钮 → `html --attrs` → `screenshot --ref` → `hover` → `upload` → `reload` 后旧 ref。
+- expected：五个都是 `(no accessible node) <…> [e<n>]`，`search.noAccessible` 与 `domRefs` 都是 5，完整快照里没有这些 ref；`#s47-out` 为 `user=s47-user-7f-t;pass=15`（`S47_*` 字面量）；截图宽高 = 120×30 × 页面自己的 `devicePixelRatio`；`__s23.hover` 为 true，`__s23.file` 为上传文件名；`reload` 后旧 ref 是 `stale-ref`。
+

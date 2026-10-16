@@ -24,6 +24,10 @@
 - **`POST /fetch`**：守护进程原有监听上的新路由（Unix 套接字；Windows 上是回环 TCP 加 bearer token）：`{session, tab?, url, method?, headers?, body?|json?|form?, timeoutMs?, stopOn?, rawBody?}` → 同一个信封。`replay export-python` 在客户端旁写出 **`_tabcap_fetch.py`**，一个调用它的小 httpx 助手（`TabcapFetch(session).fetch(url, …) → (status, headers, bytes)`），生成的 README 里以「Route an existing scraper through the browser」一节说明。
 - `net start` 的 `instrumentation` 说明加了一句：同源 fetch 进行期间，该标签的 fetch() 请求也会在 Request 阶段停一下。
 
+### 真实项目试用后的守护进程修补（0.6-D）
+
+- **DOM 支撑的 ref**：`snapshot --css` / `--xpath` 命中、却没有无障碍节点的元素（UI 库把输入框、按钮从无障碍树里藏掉）现在也有 ref，打印成 `(no accessible node) <input#id.class> [e31]`：与普通 ref 一样绑 backend node id、帧与 loaderId，一样失效。`click`、`fill`、`type`（在 `fill` / `click` 聚焦它之后）、`hover`、`upload`、`html`、`screenshot --ref` 都收它。`search.domRefs` 计数。
+
 ## 0.5.0（2026-10-16）
 
 ### 变更

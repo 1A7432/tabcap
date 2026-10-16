@@ -1272,7 +1272,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": null,
           "flag": "--css",
-          "help": "only the lines of the elements this CSS selector matches in each shown document (read in an isolated world), with ancestors; elements without a line print as \`(no accessible node) <tag#id.class>\`",
+          "help": "only the lines of the elements this CSS selector matches in each shown document (read in an isolated world), with ancestors; elements without a line print as \`(no accessible node) <tag#id.class> [e12]\` with a DOM-backed ref that click / fill / hover / upload / html / screenshot --ref take",
           "key": "css",
           "repeatable": false,
           "required": false,
