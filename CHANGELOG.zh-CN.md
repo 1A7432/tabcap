@@ -4,6 +4,13 @@
 
 ## 未发布
 
+- **帧路径 ref（0.4-I）**：`snapshot` 与 `outline` 的头里列出所有子帧（iframe、`frameset` 的 `frame`，跨源的也算），每帧一行 `f2/f1  <url>  same-origin|cross-origin  depth 2  "<标题>"`，按深度缩进；`f<n>` 的 `n` 是该帧在父文档子帧里按文档顺序的序号（从 1 起），同源 / 跨源相对父帧。JSON 多一个 `frames` 列表。没有子帧的页面输出与以前相同。
+- **`snapshot --frames`** 展开每个帧的树，**`snapshot --frame f2/f1`** 只展开该帧及其后代（根文档只在头里）。帧里的元素是**帧路径 ref**：`f<n>/e<m>`，嵌套 `f<n>/f<k>/e<m>`；`--max-chars` 按帧算，超出的帧末尾一行 `(truncated)`。
+- **所有带 ref 的命令都认帧 ref**：`click`（含 `--trusted`）、`fill`（含 `--trusted`）、`hover`、`upload`、`where`、`screenshot --ref`、`evaluate --function … --args '[{"ref":"f2/e7"}]'`（函数在那个帧的 window 里跑）。同源帧经标签会话解析，OOPIF 经它自己的会话；可信鼠标输入仍发给标签，坐标按帧的偏移链平移，先在帧里、再在每层的所有者元素处做遮挡检查。帧导航后它的 ref 失效（`stale-ref` 说明是哪一帧）；帧路径写错时告诉你这个编号对应哪个 ref。对帧 ref 的动作输出带 `frame`（也进 `cmd` 结束事件的 `outputSummary`）。
+- **帧里的遮挡**：遮挡头也看子帧（标 `in f2`）；带 iframe 的遮挡（iframe 弹层）把 iframe 里的关闭按钮连同帧路径 ref 列进 `close`，可以直接 `click` 关掉。对帧 ref 的 `click` / `fill`，上层文档的遮挡盖住这个帧时也报 `covered`。
+- `type` 顺着焦点进帧（同源在页面里，跨源经该帧会话）判断是不是密码框，帧里的密码同样脱敏。
+- 靶场加 docs/05 s22 frames（frameset、跨源 iframe 嵌同源帧、关闭按钮在跨源 iframe 里的 iframe 弹层）。
+
 - **侦查档案 v0（0.4-J）`tabcap recon [--text]`** 与离线的 **`tabcap analyze recon <包> [--text]`**（离线时用包里最后一份录到的文档代替页面）：对会话的录制和当前页面写一份档案进证据包，`exports/dossier.json`（schema `tabcap-dossier/0`）与 `exports/dossier.md`（0600，每次覆写）；命令输出两个路径、简短摘要和 `receipt: {dossier: "exports/dossier.json"}`，`cmd` 结束事件的 `outputSummary.receipt` 里也有。不发任何请求。只答四问：
   - **技术栈**：当前页面上每个适配器的 `detect` 结果，加一张 17 条的固定标记表（响应头 `server`、`x-powered-by`、`x-aspnet-version`、`x-aspnetmvc-version`、`x-generator`、`x-runtime`、`x-nextjs-cache`；会话 cookie 名 `JSESSIONID`、`ASP.NET_SessionId`、`PHPSESSID`、`laravel_session`、`csrftoken`、`_<app>_session`、`connect.sid` 等），头的值照录、cookie 只记名字，标【推断】，不猜版本。
   - **数据通道与覆盖率**：请求按方法、路径模板（数字、uuid、长十六进制段写成 `{id}`）、资源类型、正文类别（`json | html | fragment | text | binary | ws | sse`）分组，列条数、首条 `r-N`、状态码、`unreadByPage`、用到的解码步骤和各自承载的页面词数；覆盖率是页面可见文字的词（≥ 4 字符，数字 ≥ 4 位）用 `analyze find` 的精确匹配在录到的响应和收到的 WebSocket 帧里找到的比例，另列至多 20 个没找到的词。

@@ -4,6 +4,15 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### Frames: frame-path refs (0.4-I)
+
+- **The frame tree is in the snapshot header**: `snapshot` and `outline` list every child frame (iframes and frameset frames, cross-origin ones too) as `frames` lines, `f2/f1  <url>  same-origin|cross-origin  depth 2  "<title>"`, indented by depth; `n` in `f<n>` is the frame's position among its parent's child frames in document order. The JSON has a `frames` list (path, url, origin relative to the parent frame, depth, title). A page without child frames answers exactly as before.
+- **`snapshot --frames`** also expands each frame's tree, **`snapshot --frame f2/f1`** only that frame and its descendants (the root document stays a header). Elements in a frame get **frame-path refs**: `f<n>/e<m>`, nested `f<n>/f<k>/e<m>`; `--max-chars` applies per frame, and a frame that overflows ends with a `(truncated)` line.
+- **Every ref-taking command takes frame refs**: `click` (also `--trusted`), `fill` (also `--trusted`), `hover`, `upload`, `where`, `screenshot --ref`, `evaluate --function … --args '[{"ref":"f2/e7"}]'` (the function then runs in that frame's window). Same-origin frames resolve through the tab's session, out-of-process iframes through their own; trusted mouse input goes to the tab with the point moved by the frame's offset chain, after an occlusion check in the frame and at each frame's owner element. A frame ref expires when its frame navigates (`stale-ref` names the frame); a ref with the wrong frame path says which ref that element number belongs to. Outputs of actions on frame refs carry `frame` (also in the `cmd` end event's `outputSummary`).
+- **Overlays in frames**: the overlay header also looks into child frames (`in f2`), and an overlay with an iframe (an iframe layer) lists the close button inside its iframe with its frame-path ref, so the layer can be closed with `click`. `click` / `fill` on a frame ref also fail with `covered` when an overlay of an ancestor document covers the frame.
+- `type` follows focus into frames (same-origin through the page, cross-origin through the frame's session) to mask text typed into a password field there.
+- The range gets docs/05 s22 frames (frameset, cross-origin iframe with a nested same-origin frame, an iframe layer with its close button inside a cross-origin iframe).
+
 ### Recon dossier v0 (0.4-J)
 
 - **`tabcap recon [--text]`** and **`tabcap analyze recon <bundle> [--text]`** (offline, the last recorded document stands in for the page): a dossier of the session's recording and current page, written into the bundle as `exports/dossier.json` (schema `tabcap-dossier/0`) and `exports/dossier.md` (0600, overwritten on every run); the command prints the two paths, a short summary and `receipt: {dossier: "exports/dossier.json"}`, which the `cmd` end event keeps in `outputSummary.receipt`. It never sends a request. Four answers:
