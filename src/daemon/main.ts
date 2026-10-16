@@ -39,13 +39,20 @@ function toEnvelope(e: unknown): FailEnvelope {
 const TEXT_ACTIONS = new Set(["fill", "type"]);
 const DEFERRED = "<deferred to the end event>";
 
-/** Small, non-sensitive summary of a result for the `cmd` event. */
-function summarize(data: unknown): unknown {
+/**
+ * Small, non-sensitive summary of a result for the `cmd` event. A `receipt`
+ * object of short strings is kept as is (docs/09 §13.3 draft: `recon` names
+ * its dossier file there).
+ */
+export function summarize(data: unknown): unknown {
   if (!isRecord(data)) return null;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {
     if (["tree", "value", "valueText", "textPreview", "hits", "requests"].includes(k)) continue;
-    if (v === null || typeof v === "number" || typeof v === "boolean" || (typeof v === "string" && v.length <= 200)) out[k] = v;
+    if (k === "receipt" && isRecord(v)) {
+      const r = Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === "string" && x.length <= 200).slice(0, 8));
+      if (Object.keys(r).length > 0) out[k] = r;
+    } else if (v === null || typeof v === "number" || typeof v === "boolean" || (typeof v === "string" && v.length <= 200)) out[k] = v;
     if (Object.keys(out).length >= 12) break;
   }
   return out;

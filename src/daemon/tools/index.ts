@@ -15,6 +15,7 @@ import { find, snapshot } from "./snapshot.ts";
 import { outline } from "./outline.ts";
 import { netWait, wait } from "./wait.ts";
 import { where } from "./where.ts";
+import { recon } from "./recon.ts";
 import { traceList, traceStart, traceStatus, traceStop } from "./trace.ts";
 import { fingerprintProbe } from "./fingerprint.ts";
 
@@ -59,6 +60,7 @@ export const TOOLS: Record<string, Tool> = {
   "handoff.status": handoffStatus,
   "handoff.continue": handoffContinue,
   where,
+  recon,
   "trace.start": traceStart,
   "trace.stop": traceStop,
   "trace.status": traceStatus,
