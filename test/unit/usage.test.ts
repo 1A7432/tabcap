@@ -36,6 +36,18 @@ async function fixture(): Promise<string> {
 }
 
 describe("usageReport", () => {
+  test("0.6-I: a body skipped by net start --bodies is not counted as an empty body", async () => {
+    const dir = tmp("tabcap-usage-skip-");
+    await buildBundle(dir, { name: "u2", created: T0, seed: 9 }, async (b) => {
+      const ev = await b.request({ url: `${A}/app.js`, type: "script", ts: T0, mime: "application/javascript" });
+      const skipped = { ...(ev["response"] as Record<string, unknown>), body: { skipped: "resource-type" }, bodyMissing: null };
+      await b.request({ url: `${A}/big.js`, type: "script", ts: T0 + 100, mime: "application/javascript", extra: { response: skipped } });
+    });
+    const a = usageReport(BundleReader.open(dir), dir, []).hosts.find((h) => h.host === "a.example:4310");
+    expect(a?.requests).toBe(2);
+    expect(a?.emptyBodies).toBe(1); // only app.js (no body, nothing said why); big.js was skipped
+  });
+
   test("hosts: counts, intervals, burst, statuses, empty bodies, bytes", async () => {
     const dir = await fixture();
     const u = usageReport(BundleReader.open(dir), dir, []);

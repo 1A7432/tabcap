@@ -179,6 +179,7 @@ function parseResponse(v: unknown): ResponseSide | null {
     body: parseBody(v["body"]),
     bodyMissing: parseBodyMissing(v["bodyMissing"]),
     ...decodedOf(v["decoded"]),
+    ...(isRecord(v["body"]) && typeof v["body"]["skipped"] === "string" ? { bodySkipped: v["body"]["skipped"] } : {}),
   };
 }
 

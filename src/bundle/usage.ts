@@ -114,7 +114,8 @@ function isEmptyBody(reader: BundleReader, r: RequestEvent): boolean {
   const resp = r.response;
   if (resp === null || resp.status === null) return false;
   if (resp.status >= 300 && resp.status < 400) return false;
-  if (resp.body === null) return resp.bodyMissing === null || resp.bodyMissing.reason === "no-content";
+  // 0.6-I: a body `net start --bodies` skipped was never looked at; it is not an empty one.
+  if (resp.body === null) return resp.bodySkipped === undefined && (resp.bodyMissing === null || resp.bodyMissing.reason === "no-content");
   if (resp.body.size === 0) return true;
   if (resp.body.base64 || resp.body.size > EMPTY_PROBE_BYTES) return false;
   const t = bodyText(reader, r, EMPTY_PROBE_BYTES);

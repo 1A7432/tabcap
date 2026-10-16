@@ -286,6 +286,8 @@ export type ResponseSide = {
   bodyMissing: { reason: BodyMissingReason; detail: string | null } | null;
   /** Plaintext view of the response body from a decode plugin (docs/04 §28). */
   decoded?: DecodedView;
+  /** 0.6-I: `response.body: {skipped}` (net start --bodies); `body` is then null and nothing is missing. */
+  bodySkipped?: string;
 };
 
 export type RequestEvent = Envelope & {

@@ -576,7 +576,7 @@
 
 - **登录**：`guard` 事件里 `event:"budget"`、`detail.rule:"login-limit"`、`detail.decision` 为 `allowed` 或 `confirmed` 的算一次登录尝试（被 `refused` 的不算，因为没有碰页面）；`byAccount` 按事件的 `account`（无则 `(none)`）。`guardEvents` 列出包里全部 `guard` 事件的名字字段（`rule` 取事件的或 `detail` 里的，`decision`、`reason`、`request` 同），不含 `detail` 其余内容。
 - **主机**：每条 `request` 事件一次，按 URL 的 `host:port` 分组（重定向的每一跳、CORS 预检、favicon 都算），按请求数降序。开始时刻取 `timing.start`（CDP 单调毫秒），缺失时取事件的 `mono`，两者都没有的计入 `requests` 但不进间隔统计。`minIntervalMs` / `meanIntervalMs` 是同主机按开始时刻排序后相邻两条的间隔（均值 = (最后 − 最先) ÷ (n − 1)，保留三位小数；少于两条为 `null`）；`maxBurst1s` 是任意 1000 ms 窗口 `[t, t+1000)` 内同主机的最多请求数；`firstMono` / `lastMono` 是最早 / 最晚的开始时刻。`statuses` 的键是状态码，没有响应的记 `failed`（`outcome:"failed"`）、`incomplete` 或 `none`。`bytesIn` 是已存正文的字节数之和（解码后，`response.body.size`），没存正文的算 0。
-- **空正文**：有响应、状态码不是 3xx，且（没有正文并且 `bodyMissing` 为空或 `no-content`，或正文 0 字节，或 ≤ 64 KiB 的文本正文去掉空白后为空）。其他没存正文的原因（过大、被导航、被驱逐…）是「不知道」，不算空。与 `fetch` 的 `empty-body` 停手规则一致。
+- **空正文**：有响应、状态码不是 3xx，且（没有正文并且 `bodyMissing` 为空或 `no-content`，或正文 0 字节，或 ≤ 64 KiB 的文本正文去掉空白后为空）。其他没存正文的原因（过大、被导航、被驱逐…）是「不知道」，不算空；被 `net start --bodies` 跳过的（`response.body:{skipped}`，0.6-I）同样不算空。与 `fetch` 的 `empty-body` 停手规则一致。
 - **业务错误码**：`--business-code '$.code=0'` 可重复，路径写法同 `--stop-on json:`（`$`、`.键`、`[下标]`），`=` 之后能按 JSON 解析的按 JSON 比（`0` 是数字），否则按字符串。只判断能解析成 JSON 对象或数组的响应正文（≤ 8 MiB）：路径上的值与 ok 值不相等就算错误，**路径上没有值也算错误**（「其余一律算错」）；多条规则时，任一条不满足即算该响应一次错误。HTML、二进制、空正文不判断。
 - **停手**：`guard` 的 `breaker` 事件各一条：`kind` 是事件的 `reason`（`fetch-stop`、或 §4.2 的其他熔断原因，缺则 `breaker`），`request` 是事件的 `request`，`rule` 是事件的 `rule`。`resume` 不算。
 - **窗口**：每个请求的墙钟开始时刻（`ts − (mono − timing.start)`，缺失时取 `ts`）落入对齐到 UTC 整 10 分钟（600000 ms 的倍数）的窗口；只列有请求的窗口，按时间升序。

@@ -26,7 +26,7 @@
 
 - **`tabcap net start --bodies all|api|api+script|none`**（缺省取 `config.json` `record.bodies`，再缺省 `all`）：`api` 存文档、XHR / fetch、WebSocket、EventSource 和其余非静态响应的正文；`api+script` 再加脚本（`net body --at`、追踪模式要它）；图片、字体、样式表、媒体在两者下都只记元数据；`none` 不存任何响应正文。跳过的正文不向 Chrome 要；其 `request` 事件照常有状态、头、时序，`response.body` 是 `{skipped: "resource-type"}`，`net list` 的行带 `bodySkipped`，manifest 记 `record.bodies`，`net body` 会说明是哪个模式跳过的。靶场上带 1.5 MiB 脚本的页面，`api` 包比 `all` 包正好少了脚本、样式表、图片的字节数。
 - **站点停手规则**：`config.json` `sites.<名>.guard: {stopOn: [<规则>…], consecutiveNon200: N}`（规则语法同 `fetch --stop-on`）。guard 对会话里该站点每一条最终录下的 document / XHR / fetch 响应求值（页面自己的请求、`tabcap fetch`、导航；正文类规则只在正文确知时求值），任何 2xx 让计数归零。命中写 `guard {event: "breaker", reason: "stop-rule", rule, request}`，会话进 `waiting`（截图与 `next`），该会话的页面操作命令和发往该站点的所有 `fetch` 以 `guard.stopped` 拒绝（触发它的那条 fetch 回 `fetch.stopped`、`reason: "stop-rule"`）。`handoff continue` 恢复会话并解除站点停止；`guard resume --site` 也一并结束它引起的 `waiting`（回 `handoffResumed`）。`fetch --stop-on` 是每次调用的覆盖：给了它，这次响应不跑站点的 `stopOn`（仍计数）。config.json 里有坏规则时 `net start` 回 `bad-input`。登录次数限制不变。
-- `net start` 的答案带 `bodies`；`guard.stopped` 与 `guard` 事件带 `reason`（`fetch-stop` 或 `stop-rule`）。
+- `net start` 的答案带 `bodies`；`guard.stopped` 与 `guard` 事件带 `reason`（`fetch-stop` 或 `stop-rule`）。`bundle info --usage` 不把跳过的正文算作空正文，站点规则的命中在 `stops` 里记为 `stop-rule`。
 
 ### 会话导出（0.6-F）
 
