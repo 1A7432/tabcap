@@ -75,6 +75,11 @@ function timeoutError(what: string, ms: number, outstanding: string, look: strin
 /** Network.enable for idle tracking on a session that is not recording; ref-counted. */
 const netRefs = new Map<string, number>();
 
+/** A wait on this CDP session has Network enabled for its idle tracking right now. */
+export function networkHeldByWait(sid: string): boolean {
+  return (netRefs.get(sid) ?? 0) > 0;
+}
+
 async function netOn(t: Transport, sid: string): Promise<void> {
   const n = netRefs.get(sid) ?? 0;
   netRefs.set(sid, n + 1);
@@ -88,8 +93,8 @@ async function netOff(d: Daemon, t: Transport, tab: Tab): Promise<void> {
     return;
   }
   netRefs.delete(tab.sessionId);
-  // A recording started meanwhile needs Network on; leave it.
-  if (d.recorders.has(tab.session) || tab.closed) return;
+  // A recording started meanwhile needs Network on, and so does emulated throttling (tools/device.ts); leave it.
+  if (d.recorders.has(tab.session) || tab.closed || tab.emulation.networkConditions !== undefined) return;
   await t.send("Network.disable", {}, tab.sessionId, 5000).catch(() => undefined);
 }
 

@@ -789,3 +789,28 @@ export function startLocaleSite(): Site {
   });
   return { origin: `http://127.0.0.1:${server.port}`, served, hits, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.4-B: emulate network throttling
+// A page and one ~300 KB response (deterministic bytes, never cached), to time a
+// transfer with and without `emulate --network-conditions`.
+export const BIG_BYTES = 300_000;
+const BIG = Uint8Array.from({ length: BIG_BYTES }, (_, i) => (i * 31 + (i >> 8)) & 0xff);
+const THROTTLE_HOME = `<!doctype html><meta charset=utf-8><title>throttle</title><h1>throttle</h1>`;
+
+export function startThrottleSite(): Site {
+  const served = new Map<string, string>();
+  const hits: string[] = [];
+  served.set("/big", createHash("sha256").update(BIG).digest("hex"));
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const p = new URL(req.url).pathname;
+      hits.push(`${req.method} ${p}`);
+      if (p === "/") return new Response(THROTTLE_HOME, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      if (p === "/big") return new Response(BIG, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store" } });
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served, hits, stop: () => server.stop(true) };
+}

@@ -1120,8 +1120,10 @@ export class Recorder {
     for (const tab of this.opts.tabs.sessionTabs(this.session)) await this.cookieState(tab, "session-stop");
     this.stopping = true;
     for (const off of this.offs) off();
-    for (const sid of this.sessions.keys()) {
+    for (const [sid, host] of this.sessions) {
       await this.t.send("Fetch.disable", {}, sid, 5000).catch(() => undefined);
+      // Emulated throttling on the tab needs Network kept on (tools/device.ts).
+      if (sid === host.sessionId && host.emulation.networkConditions !== undefined) continue;
       await this.t.send("Network.disable", {}, sid, 5000).catch(() => undefined);
     }
     // The command that stops the recording (net stop, session stop …) ends inside it.

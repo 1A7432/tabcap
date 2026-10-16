@@ -8,7 +8,11 @@
 // window, so the other tabs in it change size too — the answer lists them.
 // emulate: every call replaces all earlier settings of the tab (a setting left
 // out is cleared); the settings live on the tab, and their throttling scales
-// the post-action wait.
+// the post-action wait. Chrome applies network throttling only while the
+// Network domain is enabled on the tab's session (measured 0.4-B: Slow 3G gave
+// a 300 KB fetch 8 s while recording and 1 ms otherwise), so emulated network
+// conditions keep Network enabled on the tab until they are cleared; wait --idle
+// and net stop leave it on for such a tab.
 
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
@@ -17,6 +21,7 @@ import type { Daemon } from "../state.ts";
 import { optStr, type Args } from "./args.ts";
 import { emulationCalls, parseEmulate } from "./emulatespec.ts";
 import { timeoutOf } from "./navigate.ts";
+import { networkHeldByWait } from "./wait.ts";
 
 /** `resize 1280 800`: positive whole CSS px (CDP accepts at most 10000000). */
 export function parseSize(a: Args): { width: number; height: number } {
@@ -91,8 +96,15 @@ export async function emulate(d: Daemon, a: Args, session: string): Promise<unkn
   return tabs.run(
     tab,
     async () => {
+      const recording = d.recorders.has(tab.session);
+      // Throttling needs the Network domain on (see the header); a recording has it on already.
+      if (settings.networkConditions !== undefined && !recording) await t.send("Network.enable", {}, tab.sessionId, 10_000);
       for (const c of emulationCalls(settings)) await t.send(c.method, c.params, tab.sessionId, 10_000);
+      const wasThrottled = tab.emulation.networkConditions !== undefined;
       tab.emulation = settings;
+      if (wasThrottled && settings.networkConditions === undefined && !recording && !networkHeldByWait(tab.sessionId)) {
+        await t.send("Network.disable", {}, tab.sessionId, 5000).catch(() => undefined);
+      }
       const cleared = (["viewport", "userAgent", "colorScheme", "networkConditions", "cpuThrottlingRate", "geolocation"] as const).filter((k) => settings[k] === undefined);
       return {
         tab: tab.id,
