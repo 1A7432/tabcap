@@ -1,0 +1,466 @@
+{
+  "schema_version": 1,
+  "id": "chrome/155/macos-arm64/155.0.8059.79",
+  "subject": {
+    "kind": "browser",
+    "name": "chrome",
+    "version": "155.0.8059.79",
+    "channel": "for-testing",
+    "claims": null
+  },
+  "platform": {
+    "os": "macos",
+    "os_version": null,
+    "arch": "arm64",
+    "headless": false
+  },
+  "capture": {
+    "captured_at": "2026-10-16T04:41:10.653Z",
+    "method": "tabcap-wire-profile",
+    "server": "tabcap-wire-echo 0.3.0",
+    "server_host_os": "macos",
+    "connection": "first",
+    "samples": 6,
+    "raw_dir": null
+  },
+  "tls": {
+    "ja3": {
+      "string": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,35-45-23-13-27-5-51764-16-11-17613-10-43-51-18-65037-65281-0,4588-29-23-24,0",
+      "hash": "9028d9e7eda2c7c0c77558b0fa27fdfc",
+      "stable_across_samples": false
+    },
+    "ja4": {
+      "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+      "ja4_r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+      "ja4_o": "t13d1517h2_acb858a92679_2b006007a5a0",
+      "ja4_ro": "t13d1517h2_1301,1302,1303,c02b,c02f,c02c,c030,cca9,cca8,c013,c014,009c,009d,002f,0035_0023,002d,0017,000d,001b,0005,ca34,0010,000b,44cd,000a,002b,0033,0012,fe0d,ff01,0000_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+      "stable_across_samples": true
+    },
+    "handshake": {
+      "version": "TLSv1.3",
+      "cipher_negotiated": "TLS_AES_128_GCM_SHA256",
+      "alpn_negotiated": "h2"
+    },
+    "client_hello": {
+      "legacy_version": "0303",
+      "session_id_length": 32,
+      "cipher_suites": [
+        "5a5a",
+        "1301",
+        "1302",
+        "1303",
+        "c02b",
+        "c02f",
+        "c02c",
+        "c030",
+        "cca9",
+        "cca8",
+        "c013",
+        "c014",
+        "009c",
+        "009d",
+        "002f",
+        "0035"
+      ],
+      "cipher_grease_positions": [
+        0
+      ],
+      "compression_methods": [
+        "00"
+      ],
+      "extensions_order_samples": [
+        [
+          "eaea",
+          "0023",
+          "002d",
+          "0017",
+          "000d",
+          "001b",
+          "0005",
+          "ca34",
+          "0010",
+          "000b",
+          "44cd",
+          "000a",
+          "002b",
+          "0033",
+          "0012",
+          "fe0d",
+          "ff01",
+          "0000",
+          "dada"
+        ],
+        [
+          "1a1a",
+          "0012",
+          "000b",
+          "0017",
+          "001b",
+          "0000",
+          "0033",
+          "0005",
+          "0023",
+          "002b",
+          "0010",
+          "002d",
+          "fe0d",
+          "000d",
+          "44cd",
+          "ca34",
+          "000a",
+          "ff01",
+          "8a8a"
+        ],
+        [
+          "fafa",
+          "0023",
+          "0017",
+          "000d",
+          "44cd",
+          "002d",
+          "000a",
+          "0033",
+          "002b",
+          "0010",
+          "fe0d",
+          "001b",
+          "0000",
+          "0005",
+          "000b",
+          "ca34",
+          "ff01",
+          "0012",
+          "4a4a"
+        ],
+        [
+          "baba",
+          "000b",
+          "002d",
+          "0033",
+          "0000",
+          "0005",
+          "002b",
+          "000a",
+          "0023",
+          "001b",
+          "fe0d",
+          "0010",
+          "000d",
+          "ca34",
+          "ff01",
+          "0017",
+          "0012",
+          "44cd",
+          "aaaa"
+        ],
+        [
+          "dada",
+          "0012",
+          "0000",
+          "0010",
+          "000d",
+          "0017",
+          "002d",
+          "0023",
+          "0033",
+          "fe0d",
+          "000a",
+          "000b",
+          "002b",
+          "ff01",
+          "001b",
+          "44cd",
+          "ca34",
+          "0005",
+          "5a5a"
+        ],
+        [
+          "6a6a",
+          "fe0d",
+          "0000",
+          "000a",
+          "44cd",
+          "ff01",
+          "0023",
+          "0033",
+          "ca34",
+          "0017",
+          "0010",
+          "000d",
+          "0012",
+          "002d",
+          "000b",
+          "001b",
+          "002b",
+          "0005",
+          "aaaa"
+        ]
+      ],
+      "extensions_sorted": [
+        "0000",
+        "0005",
+        "000a",
+        "000b",
+        "000d",
+        "0010",
+        "0012",
+        "0017",
+        "001b",
+        "0023",
+        "002b",
+        "002d",
+        "0033",
+        "44cd",
+        "ca34",
+        "fe0d",
+        "ff01"
+      ],
+      "extension_count": 19,
+      "extension_order": "randomized",
+      "extension_order_samples_judged": 6,
+      "extension_order_randomized": true,
+      "extension_grease_positions": [
+        0,
+        18
+      ],
+      "supported_versions": [
+        "1a1a",
+        "0304",
+        "0303"
+      ],
+      "supported_groups": [
+        "4a4a",
+        "11ec",
+        "001d",
+        "0017",
+        "0018"
+      ],
+      "key_share_groups": [
+        "4a4a",
+        "11ec",
+        "001d"
+      ],
+      "key_shares": [
+        {
+          "group": "4a4a",
+          "key_exchange_length": 1
+        },
+        {
+          "group": "11ec",
+          "key_exchange_length": 1216
+        },
+        {
+          "group": "001d",
+          "key_exchange_length": 32
+        }
+      ],
+      "signature_algorithms": [
+        "eaea",
+        "0904",
+        "0905",
+        "0906",
+        "0403",
+        "0804",
+        "0401",
+        "0503",
+        "0805",
+        "0501",
+        "0806",
+        "0601"
+      ],
+      "ec_point_formats": [
+        "00"
+      ],
+      "alpn": [
+        "h2",
+        "http/1.1"
+      ],
+      "sni_present": true,
+      "psk_present": false,
+      "ech_present": true,
+      "ech_kind": "grease-or-real",
+      "trust_anchors_present": true,
+      "alps_codepoint": "44cd",
+      "total_length": 2008,
+      "tcp_segments": null
+    }
+  },
+  "http2": {
+    "akamai": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+    "settings": [
+      [
+        1,
+        65536
+      ],
+      [
+        2,
+        0
+      ],
+      [
+        4,
+        6291456
+      ],
+      [
+        6,
+        262144
+      ]
+    ],
+    "window_update": 15663105,
+    "priority_frames": [],
+    "pseudo_header_order": [
+      ":method",
+      ":authority",
+      ":scheme",
+      ":path"
+    ],
+    "sends_priority_header": true,
+    "no_rfc7540_priorities": null,
+    "stable_across_samples": true
+  },
+  "http": {
+    "method": "GET",
+    "version": "2",
+    "headers_order": [
+      "sec-ch-ua",
+      "sec-ch-ua-mobile",
+      "sec-ch-ua-platform",
+      "upgrade-insecure-requests",
+      "user-agent",
+      "accept",
+      "sec-fetch-site",
+      "sec-fetch-mode",
+      "sec-fetch-user",
+      "sec-fetch-dest",
+      "accept-encoding",
+      "accept-language",
+      "priority"
+    ],
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+    "client_hints": {
+      "sec-ch-ua": "\"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "sec-ch-ua-full-version-list": null
+    },
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "accept_encoding": "gzip, deflate, br, zstd",
+    "accept_language": "zh-CN,zh;q=0.9",
+    "sec_fetch_mode": "navigate",
+    "sec_fetch_dest": "document",
+    "checks": [],
+    "roles": {
+      "navigation": {
+        "samples": 3,
+        "method": "GET",
+        "headers_order": [
+          "sec-ch-ua",
+          "sec-ch-ua-mobile",
+          "sec-ch-ua-platform",
+          "upgrade-insecure-requests",
+          "user-agent",
+          "accept",
+          "sec-fetch-site",
+          "sec-fetch-mode",
+          "sec-fetch-user",
+          "sec-fetch-dest",
+          "accept-encoding",
+          "accept-language",
+          "priority"
+        ],
+        "headers_order_stable_across_samples": true,
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "sec_fetch_site": "none",
+        "sec_fetch_mode": "navigate",
+        "sec_fetch_dest": "document"
+      },
+      "fetch": {
+        "samples": 3,
+        "method": "GET",
+        "headers_order": [
+          "sec-ch-ua-platform",
+          "user-agent",
+          "sec-ch-ua",
+          "sec-ch-ua-mobile",
+          "accept",
+          "sec-fetch-site",
+          "sec-fetch-mode",
+          "sec-fetch-dest",
+          "referer",
+          "accept-encoding",
+          "accept-language",
+          "priority"
+        ],
+        "headers_order_stable_across_samples": true,
+        "accept": "*/*",
+        "sec_fetch_site": "same-origin",
+        "sec_fetch_mode": "cors",
+        "sec_fetch_dest": "empty"
+      }
+    }
+  },
+  "tcp": {
+    "window_size": null,
+    "options": null,
+    "mss": null,
+    "window_scale": null,
+    "ttl_observed": null,
+    "source": null
+  },
+  "session": {
+    "resumption_observed": false,
+    "resumed_ja4": null,
+    "resumed_session_reused": null,
+    "connections_per_page_load": null
+  },
+  "notes": "Chrome for Testing launched by tabcap with its own flags (tabcap section); navigation and page fetch samples from the local wire echo",
+  "tabcap": {
+    "cftVersion": "155.0.8059.79",
+    "flagsSha256": "c2053a5622f1c0a15f8e4c78ea88f4b0751f73a9edd97d1e6edc510d7cf0d100",
+    "flags": [
+      "--user-data-dir=<profile>",
+      "--remote-debugging-pipe",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-sync",
+      "--metrics-recording-only",
+      "--no-service-autorun",
+      "--disable-field-trial-config",
+      "--disable-client-side-phishing-detection",
+      "--disable-breakpad",
+      "--disable-default-apps",
+      "--disable-component-extensions-with-background-pages",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-search-engine-choice-screen",
+      "--disable-infobars",
+      "--disable-prompt-on-repost",
+      "--disable-hang-monitor",
+      "--disable-popup-blocking",
+      "--disable-back-forward-cache",
+      "--enable-features=CDPScreenshotNewSurface",
+      "--allow-pre-commit-input",
+      "--disable-ipc-flooding-protection",
+      "--force-color-profile=srgb",
+      "--export-tagged-pdf",
+      "--disable-features=OptimizationHints,NetworkTimeServiceQuerying,AimEnabled,Translate,MediaRouter,DialMediaRouteProvider,GlobalMediaControls,LensOverlay,HttpsUpgrades,PreconnectToSearch,PaintHolding,ThirdPartyStoragePartitioning,AvoidCorsURLLoaderRestartOnRedirect,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose",
+      "--use-mock-keychain",
+      "--proxy-server=127.0.0.1:1",
+      "--proxy-bypass-list=127.0.0.1;localhost",
+      "--no-startup-window"
+    ],
+    "tabcapVersion": "0.3.0",
+    "capturedAt": "2026-10-16T04:41:10.653Z",
+    "samples": {
+      "navigation": 3,
+      "fetch": 3
+    },
+    "psk": {
+      "navigation": 0,
+      "fetch": 0
+    },
+    "sessionTickets": "disabled"
+  }
+}
