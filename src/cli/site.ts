@@ -8,7 +8,7 @@ import type { Paths } from "../shared/paths.ts";
 import { HOOK_PROTOCOL, listPlugins, pluginsDir, setEnabled } from "../daemon/hooks/plugins.ts";
 import { Store, checkSiteName, type SiteListing } from "../daemon/store/db.ts";
 
-function withStore<T>(p: Paths, fn: (s: Store) => T): T {
+export function withStore<T>(p: Paths, fn: (s: Store) => T): T {
   const s = Store.open(p.config);
   try {
     return fn(s);
@@ -34,7 +34,7 @@ export function stripNewline(s: string): string {
 }
 
 /** Read a password from the terminal without echo. */
-async function promptPassword(label: string): Promise<string> {
+export async function promptPassword(label: string): Promise<string> {
   const stdin = process.stdin;
   if (!stdin.isTTY) throw new TabcapError("usage", "stdin is not a terminal, so there is no password prompt", "Pipe the password with --password-stdin (never pass it as an argument).");
   process.stderr.write(label);

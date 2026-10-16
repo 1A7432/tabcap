@@ -22,6 +22,7 @@ import { runAnalyze } from "./analyze.ts";
 import { renderWhereText, whereResultOf } from "../analyze/where.ts";
 import { runReplay } from "./replay.ts";
 import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts";
+import { accountBind, accountList, accountSetState, proxyAdd, proxyCheck, proxyList, proxyRemove } from "./pool.ts";
 import { Store, storePath } from "../daemon/store/db.ts";
 import { variantsOf } from "../daemon/secrets.ts";
 import { BUNDLE_USAGE, COMMANDS, flagNames, helpAll, helpFor, helpGroup, matchCommand, parseCommand, schema, specOf, usageOf, type CommandSpec } from "./commands.ts";
@@ -235,6 +236,27 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       break;
     case "site remove":
       data = siteRemove(p, parsed.args);
+      break;
+    case "proxy add":
+      data = await proxyAdd(p, parsed.args);
+      break;
+    case "proxy list":
+      data = proxyList(p);
+      break;
+    case "proxy remove":
+      data = proxyRemove(p, parsed.args);
+      break;
+    case "proxy check":
+      data = await proxyCheck(p, parsed.args);
+      break;
+    case "account bind":
+      data = accountBind(p, parsed.args);
+      break;
+    case "account list":
+      data = accountList(p, parsed.args);
+      break;
+    case "account set-state":
+      data = accountSetState(p, parsed.args);
       break;
     case "plugin list":
       data = pluginList(p);
