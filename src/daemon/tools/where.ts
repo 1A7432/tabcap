@@ -10,20 +10,20 @@ import { DEFAULT_TOP, whereFindings, whereIn, type WhereQuery } from "../../anal
 import { BundleReader } from "../../bundle/reader.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
-import { sameDoc } from "../browser/refs.ts";
+import { isRef, sameDoc } from "../browser/refs.ts";
 import { scrubValue } from "../secrets.ts";
 import type { Daemon } from "../state.ts";
 import { optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
 import { callResult, docIdentity, resolveRef } from "./snapshot.ts";
 
-const REF = /^e\d+$/;
 const USAGE = "tabcap where <ref|text> [--as ref|text] [--top n] [--text] [--write-findings]";
 /** Visible text of the ref's element, and of the page for date disambiguation (characters). */
 const MAX_REF_TEXT = 10_000;
 const MAX_PAGE_TEXT = 1_000_000;
 const REF_TEXT_FN = `function () { const s = this.nodeType === 1 ? this.innerText : this.textContent; return String(s == null ? "" : s).slice(0, ${MAX_REF_TEXT}); }`;
-const PAGE_TEXT = `(() => { const b = document.body; return b ? String(b.innerText).slice(0, ${MAX_PAGE_TEXT}) : ""; })()`;
+// The page text of the element's own document (a frame ref reads its frame's page, 0.4-I).
+const PAGE_TEXT_FN = `function () { const b = (this.ownerDocument || document).body; return b ? String(b.innerText).slice(0, ${MAX_PAGE_TEXT}) : ""; }`;
 
 /** The session's current tab has refs minted for the document it shows now. */
 async function hasCurrentSnapshot(d: Daemon, session: string): Promise<boolean> {
@@ -48,9 +48,9 @@ async function refText(d: Daemon, session: string, ref: string, a: Args): Promis
   return tabs.run(
     tab,
     async () => {
-      const { objectId } = await resolveRef(t, tab, ref);
-      const v = callResult(await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: REF_TEXT_FN, returnByValue: true }, tab.sessionId, 10_000));
-      const p = callResult(await t.send("Runtime.evaluate", { expression: PAGE_TEXT, returnByValue: true }, tab.sessionId, 10_000));
+      const { objectId, sessionId } = await resolveRef(t, tab, ref);
+      const v = callResult(await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: REF_TEXT_FN, returnByValue: true }, sessionId, 10_000));
+      const p = callResult(await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: PAGE_TEXT_FN, returnByValue: true }, sessionId, 10_000));
       return { text: typeof v === "string" ? v : "", page: typeof p === "string" ? p : "" };
     },
     { timeoutMs: timeoutOf(a) },
@@ -76,11 +76,11 @@ export async function where(d: Daemon, a: Args, session: string): Promise<unknow
   const live = d.recorders.get(session);
   const rec = live ?? d.lastBundles.get(session);
   if (rec === undefined) throw new TabcapError("not-found", `session "${session}" has no recording`, "Run `tabcap net start`, load the page that shows the value, then `tabcap where <ref|text>`.");
-  const kind = as ?? (REF.test(asRef) && (await hasCurrentSnapshot(d, session)) ? "ref" : "text");
+  const kind = as ?? (isRef(asRef) && (await hasCurrentSnapshot(d, session)) ? "ref" : "text");
   let query: WhereQuery;
   let pageText: string | null = null;
   if (kind === "ref") {
-    if (!REF.test(asRef)) throw new TabcapError("usage", `not a ref: ${input}`, "Refs look like e12; get them from `tabcap snapshot`, or pass the value itself with --as text.");
+    if (!isRef(asRef)) throw new TabcapError("usage", `not a ref: ${input}`, "Refs look like e12 (f2/e7 in a frame); get them from `tabcap snapshot`, or pass the value itself with --as text.");
     const got = await refText(d, session, asRef, a);
     query = { input, kind: "ref", ref: asRef, text: got.text };
     pageText = got.page;
