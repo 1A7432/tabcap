@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
-import { decodeBundle } from "../../src/bundle/decode.ts";
+import { decodeBundle, renderBundleDecodeText } from "../../src/bundle/decode.ts";
 import { SIDECAR_FILE } from "../../src/bundle/decoded.ts";
 import { Tabs } from "../../src/daemon/browser/targets.ts";
 import { Recorder } from "../../src/daemon/capture/recorder.ts";
@@ -20,7 +20,7 @@ import { DecodeHost, DecodeSession, MAX_FAILURES, decodeMatches, parseDecodeRepl
 import { MAX_PLUGIN_MANIFEST_BYTES, decodePlugins, listPlugins, parseManifest, pluginsFor, setEnabled } from "../../src/daemon/hooks/plugins.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../../src/daemon/transport/types.ts";
 import { S42_ITEMS_JSON, S42_ORDER_JSON, S42_POST_JSON, S42_TOKEN_JSON, xorEncode } from "../e2e/site.ts";
-import { tmp } from "./_analyze.ts";
+import { buildBundle, tmp } from "./_analyze.ts";
 import { S42_ORIGIN as ORIGIN, installXor, s42Bundle } from "./_decode.ts";
 
 const FAKE = join(import.meta.dir, "..", "fixtures", "plugins", "fake-decode");
@@ -162,6 +162,25 @@ describe("protocol tabcap-decode/1 against a fake plugin process", () => {
     expect(h?.ok === true ? JSON.parse(text(h.body)) : null).toEqual({ request: ["accept", "x-enc"], response: ["content-type", "x-enc"] });
   });
 
+  test("declined is an answer, not a failure: null, no failure counted, reported per plugin", async () => {
+    const disabled: string[] = [];
+    const s = new DecodeSession(host, [fake()], { onDisabled: (n) => disabled.push(n) });
+    const seen: string[] = [];
+    for (let i = 0; i < MAX_FAILURES + 1; i++) expect(await s.decode(job("decline"), (n) => seen.push(n))).toBeNull();
+    expect(seen).toEqual(Array(MAX_FAILURES + 1).fill("fake"));
+    expect(disabled).toEqual([]);
+    expect(s.isDisabled("fake")).toBe(false);
+    expect(host.starts("fake")).toBe(1);
+    // a later plugin that takes the body still wins after an earlier one declined
+    const a = fake({ name: "a-first" });
+    const b = fake({ name: "b-second" });
+    const t = new DecodeSession(host, [a, b]);
+    const order: string[] = [];
+    expect(await t.decode(job("decline"), (n) => order.push(n))).toBeNull();
+    expect(order).toEqual(["a-first", "b-second"]);
+    expect((await t.decode(job("hello")))?.ok).toBe(true);
+  });
+
   test("ok:false is an answer, not a failure: the plugin stays enabled", async () => {
     const disabled: string[] = [];
     const s = new DecodeSession(host, [fake()], { onDisabled: (n) => disabled.push(n) });
@@ -213,6 +232,10 @@ describe("protocol tabcap-decode/1 against a fake plugin process", () => {
     expect(parseDecodeReply({ id: 1, ok: true, body: { encoding: "utf8", data: "x".repeat(11) } }, 1, 10)).toContain("over maxBytes 10");
     expect(parseDecodeReply({ id: 1, ok: true, mime: "a\nb", body: { encoding: "utf8", data: "x" } }, 1, 10)).toMatchObject({ ok: true, mime: null, note: null });
     expect(parseDecodeReply({ id: 1, ok: false }, 1, 10)).toEqual({ ok: false, error: "the plugin reported a failure" });
+    // declined (decode() returned None / null) is an answer of its own, not ok:false and not a protocol failure
+    expect(parseDecodeReply({ id: 1, declined: true }, 1, 10)).toEqual({ declined: true });
+    expect(parseDecodeReply({ id: 2, declined: true }, 1, 10)).toContain("is not 1");
+    expect(parseDecodeReply({ id: 1, declined: "yes" }, 1, 10)).toBe("answer has no boolean ok");
   });
 });
 
@@ -309,6 +332,32 @@ describe("recorder: decoded views beside the original bodies", () => {
     expect(rec.index.find((e) => e.url.endsWith("/order"))?.decoded).toMatchObject({ by: "xor-decode", mime: "application/json" });
   }, 20_000);
 
+  test("a body the plugin declines (None / null) gets no decoded field, no note, no failure", async () => {
+    const host = new DecodeHost();
+    const notes: string[] = [];
+    const session = new DecodeSession(host, [fake()], { onDisabled: (n) => notes.push(n) });
+    const { t, emit } = fakeChrome({ R1: "decline", R2: "hello" });
+    const tabs = new Tabs(t, false);
+    await tabs.createTab("dec");
+    const dir = join(tmp("tabcap-decn-"), "b");
+    const rec = await Recorder.start({ session: "dec", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, decode: session });
+    for (const [id, ts] of [["R1", 10], ["R2", 11]] as const) {
+      emit("Network.requestWillBeSent", { requestId: id, loaderId: "L1", type: "Fetch", timestamp: ts, wallTime: 1760600000 + ts, request: { url: `${ORIGIN}/api/${id}`, method: "GET", headers: {} } });
+      emit("Network.responseReceived", { requestId: id, type: "Fetch", timestamp: ts + 0.1, response: { status: 200, headers: { "content-type": "text/plain" }, mimeType: "text/plain" } });
+      emit("Network.loadingFinished", { requestId: id, timestamp: ts + 0.2 });
+    }
+    await Bun.sleep(50);
+    await rec.stop();
+    host.close();
+    const reader = BundleReader.open(dir);
+    const declined = reader.requests().find((r) => r.url.endsWith("/api/R1"));
+    const taken = reader.requests().find((r) => r.url.endsWith("/api/R2"));
+    expect(declined?.response?.decoded).toBeUndefined();
+    expect(taken?.response?.decoded).toMatchObject({ ok: true, by: "fake" });
+    expect(notes).toEqual([]);
+    expect(session.isDisabled("fake")).toBe(false);
+  }, 20_000);
+
   test("a plugin disabled after repeated failures leaves a note event and failed views say why", async () => {
     const host = new DecodeHost();
     let rec: Recorder | null = null;
@@ -350,6 +399,33 @@ describe("bundle decode: views for a bundle recorded before the plugin existed (
             return typeof v === "object" && v !== null && !Array.isArray(v) ? Object.fromEntries(Object.entries(v)) : {};
           })
       : [];
+
+  test("a plugin that declines (None / null) writes no view and is counted as declined, not failed; a re-run declines again", async () => {
+    const root = tmp("tabcap-decdn-");
+    const dir = await buildBundle(join(root, "b"), { name: "dn", created: 1760600000000, seed: 7 }, async (b) => {
+      await b.request({ url: `${ORIGIN}/api/a`, type: "fetch", mime: "text/plain", body: "decline", ts: 1760600000010 });
+      await b.request({ url: `${ORIGIN}/api/b`, type: "fetch", mime: "text/plain", body: "decline", ts: 1760600000020 });
+      await b.request({ url: `${ORIGIN}/api/c`, type: "fetch", mime: "text/plain", body: "hello", ts: 1760600000030 });
+      await b.request({ url: `${ORIGIN}/api/d`, type: "fetch", mime: "text/plain", body: "fail", ts: 1760600000040 });
+    });
+    const host = new DecodeHost();
+    try {
+      const run = () => decodeBundle(dir, new DecodeSession(host, [fake()]));
+      const res = await run();
+      expect([res.requests, res.decoded, res.failed, res.declined, res.appended]).toEqual([4, 1, 1, 2, 2]);
+      expect(res.declinedBy).toEqual({ fake: 2 });
+      expect(res.rows.map((r) => [r.request, r.ok])).toEqual([["r-3", true], ["r-4", false]]);
+      expect(sidecarLines(dir).length).toBe(2);
+      const reader = BundleReader.open(dir);
+      expect(reader.requests().filter((r) => r.response?.decoded !== undefined).map((r) => r.url.slice(-1))).toEqual(["c", "d"]);
+      const again = await run();
+      expect([again.decoded, again.failed, again.declined, again.unchanged, again.appended]).toEqual([0, 0, 2, 2, 0]);
+      expect(renderBundleDecodeText(again)).toContain("2 declined");
+    } finally {
+      host.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 
   test("appends request / response views to the sidecar; not one byte of events.jsonl or manifest.json changes; the reader overlays them; a re-run appends nothing", async () => {
     const root = tmp("tabcap-decbd-");

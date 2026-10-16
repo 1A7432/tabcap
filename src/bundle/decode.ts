@@ -11,7 +11,8 @@
 // are refused. Rules, against the view a reader sees now (inline or the
 // sidecar's last entry): a side no selected plugin takes is left alone; an
 // identical view is not appended again (`unchanged`), so a re-run appends
-// nothing; a new or different `ok` view is appended; a failure never
+// nothing; a new or different `ok` view is appended; a plugin that answers `declined` (None / null: not mine) writes no
+// view and is counted as `declined`, not as a failure; a failure never
 // replaces an `ok` view (`kept`).
 
 import { TabcapError } from "../shared/envelope.ts";
@@ -24,7 +25,7 @@ import type { Headers, RequestEvent } from "./types.ts";
 import { decodedField, type DecodeDirection, type DecodeJob, type DecodeOutcome } from "../daemon/hooks/decode.ts";
 
 /** What `bundle decode` needs from the decode plugins (hooks/decode.ts DecodeSession). */
-export type BundleDecoder = { decode(job: DecodeJob): Promise<DecodeOutcome | null> };
+export type BundleDecoder = { decode(job: DecodeJob, declined?: (plugin: string) => void): Promise<DecodeOutcome | null> };
 
 export type DecodedRow = { request: string; direction: DecodeDirection; by: string; ok: boolean; mime: string | null; bytes: number | null; error?: string; kept?: true };
 
@@ -37,6 +38,10 @@ export type BundleDecodeResult = {
   failed: number;
   /** failures not appended because the side already has an ok view */
   kept: number;
+  /** sides every matching plugin declined (decode() returned None / null: not mine); no view written, not a failure */
+  declined: number;
+  /** declines per plugin (a plugin may decline a side another one decoded) */
+  declinedBy: Record<string, number>;
   /** views identical to what the bundle already has, not appended */
   unchanged: number;
   /** sidecar lines appended by this run */
@@ -81,7 +86,7 @@ export async function decodeBundle(dir: string, dec: BundleDecoder, now: () => n
   const reader = BundleReader.open(dir);
   const store = new BlobStore(dir);
   let seq = readSidecar(dir)?.lastSeq ?? 0;
-  const result: BundleDecodeResult = { bundle: dir, requests: 0, decoded: 0, failed: 0, kept: 0, unchanged: 0, appended: 0, rows: [], truncated: false };
+  const result: BundleDecodeResult = { bundle: dir, requests: 0, decoded: 0, failed: 0, kept: 0, declined: 0, declinedBy: {}, unchanged: 0, appended: 0, rows: [], truncated: false };
   const addRow = (row: DecodedRow) => {
     if (result.rows.length < MAX_ROWS) result.rows.push(row);
     else result.truncated = true;
@@ -89,8 +94,15 @@ export async function decodeBundle(dir: string, dec: BundleDecoder, now: () => n
   for (const r of reader.requests()) {
     result.requests++;
     for (const job of jobsOf(r, store)) {
-      const out = await dec.decode(job);
-      if (out === null) continue;
+      let anyDeclined = false;
+      const out = await dec.decode(job, (name) => {
+        anyDeclined = true;
+        result.declinedBy[name] = (result.declinedBy[name] ?? 0) + 1;
+      });
+      if (out === null) {
+        if (anyDeclined) result.declined++;
+        continue;
+      }
       const old = job.direction === "request" ? r.request.decoded : r.response?.decoded;
       if (!out.ok && old !== undefined && old.ok) {
         result.kept++;
@@ -117,7 +129,7 @@ export async function decodeBundle(dir: string, dec: BundleDecoder, now: () => n
 
 /** Compact human rendering (`--text`). */
 export function renderBundleDecodeText(r: BundleDecodeResult & { plugins?: unknown }): string {
-  const out = [`bundle decode ${r.bundle}: ${r.decoded} view(s) added, ${r.failed} failed, ${r.kept} kept, ${r.unchanged} unchanged, over ${r.requests} request(s)`];
+  const out = [`bundle decode ${r.bundle}: ${r.decoded} view(s) added, ${r.failed} failed, ${r.declined} declined, ${r.kept} kept, ${r.unchanged} unchanged, over ${r.requests} request(s)`];
   for (const row of r.rows) out.push(`  ${row.request} ${row.direction} ${row.by} ${row.ok ? `ok ${row.mime ?? "?"} ${row.bytes ?? 0} B` : `${row.kept === true ? "kept old view; " : ""}failed: ${row.error ?? ""}`}`);
   if (r.truncated) out.push(`  … first ${MAX_ROWS} rows listed`);
   return out.join("\n");

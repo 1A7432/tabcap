@@ -4,6 +4,8 @@ A body sent with `x-enc: xor` is base64 of the plaintext XORed with a key.
 The key lives in config.json next to this file (copy config.example.json);
 tabcap never reads that file. Replace decode() with your own: the body of a
 mitmproxy addon's response(flow) can usually move here unchanged.
+decode() returns None for a body that is not yours (no view, not a failure,
+counted as `declined`); raise for one that is yours but cannot be decoded.
 """
 
 import base64

@@ -79,7 +79,10 @@ describe("Python decode runner template", () => {
         const req = await s.decode(job("request", xorEncode(S42_POST_JSON)));
         expect(req?.ok === true ? new TextDecoder().decode(req.body) : req).toBe(S42_POST_JSON);
         const none = await s.decode({ ...job("response", "plain"), response: { status: 200, headers: { "content-type": "text/plain" } } });
-        expect(none).toMatchObject({ ok: false, error: "plugin.decode returned None" });
+        expect(none).toBeNull(); // None = declined: no view, not a failure
+        const seen: string[] = [];
+        await s.decode({ ...job("response", "plain"), response: { status: 200, headers: { "content-type": "text/plain" } } }, (n) => seen.push(n));
+        expect(seen).toEqual(["decode-python"]);
         const bad = await s.decode(job("response", "%%% not base64"));
         expect(bad?.ok).toBe(false);
         expect(host.starts("decode-python")).toBe(1); // errors are answers: one process throughout

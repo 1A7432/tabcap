@@ -25,6 +25,7 @@
 //      "body":{"encoding":"base64","data":"…","mime":"…"|null}}
 //   ← {"id":1,"ok":true,"mime":"application/json","body":{"encoding":"utf8"|"base64","data":"…"},"note"?:"…"}
 //   ← {"id":1,"ok":false,"error":"…"}
+//   ← {"id":1,"declined":true}     (not mine: no view, not a failure)
 // `request.id` is null while recording (the event gets its id when it is
 // written, after the decode) and r-N in `tabcap bundle decode`. Headers are
 // the recorded ones minus cookie / set-cookie / authorization /
@@ -35,7 +36,7 @@
 // protocol (wrong id, no ok, bad body), kills the process (the next call
 // starts it again) and counts as a failure; MAX_FAILURES failures
 // disable the plugin for the rest of the session (the recorder writes a
-// `note` event). `ok:false` is an answer, not a failure. The plugin's stderr
+// `note` event). `ok:false` and `declined` are answers, not failures. The plugin's stderr
 // is drained and dropped: it may print its keys.
 
 import { lstatSync } from "node:fs";
@@ -454,9 +455,10 @@ function selectedHeaders(h: Headers, scrub: (s: string) => string): Record<strin
 const cut = (s: string, n = MAX_TEXT) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
 /** Interpret one answer line; a string is a protocol failure. */
-export function parseDecodeReply(v: unknown, id: number, maxBytes: number): { ok: true; mime: string | null; body: Uint8Array; note: string | null } | { ok: false; error: string } | string {
+export function parseDecodeReply(v: unknown, id: number, maxBytes: number): { ok: true; mime: string | null; body: Uint8Array; note: string | null } | { ok: false; error: string } | { declined: true } | string {
   if (!isRecord(v)) return "answer is not a JSON object";
   if (v["id"] !== id) return `answer id ${JSON.stringify(v["id"] ?? null)} is not ${id}`;
+  if (v["declined"] === true && v["ok"] === undefined) return { declined: true };
   if (v["ok"] === false) return { ok: false, error: typeof v["error"] === "string" && v["error"] !== "" ? cut(v["error"]) : "the plugin reported a failure" };
   if (v["ok"] !== true) return "answer has no boolean ok";
   const b = v["body"];
@@ -508,21 +510,28 @@ export class DecodeSession {
   /**
    * Decode one body: the matching plugins in name order, the first `ok` answer
    * wins; when none succeeds, the first failure is reported. Null when no
-   * plugin matches. Never throws.
+   * plugin matches. A plugin that answers `declined` (decode() returned
+   * None / null: not its body) leaves no view and is not a failure; it is
+   * reported to `declined` and, when every matching plugin declined, the
+   * result is null. Never throws.
    */
-  async decode(job: DecodeJob): Promise<DecodeOutcome | null> {
+  async decode(job: DecodeJob, declined?: (plugin: string) => void): Promise<DecodeOutcome | null> {
     const list = this.matching(job);
     if (list.length === 0) return null;
     let first: DecodeOutcome | null = null;
     for (const p of list) {
       const out = await this.one(p, job);
+      if (out === null) {
+        declined?.(p.name);
+        continue;
+      }
       if (out.ok) return out;
       first ??= out;
     }
     return first;
   }
 
-  private async one(p: DecodePlugin, job: DecodeJob): Promise<DecodeOutcome> {
+  private async one(p: DecodePlugin, job: DecodeJob): Promise<DecodeOutcome | null> {
     const base = { by: p.name, version: p.version, direction: job.direction };
     if (job.body.length > p.decode.maxBytes) return { ...base, ok: false, error: `body of ${job.body.length} bytes is over maxBytes ${p.decode.maxBytes}; not sent` };
     const id = this.nextId++;
@@ -541,6 +550,7 @@ export class DecodeSession {
       this.fail(p, parsed);
       return { ...base, ok: false, error: this.scrub(parsed) };
     }
+    if ("declined" in parsed) return null;
     if (!parsed.ok) return { ...base, ok: false, error: this.scrub(parsed.error) };
     return { ...base, ok: true, mime: parsed.mime, body: parsed.body, ...(parsed.note === null ? {} : { note: this.scrub(parsed.note) }) };
   }

@@ -6,6 +6,8 @@ flow.request.url / method / headers / content, flow.response.headers /
 content / status_code (bytes for content; flow.response is None when tabcap
 asks about a request body). decode() returns bytes / str, or None; a body
 assigned to flow.response.content (or .text) the mitmproxy way counts too.
+None means "not my body": tabcap writes no view and counts no failure (it
+shows as `declined`); raise an exception for a body that is yours but broken.
 Your print() output goes to stderr, which tabcap drops.
 """
 
@@ -82,7 +84,7 @@ def answer(msg):
         side = flow.response if flow.direction == "response" else flow.request
         out = side.content if side.content != body else None
     if out is None:
-        return {"id": msg["id"], "ok": False, "error": "plugin.decode returned None"}
+        return {"id": msg["id"], "declined": True}  # None = not my body: tabcap writes no view and counts no failure
     data = out.encode("utf-8") if isinstance(out, str) else bytes(out)
     mime = getattr(plugin, "MIME", None) or guess_mime(data)
     return {"id": msg["id"], "ok": True, "mime": mime, "body": {"encoding": "base64", "data": base64.b64encode(data).decode("ascii")}}
