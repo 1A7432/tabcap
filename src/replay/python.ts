@@ -42,6 +42,7 @@ import VERIFY from "../../templates/python/_verify.py" with { type: "text" };
 import WIRE from "../../templates/python/_wire.py" with { type: "text" };
 import MAIN from "../../templates/python/_main.py" with { type: "text" };
 import CONFTEST from "../../templates/python/conftest.py" with { type: "text" };
+import TABCAP_FETCH from "../../templates/python/_tabcap_fetch.py" with { type: "text" };
 import TEST_REPLAY from "../../templates/python/test_replay.py" with { type: "text" };
 import PYPROJECT from "../../templates/python/pyproject.toml" with { type: "text" };
 import README from "../../templates/python/README.md" with { type: "text" };
@@ -971,6 +972,8 @@ export function exportPython(opts: ExportOptions): ExportResult {
   writeFileSync(join(fixturesDir, "index.json"), JSON.stringify({ bundle: reader.manifest.id, session: name, cases }, null, 2) + "\n");
   files.push("fixtures/index.json");
   write("conftest.py", CONFTEST);
+  // 0.6-A: route an existing scraper through the browser (POST /fetch of the daemon); not used by client.py.
+  write("_tabcap_fetch.py", TABCAP_FETCH);
   write("test_replay.py", TEST_REPLAY);
   // 0.6-F: loads a `tabcap session export --for requests` file into an httpx client (no tabcap at runtime).
   write("_tabcap_session.py", SESSION_HELPER);

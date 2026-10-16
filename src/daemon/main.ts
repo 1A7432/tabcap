@@ -1,6 +1,7 @@
 // The daemon: one process, HTTP over a Unix socket (0600, in a 0700 dir), or
 // on Windows over loopback TCP with a per-start bearer token (listener.ts).
 //   POST /command {action, args, session, argv?} -> JSON envelope
+//   POST /fetch   {session, url, ...}             -> JSON envelope (0.6-A: `tabcap fetch` for scripts)
 //   GET  /status                                  -> JSON envelope
 // Every response is passed through known-secret replacement. The log records
 // actions and outcomes, never arguments.
@@ -156,6 +157,16 @@ function withoutResult(e: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(e).filter(([k]) => k !== "result"));
 }
 
+/** `POST /fetch` (0.6-A): one `tabcap fetch` for a script; same auth as /command, same envelope as the CLI. */
+export async function handleFetch(d: Daemon, body: unknown, shutdown: () => void): Promise<Envelope<unknown>> {
+  if (!isRecord(body)) return fail("usage", "POST /fetch needs a JSON object {session, url, method?, headers?, body?|json?|form?, tab?, timeoutMs?, stopOn?, rawBody?}", "See _tabcap_fetch.py (tabcap replay export-python ships it).");
+  if ("batch" in body) return fail("usage", "POST /fetch takes one request", "Send one request per call, or use `tabcap fetch --batch <file.jsonl>`.");
+  if ("out" in body) return fail("usage", "POST /fetch has no out: the body comes back inline (text up to 8 KB), as bodyFile, or base64 with rawBody", "Leave out `out`.");
+  const args = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "session"));
+  const session = body["session"];
+  return handleCommand(d, { action: "fetch", args, ...(typeof session === "string" ? { session } : {}) }, shutdown);
+}
+
 /**
  * AGENTS.md: instrumentation is marked in the output. While the proxy auth
  * handler (browser-level Fetch, 0.4-D) is on, every command output says
@@ -264,7 +275,15 @@ export async function runDaemon(paths: Paths): Promise<void> {
           body = null;
         }
         env = await handleCommand(d, body, () => void shutdown());
-      } else env = fail("not-found", `no route ${req.method} ${url.pathname}`, "Use POST /command or GET /status.");
+      } else if (req.method === "POST" && url.pathname === "/fetch") {
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          body = null;
+        }
+        env = await handleFetch(d, body, () => void shutdown());
+      } else env = fail("not-found", `no route ${req.method} ${url.pathname}`, "Use POST /command, POST /fetch or GET /status.");
       return new Response(scrubbedBody(d, env), { headers: { "content-type": "application/json" } });
   });
   const server = bound.server;

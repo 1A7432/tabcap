@@ -39,6 +39,19 @@ uv run client.py wire-report --url https://localhost:<port>/client --ca <tabcap 
 
 which sends one GET with `Session()` exactly as generated, verifying the echo with its CA, and saves the echo's JSON report. Diagnostic only: the probe says which layer differs, not why a site answered the way it did.
 
+## Route an existing scraper through the browser
+
+`_tabcap_fetch.py` is not used by `client.py`. It is for a scraper you already have: instead of sending its requests itself, it hands each one to the running tabcap daemon (`POST /fetch`), and the session's logged-in tab sends it (its cookies, its CORS rules) and records it into the session's bundle, paced per host (config.json `fetch.minIntervalMs`, default 3000 ms between requests) and checked against stop rules.
+
+```python
+from _tabcap_fetch import TabcapFetch, Stopped
+
+tc = TabcapFetch(session="example")          # `tabcap net start --session example` first
+status, headers, body = tc.fetch("https://example.test/api/list?page=2", stop_on=["json:$.code!=0"])
+```
+
+`Stopped` means a stop rule fired (or had fired) on the site: look at the response, then `tabcap guard resume --site <site>` when you decide to go on. Afterwards `tabcap bundle export har` and `tabcap replay export-python` turn the recording into fixtures for offline replay.
+
 ## What was not generated
 
 {{todo}}
