@@ -168,12 +168,12 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
     await ok("tab", "close", s(n["tab"]), ...S);
   }, 60_000);
 
-  test("console list: page 0 of 100 without paging flags, --page-size 0 for everything, page-index paging, --types, console show by msgid; the old bare `console` is gone", async () => {
+  test("console list: page 0 of 30 (0.5-C) without paging flags, --page-size 0 for everything, page-index paging, --types, console show by msgid; the old bare `console` is gone", async () => {
     const all = await ok("console", "list", ...S);
     const entries = recs(all["entries"]);
     const texts = entries.map((e) => s(e["text"]));
     for (let i = 0; i < 12; i++) expect(texts).toContain(`f-log-${i}`);
-    expect(all).toMatchObject({ pageSize: 100, pageIdx: 0 });
+    expect(all).toMatchObject({ pageSize: 30, pageIdx: 0 });
     expect(recs((await ok("console", "list", "--page-size", "0", ...S))["entries"]).map((e) => s(e["text"])).slice(0, texts.length)).toEqual(texts);
     const p0 = await ok("console", "list", "--page-size", "5", ...S);
     expect(recs(p0["entries"]).map((e) => s(e["text"]))).toEqual(texts.slice(0, 5));
@@ -195,12 +195,12 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
     expect((await tabcap("console", "--limit", "1", ...S)).error).toMatchObject({ code: "usage", message: expect.stringMatching(/^unknown command: console 1/) });
   }, 60_000);
 
-  test("net list: page 0 of 100 without paging flags, --page-size 0 for everything; --page-size / --page-idx pages with nextPageIdx; the old --limit / --offset / --type are unknown options", async () => {
+  test("net list: page 0 of 30 (0.5-C) without paging flags, --page-size 0 for everything; --page-size / --page-idx pages with nextPageIdx; the old --limit / --offset / --type are unknown options", async () => {
     await until("all API calls recorded", () => ok("net", "list", "--filter", "/api/n", ...S), (d) => Number(d["matched"]) === API_CALLS);
     const all = await ok("net", "list", "--filter", "/api/n", ...S);
     const ids = recs(all["requests"]).map((r) => s(r["id"]));
     expect(ids).toHaveLength(API_CALLS);
-    expect(all).toMatchObject({ pageSize: 100, pageIdx: 0, nextPageIdx: null });
+    expect(all).toMatchObject({ pageSize: 30, pageIdx: 0, nextPageIdx: null });
     const everything = await ok("net", "list", "--filter", "/api/n", "--page-size", "0", ...S);
     expect(everything).toMatchObject({ pageSize: null, nextPageIdx: null });
     expect(recs(everything["requests"]).map((r) => s(r["id"]))).toEqual(ids);

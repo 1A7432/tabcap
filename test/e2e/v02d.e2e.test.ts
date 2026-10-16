@@ -223,7 +223,11 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
       seen.push(...recs(p["requests"]).map((r) => s(r["id"])));
       pageIdx = p["nextPageIdx"];
     }
-    expect(seen).toEqual(recs(failed["requests"]).map((r) => s(r["id"])));
+    // the default page holds 30 (0.5-C), so compare with every failed row
+    const everyFailed = await ok("net", "list", "--failed", "--since", c, "--page-size", "0", "--session", S);
+    expect(recs(failed["requests"]).length).toBe(Math.min(closed, 30));
+    expect(seen).toEqual(recs(everyFailed["requests"]).map((r) => s(r["id"])));
+    expect(seen).toHaveLength(closed);
     const all = await ok("net", "list", "--all", "--since", c, "--session", S);
     expect(all["hidden"]).toEqual({ failed: 0, data: 0 });
     expect(all["matched"]).toBe(Number(data["matched"]) + closed + DATA_IMAGES);
