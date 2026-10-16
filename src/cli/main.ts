@@ -12,13 +12,14 @@ import { BundleReader } from "../bundle/reader.ts";
 import { newSalt, redactBundle, writeSalt } from "../bundle/redact.ts";
 import { readConfig, writeConfig } from "../shared/config.ts";
 import { envVar } from "../shared/env.ts";
-import { oneOf } from "../shared/json.ts";
+import { isRecord, oneOf } from "../shared/json.ts";
 import { paths } from "../shared/paths.ts";
 import { runDaemon } from "../daemon/main.ts";
 import { binaryVersion, downloadCft } from "../daemon/transport/direct/cft.ts";
 import { hostPlatform, type CftPlatform } from "../daemon/transport/direct/launcher.ts";
 import { daemonStatus, send, startDaemon, stopDaemon } from "./client.ts";
 import { runAnalyze } from "./analyze.ts";
+import { renderWhereText, whereResultOf } from "../analyze/where.ts";
 import { runReplay } from "./replay.ts";
 import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts";
 import { Store, storePath } from "../daemon/store/db.ts";
@@ -262,7 +263,15 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       const session = parsed.session ?? envVar("SESSION") ?? "default";
       const timeout = typeof parsed.args["timeoutMs"] === "number" ? parsed.args["timeoutMs"] : 30_000;
       const env = await send(p, c.action, withLocalPaths(c, parsed.args, process.cwd()), session, [...raw], timeout);
-      return { code: env.ok ? 0 : env.error.code === "usage" ? 2 : 1, envelope: env };
+      const code = env.ok ? 0 : env.error.code === "usage" ? 2 : 1;
+      // `where --text`: the daemon answers JSON as always; the human report is rendered here.
+      if (key === "where" && parsed.args["text"] === true && env.ok) {
+        const r = whereResultOf(env.data);
+        const saved = isRecord(env.data) && isRecord(env.data["saved"]) ? env.data["saved"] : null;
+        const seqs = saved !== null && Array.isArray(saved["seqs"]) ? saved["seqs"].length : 0;
+        if (r !== null) return { code, envelope: env, text: renderWhereText(r) + (saved === null ? "" : `\nwrote ${seqs} finding event(s) to ${String(saved["bundle"] ?? "")}`) };
+      }
+      return { code, envelope: env };
     }
   }
   return { code: 0, envelope: ok(data) };

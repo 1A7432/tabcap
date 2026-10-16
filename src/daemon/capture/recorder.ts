@@ -1035,10 +1035,11 @@ export class Recorder {
   }
 
   /**
-   * Append a daemon-side event (`guard`, `handoff`, docs/04 §4.2) inside the
-   * current command window. Returns its seq, or null when the bundle is closed.
+   * Append a daemon-side event (`guard`, `handoff`, docs/04 §4.2; `finding`
+   * from `where --write-findings`, docs/04 §4.1) inside the current command
+   * window. Returns its seq, or null when the bundle is closed.
    */
-  event(kind: "guard" | "handoff", fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor } = {}): number | null {
+  event(kind: "guard" | "handoff" | "finding", fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor } = {}): number | null {
     if (this.writerClosed || this.stopping) return null;
     const ev = this.writer.append({
       ts: nowMs(),

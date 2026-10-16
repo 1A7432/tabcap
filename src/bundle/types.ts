@@ -149,7 +149,7 @@ export type FindingEvidence = { request: string; path?: string } | { ws: string;
 
 export type FindingEvent = Envelope & {
   kind: "finding";
-  tool: "find" | "diff" | "deps" | "trace" | "manual";
+  tool: "find" | "diff" | "deps" | "trace" | "where" | "manual";
   grade: "实测" | "推断" | "待验" | "人确认";
   claim: string;
   evidence: FindingEvidence[];
