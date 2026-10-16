@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
-import { pyCompile, pytestPython } from "../unit/_python.ts";
+import { MUST_RUN, need, packageReason, pyCompile, runInPackageAsync, syncPackage } from "../unit/_python.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, SEARCH_BUILD, startGuardSite, startSearchSite, type GuardSite, type SearchSite } from "./site.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
@@ -230,18 +230,21 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     for (const f of walk(out)) for (const sp of SPELLINGS) expect([f, readFileSync(f, "utf8").includes(sp)]).toEqual([f, false]);
     expect(statSync(join(out, "verify_expected.json")).size).toBeGreaterThan(0);
 
-    const PY = pytestPython();
-    if ("reason" in PY) {
-      console.warn(`[v04a] verify() run 待验: ${PY.reason}`);
+    // through uv offline, in the package's own .venv; no uv / cache: 待验 locally, a failure under CI
+    const PY = packageReason();
+    if (PY !== null && !MUST_RUN) {
+      console.warn(`[v04a] verify() run 待验: ${PY}`);
       return;
     }
+    need(PY);
+    need(syncPackage(out));
     const srv = await serve(bundle);
     try {
-      const p = Bun.spawnSync([PY.python, "client.py", "verify", "--base-url", srv.url], { cwd: out, env: { ...process.env, TABCAP_SECRET_POST_API_LOGIN_PASSWORD: LOGIN_PASSWORD }, stdout: "pipe", stderr: "pipe" });
-      const text = p.stdout.toString();
+      const p = await runInPackageAsync(out, ["python", "client.py", "verify", "--base-url", srv.url], { TABCAP_SECRET_POST_API_LOGIN_PASSWORD: LOGIN_PASSWORD });
+      const text = p.out;
       console.log(`[v04a] verify():\n${text}`);
-      expect(p.stderr.toString()).toBe("");
-      expect(p.exitCode).toBe(0);
+      expect(p.err).toBe("");
+      expect(p.code).toBe(0);
       expect(text).toContain("verify: 2 step(s), 2 pass, 0 fail");
     } finally {
       await srv.stop();

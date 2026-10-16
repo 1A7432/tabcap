@@ -1,7 +1,8 @@
 // replay export-python (src/replay/python.ts). The snapshot pins the generated
 // client.py for the synthetic bundle of _replay.ts; every output must pass
-// `python3 -m py_compile`. Untrusted names and values (keys, headers, bodies)
-// must come out as literals / identifiers, never as code.
+// `python -m py_compile` (through uv, test/unit/_python.ts). Untrusted names
+// and values (keys, headers, bodies) must come out as literals / identifiers,
+// never as code.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -9,7 +10,7 @@ import { join } from "node:path";
 import { exportPython, pyBytes, pyIdent, pyStr, TODO_MARK } from "../../src/replay/python.ts";
 import { run } from "../../src/cli/main.ts";
 import { buildBundle, tmp } from "./_analyze.ts";
-import { PYTHON3, pyCompile } from "./_python.ts";
+import { need, pyCompile, pythonReason, runPython, skipWithout } from "./_python.ts";
 import { LOGIN_BODY, buildReplayBundle } from "./_replay.ts";
 import { SLOW_IO_MS } from "./_platform.ts";
 
@@ -139,7 +140,7 @@ describe("generated package", () => {
 describe("literals", () => {
   const samples = ["", "plain", 'q"uote', "back\\slash", "new\nline\r\t", "  \u0085﻿", "\u0000\u001f\u007f", "中文✓😀", "\ud800 lone", "\udc00", "'''\"\"\"", "\\N{BULLET}", "{x}", "%s"];
 
-  test.skipIf(PYTHON3 === null)("pyStr / pyBytes round-trip through Python exactly", () => {
+  test.skipIf(skipWithout(pythonReason(), "replay-python literals"))("pyStr / pyBytes round-trip through Python exactly", () => {
     const file = join(root, "lit.py");
     const bytes = [new Uint8Array([0, 1, 0x22, 0x5c, 0x7f, 0x80, 0xff, 0x41]), new TextEncoder().encode('b"\\x')];
     writeFileSync(
@@ -152,10 +153,10 @@ describe("literals", () => {
         "print(json.dumps({'s': [[ord(c) for c in s] for s in S], 'b': [list(b) for b in B]}))",
       ].join("\n") + "\n",
     );
-    const py = PYTHON3 ?? "python3";
-    const r = Bun.spawnSync([py, "-I", file], { stdout: "pipe", stderr: "pipe" });
-    expect(r.stderr.toString()).toBe("");
-    const got: unknown = JSON.parse(r.stdout.toString());
+    need(pythonReason());
+    const r = runPython(["-I", file]);
+    expect(r.err).toBe("");
+    const got: unknown = JSON.parse(r.out);
     const codeUnits = (s: string) => {
       // Python keeps a surrogate pair as one code point; a lone surrogate as itself
       const out: number[] = [];

@@ -1,8 +1,9 @@
 // replay end to end without a browser: the CLI's `replay serve --once` on the
 // synthetic bundle of _replay.ts, real HTTP from fetch, `replay check` against
-// it (must be 0 differences), `replay export-python` (must py_compile) and,
-// when a Python with httpx + pytest is available offline, the generated pytest
-// suite against a fresh server. Oracle: the bundle's blobs (sha256).
+// it (must be 0 differences), `replay export-python` (must py_compile) and the
+// generated pytest suite against a fresh server, run through uv offline in the
+// package's own .venv (no uv / cache: skipped with the reason printed; under CI
+// it fails instead, _python.ts). Oracle: the bundle's blobs (sha256).
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
@@ -11,13 +12,13 @@ import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { sha256Hex } from "../../src/shared/ids.ts";
 import { tmp } from "./_analyze.ts";
-import { pyCompile, pytestPython } from "./_python.ts";
+import { need, packageReason, pyCompile, runInPackageAsync, skipWithout, syncPackage } from "./_python.ts";
 import { FEED, HTML, LOGIN_BODY, PNG, SEARCH, SID, buildReplayBundle } from "./_replay.ts";
 import { SLOW_IO_MS } from "./_platform.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
-const PY = pytestPython();
-if ("reason" in PY) console.warn(`[replay-integration] generated pytest run SKIPPED: ${PY.reason}`);
+const PY = packageReason();
+const SKIP_PY = skipWithout(PY, "replay-integration generated pytest run");
 
 type Server = { url: string; info: Record<string, unknown>; proc: ReturnType<typeof Bun.spawn>; stop: () => Promise<void> };
 
@@ -187,18 +188,17 @@ describe("export-python against replay serve", () => {
     expect(pyCompile(["client.py", "conftest.py", "test_replay.py"].map((f) => join(out, f)))).toBeNull();
   });
 
-  test.skipIf("reason" in PY)("generated pytest suite passes against a fresh replay serve", async () => {
-    if (!("python" in PY)) return;
+  test.skipIf(SKIP_PY)("generated pytest suite passes against a fresh replay serve", async () => {
+    need(PY);
     const out = join(root, "py-run");
     expect((await cli(["replay", "export-python", bundle, "-o", out])).code).toBe(0);
+    need(syncPackage(out));
     const s = await serve(bundle);
     try {
-      const p = Bun.spawn([PY.python, "-m", "pytest", "-q", "-p", "no:cacheprovider", out], { cwd: out, stdout: "pipe", stderr: "pipe", env: { ...process.env, TABCAP_REPLAY: s.url } });
-      const [o, e] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-      const code = await p.exited;
-      if (code !== 0) console.error(o, e);
-      expect(code).toBe(0);
-      expect(o).toMatch(/10 passed/);
+      const p = await runInPackageAsync(out, ["pytest", "-q", "-p", "no:cacheprovider"], { TABCAP_REPLAY: s.url });
+      if (p.code !== 0) console.error(p.out, p.err);
+      expect(p.code).toBe(0);
+      expect(p.out).toMatch(/10 passed/);
     } finally {
       await s.stop();
     }

@@ -2,8 +2,9 @@
 // drive TODO parameters, arguments taken from earlier replies, and the
 // generated verify() + verify_expected.json. Oracle: the planted flows of
 // _deps.ts (LOGIN: login → set-cookie sid + {csrf} → data; SIGN: sig =
-// sha256(q|t)); verify() runs against `replay serve` of the same bundle when a
-// Python with httpx is available offline (else only py_compile, reason printed).
+// sha256(q|t)); verify() runs against `replay serve` of the same bundle through
+// uv offline, each generated package in its own .venv (no uv / cache: only
+// py_compile, reason printed; under CI it fails instead, _python.ts).
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -14,11 +15,11 @@ import { isRecord } from "../../src/shared/json.ts";
 import { tmp } from "./_analyze.ts";
 import { CSRF, PASSWORD, SIGN_ONE, SIGN_ONE_SIG, USER, buildLogin, buildSign } from "./_deps.ts";
 import { SLOW_IO_MS, expectMode } from "./_platform.ts";
-import { pyCompile, pytestPython } from "./_python.ts";
+import { need, packageReason, pyCompile, runInPackage, skipWithout, syncPackage } from "./_python.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
-const PY = pytestPython();
-if ("reason" in PY) console.warn(`[replay-chain] generated verify() run SKIPPED: ${PY.reason}`);
+const PY = packageReason();
+const SKIP_PY = skipWithout(PY, "replay-chain generated verify() run");
 const SPELLINGS = [PASSWORD, encodeURIComponent(PASSWORD), new URLSearchParams({ p: PASSWORD }).toString().slice(2), JSON.stringify(PASSWORD).slice(1, -1)];
 
 let root = "";
@@ -60,10 +61,14 @@ async function serve(bundle: string): Promise<Served> {
   };
 }
 
+/** `uv sync` the generated package into its own .venv (once per output directory). */
+function ready(out: string): void {
+  need(PY);
+  need(syncPackage(out));
+}
+
 function py(args: string[], cwd: string, env: Record<string, string>): { code: number; out: string; err: string } {
-  if ("reason" in PY) throw new Error(PY.reason);
-  const p = Bun.spawnSync([PY.python, ...args], { cwd, env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
-  return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+  return runInPackage(cwd, args, env);
 }
 
 describe("export-python, chain mode", () => {
@@ -141,42 +146,44 @@ describe("export-python, chain mode", () => {
     expect((await run(["replay", "export-python", sign, "-o", join(root, "x"), "--chain", "--no-chain"])).code).toBe(2);
   });
 
-  test.skipIf("reason" in PY)("verify() against replay serve: passes with the secret from the environment, fails without it", async () => {
+  test.skipIf(SKIP_PY)("verify() against replay serve: passes with the secret from the environment, fails without it", async () => {
     const out = join(root, "login-run");
     exportPython({ bundle: login, out });
+    ready(out);
     const s = await serve(login);
     try {
-      const ok = py(["client.py", "verify", "--base-url", s.url], out, { TABCAP_SECRET_POST_API_LOGIN_PASSWORD: PASSWORD });
+      const ok = py(["python", "client.py", "verify", "--base-url", s.url], out, { TABCAP_SECRET_POST_API_LOGIN_PASSWORD: PASSWORD });
       expect(ok.err).toBe("");
       expect(ok.code).toBe(0);
       expect(ok.out).toMatch(/^1\s+r-\d+\s+post_api_login\s+200->200\s+pass$/m);
       expect(ok.out).toMatch(/^2\s+r-\d+\s+post_api_data\s+200->200\s+pass$/m);
       expect(ok.out).toContain("verify: 2 step(s), 2 pass, 0 fail");
-      const no = py(["client.py", "verify", "--base-url", s.url], out, {});
+      const no = py(["python", "client.py", "verify", "--base-url", s.url], out, {});
       expect(no.code).toBe(1);
       expect(no.out).toContain("secret password not given: set TABCAP_SECRET_POST_API_LOGIN_PASSWORD");
-      const usage = py(["client.py", "verify"], out, { TABCAP_REPLAY: "" });
+      const usage = py(["python", "client.py", "verify"], out, { TABCAP_REPLAY: "" });
       expect(usage.code).toBe(2);
       // the generated pytest suite still passes against the same server
-      const t = py(["-m", "pytest", "-q", "-p", "no:cacheprovider", out], out, { TABCAP_REPLAY: s.url });
+      const t = py(["pytest", "-q", "-p", "no:cacheprovider"], out, { TABCAP_REPLAY: s.url });
       expect(t.code).toBe(0);
     } finally {
       await s.stop();
     }
   }, 60_000);
 
-  test.skipIf("reason" in PY)("the caller fills a TODO in todo_inputs.py: the right computation passes, a wrong one fails", async () => {
+  test.skipIf(SKIP_PY)("the caller fills a TODO in todo_inputs.py: the right computation passes, a wrong one fails", async () => {
     const out = join(root, "sign-run");
     expect((await run(["replay", "export-python", sign, "-o", out, "--chain"])).code).toBe(0);
+    ready(out);
     const s = await serve(sign);
     try {
-      expect(py(["client.py", "verify", "--base-url", s.url], out, {}).code).toBe(0);
+      expect(py(["python", "client.py", "verify", "--base-url", s.url], out, {}).code).toBe(0);
       writeFileSync(join(out, "todo_inputs.py"), `import hashlib\n\ndef fill(function, args):\n    return {"sig": hashlib.sha256(f"${SIGN_ONE.q}|{args['t']}".encode()).hexdigest()}\n`);
-      const good = py(["client.py", "verify", "--base-url", s.url], out, {});
+      const good = py(["python", "client.py", "verify", "--base-url", s.url], out, {});
       expect(good.code).toBe(0);
       expect(good.out).toContain("todo_inputs.fill: sig");
       writeFileSync(join(out, "todo_inputs.py"), `def fill(function, args):\n    return {"sig": "0" * 64}\n`);
-      const bad = py(["client.py", "verify", "--base-url", s.url], out, {});
+      const bad = py(["python", "client.py", "verify", "--base-url", s.url], out, {});
       expect(bad.code).toBe(1);
       expect(bad.out).toMatch(/fail/);
       expect(SIGN_ONE_SIG).toMatch(/^[0-9a-f]{64}$/);
