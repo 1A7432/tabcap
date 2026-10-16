@@ -1634,3 +1634,32 @@ document.getElementById("s56-trust").addEventListener("click", (e) => { if (e.is
   });
   return { origin: `http://127.0.0.1:${server.port}`, served, hits, stop: () => server.stop(true) };
 }
+
+
+// 0.6-N: a tiny HTTP forward proxy for `browser start --proxy <url>` (loopback goes through it).
+// It accepts absolute-URI GET requests (no CONNECT, no auth), records every target URL it was
+// asked for in `seen` (the oracle: what the proxy itself saw) and forwards 127.0.0.1 / localhost ones with
+// fetch to 127.0.0.1, so nothing leaves the machine.
+export type ProxySite = { url: string; port: number; seen: string[]; stop: () => void };
+
+export function startProxySite(): ProxySite {
+  const seen: string[] = [];
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const target = new URL(req.url);
+      if (req.method !== "GET") return new Response("proxy: only GET", { status: 405 });
+      seen.push(target.href);
+      // localhost goes to the range's 127.0.0.1; any other name (e.g. [::1]) is only logged
+      if (target.hostname !== "127.0.0.1" && target.hostname !== "localhost") return new Response("proxy: not forwarded", { status: 502 });
+      target.hostname = "127.0.0.1";
+      const up = await fetch(target.href, { redirect: "manual" });
+      const headers = new Headers(up.headers);
+      headers.delete("content-encoding");
+      headers.delete("content-length");
+      return new Response(await up.arrayBuffer(), { status: up.status, headers });
+    },
+  });
+  return { url: `http://127.0.0.1:${server.port}`, port: server.port ?? 0, seen, stop: () => server.stop(true) };
+}
