@@ -31,7 +31,7 @@ Large things come back as **file paths** (screenshots, bodies, `snapshot --file-
 ## Record → analyse → replay
 
 1. Record: `net start`, use the site (`navigate`, `snapshot --interactive`, `click` / `fill`, `wait --text …`, `net wait --url …`), `net stop`. Action commands return a `cmd` id; `net list --since c-41` is what that action caused.
-   Scrape with `net start --bodies api+script` + `tabcap fetch <url> …` (by the logged-in tab; `--batch`, `--stop-on`, ≥ 3 s apart per host; on `guard.stopped` decide with the user). See [recording](references/recording.md).
+   Scrape with `net start --bodies api+script` + `tabcap fetch <url> …` (by the logged-in tab; `--batch`, `--stop-on`, ≥ 3 s/host; on `guard.stopped` decide with the user). See [recording](references/recording.md).
 2. Analyse: `where <ref|value>` (which response carries a shown value), `recon` (stack, data channels, cookies, protection), `analyze deps <bundle>` / `analyze chain <bundle> --request r-N` (where every input comes from). Encoded bodies: a decode plugin's plaintext views are read automatically (chain `plugin:<name>`); `bundle decode` adds them later ([analysis](references/analysis.md)).
 3. Replay: `replay serve <bundle>`, `replay export-python <bundle> -o ./client`, then `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.**
 4. Hand the live session to the user's script: while recording, `session export --for httpx --out ./example_session.py` (or `--for requests` / `--for playwright`) writes cookies, the auth headers the page sent and storage tokens to a 0600 file and answers counts only. Never print, commit or share that file. Details: [replay](references/replay.md).
