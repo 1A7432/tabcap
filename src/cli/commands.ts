@@ -755,6 +755,20 @@ export const COMMANDS: CommandSpec[] = [
   },
   { path: ["wire", "version"], pos: [], flags: [], summary: "version, path and sha256 of the native wire component (extracted from the tabcap binary into the cache on first use)", example: "tabcap wire version" },
   { path: ["wire", "ca-path"], pos: [], flags: [], summary: "path of the wire echo's CA certificate (a test CA for 127.0.0.1 only), for clients that verify TLS", example: "tabcap wire ca-path" },
+  {
+    path: ["wire", "profile"],
+    pos: [],
+    flags: [
+      SESSION,
+      { flag: "--timeout", key: "timeoutMs", kind: "number", help: "command timeout in ms", default: 120000, metavar: "ms" },
+      { flag: "--samples", key: "samples", kind: "number", help: "navigations and page fetches to capture (2 or more tell a random extension order from a fixed one)", default: 3, metavar: "n" },
+      { flag: "--port", key: "port", kind: "number", help: "echo port on 127.0.0.1 (0: any free port)", default: 0, metavar: "port" },
+    ],
+    summary:
+      "capture the browser baseline: a background tab of the session (the Chrome for Testing tabcap launched, its own flags) ignores certificate errors for itself only, navigates to the local echo and runs a page fetch, N times each; writes the wire profile (navigation and fetch header orders, TLS from all samples, CfT version and the launch flags' sha256) to the cache and prints it",
+    example: "tabcap wire profile --samples 3",
+    action: "wire.profile",
+  },
     path: ["fingerprint", "serve"],
     pos: [],
     flags: [

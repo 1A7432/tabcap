@@ -17,6 +17,7 @@ import { netWait, wait } from "./wait.ts";
 import { where } from "./where.ts";
 import { traceList, traceStart, traceStatus, traceStop } from "./trace.ts";
 import { fingerprintProbe } from "./fingerprint.ts";
+import { wireProfile } from "./wire.ts";
 
 export type Tool = (d: Daemon, a: Args, session: string) => Promise<unknown> | unknown;
 
@@ -64,4 +65,5 @@ export const TOOLS: Record<string, Tool> = {
   "trace.status": traceStatus,
   "trace.list": traceList,
   "fingerprint.probe": fingerprintProbe,
+  "wire.profile": wireProfile,
 };
