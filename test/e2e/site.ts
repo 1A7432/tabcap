@@ -790,6 +790,94 @@ export function startLocaleSite(): Site {
   return { origin: `http://127.0.0.1:${server.port}`, served, hits, stop: () => server.stop(true) };
 }
 
+// ---------------------------------------------------------------- 0.4-H: s41 embedded-state
+// docs/05 s41: one server-rendered page carrying the same rows four ways:
+// Next.js `__NEXT_DATA__` script JSON, a JSON-LD @graph (sku = the code), an
+// inline `window.__STATE__ = {…}` literal that is not JSON (unquoted keys,
+// single quotes, trailing commas), and an ASP.NET-style __VIEWSTATE whose bytes
+// are written below by hand (an ASCII token and a UTF-16LE run). The table
+// shows amount / code / name as plain strings (`1234.56`, not `1,234.56`), so
+// `find "1234.56"` also hits the cell. The button posts `__VIEWSTATE` and the
+// token the page script cuts out of the decoded blob to /api/s41/submit
+// (form-urlencoded); the token itself is nowhere in the page text.
+export const S41_ROWS = `[{"id":4201,"amount":1234.56,"code":"100101"},{"id":4202,"amount":56.78,"code":"200202"}]`;
+export const S41_TOKEN = "VIEWSTATE-TOKEN-7f3a9c";
+/** The UTF-16LE run inside the viewstate blob (>= 4 units; carries 条目甲). */
+export const S41_WIDE = "user:条目甲";
+/**
+ * __VIEWSTATE bytes: a made-up header, the ASCII token (length-prefixed), then
+ * S41_WIDE in UTF-16LE, written unit by unit: u 75 00, s 73 00, e 65 00,
+ * r 72 00, : 3a 00, 条 U+6761 61 67, 目 U+76EE ee 76, 甲 U+7532 32 75.
+ */
+export const S41_VIEWSTATE_BYTES = Uint8Array.from([
+  0xff, 0x01, 0x0f, 0x0f, 0x05, 0x16,
+  ...new TextEncoder().encode(S41_TOKEN),
+  0x05, 0x10,
+  0x75, 0x00, 0x73, 0x00, 0x65, 0x00, 0x72, 0x00, 0x3a, 0x00, 0x61, 0x67, 0xee, 0x76, 0x32, 0x75,
+  0x00, 0x00, 0x64, 0x64,
+]);
+export const S41_VIEWSTATE = Buffer.from(S41_VIEWSTATE_BYTES).toString("base64");
+export const S41_GENERATOR = "CA0B0334";
+export const S41_EVENTVALIDATION = Buffer.from(Uint8Array.from([0xff, 0x01, 0x14, 0x02, ...new TextEncoder().encode("s41-event-validation"), 0x00])).toString("base64");
+
+const S41_PAGE = `<!doctype html><meta charset=utf-8><title>s41 embedded-state</title>
+<h1>s41 embedded-state</h1>
+<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"rows":${S41_ROWS}}},"page":"/s41","buildId":"s41-build"}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Product","name":"s41 product","sku":"100101","offers":{"@type":"Offer","price":"19.99","priceCurrency":"USD"}}]}</script>
+<script>
+window.__STATE__ = {user:{id:4201,name:'条目甲'},rows:[{id:4201,amount:1234.56,code:'100101'},{id:4202,amount:56.78,code:'200202'},],};
+</script>
+<form id=f method=post action="/s41">
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="${S41_VIEWSTATE}">
+<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="${S41_GENERATOR}">
+<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="${S41_EVENTVALIDATION}">
+<table id=rows><thead><tr><th>amount</th><th>code</th><th>name</th></tr></thead><tbody>
+<tr><td>1234.56</td><td>100101</td><td>条目甲</td></tr>
+<tr><td>56.78</td><td>200202</td><td>条目乙</td></tr>
+</tbody></table>
+<button type=button id=submit>submit</button>
+</form>
+<p id=status>ready</p>
+<script>
+document.getElementById("submit").addEventListener("click", () => {
+  const vs = document.getElementById("__VIEWSTATE").value;
+  const token = (atob(vs).match(/VIEWSTATE-TOKEN-[0-9a-f]+/) || [""])[0];
+  fetch("/api/s41/submit", { method: "POST", body: new URLSearchParams({ __VIEWSTATE: vs, token }) })
+    .then((r) => r.json())
+    .then((j) => { document.getElementById("status").textContent = "submitted " + j.ok; });
+});
+</script>`;
+
+export type EmbeddedSite = Site & { submits: URLSearchParams[] };
+
+export function startEmbeddedSite(): EmbeddedSite {
+  const served = new Map<string, string>();
+  const hits: string[] = [];
+  const submits: URLSearchParams[] = [];
+  const send = (key: string, body: string, type: string) => {
+    const bytes = new TextEncoder().encode(body);
+    served.set(key, createHash("sha256").update(bytes).digest("hex"));
+    return new Response(bytes, { headers: { "content-type": type, "cache-control": "no-store" } });
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const u = new URL(req.url);
+      hits.push(`${req.method} ${u.pathname}`);
+      if (u.pathname === "/s41") return send(u.pathname, S41_PAGE, "text/html; charset=utf-8");
+      if (u.pathname === "/api/s41/submit" && req.method === "POST") {
+        const form = new URLSearchParams(await req.text());
+        submits.push(form);
+        const ok = form.get("__VIEWSTATE") === S41_VIEWSTATE && form.get("token") === S41_TOKEN;
+        return send(u.pathname, JSON.stringify({ ok }), "application/json");
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served, hits, submits, stop: () => server.stop(true) };
+}
+
 // ---------------------------------------------------------------- 0.4-B: emulate network throttling
 // A page and one ~300 KB response (deterministic bytes, never cached), to time a
 // transfer with and without `emulate --network-conditions`.
