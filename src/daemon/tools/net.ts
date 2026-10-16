@@ -14,6 +14,8 @@ import { inlineBytes } from "../capture/ws.ts";
 import type { Daemon } from "../state.ts";
 import { noteAccountRequest } from "./pool.ts";
 import { checkSessionName, optStr, reqStr, type Args } from "./args.ts";
+import { bodySearchOf, charsetOf, decodeBody, prettify, requestByUrl, searchBody } from "./netsearch.ts";
+import { splitLines } from "./textsearch.ts";
 
 export async function netStart(d: Daemon, _a: Args, session: string): Promise<unknown> {
   checkSessionName(session);
@@ -67,7 +69,7 @@ export async function netStop(d: Daemon, _a: Args, session: string): Promise<unk
 
 type Rec = { dir: string; index: NetEntry[]; frames: WsFrameEntry[]; recording: boolean; rec: Recorder };
 
-function current(d: Daemon, session: string): Rec {
+export function current(d: Daemon, session: string): Rec {
   const r = d.recorders.get(session);
   if (r !== undefined) return { dir: r.dir, index: r.index, frames: r.frames, recording: true, rec: r };
   const last = d.lastBundles.get(session);
@@ -132,7 +134,7 @@ function wsList(dir: string, frames: WsFrameEntry[], recording: boolean, session
 }
 
 /** `net body r-12:34`: a frame payload as a file (inline payloads are materialised under exports/ws/). */
-function frameBody(dir: string, frames: WsFrameEntry[], id: string, out: string | null): unknown {
+function frameBody(dir: string, frames: WsFrameEntry[], id: string, out: string | null, search: SearchCtx | null): unknown {
   const f = frames.find((x) => x.id === id);
   if (f === undefined) throw new TabcapError("not-found", `no WebSocket frame ${id} in ${dir}`, "Run `tabcap net list --kind ws` for frame ids.");
   if (f.phase !== "frame") throw new TabcapError("not-found", `${id} is a ${f.phase} event, not a frame (reason: ${f.reason ?? "none"})`, "Pick a frame id from `tabcap net list --kind ws`.");
@@ -140,13 +142,30 @@ function frameBody(dir: string, frames: WsFrameEntry[], id: string, out: string 
   if (f.blob !== null) path = new BlobStore(dir).pathOf(f.blob);
   else if (f.inline !== null) path = materialize(dir, "ws", `${id}.bin`, inlineBytes(f.opcode ?? 1, f.inline));
   if (path === null || !existsSync(path)) throw new TabcapError("not-found", `frame ${id} has no stored payload (${f.reason ?? "missing"})`, "The payload was too large to store; see the ws event in the bundle.");
-  return bodyResult({ id, url: f.url, path, blob: f.blob, mime: f.opcode === 1 ? "text/plain" : null, out, extra: { ws: f.ws, direction: f.direction, opcode: f.opcode } });
+  return bodyResult({ id, url: f.url, path, blob: f.blob, mime: f.opcode === 1 ? "text/plain" : null, out, extra: { ws: f.ws, direction: f.direction, opcode: f.opcode } }, search);
 }
 
-export function netBody(d: Daemon, a: Args, session: string): unknown {
-  const id = reqStr(a, "id", "tabcap net body <id> [--out path]");
-  const { dir, index, frames } = current(d, session);
-  if (id.includes(":")) return frameBody(dir, frames, id, optStr(a, "out"));
+/** 0.5-F search flags of `net body`, with what decoding needs. */
+type SearchCtx = { s: NonNullable<ReturnType<typeof bodySearchOf>>; scrub: (text: string) => string; charset: () => string | null; resourceType: string | null };
+
+export async function netBody(d: Daemon, a: Args, session: string): Promise<unknown> {
+  const idArg = optStr(a, "id");
+  const url = optStr(a, "url");
+  const s = bodySearchOf(a);
+  if ((idArg === null || idArg === "") === (url === null || url === "")) {
+    throw new TabcapError("usage", url === null ? "missing id" : "give either an id or --url, not both", "Usage: tabcap net body <id> [--out path], or tabcap net body --url <script url> --at line:col");
+  }
+  const { dir, index, frames, rec } = current(d, session);
+  let id = idArg ?? "";
+  let byUrl: Record<string, unknown> = {};
+  if (url !== null && url !== "") {
+    const hit = requestByUrl(index, url);
+    if (hit === null) throw new TabcapError("not-found", `no recorded request for ${url.slice(0, 300)}`, "`tabcap net list --filter <part of the url>` shows what was recorded; scripts loaded before `net start` are not in the bundle.");
+    id = hit.entry.id;
+    byUrl = { resolvedBy: "url", sameUrl: hit.count };
+  }
+  const scrub = (text: string) => d.secrets.scrub(text);
+  if (id.includes(":")) return frameBody(dir, frames, id, optStr(a, "out"), s === null ? null : { s, scrub, charset: () => null, resourceType: null });
   const e = index.find((x) => x.id === id);
   if (e === undefined) throw new TabcapError("not-found", `no request ${id} in ${dir}`, "Run `tabcap net list` for request ids.");
   if (e.blob === null) {
@@ -155,10 +174,12 @@ export function netBody(d: Daemon, a: Args, session: string): unknown {
   const store = new BlobStore(dir);
   const path = store.pathOf(e.blob);
   if (path === null || !existsSync(path)) throw new TabcapError("not-found", `blob ${e.blob} is missing from ${dir}`, "The bundle is damaged; record again.");
-  return bodyResult({ id, url: e.url, path, blob: e.blob, mime: e.mime, out: optStr(a, "out"), extra: {} });
+  if (s !== null) await rec.flushEvents();
+  const search = s === null ? null : { s, scrub, charset: () => charsetOf(dir, e.id), resourceType: e.type };
+  return bodyResult({ id, url: e.url, path, blob: e.blob, mime: e.mime, out: optStr(a, "out"), extra: byUrl }, search);
 }
 
-function bodyResult(o: { id: string; url: string; path: string; blob: string | null; mime: string | null; out: string | null; extra: Record<string, unknown> }): unknown {
+function bodyResult(o: { id: string; url: string; path: string; blob: string | null; mime: string | null; out: string | null; extra: Record<string, unknown> }, search: SearchCtx | null = null): unknown {
   const { id, path, out } = o;
   let outPath = path;
   if (out !== null) {
@@ -167,6 +188,19 @@ function bodyResult(o: { id: string; url: string; path: string; blob: string | n
     copyFileSync(path, outPath);
   }
   const bytes = readFileSync(path);
+  if (search !== null) {
+    const decoded = decodeBody(bytes, o.mime, search.charset);
+    if (decoded === null) throw new TabcapError("usage", `${id} is binary data (${o.mime ?? "unknown type"}, ${bytes.length} bytes); line search needs a text body`, "Use `tabcap net body <id> --out <file>` and a tool for that format.");
+    const base = { id, url: o.url, ...o.extra, path: outPath, blob: o.blob };
+    const text = search.scrub(decoded);
+    if (search.s.search.mode === "preview") {
+      // --pretty alone: the 0.3-F preview (10000 chars), of the pretty text.
+      const p = prettify(text, bytes.length, o.mime, search.resourceType);
+      const pv = bodyPreview(new TextEncoder().encode(p.text), true);
+      return { ...base, size: bytes.length, mime: o.mime, pretty: p.pretty, lines: splitLines(p.text).length, textPreview: pv.text, previewTruncated: pv.truncated, ...(p.note === null ? {} : { note: p.note }) };
+    }
+    return searchBody(base, text, bytes.length, o.mime, search.resourceType, search.s);
+  }
   // chrome-devtools-mcp body conventions (formatters.ts): up to 10000 chars of text, <binary data>, <empty response>.
   const p = bodyPreview(bytes, isTextMime(o.mime));
   return { id, url: o.url, ...o.extra, path: outPath, blob: o.blob, size: bytes.length, mime: o.mime, textPreview: p.binary ? null : p.text, previewTruncated: p.truncated, ...(p.binary ? { preview: p.text } : {}) };
@@ -189,3 +223,4 @@ export async function netShow(d: Daemon, a: Args, session: string): Promise<unkn
   const ws = ev["type"] === "websocket" ? { frames: frames.filter((f) => f.ws === id && f.phase === "frame").length, framesHint: "`tabcap net list --kind ws` lists them; `net show <id>:<seq>` shows one" } : {};
   return { session, bundle: dir, recording, ...detail, ...ws };
 }
+
