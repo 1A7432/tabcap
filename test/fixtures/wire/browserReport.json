@@ -1,0 +1,382 @@
+{
+  "wireprint": "0.1.0",
+  "connection": {
+    "peer": "127.0.0.1:63748",
+    "record_bytes": 1917
+  },
+  "tls": {
+    "handshake": {
+      "version": "TLSv1.3",
+      "cipher": "TLS_AES_128_GCM_SHA256",
+      "alpn": "h2",
+      "sni": "localhost",
+      "session_reused": false,
+      "hello_retry": null
+    },
+    "client_hello": {
+      "legacy_version": "0303",
+      "random": "1c8db5c45458989ffd424c018260c5ed82244bd743ff917da37543ca84b9db3e",
+      "session_id": "f446c842ca174b69736eeb2a8082c8523254081309e37950bd9e92d16010efee",
+      "session_id_length": 32,
+      "cipher_suites": [
+        "4a4a",
+        "1301",
+        "1302",
+        "1303",
+        "c02b",
+        "c02f",
+        "c02c",
+        "c030",
+        "cca9",
+        "cca8",
+        "c013",
+        "c014",
+        "009c",
+        "009d",
+        "002f",
+        "0035"
+      ],
+      "cipher_grease_positions": [
+        0
+      ],
+      "compression_methods": [
+        "00"
+      ],
+      "extension_count": 19,
+      "extensions": [
+        {
+          "type": "3a3a",
+          "length": 0
+        },
+        {
+          "type": "002b",
+          "length": 7
+        },
+        {
+          "type": "000d",
+          "length": 26
+        },
+        {
+          "type": "0000",
+          "length": 14
+        },
+        {
+          "type": "44cd",
+          "length": 5
+        },
+        {
+          "type": "0023",
+          "length": 0
+        },
+        {
+          "type": "0033",
+          "length": 1263
+        },
+        {
+          "type": "0010",
+          "length": 14
+        },
+        {
+          "type": "ff01",
+          "length": 1
+        },
+        {
+          "type": "ca34",
+          "length": 186
+        },
+        {
+          "type": "000b",
+          "length": 2
+        },
+        {
+          "type": "001b",
+          "length": 3
+        },
+        {
+          "type": "0012",
+          "length": 0
+        },
+        {
+          "type": "0017",
+          "length": 0
+        },
+        {
+          "type": "000a",
+          "length": 12
+        },
+        {
+          "type": "002d",
+          "length": 2
+        },
+        {
+          "type": "0005",
+          "length": 5
+        },
+        {
+          "type": "fe0d",
+          "length": 186
+        },
+        {
+          "type": "4a4a",
+          "length": 1
+        }
+      ],
+      "extensions_order": [
+        "3a3a",
+        "002b",
+        "000d",
+        "0000",
+        "44cd",
+        "0023",
+        "0033",
+        "0010",
+        "ff01",
+        "ca34",
+        "000b",
+        "001b",
+        "0012",
+        "0017",
+        "000a",
+        "002d",
+        "0005",
+        "fe0d",
+        "4a4a"
+      ],
+      "extension_grease_positions": [
+        0,
+        18
+      ],
+      "server_name": "localhost",
+      "alpn": [
+        "h2",
+        "http/1.1"
+      ],
+      "supported_versions": [
+        "5a5a",
+        "0304",
+        "0303"
+      ],
+      "supported_groups": [
+        "8a8a",
+        "11ec",
+        "001d",
+        "0017",
+        "0018"
+      ],
+      "signature_algorithms": [
+        "1a1a",
+        "0904",
+        "0905",
+        "0906",
+        "0403",
+        "0804",
+        "0401",
+        "0503",
+        "0805",
+        "0501",
+        "0806",
+        "0601"
+      ],
+      "key_share_groups": [
+        "8a8a",
+        "11ec",
+        "001d"
+      ],
+      "key_shares": [
+        {
+          "group": "8a8a",
+          "key_exchange_length": 1
+        },
+        {
+          "group": "11ec",
+          "key_exchange_length": 1216
+        },
+        {
+          "group": "001d",
+          "key_exchange_length": 32
+        }
+      ],
+      "ec_point_formats": [
+        "00"
+      ],
+      "has_pre_shared_key": false,
+      "has_encrypted_client_hello": true,
+      "has_trust_anchors": true,
+      "has_application_settings": true,
+      "message_length": 1912
+    },
+    "ja3": {
+      "string": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,43-13-0-17613-35-51-16-65281-51764-11-27-18-23-10-45-5-65037,4588-29-23-24,0",
+      "hash": "68f13a7b99d9093f5deb71935c5324e2"
+    },
+    "ja4": {
+      "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+      "ja4_r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+      "ja4_o": "t13d1517h2_acb858a92679_0e34fcd13f58",
+      "ja4_ro": "t13d1517h2_1301,1302,1303,c02b,c02f,c02c,c030,cca9,cca8,c013,c014,009c,009d,002f,0035_002b,000d,0000,44cd,0023,0033,0010,ff01,ca34,000b,001b,0012,0017,000a,002d,0005,fe0d_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601"
+    }
+  },
+  "http2": {
+    "frames": [
+      {
+        "type": 4,
+        "type_name": "settings",
+        "length": 24,
+        "flags": "00",
+        "stream_id": 0
+      },
+      {
+        "type": 8,
+        "type_name": "window_update",
+        "length": 4,
+        "flags": "00",
+        "stream_id": 0
+      },
+      {
+        "type": 1,
+        "type_name": "headers",
+        "length": 455,
+        "flags": "25",
+        "stream_id": 1
+      }
+    ],
+    "settings": [
+      [
+        1,
+        65536
+      ],
+      [
+        2,
+        0
+      ],
+      [
+        4,
+        6291456
+      ],
+      [
+        6,
+        262144
+      ]
+    ],
+    "window_update": 15663105,
+    "priority_frames": [],
+    "pseudo_header_order": [
+      ":method",
+      ":authority",
+      ":scheme",
+      ":path"
+    ],
+    "headers_stream_id": 1,
+    "akamai": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+  },
+  "http": {
+    "version": "2",
+    "header_count": 17,
+    "headers_order": [
+      ":method",
+      ":authority",
+      ":scheme",
+      ":path",
+      "sec-ch-ua",
+      "sec-ch-ua-mobile",
+      "sec-ch-ua-platform",
+      "upgrade-insecure-requests",
+      "user-agent",
+      "accept",
+      "sec-fetch-site",
+      "sec-fetch-mode",
+      "sec-fetch-user",
+      "sec-fetch-dest",
+      "accept-encoding",
+      "accept-language",
+      "priority"
+    ],
+    "headers": [
+      {
+        "name": ":method",
+        "value": "GET"
+      },
+      {
+        "name": ":authority",
+        "value": "localhost:63740"
+      },
+      {
+        "name": ":scheme",
+        "value": "https"
+      },
+      {
+        "name": ":path",
+        "value": "/?sample=1"
+      },
+      {
+        "name": "sec-ch-ua",
+        "value": "\"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\""
+      },
+      {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+      },
+      {
+        "name": "sec-ch-ua-platform",
+        "value": "\"macOS\""
+      },
+      {
+        "name": "upgrade-insecure-requests",
+        "value": "1"
+      },
+      {
+        "name": "user-agent",
+        "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
+      },
+      {
+        "name": "accept",
+        "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+      },
+      {
+        "name": "sec-fetch-site",
+        "value": "none"
+      },
+      {
+        "name": "sec-fetch-mode",
+        "value": "navigate"
+      },
+      {
+        "name": "sec-fetch-user",
+        "value": "?1"
+      },
+      {
+        "name": "sec-fetch-dest",
+        "value": "document"
+      },
+      {
+        "name": "accept-encoding",
+        "value": "gzip, deflate, br, zstd"
+      },
+      {
+        "name": "accept-language",
+        "value": "zh-CN,zh;q=0.9"
+      },
+      {
+        "name": "priority",
+        "value": "u=0, i"
+      }
+    ],
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+    "sec_ch_ua": "\"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\"",
+    "sec_ch_ua_platform": "\"macOS\"",
+    "accept_language": "zh-CN,zh;q=0.9",
+    "checks": []
+  },
+  "role": "navigation",
+  "echo": {
+    "conn": 3,
+    "path": "/?sample=1",
+    "role": "navigation",
+    "alpn": "h2",
+    "sni": "localhost",
+    "psk": false,
+    "sessionReused": false,
+    "protocol": "h2",
+    "receivedAt": "2026-10-16T04:31:52.161Z"
+  }
+}

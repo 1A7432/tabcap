@@ -1,0 +1,88 @@
+{
+  "claim": "chrome/155/macos-arm64/155.0.8059.79",
+  "verdict": "INCONSISTENT",
+  "red": 14,
+  "warn": 1,
+  "findings": [
+    {
+      "rule": "I0",
+      "severity": "info",
+      "message": "claim: chrome/155/macos-arm64/155.0.8059.79"
+    },
+    {
+      "rule": "T1",
+      "severity": "red",
+      "message": "JA4 t13d1712h1_ab0a1bf427ad_8e6e362c5eac != profile t13d1517h2_8daaf6152771_cb7bf5808d99"
+    },
+    {
+      "rule": "T2",
+      "severity": "red",
+      "message": "cipher suites differ (GREASE removed): observed [\"1302\",\"1303\",\"1301\",\"c02c\",\"c030\",\"c02b\",\"c02f\",\"cca9\",\"cca8\",\"c024\",\"c028\",\"c023\",\"c027\",\"009f\",\"009e\",\"006b\",\"0067\"] vs profile [\"1301\",\"1302\",\"1303\",\"c02b\",\"c02f\",\"c02c\",\"c030\",\"cca9\",\"cca8\",\"c013\",\"c014\",\"009c\",\"009d\",\"002f\",\"0035\"]"
+    },
+    {
+      "rule": "T3",
+      "severity": "red",
+      "message": "extension set differs (GREASE/PSK removed): observed [\"0000\",\"000a\",\"000b\",\"000d\",\"0010\",\"0016\",\"0017\",\"0023\",\"002b\",\"002d\",\"0033\",\"ff01\"] vs profile [\"0000\",\"0005\",\"000a\",\"000b\",\"000d\",\"0010\",\"0012\",\"0017\",\"001b\",\"0023\",\"002b\",\"002d\",\"0033\",\"44cd\",\"ca34\",\"fe0d\",\"ff01\"]"
+    },
+    {
+      "rule": "T5",
+      "severity": "red",
+      "message": "supported_groups differ (GREASE removed): observed [\"11ec\",\"001d\",\"0017\",\"001e\",\"0018\",\"0019\",\"0100\",\"0101\"] vs profile [\"11ec\",\"001d\",\"0017\",\"0018\"]"
+    },
+    {
+      "rule": "T6",
+      "severity": "red",
+      "message": "signature_algorithms differ (GREASE removed): observed [\"0905\",\"0906\",\"0904\",\"0403\",\"0503\",\"0603\",\"0807\",\"0808\",\"081a\",\"081b\",\"081c\",\"0809\",\"080a\",\"080b\",\"0804\",\"0805\",\"0806\",\"0401\",\"0501\",\"0601\",\"0303\",\"0301\",\"0302\",\"0402\",\"0502\",\"0602\"] vs profile [\"0904\",\"0905\",\"0906\",\"0403\",\"0804\",\"0401\",\"0503\",\"0805\",\"0501\",\"0806\",\"0601\"]"
+    },
+    {
+      "rule": "T7",
+      "severity": "red",
+      "message": "alpn: same set, different order"
+    },
+    {
+      "rule": "T8",
+      "severity": "red",
+      "message": "ECH extension: observed false vs profile true"
+    },
+    {
+      "rule": "T8",
+      "severity": "red",
+      "message": "trust_anchors extension: observed false vs profile true"
+    },
+    {
+      "rule": "T8",
+      "severity": "red",
+      "message": "ALPS codepoint: observed none vs profile 44cd"
+    },
+    {
+      "rule": "A1",
+      "severity": "red",
+      "message": "Akamai h2 fingerprint 1:4096;2:0;4:65535;5:16384;3:100;6:65536|16777216|0|m,a,s,p != profile 1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+    },
+    {
+      "rule": "A2",
+      "severity": "red",
+      "message": "SETTINGS differ: observed [[1,4096],[2,0],[4,65535],[5,16384],[3,100],[6,65536]] vs profile [[1,65536],[2,0],[4,6291456],[6,262144]]"
+    },
+    {
+      "rule": "A3",
+      "severity": "red",
+      "message": "WINDOW_UPDATE 16777216 vs profile 15663105"
+    },
+    {
+      "rule": "N1",
+      "severity": "warn",
+      "message": "header names differ: observed [\"accept\",\"accept-encoding\",\"user-agent\"] vs profile [\"sec-ch-ua\",\"sec-ch-ua-mobile\",\"sec-ch-ua-platform\",\"upgrade-insecure-requests\",\"user-agent\",\"accept\",\"sec-fetch-site\",\"sec-fetch-mode\",\"sec-fetch-user\",\"sec-fetch-dest\",\"accept-encoding\",\"accept-language\",\"priority\"] [sub-resource request]"
+    },
+    {
+      "rule": "N2",
+      "severity": "red",
+      "message": "user-agent family other vs profile chrome"
+    },
+    {
+      "rule": "N3",
+      "severity": "red",
+      "message": "sec-ch-ua presence: observed false vs profile true"
+    }
+  ]
+}
