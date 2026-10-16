@@ -48,6 +48,9 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap proxy list` | stored proxies: name, scheme, host:port, user, hasAuth, bypass, state, last check (never the password) |
 | `tabcap proxy remove <name>` | delete a proxy no account is bound to |
 | `tabcap proxy check <name> [--url url]` | one health check through the proxy: unknown → up on success; 3 failures in a row → down (rechecked after 1 / 5 / 15 min) |
+| `tabcap proxy set-state <name> active\|disabled` | disable a proxy by hand (skipped by allocation and rotation, never checked) or set it active again (back to unknown until the next check) |
+| `tabcap account add <site> --user <username> [--password-stdin] [--totp-stdin]` | add another account to a stored site (for the human, not the AI: the password is typed at a prompt or piped, never an argument, never shown); a duplicate <site>.<user> is refused |
+| `tabcap account remove <account>` | delete a stored account with its saved cookies and counters; refused while a session uses it |
 | `tabcap account bind <account> --proxy <name\|system\|none>` | bind a stored account (<site>.<user>) to a proxy, or to the browser's own network (system / none) |
 | `tabcap account list [--site site]` | stored accounts: state (active / cooling / needs-human / disabled), coolUntil, proxy, lastUsedAt (never passwords) |
 | `tabcap account set-state <account> active\|disabled` | set an account active (also clears cooling and needs-human) or disabled (never allocated) |

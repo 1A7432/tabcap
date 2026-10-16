@@ -83,6 +83,8 @@ The user keeps sites in a local store (`~/.config/tabcap/state.db`, mode 0600). 
 ```sh
 tabcap site add example --url https://example.com/login --user alice          # the user runs this; it prompts for the password
 tabcap site list                                                           # you see names, entry URLs, usernames and refs — never passwords
+tabcap account add example --user bob --password-stdin             # the user runs this: a second account for `--account auto`; `account remove example.bob` undoes it
+tabcap proxy set-state p1 disabled                                         # the user runs this: a disabled proxy is skipped by allocation and rotation; `active` re-enables it
 ```
 
 You work with references only:
