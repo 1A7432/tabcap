@@ -1026,6 +1026,22 @@ Example: `tabcap analyze shape ./b --template 'GET /api/list' --text`
 | `--text` |  | print one line per field instead of JSON (the envelope's data is schema tabcap-shape/0) |
 | `--write` |  | also store the result as exports/shape.json in the bundle |
 
+### `tabcap analyze schema-diff`
+
+schema drift between two recordings: per endpoint the fields added, removed, changed type, changed optionality or enum, and endpoints only in one bundle; verdict same / drift / new / gone; exits 1 when any endpoint drifted (for cron)
+
+```
+tabcap analyze schema-diff <old> <new> [--template 'GET /path'] [--text] [--write]
+```
+
+Example: `tabcap analyze schema-diff ./yesterday ./today --text`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--template <'GET /path'>` |  | only this endpoint (method + path template) |
+| `--text` |  | print one line per change instead of JSON (the envelope's data is schema tabcap-schema-diff/0) |
+| `--write` |  | also store each bundle's shape as its exports/shape.json |
+
 ### `tabcap replay serve`
 
 serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256; repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k); no match → 404 with the nearest recordings and what differs

@@ -54,6 +54,7 @@ import { channelTemplate } from "./recon.ts";
 import { decodedPayload } from "./views.ts";
 
 export const SHAPE_SCHEMA = "tabcap-shape/0";
+export const SCHEMA_DIFF_SCHEMA = "tabcap-schema-diff/0";
 export const SHAPE_JSON = "shape.json";
 export const SHAPE_RECEIPT = `exports/${SHAPE_JSON}`;
 /** Fields per endpoint (request query + request body + response, all levels). */
@@ -416,6 +417,8 @@ export type ShapeOptions = {
   request?: string | undefined;
   template?: string | undefined;
   now?: number;
+  /** schema-diff: a --template the bundle does not have gives no endpoint instead of not-found. */
+  allowMissing?: boolean;
 };
 
 export function shapeOf(reader: BundleReader, opts: ShapeOptions = {}): ShapeResult {
@@ -459,7 +462,7 @@ export function shapeOf(reader: BundleReader, opts: ShapeOptions = {}): ShapeRes
       for (const s of d.steps) e.steps.add(s);
     }
   }
-  if (want !== null && byKey.size === 0) throw new TabcapError("not-found", `no endpoint ${endpointKey(want.method, want.template)} in ${reader.dir}`, "Run `tabcap analyze shape <bundle>` without --template to list the endpoints (key = method + path template).");
+  if (want !== null && byKey.size === 0 && opts.allowMissing !== true) throw new TabcapError("not-found", `no endpoint ${endpointKey(want.method, want.template)} in ${reader.dir}`, "Run `tabcap analyze shape <bundle>` without --template to list the endpoints (key = method + path template).");
   const endpoints: EndpointShape[] = [];
   const unshaped: string[] = [];
   for (const [key, e] of byKey) {
@@ -553,6 +556,117 @@ export function flatOf(e: EndpointShape): Flat {
   return out;
 }
 
+// ------------------------------------------------------------ schema-diff
+
+export type Verdict = "same" | "drift" | "new" | "gone";
+export type EndpointDiff = {
+  key: string;
+  method: string;
+  template: string;
+  verdict: Verdict;
+  added: string[];
+  removed: string[];
+  changed: { path: string; from: string; to: string }[];
+  optionalityChanged: { path: string; from: "optional" | "required"; to: "optional" | "required" }[];
+  enumChanged: { path: string; from: string[]; to: string[] }[];
+};
+
+export type SchemaDiffSide = { dir: string; id: string; session: string; endpoints: number };
+export type SchemaDiffResult = {
+  schema: typeof SCHEMA_DIFF_SCHEMA;
+  old: SchemaDiffSide;
+  new: SchemaDiffSide;
+  filter: { template: string | null };
+  /** Some endpoint's verdict is drift (the CLI then exits 1). */
+  drift: boolean;
+  summary: Record<Verdict, number>;
+  endpoints: EndpointDiff[];
+  warnings: string[];
+  written?: { old: string; new: string };
+};
+
+const sameList = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
+const opt = (o: boolean): "optional" | "required" => (o ? "optional" : "required");
+
+/** Under an array that had no items on the other side: no evidence there, not compared. */
+const unknownOn = (e: FlatEntry, other: Flat): boolean => e.arrays.some((a) => other.emptyArrays.has(a));
+
+/** Compare the shapes of one endpoint (pure; the diff table of the unit tests). */
+export function diffEndpoint(a: EndpointShape, b: EndpointShape, warn: (w: string) => void = () => {}): EndpointDiff {
+  const fa = flatOf(a);
+  const fb = flatOf(b);
+  const d: EndpointDiff = { key: b.key, method: b.method, template: b.template, verdict: "same", added: [], removed: [], changed: [], optionalityChanged: [], enumChanged: [] };
+  let skipped = 0;
+  for (const [p, eb] of fb.entries) {
+    const ea = fa.entries.get(p);
+    if (ea === undefined) {
+      if (unknownOn(eb, fa)) skipped++;
+      else d.added.push(`${p}:${eb.type}`);
+      continue;
+    }
+    if (ea.type !== eb.type) d.changed.push({ path: p, from: ea.type, to: eb.type });
+    if (ea.optional !== eb.optional) d.optionalityChanged.push({ path: p, from: opt(ea.optional), to: opt(eb.optional) });
+    if (ea.enum !== undefined && eb.enum !== undefined && !sameList(ea.enum, eb.enum)) d.enumChanged.push({ path: p, from: ea.enum, to: eb.enum });
+  }
+  for (const [p, ea] of fa.entries) {
+    if (fb.entries.has(p)) continue;
+    if (unknownOn(ea, fb)) skipped++;
+    else d.removed.push(`${p}:${ea.type}`);
+  }
+  if (skipped > 0) warn(`${b.key}: ${skipped} path(s) under an array without items on one side were not compared`);
+  const any = d.added.length + d.removed.length + d.changed.length + d.optionalityChanged.length + d.enumChanged.length;
+  d.verdict = any > 0 ? "drift" : "same";
+  return d;
+}
+
+const onlyIn = (e: EndpointShape, verdict: "new" | "gone"): EndpointDiff => ({ key: e.key, method: e.method, template: e.template, verdict, added: [], removed: [], changed: [], optionalityChanged: [], enumChanged: [] });
+
+/** The other side recorded the endpoint but had nothing to shape (e.g. HTML instead of JSON): an empty shape, so everything is added / removed. */
+const emptyLike = (e: EndpointShape): EndpointShape => ({
+  ...e,
+  exchanges: 0,
+  requests: [],
+  status: [],
+  decode: [],
+  request: { query: null, body: null },
+  response: null,
+  samples: { query: 0, body: 0, response: 0 },
+  notJson: 0,
+  capped: { fields: false, depth: false, items: false },
+});
+
+export type SchemaDiffOptions = { template?: string | undefined; now?: number; write?: boolean };
+
+export function schemaDiff(oldDir: string, newDir: string, opts: SchemaDiffOptions = {}): SchemaDiffResult {
+  const ra = BundleReader.open(oldDir);
+  const rb = BundleReader.open(newDir);
+  const want = opts.template === undefined ? null : parseTemplate(opts.template);
+  const filterKey = want === null ? null : endpointKey(want.method, want.template);
+  // A --template absent from one bundle is an empty side there (the endpoint is new or gone).
+  const shapeOr = (r: BundleReader): ShapeResult => shapeOf(r, { template: opts.template, allowMissing: true, ...(opts.now === undefined ? {} : { now: opts.now }) });
+  const sa = shapeOr(ra);
+  const sb = shapeOr(rb);
+  if (want !== null && sa.endpoints.length === 0 && sb.endpoints.length === 0) throw new TabcapError("not-found", `no endpoint ${filterKey ?? ""} in either bundle`, "Run `tabcap analyze shape <bundle>` to list the endpoints (key = method + path template).");
+  const warnings = [...sa.warnings.map((w) => `old: ${w}`), ...sb.warnings.map((w) => `new: ${w}`)];
+  const bByKey = new Map(sb.endpoints.map((e) => [e.key, e]));
+  const aKeys = new Set(sa.endpoints.map((e) => e.key));
+  const endpoints: EndpointDiff[] = [];
+  const warn = (w: string) => warnings.push(w);
+  const unshapedA = new Set(sa.unshaped);
+  const unshapedB = new Set(sb.unshaped);
+  for (const a of sa.endpoints) {
+    const b = bByKey.get(a.key);
+    endpoints.push(b !== undefined ? diffEndpoint(a, b, warn) : unshapedB.has(a.key) ? diffEndpoint(a, emptyLike(a), warn) : onlyIn(a, "gone"));
+  }
+  for (const b of sb.endpoints) if (!aKeys.has(b.key)) endpoints.push(unshapedA.has(b.key) ? diffEndpoint(emptyLike(b), b, warn) : onlyIn(b, "new"));
+  const summary: Record<Verdict, number> = { same: 0, drift: 0, new: 0, gone: 0 };
+  for (const e of endpoints) summary[e.verdict]++;
+  const side = (r: BundleReader, s: ShapeResult): SchemaDiffSide => ({ dir: r.dir, id: r.manifest.id, session: s.session, endpoints: s.endpoints.length });
+  const result: SchemaDiffResult = { schema: SCHEMA_DIFF_SCHEMA, old: side(ra, sa), new: side(rb, sb), filter: { template: filterKey }, drift: summary.drift > 0, summary, endpoints, warnings };
+  if (opts.write === true) result.written = { old: writeShape(oldDir, sa), new: writeShape(newDir, sb) };
+  return result;
+}
+
 // ------------------------------------------------------------ text
 
 function shapeLines(label: string, f: Flat): string[] {
@@ -569,5 +683,26 @@ export function renderShapeText(r: ShapeResult): string {
   }
   for (const w of r.warnings) L.push(`warning: ${w}`);
   if (r.written !== undefined) L.push(`wrote ${r.written}`);
+  return L.join("\n");
+}
+
+/** One line per change, then a summary line. */
+export function renderSchemaDiffText(r: SchemaDiffResult): string {
+  const L: string[] = [];
+  for (const e of r.endpoints) {
+    if (e.verdict === "new" || e.verdict === "gone") {
+      L.push(`${e.verdict} ${e.key}`);
+      continue;
+    }
+    for (const x of e.added) L.push(`drift ${e.key} added ${x}`);
+    for (const x of e.removed) L.push(`drift ${e.key} removed ${x}`);
+    for (const x of e.changed) L.push(`drift ${e.key} changed ${x.path} ${x.from} -> ${x.to}`);
+    for (const x of e.optionalityChanged) L.push(`drift ${e.key} optionality ${x.path} ${x.from} -> ${x.to}`);
+    for (const x of e.enumChanged) L.push(`drift ${e.key} enum ${x.path} [${x.from.join(",")}] -> [${x.to.join(",")}]`);
+  }
+  const s = r.summary;
+  L.push(`schema-diff: ${s.drift} drift, ${s.same} same, ${s.new} new, ${s.gone} gone`);
+  for (const w of r.warnings) L.push(`warning: ${w}`);
+  if (r.written !== undefined) L.push(`wrote ${r.written.old}`, `wrote ${r.written.new}`);
   return L.join("\n");
 }

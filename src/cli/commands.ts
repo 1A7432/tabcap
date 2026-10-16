@@ -910,6 +910,18 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap analyze shape ./b --template 'GET /api/list' --text",
   },
   {
+    path: ["analyze", "schema-diff"],
+    pos: ["old", "new"],
+    flags: [
+      { flag: "--template", key: "template", kind: "string", help: "only this endpoint (method + path template)", metavar: "'GET /path'" },
+      { flag: "--text", key: "text", kind: "bool", help: "print one line per change instead of JSON (the envelope's data is schema tabcap-schema-diff/0)" },
+      { flag: "--write", key: "write", kind: "bool", help: "also store each bundle's shape as its exports/shape.json" },
+    ],
+    summary:
+      "schema drift between two recordings: per endpoint the fields added, removed, changed type, changed optionality or enum, and endpoints only in one bundle; verdict same / drift / new / gone; exits 1 when any endpoint drifted (for cron)",
+    example: "tabcap analyze schema-diff ./yesterday ./today --text",
+  },
+  {
     path: ["replay", "serve"],
     pos: ["bundle"],
     flags: [

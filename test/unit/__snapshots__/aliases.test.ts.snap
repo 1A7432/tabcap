@@ -4704,6 +4704,67 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
+      "example": "tabcap analyze schema-diff ./yesterday ./today --text",
+      "flags": [
+        {
+          "alias": null,
+          "default": null,
+          "flag": "--template",
+          "help": "only this endpoint (method + path template)",
+          "key": "template",
+          "repeatable": false,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--text",
+          "help": "print one line per change instead of JSON (the envelope's data is schema tabcap-schema-diff/0)",
+          "key": "text",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--write",
+          "help": "also store each bundle's shape as its exports/shape.json",
+          "key": "write",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+      ],
+      "internal": false,
+      "name": "analyze schema-diff",
+      "path": [
+        "analyze",
+        "schema-diff",
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "name": "old",
+          "required": true,
+          "variadic": false,
+        },
+        {
+          "choices": null,
+          "name": "new",
+          "required": true,
+          "variadic": false,
+        },
+      ],
+      "summary": "schema drift between two recordings: per endpoint the fields added, removed, changed type, changed optionality or enum, and endpoints only in one bundle; verdict same / drift / new / gone; exits 1 when any endpoint drifted (for cron)",
+      "usage": "tabcap analyze schema-diff <old> <new> [--template 'GET /path'] [--text] [--write]",
+    },
+    {
+      "daemon": false,
       "example": "tabcap replay serve ./b --port 4500",
       "flags": [
         {

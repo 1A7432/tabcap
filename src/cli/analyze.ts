@@ -8,7 +8,7 @@ import { diff, renderDiffText, type DiffResult } from "../analyze/diff.ts";
 import { DepsGraph, depsFindings, depsOf, renderDepsText } from "../analyze/deps.ts";
 import { chainOf, renderChainText } from "../analyze/chain.ts";
 import { buildDossier, reconOutput, recordedPage, renderDossierMd, writeDossier } from "../analyze/recon.ts";
-import { renderShapeText, shape, writeShape } from "../analyze/shape.ts";
+import { renderSchemaDiffText, renderShapeText, schemaDiff, shape, writeShape } from "../analyze/shape.ts";
 import { BundleReader } from "../bundle/reader.ts";
 import { flagNames, helpFor, parseCommand, specOf, usageOf } from "./commands.ts";
 
@@ -18,7 +18,8 @@ const DEPS = specOf("analyze deps");
 const CHAIN = specOf("analyze chain");
 const RECON = specOf("analyze recon");
 const SHAPE = specOf("analyze shape");
-export const ANALYZE_USAGE = [usageOf(FIND), usageOf(DIFF), usageOf(DEPS), usageOf(CHAIN), usageOf(RECON), usageOf(SHAPE)];
+const SCHEMA_DIFF = specOf("analyze schema-diff");
+export const ANALYZE_USAGE = [usageOf(FIND), usageOf(DIFF), usageOf(DEPS), usageOf(CHAIN), usageOf(RECON), usageOf(SHAPE), usageOf(SCHEMA_DIFF)];
 
 type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
 
@@ -183,6 +184,20 @@ function cmdShape(argv: readonly string[]): Outcome {
   return { code: 0, envelope: ok(result), text: renderShapeText(result) };
 }
 
+/** Exit 1 when an endpoint drifted (the envelope is still ok: the comparison itself worked). */
+function cmdSchemaDiff(argv: readonly string[]): Outcome {
+  const parsed = parseCommand(SCHEMA_DIFF, argv);
+  if (parsed.help) {
+    const text = helpFor(SCHEMA_DIFF);
+    return { code: 0, envelope: ok({ help: text }), text };
+  }
+  const a = parsed.args;
+  const result = schemaDiff(optStr(a["old"]) ?? "", optStr(a["new"]) ?? "", { template: optStr(a["template"]), write: a["write"] === true });
+  const code = result.drift ? 1 : 0;
+  if (a["text"] !== true) return { code, envelope: ok(result) };
+  return { code, envelope: ok(result), text: renderSchemaDiffText(result) };
+}
+
 export async function runAnalyze(argv: readonly string[]): Promise<Outcome> {
   try {
     const [, sub, ...rest] = argv;
@@ -196,6 +211,7 @@ export async function runAnalyze(argv: readonly string[]): Promise<Outcome> {
     if (sub === "chain") return cmdChain(rest);
     if (sub === "recon") return cmdRecon(rest);
     if (sub === "shape") return cmdShape(rest);
+    if (sub === "schema-diff") return cmdSchemaDiff(rest);
     return { code: 2, envelope: fail("usage", `unknown command: analyze ${sub}`, `Available: ${ANALYZE_USAGE.join(" | ")}`) };
   } catch (e) {
     const env = toFail(e);

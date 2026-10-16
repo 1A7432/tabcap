@@ -109,6 +109,7 @@ exports[`tools/list --all-tools: generated from the command table tool names (sn
   "tabcap_analyze_chain",
   "tabcap_analyze_recon",
   "tabcap_analyze_shape",
+  "tabcap_analyze_schema-diff",
   "tabcap_replay_session",
   "tabcap_replay_export-python",
   "tabcap_replay_check",
