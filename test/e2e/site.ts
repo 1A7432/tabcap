@@ -1081,3 +1081,106 @@ export function startTraceSite(): TraceSite {
     },
   };
 }
+
+// ---------------------------------------------------------------- 0.4-I: frames range (docs/05 s22)
+// Origin A (127.0.0.1) serves a frameset with two same-origin frames (menu,
+// main); main embeds two iframes on origin B (localhost, a different site, so
+// both are out of process): a search form whose own same-origin iframe holds
+// a two-row table, and an iframe layer (layer.js-like fixed div, as /ov/layer)
+// whose close button lives inside the cross-origin iframe and asks main to
+// remove the layer by postMessage. Every text a test expects is a literal here.
+
+export const S22_MENU_LINKS = ["栏目一", "栏目二", "栏目三"] as const;
+export const S22_TABLE_CELLS = [
+  ["S22-0001", "甲方案"],
+  ["S22-0002", "乙方案"],
+] as const;
+export const S22_TITLES = { top: "s22 frames", menu: "s22 menu", main: "s22 main", form: "s22 search", table: "s22 table", modal: "s22 modal" } as const;
+export const S22_LAYER_TITLE = "消息提示";
+export const S22_CLOSE_LABEL = "关闭";
+export const S22_SEARCH_PREFIX = "找到 1 条：";
+
+const s22Doc = (title: string, body: string) => `<!doctype html><meta charset=utf-8><title>${title}</title>\n${body}`;
+
+export type FrameSite = { a: string; b: string; hits: string[]; stop: () => void };
+
+export function startFrameSite(): FrameSite {
+  const hits: string[] = [];
+  const html = (body: string) => new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  const b = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      const p = u.pathname;
+      hits.push(`B ${req.method} ${p}${u.search}`);
+      if (p === "/s22/form")
+        return html(
+          s22Doc(
+            S22_TITLES.form,
+            `<form id=f onsubmit="return false"><label>关键词 <input id=q name=q></label> <button id=go type=button>查询</button></form>
+<p id=result></p>
+<iframe id=table src="/s22/table" style="width:400px;height:120px"></iframe>
+<script>
+document.getElementById("go").addEventListener("click", () => {
+  const q = document.getElementById("q").value;
+  fetch("/s22/search?q=" + encodeURIComponent(q)).then((r) => r.json()).then((j) => { document.getElementById("result").textContent = j.result; });
+});
+</script>`,
+          ),
+        );
+      if (p === "/s22/table") return html(s22Doc(S22_TITLES.table, `<table id=t>${S22_TABLE_CELLS.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</table>`));
+      if (p === "/s22/search") {
+        const q = u.searchParams.get("q") ?? "";
+        return new Response(JSON.stringify({ q, result: `${S22_SEARCH_PREFIX}${q}` }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+      }
+      if (p === "/s22/modal")
+        return html(
+          s22Doc(
+            S22_TITLES.modal,
+            `<p>新消息：系统维护通知</p><button id=modal-close type=button aria-label=${S22_CLOSE_LABEL}>×</button>
+<script>document.getElementById("modal-close").addEventListener("click", () => parent.postMessage("s22-close", "*"));</script>`,
+          ),
+        );
+      return new Response("nf", { status: 404 });
+    },
+  });
+  const bOrigin = `http://localhost:${b.port}`;
+  const a = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      const p = u.pathname;
+      hits.push(`A ${req.method} ${p}${u.search}`);
+      if (p === "/s22") return html(`<!doctype html><meta charset=utf-8><title>${S22_TITLES.top}</title>\n<frameset cols="25%,75%"><frame name=menu src="/s22/menu"><frame name=main src="/s22/main"></frameset>`);
+      if (p === "/s22/menu") return html(s22Doc(S22_TITLES.menu, `<ul>${S22_MENU_LINKS.map((l, i) => `<li><a href="/s22/main?p=${i + 1}" target=main>${l}</a></li>`).join("")}</ul>`));
+      if (p === "/s22/main")
+        return html(
+          s22Doc(
+            S22_TITLES.main,
+            `<style>body{margin:8px;font:14px sans-serif}</style>
+<h1>主区域</h1>
+<iframe id=search src="${bOrigin}/s22/form" style="width:480px;height:260px"></iframe>
+<div class="layui-layer layui-layer-iframe" id=s22-layer type=iframe style="z-index:19891015;width:300px;height:180px;position:fixed;right:12px;bottom:12px;background:#fff;border:1px solid #888">
+  <div class=layui-layer-title style="padding:6px">${S22_LAYER_TITLE}</div>
+  <div class=layui-layer-content><iframe id=s22-layer-iframe name=s22-layer-iframe frameborder=0 src="${bOrigin}/s22/modal" style="width:100%;height:130px"></iframe></div>
+</div>
+<script>
+window.addEventListener("message", (e) => { if (e.data === "s22-close") { const l = document.getElementById("s22-layer"); if (l) l.remove(); } });
+</script>`,
+          ),
+        );
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return {
+    a: `http://127.0.0.1:${a.port}`,
+    b: bOrigin,
+    hits,
+    stop: () => {
+      a.stop(true);
+      b.stop(true);
+    },
+  };
+}
