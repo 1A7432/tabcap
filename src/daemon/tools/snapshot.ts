@@ -2,23 +2,28 @@
 // 0.4-I: the frame tree is in the header (`frames` lines); `--frames` expands
 // every child frame's tree with frame-path refs (`f2/f1/e7`), `--frame f2/f1`
 // only that subtree. Refs resolve in the document they were minted in.
+// 0.5-F: `--grep` / `--css` / `--xpath` / `--ref --depth` print only part of
+// the tree (browser/axfilter.ts); the header and the ref table stay those of
+// the full snapshot.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { TabcapError } from "../../shared/envelope.ts";
-import { isRecord, str } from "../../shared/json.ts";
-import { buildAxTree, findCandidates, hitOf, interactiveOnly, rankClickable, renderAxTree, textInputsWithValue, type AxNode, type FindCandidate, type Rendered } from "../browser/ax.ts";
+import { isRecord, num, str } from "../../shared/json.ts";
+import { buildAxTree, findCandidates, hitOf, interactiveOnly, rankClickable, renderAxTree, textInputsWithValue, type AxNode, type FindCandidate, type RefFor, type Rendered } from "../browser/ax.ts";
+import { flattenAx, grepAx, nodesAx, pickLines, subtreeLines } from "../browser/axfilter.ts";
 import { inspectPage } from "../adapters/runtime.ts";
 import { cutText, headerLines } from "../adapters/view.ts";
 import { bindingOf, descendants, frameAt, frameHeaderLines, frameLine, frameList, framesOfTree, frameTree, type FrameNode } from "../browser/frames.ts";
 import { parseFramePath, parseRef, sameDoc, type DocIdentity, type FrameBinding } from "../browser/refs.ts";
-import { rootDoc } from "../browser/worlds.ts";
+import { inWorld, rootDoc, type FrameDoc } from "../browser/worlds.ts";
 import type { Tab } from "../browser/targets.ts";
 import { isSensitiveField } from "../secrets.ts";
 import type { Daemon } from "../state.ts";
 import type { Transport } from "../transport/types.ts";
 import { optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
+import { clampInt, compileRegex } from "./textsearch.ts";
 
 /** Default `--max-chars` of `snapshot` (and of `--snapshot` on actions): 0.5-C context budget, owner 10-16. */
 export const SNAPSHOT_MAX_CHARS = 12_000;
@@ -89,7 +94,40 @@ export type SnapshotOptions = {
   frames: boolean;
   /** --frame f2/f1: expand only that frame and its descendants (the root document is listed in the header only). */
   frame: string | null;
+  /** 0.5-F: --grep / --css / --xpath / --ref; null or absent: the whole tree. */
+  search?: SnapSearch | null;
 };
+
+/** 0.5-F snapshot filters (browser/axfilter.ts). */
+export type SnapSearch =
+  | { mode: "grep"; re: RegExp; query: string; context: number; max: number }
+  | { mode: "css" | "xpath"; query: string; context: number; max: number }
+  | { mode: "ref"; ref: string; depth: number | null };
+
+export const SNAP_MAX_MATCHES = 50;
+
+function snapSearchOf(a: Args): SnapSearch | null {
+  const grep = optStr(a, "grep");
+  const css = optStr(a, "css");
+  const xpath = optStr(a, "xpath");
+  const ref = optStr(a, "ref");
+  const given = [grep, css, xpath, ref].filter((x) => x !== null);
+  const depth = optNum(a, "depth");
+  const context = optNum(a, "context");
+  const maxMatches = optNum(a, "maxMatches");
+  // --depth / --context / --max-matches without the filter they belong to are ignored
+  // (MCP hosts may send every schema default).
+  if (given.length === 0) return null;
+  if (given.length > 1) throw new TabcapError("usage", "give one of --grep, --css, --xpath and --ref", "e.g. tabcap snapshot --grep 'Add to cart' or tabcap snapshot --css 'form#login'");
+  if (ref !== null) return { mode: "ref", ref, depth: depth === null ? null : clampInt(depth, 0, 1000) };
+  const ctx = clampInt(context, 0, 20);
+  const max = Math.max(1, clampInt(maxMatches, SNAP_MAX_MATCHES, 1000));
+  if (grep !== null) return { mode: "grep", re: compileRegex(grep, "--grep"), query: grep, context: ctx, max };
+  const flag = css !== null ? "--css" : "--xpath";
+  const query = css ?? xpath ?? "";
+  if (query.trim() === "") throw new TabcapError("usage", `${flag} needs an expression`, "e.g. --css 'table#t tr' or --xpath '//button'");
+  return { mode: css !== null ? "css" : "xpath", query, context: ctx, max };
+}
 
 export function snapshotOptions(a: Args): SnapshotOptions {
   const filePath = optStr(a, "filePath");
@@ -107,21 +145,252 @@ export function snapshotOptions(a: Args): SnapshotOptions {
     filePath: filePath === null || filePath === "" ? null : resolve(filePath),
     frames,
     frame,
+    search: snapSearchOf(a),
   };
 }
 
-/** One child frame's tree with frame-path refs (Accessibility.getFullAXTree of that frame through its session). */
-async function frameRendered(t: Transport, tab: Tab, f: FrameNode, o: SnapshotOptions): Promise<Rendered | string> {
+/** One child frame's tree with its frame-path ref minting (Accessibility.getFullAXTree of that frame through its session), or why not. */
+async function frameView(t: Transport, tab: Tab, f: FrameNode, o: SnapshotOptions): Promise<{ view: AxNode; refFor: RefFor } | string> {
   try {
     const raw = await t.send("Accessibility.getFullAXTree", { frameId: f.frameId }, f.sessionId, 30_000);
     const root = buildAxTree(raw, await passwordIds(t, f.sessionId, raw), { verbose: o.verbose });
     if (root === null) return "(empty)";
     const view = o.interactive ? (interactiveOnly(root) ?? root) : root;
     const binding: FrameBinding = bindingOf(f);
-    return renderAxTree(view, (id) => tab.refs.refFor(id, binding), Number.MAX_SAFE_INTEGER);
+    return { view, refFor: (id) => tab.refs.refFor(id, binding) };
   } catch (e) {
     return `(unavailable: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)})`;
   }
+}
+
+/** One child frame's tree with frame-path refs. */
+async function frameRendered(t: Transport, tab: Tab, f: FrameNode, o: SnapshotOptions): Promise<Rendered | string> {
+  const v = await frameView(t, tab, f, o);
+  return typeof v === "string" ? v : renderAxTree(v.view, v.refFor, Number.MAX_SAFE_INTEGER);
+}
+
+type FrameTreeResult = Awaited<ReturnType<typeof frameTree>>;
+
+/** The child frames a snapshot expands: --frame <path> and its descendants, every frame with --frames, else none. */
+function framesToExpand(tab: Tab, o: SnapshotOptions, tree: FrameTreeResult | null): FrameNode[] {
+  if (o.frame !== null) {
+    const sub = tree === null ? null : frameAt(tree.root, o.frame);
+    if (sub === null) throw new TabcapError("not-found", `no frame ${o.frame} on tab ${tab.id}`, "Run `tabcap snapshot` and pick a frame path from its `frames` header lines.");
+    return [sub, ...descendants(sub)];
+  }
+  return o.frames && tree !== null ? descendants(tree.root) : [];
+}
+
+const frameDocOf = (f: FrameNode): FrameDoc => ({ frameId: f.frameId, loaderId: f.loaderId, url: f.url, sessionId: f.sessionId });
+
+const NO_AX = "(no accessible node)";
+const SELECT_GROUP = "tabcap-select";
+
+// --css / --xpath in one document, run in tabcap's isolated world (read-only):
+// [total, JSON labels, ...the first `cap` nodes]; attribute nodes (XPath @x)
+// stand for their element. Labels are `tag#id.class` for nodes without an AX line.
+const SELECT_FN = `function (mode, q, cap) {
+  let list = [];
+  if (mode === "css") list = Array.from(document.querySelectorAll(q));
+  else {
+    const r = document.evaluate(q, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+    for (let i = 0; i < r.snapshotLength; i++) list.push(r.snapshotItem(i));
+  }
+  const nodes = list.slice(0, cap).map((n) => (n && n.nodeType === 2 ? n.ownerElement : n));
+  const label = (n) => {
+    if (!n) return "?";
+    if (n.nodeType === 3) return "#text";
+    if (n.nodeType !== 1) return String(n.nodeName).toLowerCase();
+    let s = n.localName;
+    if (n.id) s += "#" + n.id;
+    for (const c of Array.from(n.classList).slice(0, 4)) s += "." + c;
+    return s.slice(0, 200);
+  };
+  return [list.length, JSON.stringify(nodes.map(label)), ...nodes];
+}`;
+
+type Selected = { total: number; nodes: Array<{ backendId: number | null; label: string }> };
+
+/** The DOM nodes a --css / --xpath expression selects in one document: their backend node ids (the AX tree's key) and labels. */
+async function selectNodes(t: Transport, tab: Tab, fdoc: FrameDoc, mode: "css" | "xpath", query: string, cap: number): Promise<Selected> {
+  return inWorld(t, tab, fdoc, async (ctx) => {
+    const r = await t.send(
+      "Runtime.callFunctionOn",
+      { functionDeclaration: SELECT_FN, executionContextId: ctx, arguments: [{ value: mode }, { value: query }, { value: cap }], returnByValue: false, objectGroup: SELECT_GROUP },
+      fdoc.sessionId,
+      10_000,
+    );
+    try {
+      const ex = isRecord(r["exceptionDetails"]) ? r["exceptionDetails"] : null;
+      if (ex !== null) {
+        const exc = isRecord(ex["exception"]) ? ex["exception"] : {};
+        const why = (str(exc, "description") ?? str(ex, "text") ?? "exception").split("\n")[0] ?? "";
+        throw new TabcapError("usage", `--${mode} ${query.slice(0, 200)}: ${why.slice(0, 300)}`, mode === "css" ? "Give a CSS selector document.querySelectorAll accepts, e.g. --css 'table#t td'." : "Give an XPath 1.0 expression that selects nodes, e.g. --xpath '//table//td[1]'.");
+      }
+      const res = isRecord(r["result"]) ? r["result"] : {};
+      const oid = str(res, "objectId");
+      if (oid === null) return { total: 0, nodes: [] };
+      const props = await t.send("Runtime.getProperties", { objectId: oid, ownProperties: true }, fdoc.sessionId, 10_000);
+      const list = Array.isArray(props["result"]) ? props["result"].filter(isRecord) : [];
+      const at = (i: number): Record<string, unknown> | null => {
+        const p = list.find((x) => x["name"] === String(i));
+        return p !== undefined && isRecord(p["value"]) ? p["value"] : null;
+      };
+      const total = num(at(0) ?? {}, "value") ?? 0;
+      let labels: unknown = [];
+      try {
+        labels = JSON.parse(str(at(1) ?? {}, "value") ?? "[]");
+      } catch {
+        labels = [];
+      }
+      const names = Array.isArray(labels) ? labels.map((x) => (typeof x === "string" ? x : "?")) : [];
+      const nodes: Selected["nodes"] = [];
+      for (let i = 0; i < names.length; i++) {
+        const nodeOid = str(at(i + 2) ?? {}, "objectId");
+        let backendId: number | null = null;
+        if (nodeOid !== null) {
+          const dn = await t.send("DOM.describeNode", { objectId: nodeOid }, fdoc.sessionId, 5000).catch(() => null);
+          const node = dn !== null && isRecord(dn["node"]) ? dn["node"] : null;
+          const id = node === null ? null : node["backendNodeId"];
+          backendId = typeof id === "number" && Number.isSafeInteger(id) ? id : null;
+        }
+        nodes.push({ backendId, label: names[i] ?? "?" });
+      }
+      return { total, nodes };
+    } finally {
+      await t.send("Runtime.releaseObjectGroup", { objectGroup: SELECT_GROUP }, fdoc.sessionId, 5000).catch(() => null);
+    }
+  });
+}
+
+/** The error for a ref the table cannot resolve (shared by resolveRef and snapshot --ref). */
+function refError(tab: Tab, ref: string, reason: "unknown" | "expired" | "malformed"): TabcapError {
+  if (reason === "malformed") return new TabcapError("usage", `not a ref: ${ref}`, "Refs look like e12, or f2/e7 for an element in a frame; get them from `tabcap snapshot` (`--frames` expands frames) or `tabcap find`.");
+  if (reason === "unknown") {
+    const p = parseRef(ref);
+    const as = p === null ? null : tab.refs.minted(p.n);
+    if (as !== null) return new TabcapError("stale-ref", `ref ${ref} is unknown on tab ${tab.id}; e${p?.n ?? ""} was given out as ${as}`, `Use ${as} (the frame path is part of the ref), or run snapshot again.`);
+  }
+  const why = reason === "unknown" ? `ref ${ref} is unknown on tab ${tab.id}` : `ref ${ref} expired: the document changed since the snapshot`;
+  return new TabcapError("stale-ref", why, "run snapshot again (`tabcap snapshot --interactive`) and use the new ref.");
+}
+
+type Block = { head: string | null; view: AxNode | null; note: string; refFor: RefFor; fdoc: FrameDoc };
+
+/** 0.5-F: a snapshot filtered by --grep / --css / --xpath / --ref; the header and the ref table are the full snapshot's. */
+async function renderFiltered(d: Daemon, t: Transport, tab: Tab, o: SnapshotOptions, q: SnapSearch, docs: { root: AxNode; doc: DocIdentity; view: AxNode; tree: FrameTreeResult | null }): Promise<Record<string, unknown>> {
+  const { root, doc, view, tree } = docs;
+  const rootBlock: Block = { head: null, view, note: "", refFor: (id) => tab.refs.refFor(id), fdoc: rootDoc(tab, doc) };
+  const blocks: Block[] = [];
+  let refTarget: number | null = null;
+  if (q.mode === "ref") {
+    // The ref decides the document: its own frame (no --frames needed), else the root document.
+    const look = tab.refs.lookup(q.ref, doc);
+    if (!look.ok) throw refError(tab, q.ref, look.reason);
+    refTarget = look.backendNodeId;
+    if (look.frame === null) blocks.push(rootBlock);
+    else {
+      const f = tree === null ? null : frameAt(tree.root, look.frame.path);
+      if (f === null || f.frameId !== look.frame.frameId || f.loaderId !== look.frame.loaderId) {
+        throw new TabcapError("stale-ref", `ref ${q.ref} expired: frame ${look.frame.path} changed since the snapshot (it navigated, reloaded or was removed)`, "run snapshot again (`tabcap snapshot --frames`) and use the new ref.");
+      }
+      const v = await frameView(t, tab, f, o);
+      if (typeof v === "string") throw new TabcapError("page", `frame ${f.path} has no tree: ${v}`, "Wait for the frame to load, then snapshot again.");
+      blocks.push({ head: `frame ${frameLine(f)}`, view: v.view, note: "", refFor: v.refFor, fdoc: frameDocOf(f) });
+    }
+  } else {
+    if (o.frame === null) blocks.push(rootBlock);
+    for (const f of framesToExpand(tab, o, tree)) {
+      const v = await frameView(t, tab, f, o);
+      const head = `frame ${frameLine(f)}`;
+      blocks.push(typeof v === "string" ? { head, view: null, note: v, refFor: rootBlock.refFor, fdoc: frameDocOf(f) } : { head, view: v.view, note: "", refFor: v.refFor, fdoc: frameDocOf(f) });
+    }
+  }
+  // Refs are minted for whole documents in the full snapshot's order (root, frames), then the header's.
+  let refs = 0;
+  let budget = q.mode === "ref" ? 0 : q.max;
+  let total = 0;
+  let shown = 0;
+  let noAccessible = 0;
+  let hidden = 0;
+  const texts: string[] = [];
+  for (const b of blocks) {
+    if (b.view === null) {
+      texts.push(`${b.head ?? ""}\n${b.note}`);
+      continue;
+    }
+    const flat = flattenAx(b.view, b.refFor);
+    refs += flat.refs;
+    if (q.mode === "ref") {
+      const i = flat.lines.findIndex((l) => l.backendId === refTarget);
+      if (i < 0) throw new TabcapError("not-found", `ref ${q.ref} has no line in the current tree${o.interactive ? " (--interactive keeps controls only)" : ""}`, o.interactive ? "Drop --interactive, or run snapshot again." : "The element is no longer in the accessibility tree; run snapshot again.");
+      const sub = subtreeLines(flat.lines, i, q.depth);
+      shown = sub.shown;
+      hidden = sub.hidden;
+      texts.push(b.head === null ? sub.text : `${b.head}\n${sub.text}`);
+      continue;
+    }
+    let take: number[];
+    let missing: string[] = [];
+    if (q.mode === "grep") {
+      const hits = grepAx(flat.lines, q.re);
+      total += hits.length;
+      take = hits.slice(0, budget);
+      budget -= take.length;
+      shown += take.length;
+    } else {
+      // Each selected node is one match: its AX line(s), or a "(no accessible node)" line.
+      const sel = await selectNodes(t, tab, b.fdoc, q.mode, q.query, budget);
+      total += sel.total;
+      budget -= sel.nodes.length;
+      shown += sel.nodes.length;
+      const r = nodesAx(flat.lines, sel.nodes.flatMap((n) => (n.backendId === null ? [] : [n.backendId])));
+      take = r.hits;
+      const lost = new Set(r.missing);
+      missing = sel.nodes.filter((n) => n.backendId === null || lost.has(n.backendId)).map((n) => n.label);
+      noAccessible += missing.length;
+    }
+    if (take.length === 0 && missing.length === 0) continue;
+    const body = [pickLines(flat.lines, take, q.context), ...missing.map((l) => `- ${NO_AX} <${l}>`)].filter((x) => x !== "").join("\n");
+    texts.push(b.head === null ? body : `${b.head}\n${body}`);
+  }
+  const page = await inspectPage(t, tab, rootDoc(tab, doc), undefined, tree === null ? null : tree.root);
+  const frameLines = tree === null ? ["frames    ? (the frame tree could not be read)"] : frameHeaderLines(tree.root, tree.omitted);
+  const header = cutText([...headerLines(page), ...frameLines].join("\n"), Math.floor(o.maxChars / 2)).text;
+  const frames = tree === null ? [] : frameList(tree.root);
+  const notes: string[] = [];
+  let search: Record<string, unknown>;
+  if (q.mode === "ref") {
+    search = { mode: "ref", ref: q.ref, depth: q.depth, shown, hidden };
+    if (hidden > 0) notes.push(`${hidden} deeper line(s) hidden: raise --depth`);
+  } else {
+    search = { mode: q.mode, query: q.query, matches: total, shown, context: q.context, ...(q.mode === "grep" ? {} : { noAccessible }) };
+    if (total > shown) notes.push(`${total - shown} more match(es): raise --max-matches (max 1000) or narrow the ${q.mode === "grep" ? "pattern" : "expression"}`);
+    if (noAccessible > 0) notes.push(`${noAccessible} node(s) have no accessibility line (no ref): \`tabcap html --css <selector>\` shows their markup`);
+  }
+  const text = [header, ...(texts.length === 0 ? ["(no matches)"] : texts)].join("\n");
+  const head = {
+    tab: tab.id,
+    url: doc.url,
+    title: root.name,
+    nav: d.navOf(tab),
+    interactive: o.interactive,
+    verbose: o.verbose,
+    refs,
+    overlays: page.overlays,
+    detected: (page.detected ?? []).filter((x) => x.confidence > 0),
+    ...(frames.length > 0 ? { frames } : {}),
+    ...(o.frame === null ? {} : { frame: o.frame }),
+    search,
+  };
+  if (o.filePath !== null) {
+    mkdirSync(dirname(o.filePath), { recursive: true });
+    writeFileSync(o.filePath, `${text}\n`, { mode: 0o600 });
+    return { ...head, chars: text.length + 1, truncated: total > shown || hidden > 0, path: o.filePath, ...(notes.length > 0 ? { note: notes.join("; ") } : {}) };
+  }
+  const cut = cutText(text, o.maxChars);
+  if (cut.truncated) notes.push(`truncated at ${o.maxChars} chars (${text.length} in all); raise --max-chars, use --file-path or narrow the filter`);
+  return { ...head, chars: text.length, truncated: cut.truncated || total > shown || hidden > 0, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), tree: cut.text };
 }
 
 /**
@@ -132,12 +401,8 @@ export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: Snaps
   const { root, doc } = await axTree(t, tab, o.verbose);
   const view = o.interactive ? (interactiveOnly(root) ?? root) : root;
   const tree = await frameTree(t, tab).catch(() => null);
-  let expand: FrameNode[] = [];
-  if (o.frame !== null) {
-    const sub = tree === null ? null : frameAt(tree.root, o.frame);
-    if (sub === null) throw new TabcapError("not-found", `no frame ${o.frame} on tab ${tab.id}`, "Run `tabcap snapshot` and pick a frame path from its `frames` header lines.");
-    expand = [sub, ...descendants(sub)];
-  } else if (o.frames && tree !== null) expand = descendants(tree.root);
+  if (o.search !== undefined && o.search !== null) return renderFiltered(d, t, tab, o, o.search, { root, doc, view, tree });
+  const expand = framesToExpand(tab, o, tree);
   // Refs are minted in document order: the root tree, the expanded frames, then the header's close-button refs.
   const full = o.frame === null ? renderAxTree(view, (id) => tab.refs.refFor(id), Number.MAX_SAFE_INTEGER) : null;
   const blocks: Array<{ head: string; body: Rendered | string }> = [];
@@ -309,28 +574,29 @@ async function frameCurrent(t: Transport, tab: Tab, f: FrameBinding): Promise<bo
 }
 
 /** Resolve `e<n>` / `f<n>/…/e<m>` to a live JS object of the node, or a stale-ref error saying what to do. */
-export async function resolveRef(t: Transport, tab: Tab, ref: string): Promise<RefNode> {
+/**
+ * Resolve `e<n>` / `f<n>/…/e<m>` to a live JS object of the node, or a stale-ref error saying what to do.
+ * `isolated`: the object lives in tabcap's isolated world of that document (0.5-F `html`), so
+ * functions called on it never run page code; otherwise the page's main world.
+ */
+export async function resolveRef(t: Transport, tab: Tab, ref: string, opts: { isolated?: boolean } = {}): Promise<RefNode> {
   const doc = await docIdentity(t, tab);
   const look = tab.refs.lookup(ref, doc);
-  if (!look.ok) {
-    if (look.reason === "malformed") throw new TabcapError("usage", `not a ref: ${ref}`, "Refs look like e12, or f2/e7 for an element in a frame; get them from `tabcap snapshot` (`--frames` expands frames) or `tabcap find`.");
-    if (look.reason === "unknown") {
-      const p = parseRef(ref);
-      const as = p === null ? null : tab.refs.minted(p.n);
-      if (as !== null) throw new TabcapError("stale-ref", `ref ${ref} is unknown on tab ${tab.id}; e${p?.n ?? ""} was given out as ${as}`, `Use ${as} (the frame path is part of the ref), or run snapshot again.`);
-    }
-    const why = look.reason === "unknown" ? `ref ${ref} is unknown on tab ${tab.id}` : `ref ${ref} expired: the document changed since the snapshot`;
-    throw new TabcapError("stale-ref", why, "run snapshot again (`tabcap snapshot --interactive`) and use the new ref.");
-  }
+  if (!look.ok) throw refError(tab, ref, look.reason);
   const sessionId = look.frame === null ? tab.sessionId : look.frame.sessionId;
   if (look.frame !== null && !(await frameCurrent(t, tab, look.frame))) {
     throw new TabcapError("stale-ref", `ref ${ref} expired: frame ${look.frame.path} changed since the snapshot (it navigated, reloaded or was removed)`, "run snapshot again (`tabcap snapshot --frames`) and use the new ref.");
   }
-  const r = await t.send("DOM.resolveNode", { backendNodeId: look.backendNodeId }, sessionId, 10_000).catch(() => null);
+  const backendNodeId = look.backendNodeId;
+  let r: Record<string, unknown> | null;
+  if (opts.isolated === true) {
+    const fdoc: FrameDoc = look.frame === null ? rootDoc(tab, doc) : { frameId: look.frame.frameId, loaderId: look.frame.loaderId, url: "", sessionId };
+    r = await inWorld(t, tab, fdoc, (ctx) => t.send("DOM.resolveNode", { backendNodeId, executionContextId: ctx }, sessionId, 10_000)).catch(() => null);
+  } else r = await t.send("DOM.resolveNode", { backendNodeId }, sessionId, 10_000).catch(() => null);
   const obj = r !== null && isRecord(r["object"]) ? r["object"] : null;
   const objectId = obj === null ? null : str(obj, "objectId");
   if (objectId === null) throw new TabcapError("stale-ref", `ref ${ref} is no longer in the page`, "run snapshot again; the element was removed or re-rendered.");
-  return { objectId, backendNodeId: look.backendNodeId, sessionId, frame: look.frame };
+  return { objectId, backendNodeId, sessionId, frame: look.frame };
 }
 
 /** Value of a by-value Runtime.callFunctionOn result, or a page error for exceptions. */

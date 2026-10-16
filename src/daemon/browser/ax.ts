@@ -211,7 +211,8 @@ export type RefFor = (backendNodeId: number) => string;
 
 const MAX_VALUE = 200;
 
-function lineOf(n: AxNode, ref: string | null): string {
+/** One snapshot line without its indentation and "- " (exported for the 0.5-F filters). */
+export function lineOf(n: AxNode, ref: string | null): string {
   let s = n.role === "text" ? `text ${JSON.stringify(n.name)}` : n.role;
   if (n.role !== "text" && n.name !== "") s += ` ${JSON.stringify(n.name)}`;
   if (ref !== null) s += ` [${ref}]`;
