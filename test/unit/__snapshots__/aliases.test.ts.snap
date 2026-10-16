@@ -285,14 +285,11 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
-      "deprecatedFor": null,
       "example": "tabcap proxy add p1 --url http://127.0.0.1:8080 --user pool1 --password-stdin",
       "flags": [
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--url",
           "help": "scheme://host:port (http, https, socks4, socks5); never credentials",
           "key": "url",
@@ -304,8 +301,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--user",
           "help": "proxy username (not a secret: shown in listings); SOCKS with a username is refused (Chrome offers no-auth SOCKS only)",
           "key": "user",
@@ -317,8 +312,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": false,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--password-stdin",
           "help": "read the proxy password from stdin (else an interactive prompt when --user is given; never an argument)",
           "key": "passwordStdin",
@@ -330,8 +323,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--bypass",
           "help": "Chrome proxy bypass list for the account's browser context, e.g. "<-loopback>" to send loopback through the proxy too",
           "key": "bypass",
@@ -360,7 +351,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
-      "deprecatedFor": null,
       "example": "tabcap proxy list",
       "flags": [],
       "internal": false,
@@ -375,7 +365,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
-      "deprecatedFor": null,
       "example": "tabcap proxy remove p1",
       "flags": [],
       "internal": false,
@@ -397,14 +386,11 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
-      "deprecatedFor": null,
       "example": "tabcap proxy check p1 --url http://127.0.0.1:8080/",
       "flags": [
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--url",
           "help": "address to fetch through the proxy (else config.json pool.health.url; with neither nothing is contacted and the state is unchecked)",
           "key": "url",
@@ -433,14 +419,11 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
-      "deprecatedFor": null,
       "example": "tabcap account bind example.alice --proxy p1",
       "flags": [
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--proxy",
           "help": "a proxy name: the account gets its own browser context through it; system / none: the browser's own context and proxy flags",
           "key": "proxy",
@@ -469,14 +452,11 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
-      "deprecatedFor": null,
       "example": "tabcap account list --site example",
       "flags": [
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--site",
           "help": "only this site's accounts",
           "key": "site",
@@ -498,7 +478,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
-      "deprecatedFor": null,
       "example": "tabcap account set-state example.alice disabled",
       "flags": [],
       "internal": false,
@@ -545,8 +524,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--account",
           "help": "which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); an account bound to a proxy gets its own browser context through it",
           "key": "account",
@@ -3617,8 +3594,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--proxy-env",
           "help": "also write TABCAP_PROXY_URL (the bundle account's proxy, with its credentials) to this file, mode 0600; never printed. The generated client reads TABCAP_PROXY_URL",
           "key": "proxyEnv",
