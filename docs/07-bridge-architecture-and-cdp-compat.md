@@ -43,6 +43,17 @@
 - 【实测 spike，0.4-F e2e 复测】装断点用 `EventBreakpoints.setInstrumentationBreakpoint {eventName:"scriptFirstStatement"}`：它的暂停（`reason:"EventListener"`，`data.eventName:"instrumentation:scriptFirstStatement"`）里命令照常响应，`Debugger.evaluateOnCallFrame` 取各 API 的 getter / 函数，再 `Debugger.setBreakpointOnFunctionCall`，然后 resume；新文档（顶层、同源 iframe、OOPIF）的第一条语句前就装好，页面零注入。不要用 `Debugger.setInstrumentationBreakpoint beforeScriptExecution`：它的暂停里除 resume 外的命令都卡到 resume 之后。Worker 在等待调试器时 `Runtime.evaluate` 取 `WorkerNavigator.prototype.*` 并装好再放行。
 - isolated world 里读 Blink 的 getter（如 `navigator.userAgent`）不会命中主世界的断点【实测 spike】；但在 isolated world 里读 `new Date().getTimezoneOffset()` 的值后，表里多出一条脚本 URL 为空的 `Date.prototype.getTimezoneOffset` 读取，丢弃栈里有 isolated world 脚本或追踪自身求值脚本的暂停后消失【实测 0.4-F e2e】。原因是 V8 内建函数的断点跨上下文共享【推断】。
 
+帧与帧路径 ref（0.4-I，spike 10-16 无头 CfT 155 + e2e v04i 有头后台标签，docs/05 s22）：
+- 【实测 spike】标签会话的 `Page.getFrameTree` 只列根帧和同进程的子帧（`frameset` 的 `frame`、同源 iframe）；OOPIF 不在里面（`main` 的 `childFrames` 为空）。每个 OOPIF 是自动挂上的 `iframe` 目标，它会话里的 `Page.getFrameTree` 从它自己开始，`parentId` 是装它的那个帧，下面列它同进程的后代（s22 的 `/s22/table`）。
+- 【实测 spike】`Accessibility.getFullAXTree` 不带 `frameId` 只给根帧，iframe 是没有子节点的 `Iframe` 节点；带 `frameId`、发到拥有该帧文档的会话上，给那个帧的树（同进程子帧走标签会话；OOPIF 里的同进程帧走 OOPIF 会话）。
+- 【实测 spike】`iframe` / `frame` 元素的 `DOM.describeNode` 带 `frameId`（OOPIF 也有，只是没有 `contentDocument`）；`DOM.getFrameOwner {frameId}` 发到父帧的会话上给出所有者元素。帧编号按父文档里 `iframe, frame` 的文档顺序取（tabcap 在隔离世界里 `querySelectorAll`）。
+- 【实测 spike】backendNodeId 只在一个渲染进程内唯一：OOPIF 里一个格子的 backendNodeId 拿到标签会话上 `DOM.resolveNode`，解析成了根文档里另一个节点（`<title>`）。所以帧 ref 绑定它的会话、frameId 与 loaderId，帧导航后 ref 失效。
+- 【实测 spike】`DOM.getBoxModel` 的坐标属于发命令那个会话的本地根视口：同进程帧经标签会话量出来已经是顶层坐标（`main` 里的 `h1` x=332 = `frame` 内容盒 324 + 页边距 8）；OOPIF 会话量的是 OOPIF 自己的视口，要加所有者元素内容盒左上角（s22 窗口 1280 宽：`iframe#search` 334, 79.5）；OOPIF 里的同进程帧（`/s22/table`）也在 OOPIF 的空间里（格子 21, 88，表格 iframe 所有者 10, 51）。
+- 【实测 spike + e2e】`Input.dispatchMouseEvent` 发到**标签会话**、用平移后的顶层坐标，可信的 pointermove / pointerdown / pointerup / click 落到 OOPIF 里的按钮上；页面自己记的 `clientX/Y` 与它自己的 `getBoundingClientRect` 中心差 ≤ 1 px（e2e v04i：`click --trusted` 进 `f2/f1`，`hover` 进 OOPIF 里的同进程帧 `f2/f1/f1`）。发到 OOPIF 会话上的 `Input.dispatchMouseEvent` 也返回成功，tabcap 不用它。
+- 【实测 spike + e2e】OOPIF 里的输入框 `focus()` 之后（标签会话开焦点仿真），标签会话上的 `Input.insertText` 与 `Input.dispatchKeyEvent` 都进了这个输入框；所以 `fill --trusted`、`type`、`press-key` 照旧走标签会话。焦点在跨源帧里时，标签会话的 `document.activeElement` 是那个 `iframe`（`contentDocument` 为 null），`type` 顺着 frameId 到该帧会话里再看焦点元素是不是密码框。
+- 【实测 spike】`frameset` 文档没有 `body`（`document.body` 是 `FRAMESET`），它的无障碍树只有 RootWebArea 加两个 `Iframe` 叶子；`frame` 与 iframe 一样有自己的帧、自己的树。
+- 【推断】平移只加所有者内容盒的左上角，iframe 上的 CSS transform / 缩放没有算进去；【待验】OOPIF 里点按钮打开文件选择框时 `Page.fileChooserOpened` 落在哪个会话（`upload` 对帧 ref 在该帧会话上拦截），`DOM.setFileInputFiles` 发到 OOPIF 会话没有量过。
+
 「页面就绪」的判定：
 - 不能只等 `Page.frameNavigated`（新建目标的首次导航经常收不到）或 `Page.loadEventFired`（可能在 `Page.enable` 之前就触发而丢失）。
 - 等主文档的 `Runtime.executionContextCreated`（`isDefault` 且 `origin` 等于目标 URL 的 origin；`Runtime.enable` 会补发已有的 context），再 evaluate 一次 `location.href` 与 `document.readyState` 作最终确认。同标签内的 `Page.navigate` 事件完整，用它返回的 `loaderId` 对应。

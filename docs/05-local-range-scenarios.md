@@ -196,6 +196,12 @@
 - `/api/key` 明文返回密钥，`/api/secret` 返回 AES-GCM 密文 JSON，页面解密后渲染（与 s05 同构，用真实站点里见到的字段形状：`{code:0, data:"<base64 密文>"}`）。
 - 证明：`find` 0 命中并把 `/api/secret` 列进 `suspectEncrypted`；`net show` 能看到请求头里的签名类字段。
 
+### s22 frames（P1；0.4-I，帧路径 ref，作者定 10-16）
+- 页面（`test/e2e/site.ts` 的 `startFrameSite`，两个源：A `127.0.0.1`、B `localhost`，不同站点所以 B 的 iframe 都是 OOPIF）：`/s22` 是 `frameset`，两个同源 `frame`：`menu`（三个链接「栏目一 / 栏目二 / 栏目三」，`target=main`）与 `main`；`main` 里先是 B 源 iframe（`/s22/form`：`input#q`「关键词」、`button#go`「查询」，点击后 `fetch('/s22/search?q=…')` 并把回答写进页面；表单下面再嵌一个与它同源（B）的 iframe `/s22/table`，`<table>` 两行 `S22-0001 甲方案` / `S22-0002 乙方案`），再是一个 layer.js 式的 iframe 弹层（`main` 里固定定位的 div，标题「消息提示」，里面是 B 源 iframe `/s22/modal`，关闭按钮 `aria-label=关闭`、文字 `×` 在 iframe 里，点击后 `postMessage` 让 `main` 移除弹层）。所有期望文字都是 `site.ts` 的字面量（`S22_*`）。
+- ref 语法：根文档 `e<m>`；帧里的元素 `f<n>/e<m>`，嵌套 `f<n>/f<k>/e<m>`。`n` 是该帧在父文档的子帧里按文档顺序的序号（从 1 起；同源 iframe、OOPIF、`frameset` 的 `frame` 一起数），在快照那一刻定；帧路径到 CDP frameId / 会话的映射随快照一代保存，ref 随快照一起失效（docs/08 §5）。同源 / 跨源相对父帧。
+- 走法：`net start` → `navigate /s22` → `snapshot`（只有帧头）→ `snapshot --frames` → `fill f2/f1/e<q> "abc"` → `click f2/f1/e<go>` → `snapshot --frame f2/f1/f1` → `where f2/f1/f1/e<格>` → 用遮挡头给的 ref 关掉 iframe 弹层。
+- expected：帧头列出 `f1`（menu，same-origin，depth 1）、`f2`（main，same-origin，depth 1）、`f2/f1`（cross-origin，depth 2）、`f2/f1/f1`（same-origin，depth 3），另有弹层的 `f2/f2`（cross-origin，depth 2）；默认 `snapshot` 不出任何帧里的元素行；`--frames` 在 `f2/f1/…` 下列出表单元素、在 `f2/f1/f1/…` 下列出表格格子（文字取自 site.ts）；`fill` + `click` 产生一条从跨源帧发出的录制请求 `GET /s22/search?q=abc`（B 服务端日志有这条；`cdp.sessionId` 是子会话），这次动作的帧路径为 `f2/f1`（见 docs/04 §23）；`where` 对格子找到帧文档 `/s22/table` 的响应；弹层的关闭 ref 形如 `f2/f2/e<n>`，`click` 它之后弹层消失（下一次 `snapshot` 头为 `overlays  none`）。
+
 ### s40 locale-numbers（P1，验收：`where` 对回同一 JSON 值）
 - 列表页：同一份 `GET /api/rows` 返回 `[{id, amount, qty, date, code, dir}]`（`amount` 为浮点、`date` 为 `YYYY-MM-DD`、`code` 为 `100101`、`dir` 为 `1`/`-1`）。页面按 `?locale=` 用五种方式渲染同一数据：`en-US`（`1,234.56`）、`de-DE`（`1.234,56`）、`fr-FR`（窄空格千分位）、`en-IN`（`1,23,456.00`）、`accounting`（负数 `(1,234.56)` 与尾随负号 `1234.56-`）；`date` 渲染为 `2026-09` / `202609` / `09/2026`；`code` 渲染为带点 `1001.01`；`dir` 渲染为 `DR`/`CR`。另一列用全角数字与 `&nbsp;` 填充。
 - 走法：`net start` → 依次导航五个 locale → `snapshot` 取每格 ref → 对每格 `where <ref>`；再 `where "1.234,56"`（文字入参）。

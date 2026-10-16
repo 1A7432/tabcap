@@ -73,6 +73,7 @@
 **`action`**：`{tab, op, target, value, phase:"done"|"failed", error, shots:{before:"sha256:…", after:"sha256:…"}, nav, trusted:bool}`。
 - `op`：`click` / `fill` / `key` / `select` / `scroll` / `navigate` / `upload` / `dialog` / `evaluate`。
 - `target`：`{ref, role, name, selector, rect:[x,y,w,h], frame}`，有什么填什么；`selector` 只是给人看的定位提示，不是重放契约。
+- `frame`（0.4-I）：动作所在帧的帧路径（`f2/f1`，见 §6 快照 ref），根文档不写；`ref` 保留原样（`f2/f1/e7`）。录制器目前还不写 `action` 事件，现行落点见 §23。
 - `value`：`fill`/`key` 的文本；`type=password`、`autocomplete` 含 `cc-`/`one-time-code` 的字段一律写 `"<masked>"`，录制时就不落盘。经 §8.1 的 secret 引用填入的，写 `"<secret:<name>>"`。
 - 人的操作（`actor:"human"`）：探路由 AI 做之后，人只在验证码、二次验证、需要人点的时刻介入。这些时刻的人工操作由隔离世界里的被动监听器记（只记 pointer click、input 的 change/失焦提交、Enter/Tab），不改页面行为；**P2 实现**，P1 只记介入前后的截图和 `nav`。P2 做时只在 `handoff` 进入「人在操作」状态期间武装监听器，其余时间不挂。（已定 b）
 
@@ -183,7 +184,7 @@
 | 请求 | `r-<seq>` | 等于那条 `request` 事件的 seq；`ws` 帧用握手请求的 id |
 | 命令 | `c-<seq>` | 等于那条 `cmd` 事件的 seq |
 | blob | `sha256:<64 hex>` | 内容哈希，小写 |
-| 快照 ref | `e12` | 来自 snapshot，**不跨包、不持久**，只在 `action.target` 里做记录 |
+| 快照 ref | `e12`、`f2/f1/e7` | 来自 snapshot，**不跨包、不持久**，只在 `action.target` 里做记录。帧里的元素带帧路径（0.4-I）：`f<n>/e<m>`、嵌套 `f<n>/f<k>/e<m>`，`n` 为父文档子帧按文档顺序的序号（从 1 起） |
 
 时间：跨标签排序只信 `seq`；时长只用 `mono`；`ts` 给人看和给 HAR 的 `startedDateTime` 用。
 
@@ -382,3 +383,6 @@
 - `cookies`：`{name, carrier:"cookie"|"header"|"query"|"body", origin, setBy:[r-N…], lifetime:{kind:"session"}|{kind:"persistent",expires}|null, flags:{httpOnly,secure,sameSite}|null, role, requiredBy:[{request,input,via,grade}]}`；`origin` 为 `{kind:"set-cookie",request}` / `{kind:"session-start"}` / `{kind:"unrecorded"}`，非 cookie 的 csrf 输入为 `{kind:"deps", class, request?, path?, cookie?, grade}`。
 - `protection`：`{source:"guard", kind, request, url, status, handedToHuman:{question,screenshot}|null, resumedBy, grade:"实测"}`、`{source:"response", signal, label, name, count, requests, grade:"推断"}`（只有头名字，不写值）。
 
+## 23. 0.4-I 按实现定案（10-16，待作者审）
+
+帧路径 ref 实现时按字面解的几处：录制器至今不写 `action` 事件（0.3-B 起的现状，见 NOTES），所以「`action` 事件带 `frame`」落在动作命令自己身上：`click` / `hover` / `fill` / `upload`（以及带帧 ref 参数的 `evaluate --function`）的输出多一个 `frame`（帧路径，根文档不写），因而进了该命令 `cmd` 结束事件的 `outputSummary.frame`；`cmd` 开始事件的 `input.ref` 保留原样的 ref 字符串（`f2/f1/e7`）。将来真正写 `action` 事件时，`target.frame` 就填这个帧路径。帧头里的 same-origin / cross-origin 相对父帧的 security origin（s22 的 `f2/f1/f1` 与它的父帧同在 B 源，所以是 same-origin）。只有带子帧的页面在 `snapshot` / `outline` 的 JSON 里有 `frames` 字段、头里有 `frames` 行；遮挡项在帧里时带 `frame`，含 iframe 的遮挡项带那个 iframe 的帧路径 `layerFrame`（iframe 里的关闭按钮并进 `close`，choices 不并，0.3-D 的 `OVERLAY_EXPECTED` 不变）；根文档 ref 的动作输出不带 `frame`。没有子帧的页面，输出的字段和行与 0.4-I 之前相同。
