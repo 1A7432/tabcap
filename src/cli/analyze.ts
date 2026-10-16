@@ -7,13 +7,16 @@ import { appendFinding, appendFindings, type SavedFinding, type SavedFindings } 
 import { diff, renderDiffText, type DiffResult } from "../analyze/diff.ts";
 import { DepsGraph, depsFindings, depsOf, renderDepsText } from "../analyze/deps.ts";
 import { chainOf, renderChainText } from "../analyze/chain.ts";
+import { buildDossier, reconOutput, recordedPage, renderDossierMd, writeDossier } from "../analyze/recon.ts";
+import { BundleReader } from "../bundle/reader.ts";
 import { flagNames, helpFor, parseCommand, specOf, usageOf } from "./commands.ts";
 
 const FIND = specOf("analyze find");
 const DIFF = specOf("analyze diff");
 const DEPS = specOf("analyze deps");
 const CHAIN = specOf("analyze chain");
-export const ANALYZE_USAGE = [usageOf(FIND), usageOf(DIFF), usageOf(DEPS), usageOf(CHAIN)];
+const RECON = specOf("analyze recon");
+export const ANALYZE_USAGE = [usageOf(FIND), usageOf(DIFF), usageOf(DEPS), usageOf(CHAIN), usageOf(RECON)];
 
 type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
 
@@ -150,6 +153,20 @@ function cmdChain(argv: readonly string[]): Outcome {
   return { code: 0, envelope: ok(result), text: renderChainText(result) };
 }
 
+function cmdRecon(argv: readonly string[]): Outcome {
+  const parsed = parseCommand(RECON, argv);
+  if (parsed.help) {
+    const text = helpFor(RECON);
+    return { code: 0, envelope: ok({ help: text }), text };
+  }
+  const bundle = optStr(parsed.args["bundle"]) ?? "";
+  const reader = BundleReader.open(bundle);
+  const dossier = buildDossier(reader, recordedPage(reader));
+  const out = reconOutput(dossier, writeDossier(bundle, dossier));
+  if (parsed.args["text"] !== true) return { code: 0, envelope: ok(out) };
+  return { code: 0, envelope: ok(out), text: renderDossierMd(dossier).trimEnd() };
+}
+
 export async function runAnalyze(argv: readonly string[]): Promise<Outcome> {
   try {
     const [, sub, ...rest] = argv;
@@ -161,6 +178,7 @@ export async function runAnalyze(argv: readonly string[]): Promise<Outcome> {
     if (sub === "diff") return cmdDiff(rest);
     if (sub === "deps") return cmdDeps(rest);
     if (sub === "chain") return cmdChain(rest);
+    if (sub === "recon") return cmdRecon(rest);
     return { code: 2, envelope: fail("usage", `unknown command: analyze ${sub}`, `Available: ${ANALYZE_USAGE.join(" | ")}`) };
   } catch (e) {
     const env = toFail(e);

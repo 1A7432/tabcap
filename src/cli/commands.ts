@@ -545,6 +545,15 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap where e12",
     action: "where",
   },
+  {
+    path: ["recon"],
+    pos: [],
+    flags: [...T, { flag: "--text", key: "text", kind: "bool", help: "print the Markdown dossier instead of the JSON envelope" }],
+    summary:
+      "recon dossier v0 of the session's recording and current page: tech stack (adapter detect results, header / session-cookie hints), data channels (method, path template, type, body class) with the share of the page's visible text found in recorded responses, cookie classification (origin, lifetime, flags, role, requiredBy from analyze deps), protection identification (guard detections, response signals; identification only). Writes exports/dossier.json (schema tabcap-dossier/0) and exports/dossier.md into the bundle; sends no request",
+    example: "tabcap recon --text",
+    action: "recon",
+  },
   { path: ["handoff", "status"], pos: [], flags: [SESSION], summary: "is the session handed to the human? state running | waiting | resumed, reason, screenshot, handler answers", example: "tabcap handoff status", action: "handoff.status" },
   {
     path: ["handoff", "continue"],
@@ -676,6 +685,14 @@ export const COMMANDS: CommandSpec[] = [
     ],
     summary: "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input)",
     example: "tabcap analyze chain ./b --request r-12",
+  },
+  {
+    path: ["analyze", "recon"],
+    pos: ["bundle"],
+    flags: [{ flag: "--text", key: "text", kind: "bool", help: "print the Markdown dossier instead of the JSON envelope" }],
+    summary:
+      "the recon dossier offline (as `tabcap recon`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); writes exports/dossier.json and exports/dossier.md",
+    example: "tabcap analyze recon ./b --text",
   },
   {
     path: ["replay", "serve"],

@@ -205,7 +205,7 @@ function setMatcher(exact: ReadonlySet<string>, embedded: ReadonlySet<string>): 
   };
 }
 
-function setCookiePairs(r: RequestEvent): { name: string; value: string }[] {
+export function setCookiePairs(r: RequestEvent): { name: string; value: string }[] {
   if (r.response === null) return [];
   const out: { name: string; value: string }[] = [];
   for (const raw of headerValues(r.response.headers, "set-cookie")) {
@@ -659,6 +659,15 @@ function reread(reader: BundleReader, value: string, s: DepsSource): boolean {
     return candidates.some((c) => typeof c === "string" && c.trim() === value);
   }
   return false;
+}
+
+/**
+ * How `--write-findings` grades a value flow: 实测 when the source re-reads
+ * exactly from the bundle (set-cookie, plain JSON leaf, action), else 推断.
+ * analyze recon grades a cookie's `requiredBy` with it.
+ */
+export function sourceGrade(reader: BundleReader, value: string, s: DepsSource | null): "实测" | "推断" {
+  return s !== null && reread(reader, value, s) ? "实测" : "推断";
 }
 
 /**

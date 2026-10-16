@@ -320,6 +320,10 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
         const seqs = saved !== null && Array.isArray(saved["seqs"]) ? saved["seqs"].length : 0;
         if (r !== null) return { code, envelope: env, text: renderWhereText(r) + (saved === null ? "" : `\nwrote ${seqs} finding event(s) to ${String(saved["bundle"] ?? "")}`) };
       }
+      // `recon --text`: the Markdown dossier the daemon wrote next to the JSON one.
+      if (key === "recon" && parsed.args["text"] === true && env.ok && isRecord(env.data) && typeof env.data["markdown"] === "string") {
+        return { code, envelope: env, text: readFileSync(env.data["markdown"], "utf8").trimEnd() };
+      }
       // `trace list --text`: the report is rendered here from the daemon's JSON.
       if (key === "trace list" && parsed.args["text"] === true && env.ok) return { code, envelope: env, text: renderTraceText(env.data) };
       // `fingerprint probe --text`: the table is rendered here from the daemon's JSON.
