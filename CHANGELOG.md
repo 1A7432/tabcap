@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased (0.4-A)
+## Unreleased
 
 ### Value-flow analysis and the action chain
 

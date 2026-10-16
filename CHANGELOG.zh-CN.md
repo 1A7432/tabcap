@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## 未发布（0.4-A）
+## 未发布
 
 - **`tabcap analyze deps <包> [--session 名] [--request r-N] [--text] [--write-findings]`**：确定性的值流依赖图（schema `tabcap-deps/0`）。对每个请求的每个输入（query 参数、表单与 JSON 正文叶子、`x-*` / `authorization` 头、按名的 cookie），列出在更早事件里找到的来源，按优先级：更早响应的 `set-cookie`、更早响应正文里的值（经 `analyze find` 解码链的 JSON 路径，或 HTML / 文本里的整词）、录到的 `fill` / `type` 值、更早请求发过的同名同值参数、常量、时间戳（`analyze diff` 的分类）。只做精确匹配（去首尾空白，query / 表单值 URL 解码）；来源必须早于这个值第一次被发出。找不到来源的输入标 `computed-in-page`（带 diff 的提示和与它同变的输入），cookie 标 `unrecorded`。`--secret` 填的值只会匹配它的 `<secret:…>` 占位符，输出里不含任何值。与 `find` / `diff` 一样默认输出一个 JSON 信封（`--text` 出文本报告）；证据包只读，`--write-findings` 才追加 `finding` 事件（`tool: "deps"`，从包里重读核对过的精确来源为 `实测`，其余 `推断`）。
 - **`tabcap analyze chain <包> [--request r-N] [--session 名] [--text]`**（schema `tabcap-chain/0`）：重现某个请求（默认：最后一个有数据的 xhr / fetch / document 请求）需要的请求，按录制顺序，每步写明给后面提供什么、还要调用方给什么；`todo` 列出 `computed-in-page` / `unrecorded` 输入。
