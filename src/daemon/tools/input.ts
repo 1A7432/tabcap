@@ -165,8 +165,8 @@ async function centre(t: Transport, tab: Tab, backendNodeId: number, ref: string
 }
 
 /** The marker of the DOM click path (docs/10 §3.1, owner decision D1). */
-export const DOM_CLICK_WARNING = "事件序残缺：DOM el.click()，只有 click 事件，isTrusted=false，无 pointer / mouse 序列";
-export const INSERT_WARNING = "事件序残缺：无按键事件（一次 Input.insertText，等同粘贴 / fill）";
+export const DOM_CLICK_WARNING = "incomplete event sequence: DOM el.click(), a click event only, isTrusted=false, no pointer / mouse sequence";
+export const INSERT_WARNING = "incomplete event sequence: no key events (one Input.insertText, like a paste / fill)";
 
 /** Per-call limits of the trusted path (docs/07 §1.1). */
 export const PAINT_TIMEOUT_MS = 1000;
@@ -424,7 +424,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
             trusted: false,
             eventShape: "incomplete",
             degraded: "not-painted",
-            warning: `${DOM_CLICK_WARNING}（--trusted 降级：标签未确认已绘制，没有发送任何鼠标移动）`,
+            warning: `${DOM_CLICK_WARNING} (--trusted degraded: the tab was not confirmed to paint, so no mouse move was sent)`,
             paint: { raf: r.paint.raf, visibility: r.paint.visibility },
             tag: r.tag,
             ...dbl,

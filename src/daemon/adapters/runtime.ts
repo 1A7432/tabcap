@@ -212,9 +212,9 @@ export async function coveredBy(t: Transport, tab: Tab, doc: DocIdentity, backen
 /** The `covered` error click / fill fail with: what covers the target and its close-button refs; tabcap never closes it. */
 export function coveredError(ref: string, c: Cover): TabcapError {
   const o = c.overlay;
-  const what = `${o.kind}${o.name === "" ? "" : `「${o.name}」`}`;
+  const what = `${o.kind}${o.name === "" ? "" : ` "${o.name}"`}`;
   const where = c.offscreen ? "(the target is off-screen and the overlay covers the whole viewport)" : c.at === null ? "" : `at (${c.at.x}, ${c.at.y})`;
-  const list = (bs: Overlay["close"]) => bs.map((b) => (b.ref === null ? `「${b.label}」` : `${b.ref}「${b.label}」`)).join(", ");
+  const list = (bs: Overlay["close"]) => bs.map((b) => (b.ref === null ? `"${b.label}"` : `${b.ref} "${b.label}"`)).join(", ");
   let next: string;
   if (o.kind === "consent") next = `A consent banner covers it: the human decides (choices: ${list(o.choices) || "none found"}). Ask them; tabcap never answers consent on its own.`;
   else if (o.kind === "timeout-prompt") next = `A session-timeout prompt covers it: tell the human${o.choices.length > 0 ? ` (choices: ${list(o.choices)})` : ""}. tabcap never closes overlays on its own.`;

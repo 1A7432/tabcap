@@ -230,7 +230,7 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
   const now = opts.now ?? Date.now;
   const guard = !loopback && opts.live ? openLiveGuard(opts, base, reader.manifest.session.site) : null;
   const warnings: string[] = [];
-  if (!reader.isComplete()) warnings.push("bundle is not finished (未收尾): recording in progress or interrupted");
+  if (!reader.isComplete()) warnings.push("bundle is not finished: recording in progress or interrupted");
   if (guard !== null) warnings.push(`live target: requests paced at one per ${guard.intervalMs} ms and counted for site ${guard.site}`);
   if (opts.withCookies) warnings.push("--with-cookies: the recorded cookie header is sent; it may have expired (docs/03 §4: sessions expire)");
 

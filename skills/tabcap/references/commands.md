@@ -261,7 +261,7 @@ Example: `tabcap reload --ignore-cache`
 
 ### `tabcap snapshot`
 
-accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (遮挡 / 识别到, counts toward --max-chars)
+accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected, counts toward --max-chars)
 
 ```
 tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path]
@@ -279,7 +279,7 @@ Example: `tabcap snapshot --interactive`
 
 ### `tabcap outline`
 
-page map head: tab line, 遮挡 (overlays: dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), 识别到 (adapters detected, with confidence), 新窗口 (popups); read-only, never closes anything
+page map head: tab line, overlays (dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), detected (adapters, with confidence), popups; read-only, never closes anything
 
 ```
 tabcap outline [--session name] [--timeout ms] [--tab t2] [--max-chars n]

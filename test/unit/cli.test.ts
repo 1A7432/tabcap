@@ -73,6 +73,6 @@ describe("tabcap bundle (JSON envelope)", () => {
     const { envelope } = await run(["bundle", "info", dir]);
     if (!envelope.ok) throw new Error(envelope.error.message);
     expect(envelope.data).toMatchObject({ complete: false, truncatedLastLine: true });
-    expect(JSON.stringify(envelope.data)).toContain("未收尾");
+    expect(JSON.stringify(envelope.data)).toContain("bundle is not finished");
   });
 });

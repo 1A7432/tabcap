@@ -187,7 +187,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--file-path", key: "filePath", kind: "string", help: "write the tree text to this file and return its path instead of the tree", metavar: "path" },
     ],
     summary:
-      "accessibility tree as indented text, one element per line: role \"name\" [ref] flags (e.g. `- button \"Save\" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (遮挡 / 识别到, counts toward --max-chars)",
+      "accessibility tree as indented text, one element per line: role \"name\" [ref] flags (e.g. `- button \"Save\" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected, counts toward --max-chars)",
     example: "tabcap snapshot --interactive",
     action: "snapshot",
     localPaths: ["filePath"],
@@ -197,7 +197,7 @@ export const COMMANDS: CommandSpec[] = [
     pos: [],
     flags: [...TT, { flag: "--max-chars", key: "maxChars", kind: "number", help: "truncate the outline text", default: 6000, metavar: "n" }],
     summary:
-      "page map head: tab line, 遮挡 (overlays: dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), 识别到 (adapters detected, with confidence), 新窗口 (popups); read-only, never closes anything",
+      "page map head: tab line, overlays (dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), detected (adapters, with confidence), popups; read-only, never closes anything",
     example: "tabcap outline",
     action: "outline",
   },

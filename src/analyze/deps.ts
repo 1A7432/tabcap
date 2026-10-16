@@ -251,7 +251,7 @@ export class DepsGraph {
       this.byId.set(r.id, r);
       this.when.set(r.id, { t: startedAt(r), seq: r.seq });
     }
-    if (!reader.isComplete()) this.warnings.push("bundle is not finished (未收尾): recording in progress or interrupted");
+    if (!reader.isComplete()) this.warnings.push("bundle is not finished: recording in progress or interrupted");
     if (reader.truncatedLastLine) this.warnings.push("events.jsonl ends with a truncated line; it was skipped");
     this.indexSessions();
     this.indexInputs();

@@ -95,26 +95,26 @@ describe("header block and covered error", () => {
   test("header lines: overlays first, refs of close buttons, human decides consent", () => {
     const lines = headerLines({ overlays: [...modal, { ...(consent[0] as Overlay), id: "o2" }], detected: [], error: null });
     expect(lines).toEqual([
-      "遮挡    o1 dialog「系统提示」 挡住 整页（main, h1, form#f） · 关闭 dlg1-close「×」 / dlg1-later「稍后再说」",
-      "        o2 consent「Cookie 提示」 占视口 14% · 由人决定：accept「接受全部」 / reject「拒绝」 / cset「设置」",
-      "识别到  无",
+      'overlays  o1 dialog "系统提示" covers the whole page (main, h1, form#f) · close dlg1-close "×" / dlg1-later "稍后再说"',
+      '          o2 consent "Cookie 提示" 14% of the viewport · the human decides: accept "接受全部" / reject "拒绝" / cset "设置"',
+      "detected  none",
     ]);
-    expect(overlayLine(timeout[0] as Overlay)).toBe("o1 timeout-prompt「会话即将超时」 挡住 整页（main, h1, form#f） · 提醒人：keep「继续使用」 / quit「退出登录」");
-    expect(overlayLine(mask[0] as Overlay)).toContain("· 无关闭按钮");
+    expect(overlayLine(timeout[0] as Overlay)).toBe('o1 timeout-prompt "会话即将超时" covers the whole page (main, h1, form#f) · tell the human: keep "继续使用" / quit "退出登录"');
+    expect(overlayLine(mask[0] as Overlay)).toContain("· no close button");
   });
 
   test("header with nothing, with a failed check, with a detected library", () => {
-    expect(headerLines({ overlays: [], detected: [], error: null })).toEqual(["遮挡    无", "识别到  无"]);
-    expect(headerLines({ overlays: null, detected: null, error: "boom" })).toEqual(["遮挡    ?（检查失败：boom）", "识别到  ?"]);
-    expect(headerLines({ overlays: [], detected: [{ adapter: "fake-ui", category: "widget", confidence: 0.93, evidence: ["class fui-*", "global FakeUI"], unchecked: [] }, { adapter: "overlay", category: "overlay", confidence: 0.6, evidence: ["x"], unchecked: [] }], error: null })[1]).toBe("识别到  fake-ui（widget）0.93：class fui-*, global FakeUI");
+    expect(headerLines({ overlays: [], detected: [], error: null })).toEqual(["overlays  none", "detected  none"]);
+    expect(headerLines({ overlays: null, detected: null, error: "boom" })).toEqual(["overlays  ? (check failed: boom)", "detected  ?"]);
+    expect(headerLines({ overlays: [], detected: [{ adapter: "fake-ui", category: "widget", confidence: 0.93, evidence: ["class fui-*", "global FakeUI"], unchecked: [] }, { adapter: "overlay", category: "overlay", confidence: 0.6, evidence: ["x"], unchecked: [] }], error: null })[1]).toBe("detected  fake-ui (widget) 0.93: class fui-*, global FakeUI");
   });
 
   test("covered error: code, close refs in next, never closes", () => {
     const o = modal[0] as Overlay;
     const e = coveredError("e3", { overlay: o, at: { x: 100, y: 40 }, offscreen: false });
     expect(e.code).toBe("covered");
-    expect(e.message).toBe("ref e3 is covered by dialog「系统提示」 at (100, 40)");
-    expect(e.next).toContain("dlg1-close「×」, dlg1-later「稍后再说」");
+    expect(e.message).toBe('ref e3 is covered by dialog "系统提示" at (100, 40)');
+    expect(e.next).toContain('dlg1-close "×", dlg1-later "稍后再说"');
     expect(e.next).toContain("tabcap never closes overlays on its own");
     expect(e.extra["overlay"]).toBe(o);
     const c = coveredError("e9", { overlay: consent[0] as Overlay, at: null, offscreen: true });

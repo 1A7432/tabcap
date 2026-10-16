@@ -17,6 +17,7 @@
 
 - `net list` 与 `console list` 默认分页：不给分页参数时返回第 0 页、每页 100（还有更多时带 `nextPageIdx`）；`--page-size 0` 返回全部（原来的默认行为）。`--page-size 0` 同时给大于 0 的 `--page-idx` 报用法错误。
 - 会话等待人接手（hand-off）期间，`resize` 和 `emulate` 与其它作用于页面的命令一样返回 `waiting` 错误。
+- 输出全部改为英文：`waiting` 错误的 `next`（"complete the verification in the browser, then run `tabcap handoff continue`"）、DOM 点击与 `type --insert` 的 `incomplete event sequence: …` 警告、`bundle is not finished: …` 警告与 `analyze find` / `diff` 文本报告里的 `(unfinished)`、snapshot / outline 头部（`overlays` / `detected` / `popups`，遮挡行改英文，名字用 ASCII 引号）、`covered` 错误、`replay export-python` 生成包的 README（模板与动作链一节）。只有证据等级（`实测` / `推断` / `待验` / `人确认`，证据包格式里的值）保持不变。
 
 ## 0.3.0（2026-10-16）
 

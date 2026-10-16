@@ -123,7 +123,7 @@ async function cmdExportHar(p: Parsed): Promise<unknown> {
     skipped: res.skipped,
     complete: reader.isComplete(),
     warnings: [
-      ...(reader.isComplete() ? [] : ["bundle is not finished (未收尾): recording in progress or interrupted"]),
+      ...(reader.isComplete() ? [] : ["bundle is not finished: recording in progress or interrupted"]),
       ...(reader.truncatedLastLine ? ["events.jsonl ends with a truncated line; it was skipped"] : []),
       ...(redact ? ["redaction is rule based; free text in bodies may still hold personal data, review before sharing"] : []),
     ],
@@ -164,7 +164,7 @@ function cmdInfo(p: Parsed): unknown {
   const recount = computeCounts(r.events, r.manifest.counts.blobBytes);
   r.requests(); // adds bad-request issues, if any
   const warnings: string[] = [];
-  if (!r.isComplete()) warnings.push("bundle is not finished (未收尾): recording in progress or interrupted");
+  if (!r.isComplete()) warnings.push("bundle is not finished: recording in progress or interrupted");
   if (r.truncatedLastLine) warnings.push("events.jsonl ends with a truncated line; it was skipped");
   if (recount.events !== r.manifest.counts.events) warnings.push(`manifest counts.events=${r.manifest.counts.events} but events.jsonl has ${recount.events}`);
   return {

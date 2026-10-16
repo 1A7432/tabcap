@@ -809,30 +809,30 @@ function verifyExpected(
 }
 
 function chainReadme(chain: ChainResult, redacted: boolean): string {
-  const todo = chain.todo.map((t) => `- \`${t.request}\` ${t.location} \`${docSafe(t.path ?? t.name).replace(/`/g, "_")}\`：${t.class}${t.hints.length > 0 ? `（${t.hints.join(", ")}）` : ""}${t.covaries.length > 0 ? `，与 ${t.covaries.map((c) => docSafe(c).replace(/`/g, "_")).join(", ")} 同变` : ""}${t.via === undefined ? "" : `，经 \`${t.via}\` 带过来`}`);
+  const todo = chain.todo.map((t) => `- \`${t.request}\` ${t.location} \`${docSafe(t.path ?? t.name).replace(/`/g, "_")}\`: ${t.class}${t.hints.length > 0 ? ` (${t.hints.join(", ")})` : ""}${t.covaries.length > 0 ? `, varies with ${t.covaries.map((c) => docSafe(c).replace(/`/g, "_")).join(", ")}` : ""}${t.via === undefined ? "" : `, carried by \`${t.via}\``}`);
   return [
     "",
     "",
-    "## 动作链、TODO 与 `verify()`",
+    "## The action chain, TODOs and `verify()`",
     "",
-    `这份客户端按动作链生成（\`tabcap analyze deps\` / \`analyze chain\`）：目标 \`${chain.target}\`，${chain.steps.length} 步（${chain.steps.map((s) => `\`${s.request}\``).join(" → ")}）。录制里找不到来源的输入（\`computed-in-page\`）是默认值为 \`TODO\` 的参数；来自前一步响应的值是参数，由调用方或 \`verify()\` 从那一步的回复里取；cookie 由 \`Session\` 的 cookie jar 带。`,
+    `This client follows the action chain (\`tabcap analyze deps\` / \`analyze chain\`): target \`${chain.target}\`, ${chain.steps.length} step(s) (${chain.steps.map((s) => `\`${s.request}\``).join(" → ")}). Inputs with no source in the recording (\`computed-in-page\`) are parameters defaulting to \`TODO\`; values from an earlier step's response are parameters the caller or \`verify()\` takes from that step's reply; cookies travel in the \`Session\` cookie jar.`,
     "",
-    "调用方的 agent 按这个顺序做：",
+    "The caller's agent works in this order:",
     "",
-    "1. 读 `client.py` 里每个 `# TODO` 注释：写着 hints（`looks-signature`、`looks-random` …）和同变的输入（`varies with …`）。",
-    "2. 在本目录新建 `todo_inputs.py`，实现 `def fill(function: str, args: dict) -> dict`：按页面里的算法算出 TODO 参数，返回 `{参数名: 值}`。不要改 `client.py`，重新生成会覆盖。",
-    "3. 起回放服务器 `tabcap replay serve <证据包> --port 4500`，跑 `python client.py verify --base-url http://127.0.0.1:4500`：逐步重放动作链，每步按 `tabcap replay check` 的比法和录制比（状态码、选定响应头、正文逐路径），打印每步 pass / fail，有失败退出码非 0。没有 `todo_inputs.py` 时用录到的值；有了它，算出的值必须和录到的一致才过，这就是填空对不对的检验。",
-    "4. 之后才对真实站点跑（`--base-url` 填源；账号风险自己想清楚，docs/03 §4）。",
+    "1. Read every `# TODO` comment in `client.py`: it names the hints (`looks-signature`, `looks-random` …) and the inputs that vary with it (`varies with …`).",
+    "2. Create `todo_inputs.py` in this directory with `def fill(function: str, args: dict) -> dict`: compute the TODO parameters the way the page does and return `{parameter: value}`. Do not edit `client.py`; regenerating overwrites it.",
+    "3. Start the replay server `tabcap replay serve <bundle> --port 4500` and run `python client.py verify --base-url http://127.0.0.1:4500`: it replays the chain step by step, compares each answer with the recording the way `tabcap replay check` does (status, selected response headers, body path by path), prints pass / fail per step and exits non-zero on a failure. Without `todo_inputs.py` the recorded values are used; with it, the computed values must equal the recorded ones to pass, which is the check that the TODOs are filled correctly.",
+    "4. Only then run against the real site (`--base-url` set to its origin; think about the account risk first, docs/03 §4).",
     "",
-    "名字像密码、token 的输入（与 `tabcap bundle redact` 同一条规则）不写进任何生成的文件：`verify_expected.json` 里是 `<secret:函数.参数>`，运行时从环境变量 `TABCAP_SECRET_<函数_参数，大写>` 取。",
+    "Inputs whose names look like passwords or tokens (the same rule as `tabcap bundle redact`) are never written into a generated file: `verify_expected.json` holds `<secret:function.parameter>`, read at run time from the environment variable `TABCAP_SECRET_<FUNCTION_PARAMETER>`.",
     "",
     redacted
-      ? "`verify_expected.json`（0600）来自脱敏副本（--redacted）：值是 «r:…» 占位符，只能对同一个脱敏副本的 `replay serve` 验证。"
-      : "`verify_expected.json`（0600）含录到的响应值，是真实数据，不要提交；要分享先 `tabcap bundle redact <证据包> <副本>`，从副本导出（--redacted）。",
+      ? "`verify_expected.json` (0600) comes from a redacted copy (--redacted): its values are «r:…» placeholders, so verify passes only against `replay serve` of this same copy."
+      : "`verify_expected.json` (0600) holds the recorded response values: real data, do not commit it. To share, first `tabcap bundle redact <bundle> <copy>` and export from the copy (--redacted).",
     "",
-    "待填的 TODO：",
+    "TODOs to fill:",
     "",
-    todo.length === 0 ? "（无。）" : todo.map((l) => l.replace(/[\r\n]/g, " ")).join("\n"),
+    todo.length === 0 ? "(none)" : todo.map((l) => l.replace(/[\r\n]/g, " ")).join("\n"),
   ].join("\n");
 }
 
@@ -864,7 +864,7 @@ export function generateClientSource(fns: { code: string; types: string[] }[], h
 export function exportPython(opts: ExportOptions): ExportResult {
   const reader = BundleReader.open(opts.bundle);
   const warnings: string[] = [];
-  if (!reader.isComplete()) warnings.push("bundle is not finished (未收尾): recording in progress or interrupted");
+  if (!reader.isComplete()) warnings.push("bundle is not finished: recording in progress or interrupted");
   const { requests, skipped } = replayableRequests(reader);
   const include = globMatcher(opts.include);
   const exclude = globMatcher(opts.exclude);
@@ -970,13 +970,13 @@ export function exportPython(opts: ExportOptions): ExportResult {
   }
   const pkgName = pyIdent(`tabcap_replay_${name}`, "tabcap_replay").replace(/_/g, "-");
   const fill = (t: string, vars: Record<string, string>) => t.replace(/\{\{(\w+)\}\}/g, (m, k: string) => vars[k] ?? m);
-  const todoList = planned.filter((p) => p.fn.todo !== null).map((p) => `- \`${p.fn.name}\`：${p.fn.todo ?? ""}`);
+  const todoList = planned.filter((p) => p.fn.todo !== null).map((p) => `- \`${p.fn.name}\`: ${p.fn.todo ?? ""}`);
   const vars = {
     name: pkgName,
     bundleId: docSafe(reader.manifest.id),
     session: docSafe(name).replace(/[`]/g, "_"),
     functionCount: String(planned.length),
-    todo: todoList.length === 0 ? "（无：每个函数都能直接调用。）" : todoList.map((l) => l.replace(/[\r\n]/g, " ")).join("\n"),
+    todo: todoList.length === 0 ? "(none: every function can be called as is)" : todoList.map((l) => l.replace(/[\r\n]/g, " ")).join("\n"),
     chain: chainMode && chain !== null ? chainReadme(chain, reader.manifest.redaction !== null) : "",
   };
   write("pyproject.toml", fill(PYPROJECT, vars));

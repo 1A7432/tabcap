@@ -46,7 +46,7 @@ export function originOf(url: string): string | null {
   }
 }
 
-export const CONTINUE_NEXT = "Ask the human to complete the verification in the browser (在浏览器里完成验证), then run `tabcap handoff continue`; until then do not act on this site.";
+export const CONTINUE_NEXT = "Ask the human to complete the verification in the browser, then run `tabcap handoff continue`; until then do not act on this site.";
 
 export type HandlerState = {
   plugin: string;

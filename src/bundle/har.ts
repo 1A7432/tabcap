@@ -665,7 +665,7 @@ export async function importHar(harJson: unknown, outDir: string, opts: ImportOp
   try {
     result = embedded !== null ? await restoreFromEvents(w, har, embedded, outDir) : await importEntries(w, har, outDir);
   } catch (e) {
-    await w.close({ finished: null }); // leave it visibly unfinished (未收尾), never complete
+    await w.close({ finished: null }); // leave it visibly unfinished, never complete
     throw e;
   }
   await w.close();

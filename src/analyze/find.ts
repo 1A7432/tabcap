@@ -381,7 +381,7 @@ export function find(bundleDir: string, text: string, opts: FindOptions = {}): F
 
   hits.sort((a, b) => a.seq - b.seq);
   const warnings: string[] = [];
-  if (!reader.isComplete()) warnings.push("bundle is not finished (未收尾): recording in progress or interrupted");
+  if (!reader.isComplete()) warnings.push("bundle is not finished: recording in progress or interrupted");
   if (reader.truncatedLastLine) warnings.push("events.jsonl ends with a truncated line; it was skipped");
   if (reader.issues.length > 0) warnings.push(`${reader.issues.length} damaged event line(s) skipped; run \`tabcap bundle info\` for details`);
 
@@ -490,7 +490,7 @@ function oneLine(s: string, max = 120): string {
 /** Compact human rendering (`--text`). */
 export function renderFindText(r: FindResult): string {
   const lines: string[] = [];
-  lines.push(`find ${JSON.stringify(r.query.text)} in ${r.bundle}${r.complete ? "" : " (未收尾)"}${r.query.ignoreCase ? " [ignore-case]" : ""}`);
+  lines.push(`find ${JSON.stringify(r.query.text)} in ${r.bundle}${r.complete ? "" : " (unfinished)"}${r.query.ignoreCase ? " [ignore-case]" : ""}`);
   lines.push(`${r.hits.length} hit(s)${r.truncated ? ` (truncated at ${r.hits.length})` : ""}`);
   for (const h of r.hits) {
     const where = h.kind === "console" ? `console@${h.seq}` : h.kind === "ws" ? `${h.ref ?? "ws"} frame@${h.seq}` : `${h.ref ?? ""}${h.part === "request-body" ? " (request body)" : ""}`;

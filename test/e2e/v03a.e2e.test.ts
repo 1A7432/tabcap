@@ -223,7 +223,7 @@ describe.skipIf(!enabled)("tabcap 0.3-A L2 (store, secret fill, guard, handoff, 
     const refused = await tabcap(["click", load, ...S]);
     expect(refused.ok).toBe(false);
     expect(refused.error).toMatchObject({ code: "waiting", state: "waiting", reason: "verify-page", screenshot: h["screenshot"] });
-    expect(s(refused.error?.["next"])).toContain("在浏览器里完成验证");
+    expect(s(refused.error?.["next"])).toContain("complete the verification in the browser");
     expect(s(refused.error?.["next"])).toContain("tabcap handoff continue");
     expect((await tabcap(["evaluate", "fetch('/api/limited').then((r) => r.status)", "--await", ...S])).error?.["code"]).toBe("waiting");
     expect((await tabcap(["navigate", `${site.origin}/s15/?bucket=x`, "--session", "other"])).error?.["code"]).toBe("waiting");
