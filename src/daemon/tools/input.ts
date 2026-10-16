@@ -686,6 +686,24 @@ export function parseSecretRef(ref: string): { site: string; field: "password" |
 }
 
 /**
+ * 0.6-R: `fill --secret` needs a session bound with `session start --site`
+ * (the binding picks the account and its browser context). A session made
+ * implicitly (`net start`, `navigate`, or after a failed `session start
+ * --site`) is not bound: refused before the page is touched. fill always has
+ * a tab here, and an account's tabs must open in its own context, so the way
+ * out is stop, then start bound.
+ */
+export function unboundSecretError(session: string, bound: { site: string } | undefined, site: string): TabcapError | null {
+  if (bound !== undefined) return null;
+  return new TabcapError(
+    "not-found",
+    `session "${session}" is not bound to a site, so --secret ${site}.* has no account to fill from (sessions made by net start / navigate, or left after a failed session start --site, are unbound)`,
+    `Run \`tabcap session stop ${session}\` (it closes the session's tabs and finishes its recording), then \`tabcap session start ${session} --site ${site}\`, navigate again and fill.`,
+    { session, site },
+  );
+}
+
+/**
  * docs/06 A6.2: one `fill --secret <site>.password` per site per session. Checked
  * before the page is touched; `--confirm` overrides. Each decision is a `guard` event.
  * 0.4-D: a `--confirm`ed retry means the human judged the previous login failed:
@@ -755,6 +773,8 @@ export async function fill(d: Daemon, a: Args, session: string): Promise<unknown
   if (secret !== null) {
     const store = d.needStore();
     if (store.site(secret.site) === null) throw new TabcapError("not-found", `no site named "${secret.site}" in the store`, "Run `tabcap site list`; the human adds sites with `tabcap site add`.");
+    const unbound = unboundSecretError(session, d.sites.get(session), secret.site);
+    if (unbound !== null) throw unbound;
     const v = store.secretValue(secret.site, secret.field, d.sites.get(session)?.site === secret.site ? d.sites.get(session)?.account : null);
     if (v === null) throw new TabcapError("not-found", `site "${secret.site}" has no ${secret.field}`, "Ask the human to re-add the site with `tabcap site add`.");
     if (secret.field === "password") counted = loginGate(d, session, secret.site, confirm, tab.id);

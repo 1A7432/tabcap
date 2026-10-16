@@ -5,7 +5,6 @@ import { isRecord, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
 import { cookieArray, siteCookieUrls } from "../capture/cookies.ts";
 import type { Daemon, SiteBinding } from "../state.ts";
-import type { Tabs } from "../browser/targets.ts";
 import { extContextError } from "../pool/runtime.ts";
 import { checkSiteName, type Store } from "../store/db.ts";
 import type { Transport } from "../transport/types.ts";
@@ -33,7 +32,14 @@ export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
   if (siteArg !== null) {
     const store = d.needStore();
     const site = store.site(checkSiteName(siteArg));
-    if (site === null) throw new TabcapError("not-found", `no site named "${siteArg}" in the store`, "Run `tabcap site list`, or add it with `tabcap site add <name> --url <entry> --user <username>`.");
+    // 0.6-R: nothing is made before the checks pass, and the error says so (a later `net start` would make an unbound session).
+    if (site === null) {
+      throw new TabcapError(
+        "not-found",
+        `no site named "${siteArg}" in the store; session "${name}" was not started`,
+        `Run \`tabcap site list\`, or add it with \`tabcap site add <name> --url <entry> --user <username>\`; then run this \`tabcap session start ${name} --site ${siteArg}\` again before any other command in session "${name}".`,
+      );
+    }
     const bound = d.sites.get(name);
     if (bound !== undefined && bound.site !== site.name) throw new TabcapError("conflict", `session "${name}" is already bound to site "${bound.site}"`, `Use another session name, or \`tabcap session stop ${name}\` first.`);
     if (bound !== undefined && (accountArg === null || accountArg === bound.account || (accountArg === "auto" && bound.account !== null))) {
@@ -69,8 +75,18 @@ export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
  * Pick the account, check it may be used, open its own browser context (0.6-D:
  * every account in the direct mode; through its pool proxy when it has one).
  * `ext` mode has one cookie jar and no contexts (extContextError).
+ * 0.6-R: all or nothing — a failure after the context was opened disposes it
+ * again, so no account context is left for a later implicit session of the
+ * same name (`net start`, `navigate`) to open tabs in without the binding.
  */
-async function bindAccount(d: Daemon, t: Transport, tabs: Tabs, session: string, site: string, accountArg: string | null): Promise<{ binding: SiteBinding; restored: number | null }> {
+export async function bindAccount(
+  d: Daemon,
+  t: Transport,
+  tabs: { sessionTabs(name: string): ReadonlyArray<unknown>; readonly contexts: Map<string, string> },
+  session: string,
+  site: string,
+  accountArg: string | null,
+): Promise<{ binding: SiteBinding; restored: number | null }> {
   const store = d.needStore();
   const acc = d.pool.pick(store, site, accountArg);
   if (acc === null) return { binding: { site, account: null, proxy: null }, restored: null };
@@ -81,23 +97,34 @@ async function bindAccount(d: Daemon, t: Transport, tabs: Tabs, session: string,
   }
   const egress = d.pool.egress(store, acc);
   let restored: number | null = null;
-  if (kind !== "ext") {
-    const row = egress.proxy === null ? null : store.proxy(egress.proxy);
-    if (egress.proxy !== null && row === null) throw new TabcapError("not-found", `no proxy named "${egress.proxy}"`, "Run `tabcap proxy list`; rebind the account with `tabcap account bind`.");
-    if (tabs.sessionTabs(session).length > 0) {
-      throw new TabcapError("conflict", `session "${session}" already has tabs outside account ${site}.${acc.username}'s browser context`, "Start a new session name for this account (its tabs must open in its own context).");
+  let opened = false;
+  try {
+    if (kind !== "ext") {
+      const row = egress.proxy === null ? null : store.proxy(egress.proxy);
+      if (egress.proxy !== null && row === null) throw new TabcapError("not-found", `no proxy named "${egress.proxy}"`, "Run `tabcap proxy list`; rebind the account with `tabcap account bind`.");
+      if (tabs.sessionTabs(session).length > 0) {
+        throw new TabcapError("conflict", `session "${session}" already has tabs outside account ${site}.${acc.username}'s browser context`, `Start a new session name for this account (its tabs must open in its own context), or \`tabcap session stop ${session}\` first.`);
+      }
+      const ctx = await d.pool.open(t, { session, site, account: acc.username, proxy: row ?? null });
+      opened = true;
+      try {
+        restored = await d.pool.restoreCookies(store, t, ctx);
+      } catch (e) {
+        log.warn("pool: restoring the account's cookies failed", { session, error: String(e) });
+        restored = null;
+      }
+      tabs.contexts.set(session, ctx.browserContextId);
     }
-    const ctx = await d.pool.open(t, { session, site, account: acc.username, proxy: row ?? null });
-    try {
-      restored = await d.pool.restoreCookies(store, t, ctx);
-    } catch (e) {
-      log.warn("pool: restoring the account's cookies failed", { session, error: String(e) });
-      restored = null;
+    store.patchAccount(site, acc.username, { lastUsedAt: d.pool.now() });
+  } catch (e) {
+    if (opened) {
+      tabs.contexts.delete(session);
+      await d.pool.close(t, session).catch((x: unknown) => log.warn("pool: disposing a half-opened account context failed", { session, error: String(x) }));
     }
-    tabs.contexts.set(session, ctx.browserContextId);
-    egress.commit();
+    throw e;
   }
-  store.patchAccount(site, acc.username, { lastUsedAt: d.pool.now() });
+  // The rotation counters move only once the binding is certain.
+  if (kind !== "ext") egress.commit();
   return { binding: { site, account: acc.username, proxy: egress.proxy ?? acc.proxy }, restored };
 }
 

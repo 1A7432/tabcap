@@ -20,6 +20,7 @@ tabcap account add example --user bob --password-stdin             # the user ru
 ## Sessions bound to a site and an account
 
 - `tabcap session start <name> --site example` binds the site: its entry URL, the secret references (`example.username`, `example.password`) and the account are recorded in the bundle manifest (names only).
+- Bind first: `fill --secret` works only in a session started with `--site`. A session that `net start` or `navigate` made (also after a failed `session start --site`) is unbound, and `fill --secret` fails there with `not-found`; follow its `next` (`tabcap session stop <name>`, then `tabcap session start <name> --site example`).
 - `--account <user>` picks one of the site's accounts (default: its first); `--account auto` picks by `config.json` `pool.strategy`: `fixed`, `round-robin` or `lru`.
 - Every account session has its own browser context (`browserContext: "own"`): its saved cookies are restored at start and written back at stop, so two accounts never share a login; a session without an account uses the default one.
 - `tabcap account list [--site example]` shows each account's state: `active`, `cooling` (with `coolUntil`), `needs-human` or `disabled`, plus its proxy and `lastUsedAt`. `tabcap account set-state example.alice active|disabled` sets it by hand (`active` also clears cooling and needs-human; `disabled` is never allocated). An account over its configured hourly request budget (`config.json` `pool.budget`) gets `guard.budget`: page commands wait for the next hour.
