@@ -85,7 +85,14 @@ export const OUTPUT_FLAGS: readonly FlagSpec[] = [
   { flag: "--full", key: "full", kind: "bool", help: "print data whole even above TABCAP_OUTPUT_LIMIT (default 16384 bytes; above it data becomes {summary, file, bytes, truncated})" },
 ];
 /** Commands that do not take an output flag: `screenshot --full` was renamed `--full-page` in 0.4 and stays an unknown option. */
-export const OUTPUT_FLAGS_NOT_ON: Readonly<Record<string, readonly string[]>> = { "--full": ["screenshot"] };
+export const OUTPUT_FLAGS_NOT_ON: Readonly<Record<string, readonly string[]>> = {
+  "--full": ["screenshot"],
+  // 0.5-F: these commands search inside themselves (lines with ancestors / line numbers), so their own
+  // --grep / --context / --max-matches win over the generic post-filter.
+  "--grep": ["snapshot", "net body"],
+  "--context": ["snapshot", "net body", "net grep"],
+  "--max-matches": ["snapshot", "net body", "net grep"],
+};
 
 const NO_WAIT: FlagSpec = {
   flag: "--no-wait",
@@ -1016,9 +1023,9 @@ export function groupedCommands(): { id: string; title: string; commands: Comman
   return out;
 }
 
-export const INDEX_SUMMARY_CHARS = 60;
+export const INDEX_SUMMARY_CHARS = 56;
 
-/** A summary for the index: without parentheses, its first clause (before `;`, `: ` or `. `), cut at 60 characters on a word boundary. */
+/** A summary for the index: without parentheses, its first clause (before `;`, `: ` or `. `), cut at 56 characters on a word boundary. */
 export function indexSummary(summary: string): string {
   const plain = summary.replace(/\s*\([^()]*\)/g, "").replace(/\s*\([^()]*\)/g, "");
   const clause = (plain.split(/;|: |\. /)[0] ?? plain).trim();

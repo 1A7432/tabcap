@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUDGET_EXEMPT, OUTPUT_LIMIT_DEFAULT, applyBudget, commandSlug, genericSummary, isBudgeted, outputLimit, summaryOf, writeOutputFile } from "../../src/shared/budget.ts";
 import { applyFilters, compileGrep, filterOptions, grepLines, parseFields, parsePath, projectFields, selectPath } from "../../src/shared/filter.ts";
-import { COMMAND_GROUPS, COMMANDS, currentCommands, groupedCommands, helpAll, helpFor, indexSummary, schema, specOf } from "../../src/cli/commands.ts";
+import { COMMAND_GROUPS, COMMANDS, currentCommands, groupedCommands, helpAll, helpFor, indexSummary, schema, specOf, OUTPUT_FLAGS_NOT_ON } from "../../src/cli/commands.ts";
 import { run, takeOutputFlags } from "../../src/cli/main.ts";
 import { SNAPSHOT_MAX_CHARS } from "../../src/daemon/tools/snapshot.ts";
 import { OUTLINE_MAX_CHARS } from "../../src/daemon/tools/outline.ts";
@@ -220,7 +220,8 @@ describe("output flags in the CLI", () => {
     const s = schema();
     expect(s.sharedFlags.map((f) => f.flag)).toEqual(["--select", "--grep", "--context", "--max-matches", "--fields", "--full"]);
     expect(s.sharedFlags.find((f) => f.flag === "--full")?.notOn).toEqual(["screenshot"]);
-    for (const c of s.commands) for (const f of c.flags) expect(["--select", "--grep", "--fields", "--full"]).not.toContain(f.flag);
+    // a command may carry a shared flag name only where OUTPUT_FLAGS_NOT_ON hands that flag to the command (0.5-F in-command search)
+    for (const c of s.commands) for (const f of c.flags) if (["--select", "--grep", "--fields", "--full", "--context", "--max-matches"].includes(f.flag)) expect(OUTPUT_FLAGS_NOT_ON[f.flag] ?? []).toContain(c.path.join(" "));
   });
 
   test("on an offline command: filters record `filter` (and `selected`); over the limit the summary + file form, --full everything", async () => {

@@ -11,9 +11,9 @@ The CLI applies these to the envelope's `data` after the command ran, in this or
 | Option | Default | Meaning |
 |---|---|---|
 | `--select <path>` |  | keep only this part of data: dotted keys, [n], [*] (e.g. requests[*].url) |
-| `--grep <regex>` |  | keep array elements whose JSON matches this regex (u flag, ≤ 256 chars); long text fields: matching lines with line numbers |
-| `--context <n>` | `0` | with --grep on text: lines around each match (max 20) |
-| `--max-matches <n>` | `50` | with --grep: keep at most this many matches (max 1000) |
+| `--grep <regex>` |  | keep array elements whose JSON matches this regex (u flag, ≤ 256 chars); long text fields: matching lines with line numbers (not on snapshot, net body) |
+| `--context <n>` | `0` | with --grep on text: lines around each match (max 20) (not on snapshot, net body, net grep) |
+| `--max-matches <n>` | `50` | with --grep: keep at most this many matches (max 1000) (not on snapshot, net body, net grep) |
 | `--fields <a,b,c>` |  | project each array element to these keys |
 | `--full` |  | print data whole even above TABCAP_OUTPUT_LIMIT (default 16384 bytes; above it data becomes {summary, file, bytes, truncated}) (not on screenshot) |
 
