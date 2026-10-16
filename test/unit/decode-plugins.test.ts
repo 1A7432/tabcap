@@ -414,7 +414,7 @@ describe("bundle decode: views for a bundle recorded before the plugin existed (
       const res = await run();
       expect([res.requests, res.decoded, res.failed, res.declined, res.appended]).toEqual([4, 1, 1, 2, 2]);
       expect(res.declinedBy).toEqual({ fake: 2 });
-      expect(res.rows.map((r) => [r.request, r.ok])).toEqual([["r-3", true], ["r-4", false]]);
+      expect(res.rows.map((r) => [r.request, r.ok])).toEqual([["r-4", true], ["r-5", false]]);
       expect(sidecarLines(dir).length).toBe(2);
       const reader = BundleReader.open(dir);
       expect(reader.requests().filter((r) => r.response?.decoded !== undefined).map((r) => r.url.slice(-1))).toEqual(["c", "d"]);
