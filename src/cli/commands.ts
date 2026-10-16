@@ -592,6 +592,19 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap trace list --api Navigator.prototype.userAgent",
     action: "trace.list",
   },
+  {
+    path: ["fingerprint", "probe"],
+    pos: [],
+    flags: [
+      ...T,
+      { flag: "--ref", key: "ref", kind: "string", help: "add this reference (saved with `fingerprint serve`) as a second column with a verdict per field: same / differs / missing (the reference lacks it) / extra (this browser lacks it)", metavar: "name" },
+      { flag: "--text", key: "text", kind: "bool", help: "print a text table instead of JSON" },
+    ],
+    summary:
+      "the values this browser presents for a fixed signal list (navigator, UA client hints, screen, time zone, canvas / audio hashes, WebGL, voices, fonts, permissions, media queries): the probe page in a new background tab, closed afterwards; while recording, a `state` env event in the bundle. Read-only",
+    example: "tabcap fingerprint probe --ref daily --text",
+    action: "fingerprint.probe",
+  },
   { path: ["plugin", "list"], pos: [], flags: [], summary: "challenge handlers installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, hooks, enabled, errors", example: "tabcap plugin list" },
   { path: ["plugin", "enable"], pos: ["name"], flags: [], summary: "let the guard ask this handler before handing a challenge to the human", example: "tabcap plugin enable my-handler" },
   { path: ["plugin", "disable"], pos: ["name"], flags: [], summary: "stop asking this handler", example: "tabcap plugin disable my-handler" },
@@ -743,6 +756,16 @@ export const COMMANDS: CommandSpec[] = [
   { path: ["fingerprint", "ref", "list"], pos: [], flags: [], summary: "saved references: name, savedAt, userAgent, file", example: "tabcap fingerprint ref list" },
   { path: ["fingerprint", "ref", "show"], pos: ["name"], flags: [], summary: "one saved reference with all its fields", example: "tabcap fingerprint ref show daily" },
   { path: ["fingerprint", "ref", "remove"], pos: ["name"], flags: [], summary: "delete a saved reference", example: "tabcap fingerprint ref remove daily" },
+  {
+    path: ["fingerprint", "diff"],
+    pos: ["bundle"],
+    flags: [
+      { flag: "--ref", key: "ref", kind: "string", help: "the reference to compare with", required: true, metavar: "name" },
+      { flag: "--text", key: "text", kind: "bool", help: "print a text table instead of JSON" },
+    ],
+    summary: "the last `state` env event of a bundle (from `fingerprint probe`) against a saved reference, offline: the same output as `fingerprint probe --ref`",
+    example: "tabcap fingerprint diff ./b --ref daily",
+  },
   {
     path: ["schema"],
     pos: [],

@@ -1,11 +1,14 @@
-// `tabcap fingerprint serve | ref list|show|remove` (0.4-G): CLI-local,
+// `tabcap fingerprint serve | ref list|show|remove | diff` (0.4-G): CLI-local,
 // no daemon. `fingerprint probe` runs in the daemon (src/daemon/tools/fingerprint.ts).
 // Read-only analysis: nothing here changes a value in any page, and no output
 // suggests how to make values match.
 
+import { BundleReader } from "../bundle/reader.ts";
 import { TabcapError, ok } from "../shared/envelope.ts";
+import { isRecord } from "../shared/json.ts";
 import type { Paths } from "../shared/paths.ts";
 import { nowMs } from "../shared/time.ts";
+import { fingerprintResult, normalizeFields, type Field, type FingerprintResult } from "../fingerprint/fields.ts";
 import { listRefs, loadRef, refsDir, removeRef, saveRef } from "../fingerprint/refs.ts";
 import { startProbeServer } from "../fingerprint/server.ts";
 
@@ -59,4 +62,24 @@ export function fingerprintRefShow(p: Paths, args: Record<string, unknown>): unk
 
 export function fingerprintRefRemove(p: Paths, args: Record<string, unknown>): unknown {
   return removeRef(p.config, str(args["name"]) ?? "");
+}
+
+/** The last `state what:"env"` of a bundle: its seq, source and fields. */
+export function lastEnvState(bundle: string): { seq: number; source: string | null; fields: Field[]; dropped: string[]; version: string | null } {
+  const r = BundleReader.open(bundle);
+  const ev = [...r.events].reverse().find((e) => e.kind === "state" && e["what"] === "env");
+  if (ev === undefined) throw new TabcapError("not-found", `${bundle} has no state env event`, "Record one: `tabcap net start`, then `tabcap fingerprint probe` in the same session.");
+  if (!Array.isArray(ev["fields"])) throw new TabcapError("bad-input", `state event ${ev.seq} has no fields array`, "Record a new probe with `tabcap fingerprint probe` while `net start` records.");
+  const n = normalizeFields(ev["fields"]);
+  const b = r.manifest.producer.browser;
+  return { seq: ev.seq, source: typeof ev["source"] === "string" ? ev["source"] : null, fields: n.fields, dropped: n.dropped, version: isRecord(b) && typeof b.version === "string" ? b.version : null };
+}
+
+export function fingerprintDiff(p: Paths, args: Record<string, unknown>): FingerprintResult & { bundle: string; state: { seq: number; source: string | null } } {
+  const bundle = str(args["bundle"]) ?? "";
+  const refName = str(args["ref"]);
+  if (refName === undefined) throw new TabcapError("usage", "missing --ref <name>", "Usage: tabcap fingerprint diff <bundle> --ref <name>");
+  const ref = loadRef(p.config, refName);
+  const st = lastEnvState(bundle);
+  return { ...fingerprintResult(st.version, st.fields, { info: { name: ref.name, savedAt: ref.savedAt, userAgent: ref.userAgent }, fields: ref.fields }), bundle, state: { seq: st.seq, source: st.source } };
 }
