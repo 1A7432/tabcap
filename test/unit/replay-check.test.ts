@@ -101,12 +101,12 @@ describe("target guard", () => {
     const base = { bundle, live: true, withCookies: false, headers: [], configDir: cfg };
     // the synthetic bundle has no manifest site
     await expect(check({ ...base, against: "http://192.0.2.1" })).rejects.toThrow(/needs a stored site/);
-    await expect(check({ ...base, against: "http://192.0.2.1", site: "shop" })).rejects.toThrow(/no site "shop"/);
+    await expect(check({ ...base, against: "http://192.0.2.1", site: "example" })).rejects.toThrow(/no site "example"/);
     const s = Store.open(cfg);
-    s.addSite({ name: "shop", entryUrl: "https://shop.invalid/login", domains: ["shop.invalid", "api.shop.invalid"], username: "u", password: "Secret-pass-2" });
+    s.addSite({ name: "example", entryUrl: "https://example.invalid/login", domains: ["example.invalid", "api.example.invalid"], username: "u", password: "Secret-pass-2" });
     s.close();
-    await expect(check({ ...base, against: "http://192.0.2.1", site: "shop" })).rejects.toThrow(/not one of the domains/);
-    await expect(check({ ...base, against: "https://api.shop.invalid", site: "shop", rate: 0 })).rejects.toThrow(/--rate/);
+    await expect(check({ ...base, against: "http://192.0.2.1", site: "example" })).rejects.toThrow(/not one of the domains/);
+    await expect(check({ ...base, against: "https://api.example.invalid", site: "example", rate: 0 })).rejects.toThrow(/--rate/);
   });
 
   test("live pacing goes through the store's per-site counter", () => {

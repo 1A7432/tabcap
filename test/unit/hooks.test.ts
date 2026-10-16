@@ -53,11 +53,11 @@ class FakeRec implements GuardRecorder {
 
 function guard(text = "page text"): { g: Guard; secrets: Secrets } {
   const secrets = new Secrets();
-  secrets.setStored([{ ref: "shop.password", value: PW }]);
+  secrets.setStored([{ ref: "example.password", value: PW }]);
   const g = new Guard({
     configDir: config,
     secrets,
-    siteOf: () => ({ site: "shop", account: "alice" }),
+    siteOf: () => ({ site: "example", account: "alice" }),
     screenshot: () => Promise.resolve("/tmp/shot.png"),
     pageInfo: () => Promise.resolve({ url: "http://127.0.0.1:9/s15", title: "verify", text }),
     settleMs: 0,
@@ -130,7 +130,7 @@ describe("runHook: out of process, JSON on stdin / stdout", () => {
   const m = (command: string[], timeoutMs = 5000): PluginManifest => ({ name: "t", version: "0", description: "", hooks: ["challenge"], command, timeoutMs });
 
   test("the test-only fake handler round-trips", async () => {
-    const r = await runHook({ dir: FAKE, manifest: m(["bun", "./handler.ts"]) }, { protocol: HOOK_PROTOCOL, hook: "challenge", site: "shop", page: { text: "tabcap-e2e-verify-wall 请完成验证" } });
+    const r = await runHook({ dir: FAKE, manifest: m(["bun", "./handler.ts"]) }, { protocol: HOOK_PROTOCOL, hook: "challenge", site: "example", page: { text: "tabcap-e2e-verify-wall 请完成验证" } });
     expect(r.ok).toBe(true);
     expect(parseChallengeOutput(r.output)).toMatchObject({ decision: "answer", answer: { code: "4217" } });
     const other = await runHook({ dir: FAKE, manifest: m(["bun", "./handler.ts"]) }, { hook: "challenge", page: { text: "a real site" } });
@@ -170,13 +170,13 @@ describe("runHook: out of process, JSON on stdin / stdout", () => {
     expect(all).not.toContain(PW);
     const start = rec.events.find((e) => e["kind"] === "cmd" && e["phase"] === "start");
     const end = rec.events.find((e) => e["kind"] === "cmd" && e["phase"] === "end");
-    expect(start).toMatchObject({ actor: "system", argv: ["plugin:leaky", "bun", "./h.ts"], input: { hook: "challenge", plugin: "leaky", payload: { protocol: HOOK_PROTOCOL, reason: "verify-page", site: "shop" } } });
-    expect(JSON.stringify(start)).toContain("<secret:shop.password>");
-    expect(end).toMatchObject({ ok: true, actor: "system", outputSummary: { decision: "answer", output: { answer: { code: "4217", leak: "<secret:shop.password>" } } } });
+    expect(start).toMatchObject({ actor: "system", argv: ["plugin:leaky", "bun", "./h.ts"], input: { hook: "challenge", plugin: "leaky", payload: { protocol: HOOK_PROTOCOL, reason: "verify-page", site: "example" } } });
+    expect(JSON.stringify(start)).toContain("<secret:example.password>");
+    expect(end).toMatchObject({ ok: true, actor: "system", outputSummary: { decision: "answer", output: { answer: { code: "4217", leak: "<secret:example.password>" } } } });
     const h = g.get("s");
     expect(h?.state).toBe("resumed");
     expect(h?.resumedBy).toBe("plugin:leaky");
-    expect(h?.handlers[0]).toMatchObject({ plugin: "leaky", status: "answered", answer: { code: "4217", leak: "<secret:shop.password>" } });
+    expect(h?.handlers[0]).toMatchObject({ plugin: "leaky", status: "answered", answer: { code: "4217", leak: "<secret:example.password>" } });
     expect(rec.events.at(-1)).toMatchObject({ kind: "handoff", state: "resumed", answerRef: start?.["id"] });
     expect(g.takeNotice("s")).toMatchObject({ state: "resumed", resumedBy: "plugin:leaky" });
     expect(g.takeNotice("s")).toBeNull(); // shown once

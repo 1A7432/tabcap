@@ -22,9 +22,9 @@ function entryUrl(raw: string): URL {
   try {
     u = new URL(raw);
   } catch {
-    throw new TabcapError("usage", `--url is not a URL: ${raw}`, "Pass the full entry URL, e.g. https://shop.example/login.");
+    throw new TabcapError("usage", `--url is not a URL: ${raw}`, "Pass the full entry URL, e.g. https://example.com/login.");
   }
-  if (u.protocol !== "http:" && u.protocol !== "https:") throw new TabcapError("usage", `--url must be http(s): ${raw}`, "Pass the full entry URL, e.g. https://shop.example/login.");
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new TabcapError("usage", `--url must be http(s): ${raw}`, "Pass the full entry URL, e.g. https://example.com/login.");
   return u;
 }
 

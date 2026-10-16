@@ -55,11 +55,11 @@ describe("store: file and permissions (docs/04 §8.1)", () => {
 
   test("migrations: reopen is a no-op; a newer schema is refused", () => {
     const a = Store.open(config);
-    a.addSite({ name: "shop", entryUrl: "https://shop.test/", domains: ["shop.test"], username: "alice", password: PW });
+    a.addSite({ name: "example", entryUrl: "https://example.test/", domains: ["example.test"], username: "alice", password: PW });
     a.close();
     const b = Store.open(config);
     expect(b.schemaVersion).toBe(SCHEMA_VERSION);
-    expect(b.listSites().map((x) => x.name)).toEqual(["shop"]);
+    expect(b.listSites().map((x) => x.name)).toEqual(["example"]);
     b.close();
     const raw = new Database(storePath(config));
     raw.query("UPDATE meta SET value = ?1 WHERE key = 'schema_version'").run(String(SCHEMA_VERSION + 1));
@@ -83,25 +83,25 @@ describe("store: file and permissions (docs/04 §8.1)", () => {
 describe("store: sites, accounts, secrets", () => {
   test("CRUD and secret lookup; listings carry no secret values", () => {
     const s = Store.open(config);
-    s.addSite({ name: "shop", entryUrl: "https://shop.test/login", domains: ["shop.test", "api.shop.test"], notes: "test account", username: "alice", password: PW, totpSeed: "JBSWY3DPEHPK3PXP" });
-    expect(codeOf(() => s.addSite({ name: "shop", entryUrl: "https://x.test/", domains: [], username: "bob", password: "other-pass" }))).toBe("conflict");
+    s.addSite({ name: "example", entryUrl: "https://example.test/login", domains: ["example.test", "api.example.test"], notes: "test account", username: "alice", password: PW, totpSeed: "JBSWY3DPEHPK3PXP" });
+    expect(codeOf(() => s.addSite({ name: "example", entryUrl: "https://x.test/", domains: [], username: "bob", password: "other-pass" }))).toBe("conflict");
     const list = s.listSites();
-    expect(list).toEqual([{ name: "shop", entryUrl: "https://shop.test/login", domains: ["shop.test", "api.shop.test"], notes: "test account", created: list[0]?.created ?? 0, usernames: ["alice"] }]);
+    expect(list).toEqual([{ name: "example", entryUrl: "https://example.test/login", domains: ["example.test", "api.example.test"], notes: "test account", created: list[0]?.created ?? 0, usernames: ["alice"] }]);
     expect(JSON.stringify(list)).not.toContain(PW);
     expect(JSON.stringify(list)).not.toContain("JBSWY3DPEHPK3PXP");
-    expect(s.secretValue("shop", "password")).toBe(PW);
-    expect(s.secretValue("shop", "username")).toBe("alice");
-    expect(s.secretValue("shop", "password", "nobody")).toBeNull();
+    expect(s.secretValue("example", "password")).toBe(PW);
+    expect(s.secretValue("example", "username")).toBe("alice");
+    expect(s.secretValue("example", "password", "nobody")).toBeNull();
     expect(s.secretValue("nope", "password")).toBeNull();
     expect(s.knownSecrets()).toEqual([
-      { ref: "shop.password", value: PW },
-      { ref: "shop.totp_seed", value: "JBSWY3DPEHPK3PXP" },
+      { ref: "example.password", value: PW },
+      { ref: "example.totp_seed", value: "JBSWY3DPEHPK3PXP" },
     ]);
-    s.noteLoginAttempt("shop", "s1");
-    expect(s.removeSite("shop")).toBe(true);
-    expect(s.removeSite("shop")).toBe(false);
+    s.noteLoginAttempt("example", "s1");
+    expect(s.removeSite("example")).toBe(true);
+    expect(s.removeSite("example")).toBe(false);
     expect(s.knownSecrets()).toEqual([]);
-    expect(s.guardCounter("shop", "s1").loginAttempts).toBe(0);
+    expect(s.guardCounter("example", "s1").loginAttempts).toBe(0);
     s.close();
   });
 
@@ -112,21 +112,21 @@ describe("store: sites, accounts, secrets", () => {
 
   test("guard counters are per site and session; bundles are indexed", () => {
     const s = Store.open(config);
-    expect(s.guardCounter("shop", "a")).toEqual({ site: "shop", sessionName: "a", loginAttempts: 0, lastAttemptAt: null });
-    expect(s.noteLoginAttempt("shop", "a", 1000).loginAttempts).toBe(1);
-    expect(s.noteLoginAttempt("shop", "a", 2000)).toEqual({ site: "shop", sessionName: "a", loginAttempts: 2, lastAttemptAt: 2000 });
-    expect(s.guardCounter("shop", "b").loginAttempts).toBe(0);
+    expect(s.guardCounter("example", "a")).toEqual({ site: "example", sessionName: "a", loginAttempts: 0, lastAttemptAt: null });
+    expect(s.noteLoginAttempt("example", "a", 1000).loginAttempts).toBe(1);
+    expect(s.noteLoginAttempt("example", "a", 2000)).toEqual({ site: "example", sessionName: "a", loginAttempts: 2, lastAttemptAt: 2000 });
+    expect(s.guardCounter("example", "b").loginAttempts).toBe(0);
     expect(s.guardCounter("other", "a").loginAttempts).toBe(0);
-    s.resetGuard("shop", "a");
-    expect(s.guardCounter("shop", "a").loginAttempts).toBe(0);
-    s.noteBundle({ path: "/b/1", site: "shop", sessionName: "a" }, 10);
+    s.resetGuard("example", "a");
+    expect(s.guardCounter("example", "a").loginAttempts).toBe(0);
+    s.noteBundle({ path: "/b/1", site: "example", sessionName: "a" }, 10);
     s.noteBundle({ path: "/b/2", site: null, sessionName: "x" }, 20);
     s.finishBundle("/b/1", 30);
     expect(s.bundles()).toEqual([
-      { path: "/b/1", site: "shop", sessionName: "a", created: 10, finished: 30 },
+      { path: "/b/1", site: "example", sessionName: "a", created: 10, finished: 30 },
       { path: "/b/2", site: null, sessionName: "x", created: 20, finished: null },
     ]);
-    expect(s.bundles("shop").map((b) => b.path)).toEqual(["/b/1"]);
+    expect(s.bundles("example").map((b) => b.path)).toEqual(["/b/1"]);
     s.close();
   });
 });
@@ -134,20 +134,20 @@ describe("store: sites, accounts, secrets", () => {
 describe("tabcap site add | list | remove (CLI side)", () => {
   test("password from stdin only; output and listing never carry it", async () => {
     const p = paths({ TABCAP_HOME: root });
-    const out = await siteAdd(p, { name: "shop", url: "https://shop.test/login", user: "alice", passwordStdin: true }, () => Promise.resolve(PW + "\n"));
+    const out = await siteAdd(p, { name: "example", url: "https://example.test/login", user: "alice", passwordStdin: true }, () => Promise.resolve(PW + "\n"));
     expect(JSON.stringify(out)).not.toContain(PW);
-    expect(out).toMatchObject({ site: "shop", username: "alice", domains: ["shop.test"], secrets: ["shop.username", "shop.password"] });
+    expect(out).toMatchObject({ site: "example", username: "alice", domains: ["example.test"], secrets: ["example.username", "example.password"] });
     const list = siteList(p);
     expect(JSON.stringify(list)).not.toContain(PW);
-    expect(list).toMatchObject({ sites: [{ name: "shop", entryUrl: "https://shop.test/login", usernames: ["alice"] }] });
+    expect(list).toMatchObject({ sites: [{ name: "example", entryUrl: "https://example.test/login", usernames: ["alice"] }] });
     const s = Store.open(p.config);
-    expect(s.secretValue("shop", "password")).toBe(PW); // one trailing newline stripped, nothing else
+    expect(s.secretValue("example", "password")).toBe(PW); // one trailing newline stripped, nothing else
     s.close();
-    await expect(siteAdd(p, { name: "shop", url: "https://shop.test/", user: "bob", passwordStdin: true }, () => Promise.resolve("x"))).rejects.toThrow("already exists");
+    await expect(siteAdd(p, { name: "example", url: "https://example.test/", user: "bob", passwordStdin: true }, () => Promise.resolve("x"))).rejects.toThrow("already exists");
     await expect(siteAdd(p, { name: "two", url: "ftp://x", user: "bob", passwordStdin: true }, () => Promise.resolve("pw-pw-pw"))).rejects.toThrow("http(s)");
     await expect(siteAdd(p, { name: "two", url: "https://x.test", user: "bob", passwordStdin: true }, () => Promise.resolve("\n"))).rejects.toThrow("empty password");
-    expect(siteRemove(p, { name: "shop" })).toEqual({ site: "shop", removed: true });
-    expect(() => siteRemove(p, { name: "shop" })).toThrow("no site");
+    expect(siteRemove(p, { name: "example" })).toEqual({ site: "example", removed: true });
+    expect(() => siteRemove(p, { name: "example" })).toThrow("no site");
   });
 
   test("stripNewline removes exactly one line ending", () => {

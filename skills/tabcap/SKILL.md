@@ -81,19 +81,19 @@ After `click`, `hover`, `fill`, `type`, `press-key`, `navigate`, `tab new`, `go`
 The user keeps sites in a local store (`~/.config/tabcap/state.db`, mode 0600). They add them themselves; the password is typed at a prompt or piped, never given as an argument:
 
 ```sh
-tabcap site add shop --url https://shop.example/login --user alice          # the user runs this; it prompts for the password
+tabcap site add example --url https://example.com/login --user alice          # the user runs this; it prompts for the password
 tabcap site list                                                           # you see names, entry URLs, usernames and refs — never passwords
 ```
 
 You work with references only:
 
 ```sh
-tabcap session start shop --site shop            # binds the site → entryUrl, secrets ["shop.username","shop.password"]; recorded in the bundle manifest
-tabcap navigate https://shop.example/login --session shop
-tabcap snapshot --interactive --session shop
-tabcap fill e5 --secret shop.username --session shop
-tabcap fill e6 --secret shop.password --session shop     # the daemon fills the real value; you get "value":"<secret:shop.password>"
-tabcap click e7 --session shop
+tabcap session start example --site example            # binds the site → entryUrl, secrets ["example.username","example.password"]; recorded in the bundle manifest
+tabcap navigate https://example.com/login --session example
+tabcap snapshot --interactive --session example
+tabcap fill e5 --secret example.username --session example
+tabcap fill e6 --secret example.password --session example     # the daemon fills the real value; you get "value":"<secret:example.password>"
+tabcap click e7 --session example
 ```
 
 **One login attempt per site per session.** A second `fill --secret <site>.password` in the same session fails with `guard.login-limit` and touches nothing. Do not work around it: look at the page (`snapshot`, `screenshot`), tell the user what you see, and only if they say retry, run the same fill with `--confirm`.

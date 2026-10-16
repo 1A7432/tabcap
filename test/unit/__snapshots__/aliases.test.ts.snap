@@ -173,7 +173,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
-      "example": "tabcap site add shop --url https://shop.example/login --user alice",
+      "example": "tabcap site add example --url https://example.com/login --user alice",
       "flags": [
         {
           "alias": null,
@@ -264,7 +264,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
-      "example": "tabcap site remove shop",
+      "example": "tabcap site remove example",
       "flags": [],
       "internal": false,
       "name": "site remove",
@@ -285,7 +285,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "example": "tabcap session start shop --site shop",
+      "example": "tabcap session start example --site example",
       "flags": [
         {
           "alias": null,
@@ -318,7 +318,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "example": "tabcap session stop shop",
+      "example": "tabcap session stop example",
       "flags": [],
       "internal": false,
       "name": "session stop",
@@ -353,7 +353,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "example": "tabcap navigate http://127.0.0.1:8080/ --session shop",
+      "example": "tabcap navigate http://127.0.0.1:8080/ --session example",
       "flags": [
         {
           "alias": null,
@@ -1112,7 +1112,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "example": "tabcap fill e7 --secret shop.password",
+      "example": "tabcap fill e7 --secret example.password",
       "flags": [
         {
           "alias": null,
