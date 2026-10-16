@@ -19,11 +19,19 @@
 // text does not contain the needle needed unescaping and gets "json-unescape"
 // (s04 f). JSON reached after another decode is an explicit "json" step.
 //
+// Embedded state (0.4-H, embedded.ts): an HTML document's script JSON,
+// top-level `window.X = {…}` literals and viewstate fields are structural
+// steps "script-json" / "inline-assign" / "viewstate". Their hits address the
+// node (`script[0].$.a`, `assign[X].a`, `viewstate[__VIEWSTATE].strings[0]`);
+// the text they claim is left out of the literal match on the document, which
+// still reports the value where the page shows it (a table cell).
+//
 // Guards: chain length <= MAX_DEPTH, each step's output <= STEP_CAP, a per-body
 // work budget (bytes produced + JSON leaves visited), duplicate decoded
 // payloads explored once, iterative JSON walk (no recursion on input depth).
 
 import { brotliDecompressSync, gunzipSync, inflateRawSync, inflateSync } from "node:zlib";
+import { extractEmbedded, mayEmbed, type EmbeddedDoc, type EmbeddedNode, type EmbeddedNote, type EmbeddedStep } from "./embedded.ts";
 
 export const MAX_DEPTH = 4;
 export const STEP_CAP = 32 * 1024 * 1024; // 32 MiB, same as the body cap (docs/04 decision c)
@@ -44,10 +52,14 @@ export type StepName =
   | "html-entities"
   | "jsonp"
   | "sse"
-  | "ndjson";
+  | "ndjson"
+  | "script-json"
+  | "inline-assign"
+  | "viewstate";
 
 export const STEP_NAMES: readonly StepName[] = [
   "gzip", "br", "deflate", "base64", "json", "json-unescape", "json-string", "urldecode", "html-entities", "jsonp", "sse", "ndjson",
+  "script-json", "inline-assign", "viewstate",
 ];
 
 // ------------------------------------------------------------ small codecs
@@ -197,12 +209,13 @@ const B64_URL = /^[A-Za-z0-9_-]+={0,2}$/;
  * padding to a multiple of 4, or no padding at all (length % 4 != 1).
  * Whitespace (line wrapping) is
  * ignored. Returns null for anything else, including strings shorter than
- * MIN_BASE64 characters (plain words would otherwise "decode").
+ * `min` characters (default MIN_BASE64: plain words would otherwise "decode";
+ * a field known to be base64, such as a viewstate, passes a smaller one).
  */
-export function decodeBase64Strict(text: string): Uint8Array | null {
-  if (text.length < MIN_BASE64 || text.length > STEP_CAP * 2) return null;
+export function decodeBase64Strict(text: string, min: number = MIN_BASE64): Uint8Array | null {
+  if (text.length < min || text.length > STEP_CAP * 2) return null;
   const s = /\s/.test(text) ? text.replace(/\s+/g, "") : text;
-  if (s.length < MIN_BASE64) return null;
+  if (s.length < min) return null;
   const padded = s.endsWith("=");
   let std: string;
   if (B64_STD.test(s) && (padded ? s.length % 4 === 0 : s.length % 4 !== 1)) std = s;
@@ -435,6 +448,13 @@ export function snippetOf(m: Match, radius: number = SNIPPET_RADIUS): string {
 
 // ------------------------------------------------------------ explorer
 
+function nodeTag(n: EmbeddedNode): NodeTag {
+  return { step: n.step, address: n.address, ...(n.id === undefined ? {} : { id: n.id }), ...(n.type === undefined ? {} : { type: n.type }) };
+}
+
+/** The embedded-state node a hit lies in (embedded.ts). */
+export type NodeTag = { step: EmbeddedStep; address: string; id?: string; type?: string };
+
 export type DecodeHit = {
   chain: StepName[];
   /** JSON path per JSON document crossed, outermost first (empty for plain text). */
@@ -444,7 +464,12 @@ export type DecodeHit = {
   matched: string;
   /** The match is the whole leaf / text (surrounding whitespace aside), not a part of it. */
   whole: boolean;
+  /** Set when the hit lies in an embedded-state node (innermost one). */
+  node?: NodeTag;
 };
+
+/** An embedded-state node that was not decoded (embedded.ts note), with where its document was reached. */
+export type EmbeddedSkip = EmbeddedNote & { chain: StepName[]; paths: string[] };
 
 export type OpaqueNode = { size: number; entropy: number; chain: StepName[]; paths: string[] };
 
@@ -472,11 +497,37 @@ type Ctx = { chain: StepName[]; paths: string[]; root: string };
 
 const EMPTY: DecodeHit[] = [];
 
+/** Small cache: deps explores one body several times; the same document is scanned once. */
+const EMBED_CACHE = new Map<string, EmbeddedDoc>();
+const EMBED_CACHE_SIZE = 4;
+
+function embeddedOf(t: string): EmbeddedDoc {
+  const key = `${t.length}:${Bun.hash(t).toString(16)}`;
+  const have = EMBED_CACHE.get(key);
+  if (have !== undefined) return have;
+  const doc = extractEmbedded(t);
+  if (EMBED_CACHE.size >= EMBED_CACHE_SIZE) {
+    const first = EMBED_CACHE.keys().next();
+    if (first.done !== true) EMBED_CACHE.delete(first.value);
+  }
+  EMBED_CACHE.set(key, doc);
+  return doc;
+}
+
+/** HTML that may carry embedded state: an HTML mime, or text that starts with a tag. */
+function htmlWithState(t: string, mime: string): boolean {
+  if (!mayEmbed(t)) return false;
+  return mime === "text/html" || mime === "application/xhtml+xml" || t.trimStart().startsWith("<");
+}
+
 /** One exploration of one payload with one matcher. */
 export class Explorer {
   readonly stats: Partial<Record<StepName, number>> = {};
   readonly opaque: OpaqueNode[] = [];
+  /** Embedded-state nodes seen but not decoded (unparsed / over a bound). */
+  readonly embeddedSkips: EmbeddedSkip[] = [];
   budgetExceeded = false;
+  private node: NodeTag | undefined = undefined;
   private work = 0;
   private leaves = 0;
   private hitCount = 0;
@@ -537,7 +588,7 @@ export class Explorer {
     this.hitCount++;
     const paths = extraPath === null ? ctx.paths : [...ctx.paths, extraPath];
     const matched = m.haystack.slice(m.index, m.index + m.length);
-    return { chain: [...ctx.chain, ...extra], paths, snippet: snippetOf(m), matched, whole: m.haystack.trim() === matched };
+    return { chain: [...ctx.chain, ...extra], paths, snippet: snippetOf(m), matched, whole: m.haystack.trim() === matched, ...(this.node === undefined ? {} : { node: this.node }) };
   }
 
   private bytes(b: Uint8Array, ctx: Ctx, top: boolean, mime: string): DecodeHit[] {
@@ -582,6 +633,12 @@ export class Explorer {
       return direct === null ? EMPTY : [this.hit(ctx, direct, [], ctx.root === "$" ? null : ctx.root)];
     }
 
+    // structural: embedded state of an HTML document
+    if (this.can(ctx, 1) && htmlWithState(t, mime)) {
+      const res = this.embedded(t, ctx);
+      if (res.length > 0) return res;
+    }
+
     // structural: jsonp, sse, ndjson
     const structural: DecodeHit[] = [];
     if (this.can(ctx, 2)) {
@@ -605,6 +662,45 @@ export class Explorer {
     if (structural.length > 0) return structural;
     if (direct !== null) return [this.hit(ctx, direct, [], ctx.root === "$" ? null : ctx.root)];
     return this.transforms(t, ctx, mime);
+  }
+
+  /**
+   * script-json / inline-assign / viewstate nodes of an HTML document, then a
+   * literal match on the text the decoded nodes did not claim.
+   */
+  private embedded(t: string, ctx: Ctx): DecodeHit[] {
+    const doc = embeddedOf(t);
+    if (this.record) for (const n of doc.notes) this.embeddedSkips.push({ ...n, chain: [...ctx.chain], paths: [...ctx.paths] });
+    if (doc.nodes.length === 0) return EMPTY;
+    const base: Ctx = ctx.root === "$" ? ctx : { ...ctx, paths: [...ctx.paths, ctx.root], root: "$" };
+    const out: DecodeHit[] = [];
+    const outer = this.node;
+    for (const n of doc.nodes) {
+      if (this.full()) break;
+      this.node = nodeTag(n);
+      const c = this.step(base, n.step);
+      if (n.raw !== undefined) {
+        const m = this.matcher(n.raw);
+        if (m !== null) out.push(this.hit(c, m, [], n.address));
+      }
+      if (n.value !== undefined) out.push(...this.json(n.value, { ...c, root: n.root }, n.text ?? null));
+    }
+    this.node = outer;
+    // the rest of the document, matched literally
+    let from = 0;
+    const spans = [...doc.nodes.map((n) => n.span)].sort((a, b) => a[0] - b[0]);
+    spans.push([t.length, t.length]);
+    for (const [a, b] of spans) {
+      if (a > from && !this.full()) {
+        const m = this.matcher(t.slice(from, a));
+        if (m !== null) {
+          out.push(this.hit(base, m));
+          break;
+        }
+      }
+      from = Math.max(from, b);
+    }
+    return out;
   }
 
   /** Decoders that rewrite text; only tried when the text has no literal hit. */

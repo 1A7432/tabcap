@@ -12,6 +12,10 @@
 // first; a payload with no exact hit is searched again with normalized text
 // (NFC, HTML entities decoded, full-width digits / punctuation folded,
 // whitespace collapsed). `--ignore-case` lowercases both sides.
+// Embedded state (0.4-H): a hit inside an HTML document's script JSON,
+// `window.X = {…}` literal or viewstate field carries `node` (step, address,
+// script id / type); nodes that were not decoded (malformed, over a bound) are
+// listed in `searched.embedded`.
 
 import { TabcapError } from "../shared/envelope.ts";
 import { num, str } from "../shared/json.ts";
@@ -27,7 +31,9 @@ import {
   isBinaryMime,
   isCompressedMime,
   type DecodeHit,
+  type EmbeddedSkip,
   type Matcher,
+  type NodeTag,
   type OpaqueNode,
   type StepName,
 } from "./decoders.ts";
@@ -77,11 +83,19 @@ export type FindHit = {
   /** Path inside the innermost decoded JSON document when the chain crossed into one. */
   innerPath: string | null;
   snippet: string;
+  /** The embedded-state node the hit lies in (script-json / inline-assign / viewstate). */
+  node?: NodeTag;
 };
 
 export type SkipReason = "binary" | "too-large" | "blob-missing" | "budget";
 
 export type Skipped = { ref: string; part: string; reason: SkipReason; detail: string };
+
+/** An embedded-state node that was not decoded: malformed (`unparsed`) or over a bound (`truncated`). */
+export type EmbeddedNotDecoded = { ref: string; part: string; step: NodeTag["step"]; address: string; status: "unparsed" | "truncated"; detail: string; id?: string; type?: string; decode: StepName[] };
+
+/** Most `searched.embedded` entries kept. */
+export const MAX_EMBEDDED_NOTES = 100;
 
 export type SuspectEncrypted = {
   ref: string;
@@ -113,6 +127,7 @@ export type FindResult = {
     missing: Record<string, number>;
     noBody: number;
     decoders: Partial<Record<StepName, number>>;
+    embedded: EmbeddedNotDecoded[];
   };
   hints: {
     message: string;
@@ -234,6 +249,7 @@ export function find(bundleDir: string, text: string, opts: FindOptions = {}): F
   const missingRequests: string[] = [];
   const decoders: Partial<Record<StepName, number>> = {};
   const suspects: SuspectEncrypted[] = [];
+  const embedded: EmbeddedNotDecoded[] = [];
   let bodies = 0;
   let noBody = 0;
   let wsFrames = 0;
@@ -252,6 +268,7 @@ export function find(bundleDir: string, text: string, opts: FindOptions = {}): F
     const ex = new Explorer(exact, { maxHits: remaining + 1, record: true, entropyEligible: t.entropyEligible });
     found = "bytes" in t.payload ? ex.exploreBytes(t.payload.bytes, { mime: t.mime }, t.prefix) : ex.exploreText(t.payload.text, { mime: t.mime }, t.prefix);
     mergeStats(decoders, ex.stats);
+    for (const n of ex.embeddedSkips) if (embedded.length < MAX_EMBEDDED_NOTES) embedded.push(embeddedNote(t, n));
     if (ex.budgetExceeded) skip(t.ref ?? `console@${t.seq}`, t.part, "budget", "decode budget exhausted; search may be incomplete");
     if (found.length === 0) {
       const nx = new Explorer(normalized, { maxHits: remaining + 1, record: false });
@@ -282,6 +299,7 @@ export function find(bundleDir: string, text: string, opts: FindOptions = {}): F
         match: mode,
         ...toHitPaths(h),
         snippet: h.snippet,
+        ...(h.node === undefined ? {} : { node: h.node }),
       });
     }
   };
@@ -401,9 +419,23 @@ export function find(bundleDir: string, text: string, opts: FindOptions = {}): F
     query: { text, ignoreCase, normalized: normalizeText(text).trim() },
     hits,
     truncated,
-    searched: { requests: requests.length, bodies, wsFrames, console: consoleCount, skipped, skippedList, missing, noBody, decoders },
+    searched: { requests: requests.length, bodies, wsFrames, console: consoleCount, skipped, skippedList, missing, noBody, decoders, embedded },
     hints,
     warnings,
+  };
+}
+
+function embeddedNote(t: Target, n: EmbeddedSkip): EmbeddedNotDecoded {
+  return {
+    ref: t.ref ?? `${t.kind}@${t.seq}`,
+    part: t.part,
+    step: n.step,
+    address: n.address,
+    status: n.status,
+    detail: n.detail,
+    ...(n.id === undefined ? {} : { id: n.id }),
+    ...(n.type === undefined ? {} : { type: n.type }),
+    decode: n.chain,
   };
 }
 
@@ -497,7 +529,8 @@ export function renderFindText(r: FindResult): string {
     const head = h.kind === "request" ? `${h.method ?? ""} ${h.url ?? ""} ${h.status ?? ""}`.trim() : (h.url ?? "");
     lines.push(`  ${where}  ${head}`);
     const loc = h.path === null ? "" : `  ${h.path}${h.innerPath === null ? "" : ` -> ${h.innerPath}`}`;
-    lines.push(`    decode [${h.decode.join(",")}] ${h.match}${loc}`);
+    const node = h.node === undefined ? "" : `  (${[h.node.address, h.node.id === undefined ? "" : `#${h.node.id}`, h.node.type ?? ""].filter((x) => x !== "").join(" ")})`;
+    lines.push(`    decode [${h.decode.join(",")}] ${h.match}${loc}${node}`);
     lines.push(`    ${oneLine(h.snippet)}`);
   }
   const s = r.searched;
@@ -509,6 +542,7 @@ export function renderFindText(r: FindResult): string {
   lines.push(`searched: ${s.bodies} bodies, ${s.wsFrames} ws frames, ${s.console} console lines (${s.requests} requests)`);
   lines.push(`skipped: ${sk === "" ? "none" : sk}; no body: ${miss === "" ? "none" : miss}${s.noBody > 0 ? `, none recorded ${s.noBody}` : ""}`);
   lines.push(`decoders: ${dec === "" ? "none" : dec}`);
+  for (const e of s.embedded) lines.push(`not decoded: ${e.ref} ${e.address} ${e.status}: ${oneLine(e.detail)}`);
   if (r.hints !== null) {
     lines.push(`hint: ${r.hints.message}`);
     for (const x of r.hints.suspectEncrypted) {

@@ -7,7 +7,10 @@
 // - candidates are response leaves: JSON values through `analyze find`'s
 //   decode chain (JSON paths and step names as `find` reports them), the
 //   whole text of other text bodies, and the text nodes of HTML responses
-//   (selector paths, see htmltext.ts);
+//   (selector paths, see htmltext.ts); an HTML document's embedded state
+//   (0.4-H: script JSON, `window.X = {…}` literals, viewstate fields) gives
+//   JSON-path candidates (`script[0].$.a`, `assign[X].a`, `viewstate[…]`)
+//   with the step in the chain, ranked with the JSON candidates;
 // - match "exact" when the raw strings are equal after trim; "normalized"
 //   when an interpretation of the query equals one of the value
 //   (normalize.ts); score 1 for exact, else 1 / (1 + rules used), rounded to
@@ -34,6 +37,7 @@ import type { RequestEvent } from "../bundle/types.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
 import { Explorer, STEP_CAP, STEP_NAMES, baseMime, binaryMagic, isBinaryMime, utf8, type DecodeHit, type Matcher, type StepName } from "./decoders.ts";
+import { mayEmbed } from "./embedded.ts";
 import type { FindingInput } from "./finding.ts";
 import { wirePrefix } from "./find.ts";
 import { htmlTextNodes } from "./htmltext.ts";
@@ -201,6 +205,14 @@ export function whereIn(reader: BundleReader, query: WhereQuery, opts: WhereOpti
       }
     }
     if (text !== null && isHtml(baseMime(mime), text)) {
+      if (mayEmbed(text)) {
+        const ex = new Explorer(matcher, { maxHits: MAX_HITS_PER_BODY, record: false, entropyEligible: false, wholeValues: true });
+        for (const h of ex.exploreText(text, { mime }, prefix)) {
+          if (h.node === undefined || h.paths.length === 0) continue; // the page's own text is the text-node pass below
+          const j = judge(h.matched.trim());
+          if (j !== null) add(r, j, { path: h.paths.join(" -> ") }, h.chain, 0);
+        }
+      }
       for (const node of htmlTextNodes(text)) {
         const j = judge(node.text);
         if (j !== null) add(r, j, { selector: node.selector }, [...prefix, ...(node.entities ? (["html-entities"] as const) : [])], 1);
