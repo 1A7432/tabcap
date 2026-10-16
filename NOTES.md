@@ -179,3 +179,8 @@
 - 做了什么：按作者 10-16 的裁决改文案：README 边界删去挑战处理一条；去掉仓库文本里的跨项目名（旧 NOTES 条目只替换名字本身）；docs/07 焦点阶梯补 `tab select --bring-to-front` 例外；docs/05 增 s40 locale-numbers；docs/04 `finding.tool` 加 `where`；docs/09 响应 schema 推断命令改名 `shape`；docs/08 §3 追加 0.4 补充。只动文档，未碰代码、测试、CHANGELOG。
 - 卡在哪：中文 README 没有独立的「边界」条目，对应内容是「站点与账号库」段末一句，按字面删了那一句；README.md 第 5、111 行的 captcha 字样不在指定条目内，原样保留。
 - 下一格从哪开始：0.4 各代码格；s40 与 `where` 的归一化规则随 `where` 实现时落地靶场页与 expected。
+
+## 2026-10-16 · spike · 代理 context 与扩展可见性
+- 做了什么：只读 spike（CfT 155，脚本与 CDP 日志在 scratchpad `spike-pools/`，报告 `spike-pools-report.md`）。【实测】`Target.createBrowserContext {proxyServer}` 生效，loopback 要 `proxyBypassList:"<-loopback>"` 才走代理；`Fetch.authRequired`（source Proxy）应答后导航成功，同 context 内认证有缓存，本机往返 1–6 ms；`Proxy-Authorization: Basic <base64>` 出现在 `Network.requestWillBeSentExtraInfo.headers`，会进 raw/cdp.jsonl；`--load-extension` 装的扩展在新 context 里不运行，`Extensions.loadUnpacked {enableInIncognito:true}` 可以（仓库目前没有 UI 扩展，`extension/` 缺）；cookie 按 context 隔离，`Storage.setCookies` 恢复有效；pipe 断开后 500 ms 内所有标签被关、Chrome 进程不退；两 context 两代理并发不串；Chrome 155 的 SOCKS5 只发无认证握手，带账号密码的 SOCKS5 不可用；经代理的 context 每次导航都向代理发 `CONNECT www.google.com:443`（默认搜索引擎 preconnect），`--disable-features=PreconnectToSearch` 可消。
+- 卡在哪：无。
+- 下一格从哪开始：0.4-D 账号池 / 代理池（brief-0.4-D-pools.md），含 `PreconnectToSearch` 旗标与 `Proxy-Authorization` 的 base64 脱敏；cookie 回写要在 pipe 关闭前完成。
