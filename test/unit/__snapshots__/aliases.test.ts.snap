@@ -2948,14 +2948,11 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "deprecatedFor": null,
       "example": "tabcap trace start",
       "flags": [
         {
           "alias": null,
           "default": "default",
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--session",
           "help": "session name; else $TABCAP_SESSION",
           "key": "session",
@@ -2967,8 +2964,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--apis",
           "help": "signal list file: a JSON array of API names in IDL form (else ~/.config/tabcap/signals.json, else the built-in list)",
           "key": "apis",
@@ -2980,8 +2975,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": 8,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--stack",
           "help": "stack frames kept per signal event",
           "key": "stack",
@@ -2993,8 +2986,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": 20,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--first-n",
           "help": "signal events with a stack per (api, caller); later ones only count",
           "key": "firstN",
@@ -3006,8 +2997,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": 500,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--max-hits",
           "help": "reads of one API in one document before its breakpoint is removed (the event gets truncated: true)",
           "key": "maxHits",
@@ -3029,14 +3018,11 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "deprecatedFor": null,
       "example": "tabcap trace stop",
       "flags": [
         {
           "alias": null,
           "default": "default",
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--session",
           "help": "session name; else $TABCAP_SESSION",
           "key": "session",
@@ -3058,14 +3044,11 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "deprecatedFor": null,
       "example": "tabcap trace status",
       "flags": [
         {
           "alias": null,
           "default": "default",
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--session",
           "help": "session name; else $TABCAP_SESSION",
           "key": "session",
@@ -3087,14 +3070,11 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "deprecatedFor": null,
       "example": "tabcap trace list --api Navigator.prototype.userAgent",
       "flags": [
         {
           "alias": null,
           "default": "default",
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--session",
           "help": "session name; else $TABCAP_SESSION",
           "key": "session",
@@ -3106,8 +3086,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--api",
           "help": "only this API (exact name, e.g. Navigator.prototype.userAgent)",
           "key": "api",
@@ -3119,8 +3097,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": null,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--script",
           "help": "only scripts whose URL contains this text",
           "key": "script",
@@ -3132,8 +3108,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": false,
-          "deprecated": null,
-          "deprecatedAliases": [],
           "flag": "--text",
           "help": "print a text report instead of JSON",
           "key": "text",

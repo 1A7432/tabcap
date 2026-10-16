@@ -4,8 +4,6 @@
 
 Every command prints one JSON envelope on stdout: `{"ok":true,"data":…}` or `{"ok":false,"error":{"code","message","next"}}`. Browser commands also take `--session <name>` (else `$TABCAP_SESSION`, else `default`) and most take `--timeout <ms>` (default 30000; `wait` / `net wait` 10000); they are left out below. `tabcap <command> --help` prints the same as one section here; `tabcap schema --json` is the machine-readable form.
 
-Deprecated aliases, removed in 0.4: `tabcap tabs` → `tabcap tab list`, `tabcap tab use` → `tabcap tab select`, `tabcap press` → `tabcap press-key`, `tabcap console` → `tabcap console list`.
-
 ## Setup and lifecycle
 
 ### `tabcap setup`
@@ -99,7 +97,7 @@ add a site and its account to the local store (state.db, 0600); for the human, n
 tabcap site add <name> --url <entry> --user <username> [--domains a,b] [--notes text] [--password-stdin]
 ```
 
-Example: `tabcap site add shop --url https://shop.example/login --user alice`
+Example: `tabcap site add example --url https://example.com/login --user alice`
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -127,21 +125,22 @@ delete a site with its accounts and guard counters from the store
 tabcap site remove <name>
 ```
 
-Example: `tabcap site remove shop`
+Example: `tabcap site remove example`
 
 ### `tabcap session start`
 
-create a session (navigate also creates it); --site binds a stored site → entryUrl and the secret references
+create a session (navigate also creates it); --site binds a stored site → entryUrl, the secret references, account and proxy (names only)
 
 ```
-tabcap session start <name> [--site site]
+tabcap session start <name> [--site site] [--account user|auto]
 ```
 
-Example: `tabcap session start shop --site shop`
+Example: `tabcap session start example --site example`
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--site <site>` |  | bind a stored site: its account is used by fill --secret and recorded in the bundle manifest |
+| `--account <user\|auto>` |  | which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); an account bound to a proxy gets its own browser context through it |
 
 ### `tabcap session stop`
 
@@ -151,7 +150,7 @@ close the session's own tabs (never tabs it did not open) and finish its recordi
 tabcap session stop <name>
 ```
 
-Example: `tabcap session stop shop`
+Example: `tabcap session stop example`
 
 ### `tabcap session list`
 
@@ -222,7 +221,7 @@ load a URL in the session's tab (opens a background tab if needed), wait until r
 tabcap navigate <url> [--session name] [--timeout ms] [--tab t2] [--new-tab] [--no-wait]
 ```
 
-Example: `tabcap navigate http://127.0.0.1:8080/ --session shop`
+Example: `tabcap navigate http://127.0.0.1:8080/ --session example`
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -263,7 +262,7 @@ Example: `tabcap reload --ignore-cache`
 
 ### `tabcap snapshot`
 
-accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (遮挡 / 识别到, counts toward --max-chars)
+accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected, counts toward --max-chars)
 
 ```
 tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path]
@@ -281,7 +280,7 @@ Example: `tabcap snapshot --interactive`
 
 ### `tabcap outline`
 
-page map head: tab line, 遮挡 (overlays: dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), 识别到 (adapters detected, with confidence), 新窗口 (popups); read-only, never closes anything
+page map head: tab line, overlays (dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), detected (adapters, with confidence), popups; read-only, never closes anything
 
 ```
 tabcap outline [--session name] [--timeout ms] [--tab t2] [--max-chars n]
@@ -371,7 +370,7 @@ set a text field's value, React-safe (password values are masked everywhere); --
 tabcap fill <ref> [<text>] [--session name] [--timeout ms] [--tab t2] [--trusted] [--secret site.field] [--confirm] [--no-wait] [--snapshot]
 ```
 
-Example: `tabcap fill e7 --secret shop.password`
+Example: `tabcap fill e7 --secret example.password`
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -480,8 +479,8 @@ Example: `tabcap screenshot --full-page`
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
-| `--file-path <path>` |  | image path (default under ~/.local/share/tabcap/shots/) (old spelling `--out`, deprecated) |
-| `--full-page` |  | the whole page, not just the viewport (not with --ref) (old spelling `--full`, deprecated) |
+| `--file-path <path>` |  | image path (default under ~/.local/share/tabcap/shots/) |
+| `--full-page` |  | the whole page, not just the viewport (not with --ref) |
 | `--format <png\|jpeg\|webp>` | `png` | png \| jpeg \| webp |
 | `--quality <0-100>` |  | jpeg / webp quality 0–100 (ignored for png) |
 | `--ref <e12>` |  | only this element (a ref from snapshot) |
@@ -535,8 +534,8 @@ Example: `tabcap console list --types error,warn`
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--types <error,warn>` |  | comma list of message types: log, debug, info, error, warn, dir, table, trace, assert, count, timeEnd, verbose … |
 | `--level <level>` |  | debug \| log \| info \| warn \| error: that level and more severe (log = info) |
-| `--page-size <n>` |  | messages per page; without --page-size / --page-idx every buffered message is returned |
-| `--page-idx <n>` |  | page to return, 0-based (100 per page unless --page-size) |
+| `--page-size <n>` | `100` | messages per page (max 1000); 0 returns every buffered message |
+| `--page-idx <n>` | `0` | page to return, 0-based; nextPageIdx names the next one |
 | `--limit <n>` |  | only the last N messages (instead of paging) |
 | `--include-stack-traces` |  | include each message's stack trace when there is one |
 | `--clear` |  | empty the tab's buffer after reading |
@@ -579,7 +578,7 @@ Example: `tabcap net stop`
 
 ### `tabcap net list`
 
-recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); paged only when asked (--kind ws: WebSocket frames r-12:34)
+recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 100 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)
 
 ```
 tabcap net list [--session name] [--filter s] [--host s] [--status code] [--method M] [--resource-types xhr,fetch] [--tab t2] [--since c-12] [--failed] [--no-failed] [--all] [--page-size n] [--page-idx n] [--kind http|ws]
@@ -593,15 +592,14 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 | `--host <s>` |  | host[:port] substring |
 | `--status <code>` |  | status code or class: 200 \| 2xx \| 3xx \| 4xx \| 5xx |
 | `--method <M>` |  | only this HTTP method |
-| `--resource-types <xhr,fetch>` |  | comma list: xhr,fetch,document,script … (old spelling `--type`, deprecated) |
+| `--resource-types <xhr,fetch>` |  | comma list: xhr,fetch,document,script … |
 | `--tab <t2>` |  | only requests of this tab |
 | `--since <c-12>` |  | only requests finished after this command started (the `cmd` id commands return while recording) |
 | `--failed` |  | only failed requests (hidden by default) |
 | `--no-failed` |  | hide failed requests (the default) |
 | `--all` |  | also failed requests and data: URLs |
-| `--page-size <n>` |  | requests per page (max 1000); without --page-size / --page-idx every match is returned (old spelling `--limit`, deprecated) |
-| `--page-idx <n>` |  | page to return, 0-based (100 per page unless --page-size); nextPageIdx names the next one |
-| `--offset <n>` |  | skip this many matches (oldest first) (deprecated: use --page-idx) |
+| `--page-size <n>` | `100` | requests per page (max 1000); 0 returns every match |
+| `--page-idx <n>` | `0` | page to return, 0-based; nextPageIdx names the next one |
 | `--kind <http\|ws>` | `http` | http (requests) \| ws (WebSocket frames: id, direction, opcode, size, ts) |
 
 ### `tabcap net body`
@@ -645,6 +643,23 @@ Example: `tabcap net wait --url /api/search --method POST`
 | `--tab <t2>` |  | only requests of this tab |
 | `--since <c-12\|start>` |  | look back to this command's start (c-12), or `start` for the whole recording |
 | `--fresh` |  | only requests finishing after the wait begins |
+
+### `tabcap where`
+
+which recorded response carries a value the page shows (a snapshot ref's visible text, or a text): JSON paths through analyze find's decode chain, then HTML text nodes (selectors), matched exactly or after normalisation (thousands / decimal separators, accounting negatives, full-width, nbsp, YYYY-MM dates, dotted codes, DR / CR); searches only the session's recording and sends no request
+
+```
+tabcap where <query> [--session name] [--timeout ms] [--as ref|text] [--top n] [--text] [--write-findings]
+```
+
+Example: `tabcap where e12`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--as <ref\|text>` |  | what the input is: ref (a snapshot ref; its visible text is looked up) or text (the value as typed). Default: e<n> is a ref while the session's tab has a current snapshot, anything else text |
+| `--top <n>` | `5` | candidates to return (1-100) |
+| `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-where/0) |
+| `--write-findings` |  | append finding events (tool where; 实测 for exact matches, 推断 for normalized ones) to the session's bundle; default: the bundle is only read |
 
 ## Trace mode (signal reads)
 
@@ -910,7 +925,7 @@ Example: `tabcap replay session ./b -o storage-state.json`
 generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs
 
 ```
-tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain]
+tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--proxy-env file]
 ```
 
 Example: `tabcap replay export-python ./b -o ./client`
@@ -922,6 +937,7 @@ Example: `tabcap replay export-python ./b -o ./client`
 | `--exclude <glob,glob>` |  | leave out paths matching these globs |
 | `--chain` |  | use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response) |
 | `--no-chain` |  | 0.3 behaviour: per-request heuristics only, no verify() |
+| `--proxy-env <file>` |  | also write TABCAP_PROXY_URL (the bundle account's proxy, with its credentials) to this file, mode 0600; never printed. The generated client reads TABCAP_PROXY_URL |
 
 ### `tabcap replay check`
 
@@ -936,7 +952,7 @@ Example: `tabcap replay check ./b --against http://127.0.0.1:4500`
 | Option | Default | Meaning |
 |---|---|---|
 | `--against <url>` | `http://127.0.0.1:4500` | target origin; non-loopback needs --live |
-| `--live` |  | allow a non-loopback target: needs a stored site (--site or the bundle's), paced and counted per site |
+| `--live` |  | allow a non-loopback target: needs a stored site (--site or the bundle's), paced and counted per site; goes out through the account's proxy when it is bound to one |
 | `--rate <n>` |  | live requests per second (default 0.5) |
 | `--site <site>` |  | stored site whose guard counters a live check uses |
 | `--filter <glob,glob>` |  | only paths matching these globs |
@@ -957,3 +973,94 @@ Example: `tabcap schema --json`
 | Option | Default | Meaning |
 |---|---|---|
 | `--json` |  | print the bare schema document (no envelope) |
+
+## Other
+
+### `tabcap proxy add`
+
+add a proxy to the local store (state.db, 0600) for the account pool; for the human: the password is typed at a prompt or piped, never passed as an argument, and never shown in tabcap output
+
+```
+tabcap proxy add <name> --url <scheme://host:port> [--user username] [--password-stdin] [--bypass list]
+```
+
+Example: `tabcap proxy add p1 --url http://127.0.0.1:8080 --user pool1 --password-stdin`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--url <scheme://host:port>` |  | scheme://host:port (http, https, socks4, socks5); never credentials (required) |
+| `--user <username>` |  | proxy username (not a secret: shown in listings); SOCKS with a username is refused (Chrome offers no-auth SOCKS only) |
+| `--password-stdin` |  | read the proxy password from stdin (else an interactive prompt when --user is given; never an argument) |
+| `--bypass <list>` |  | Chrome proxy bypass list for the account's browser context, e.g. "<-loopback>" to send loopback through the proxy too |
+
+### `tabcap proxy list`
+
+stored proxies: name, scheme, host:port, user, hasAuth, bypass, state, last check (never the password)
+
+```
+tabcap proxy list
+```
+
+Example: `tabcap proxy list`
+
+### `tabcap proxy remove`
+
+delete a proxy no account is bound to
+
+```
+tabcap proxy remove <name>
+```
+
+Example: `tabcap proxy remove p1`
+
+### `tabcap proxy check`
+
+one health check through the proxy: unknown → up on success; 3 failures in a row → down (rechecked after 1 / 5 / 15 min)
+
+```
+tabcap proxy check <name> [--url url]
+```
+
+Example: `tabcap proxy check p1 --url http://127.0.0.1:8080/`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--url <url>` |  | address to fetch through the proxy (else config.json pool.health.url; with neither nothing is contacted and the state is unchecked) |
+
+### `tabcap account bind`
+
+bind a stored account (<site>.<user>) to a proxy, or to the browser's own network (system / none)
+
+```
+tabcap account bind <account> --proxy <name|system|none>
+```
+
+Example: `tabcap account bind example.alice --proxy p1`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--proxy <name\|system\|none>` |  | a proxy name: the account gets its own browser context through it; system / none: the browser's own context and proxy flags (required) |
+
+### `tabcap account list`
+
+stored accounts: state (active / cooling / needs-human / disabled), coolUntil, proxy, lastUsedAt (never passwords)
+
+```
+tabcap account list [--site site]
+```
+
+Example: `tabcap account list --site example`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--site <site>` |  | only this site's accounts |
+
+### `tabcap account set-state`
+
+set an account active (also clears cooling and needs-human) or disabled (never allocated)
+
+```
+tabcap account set-state <account> active|disabled
+```
+
+Example: `tabcap account set-state example.alice disabled`
