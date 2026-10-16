@@ -1,0 +1,280 @@
+<!doctype html>
+<!--
+  tabcap signal probe (0.4-G). Served by `tabcap fingerprint serve` and by
+  `tabcap fingerprint probe`; self-contained, loads nothing from anywhere else.
+  It only reads: it sets no cookie, writes no storage and changes nothing.
+  Every field is named after the API it reads, in the IDL form of the trace
+  signal list (src/daemon/trace/signals.ts); src/fingerprint/fields.ts holds
+  the same names and drops anything else the server receives.
+  Canvas and audio renders are kept only as the sha256 of their bytes (never
+  the image or the samples); any other value whose JSON is over 1 KB is kept
+  as the sha256 of that JSON text.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tabcap signal probe</title>
+<style>
+  body { font: 13px/1.4 system-ui, sans-serif; margin: 16px; color: #111; background: #fff; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border-bottom: 1px solid #ddd; padding: 3px 6px; text-align: left; vertical-align: top; }
+  td.v { font-family: ui-monospace, monospace; word-break: break-all; }
+  td.e { color: #a00; }
+  #status { margin: 8px 0; }
+  form { margin: 12px 0; }
+</style>
+</head>
+<body>
+<h1>tabcap signal probe</h1>
+<p>The values this browser presents for a fixed list of signals. Read only: nothing in the browser is changed or stored.</p>
+<div id="status" role="status">reading…</div>
+<form id="save" hidden>
+  <label for="refname">reference name</label>
+  <input id="refname" name="refname" pattern="[a-z0-9\-]{1,40}" maxlength="40" autocomplete="off" required>
+  <button type="submit">Save as reference</button>
+  <span id="saved" role="status"></span>
+</form>
+<table><thead><tr><th>field</th><th>value</th></tr></thead><tbody id="rows"></tbody></table>
+<script id="probe-lib">
+"use strict";
+// Pure helpers, unit-tested from this very text (test/unit/fingerprint.test.ts).
+const VALUE_MAX = 1024;
+function hexOf(buf) {
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function sha256Of(bytes) {
+  if (typeof crypto === "undefined" || crypto.subtle === undefined) throw new Error("crypto.subtle is unavailable (not a secure context)");
+  return "sha256:" + hexOf(await crypto.subtle.digest("SHA-256", bytes));
+}
+// The PNG bytes of a canvas data URL: what the canvas hash covers.
+function pngBytes(dataUrl) {
+  const head = "data:image/png;base64,";
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith(head)) throw new Error("not a PNG data URL");
+  const bin = atob(dataUrl.slice(head.length));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+// Rendered audio samples as little-endian float32 bytes: what the audio hash covers.
+function float32LeBytes(samples) {
+  const out = new Uint8Array(samples.length * 4);
+  const view = new DataView(out.buffer);
+  for (let i = 0; i < samples.length; i++) view.setFloat32(i * 4, samples[i], true);
+  return out;
+}
+// A field from a JSON value: inline when its JSON is at most 1 KB, else the sha256 of that JSON text.
+async function capField(name, value) {
+  if (value === undefined) return { name, error: "undefined" };
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  return bytes.length <= VALUE_MAX ? { name, value } : { name, hash: await sha256Of(bytes) };
+}
+</script>
+<script id="probe-main">
+"use strict";
+const TOKEN = "__TABCAP_TOKEN__";
+const MODE = "__TABCAP_MODE__";
+// 30 common family names; FontFaceSet.check over each, the ones it answers true for are the value.
+const FONTS = [
+  "Arial", "Arial Black", "Calibri", "Cambria", "Comic Sans MS", "Consolas", "Courier", "Courier New",
+  "DejaVu Sans", "Georgia", "Gill Sans", "Helvetica", "Helvetica Neue", "Impact", "Liberation Sans",
+  "Lucida Console", "Lucida Grande", "Menlo", "Monaco", "Noto Sans", "Palatino", "Roboto", "Segoe UI",
+  "Tahoma", "Times", "Times New Roman", "Trebuchet MS", "Ubuntu", "Verdana", "Wingdings",
+];
+// The hints documented for NavigatorUAData.getHighEntropyValues (WICG User-Agent Client Hints).
+const HINTS = ["architecture", "bitness", "formFactors", "fullVersionList", "model", "platformVersion", "uaFullVersion", "wow64"];
+const brandList = (list) => Array.from(list, (b) => `${b.brand}/${b.version}`);
+const errText = (e) => String(e !== null && typeof e === "object" && "message" in e ? e.message : e).slice(0, 200);
+
+async function collect() {
+  const out = [];
+  const put = async (name, read) => {
+    try {
+      out.push(await capField(name, await read()));
+    } catch (e) {
+      out.push({ name, error: errText(e) });
+    }
+  };
+  const putHash = async (name, bytes) => {
+    try {
+      out.push({ name, hash: await sha256Of(await bytes()) });
+    } catch (e) {
+      out.push({ name, error: errText(e) });
+    }
+  };
+
+  const N = "Navigator.prototype.";
+  for (const k of ["userAgent", "platform", "language", "hardwareConcurrency", "deviceMemory", "maxTouchPoints", "vendor", "webdriver"]) await put(N + k, () => navigator[k]);
+  await put(N + "languages", () => Array.from(navigator.languages));
+  await put(N + "plugins", () => Array.from(navigator.plugins, (p) => p.name));
+  await put(N + "plugins.length", () => navigator.plugins.length);
+  const uad = () => {
+    if (navigator.userAgentData === undefined) throw new Error("navigator.userAgentData is undefined");
+    return navigator.userAgentData;
+  };
+  await put("NavigatorUAData.prototype.brands", () => brandList(uad().brands));
+  await put("NavigatorUAData.prototype.mobile", () => uad().mobile);
+  await put("NavigatorUAData.prototype.platform", () => uad().platform);
+  let high = null;
+  let highErr = null;
+  try {
+    high = await uad().getHighEntropyValues(HINTS);
+  } catch (e) {
+    highErr = e;
+  }
+  for (const h of HINTS) {
+    await put(`NavigatorUAData.prototype.getHighEntropyValues(${h})`, () => {
+      if (high === null) throw highErr;
+      if (!(h in high)) throw new Error("not returned");
+      return h === "fullVersionList" ? brandList(high[h]) : Array.isArray(high[h]) ? Array.from(high[h]) : high[h];
+    });
+  }
+  for (const p of ["notifications", "geolocation"]) await put(`Permissions.prototype.query(${p})`, async () => (await navigator.permissions.query({ name: p })).state);
+
+  for (const k of ["width", "height", "availWidth", "availHeight", "colorDepth", "pixelDepth"]) await put("Screen.prototype." + k, () => screen[k]);
+  await put("Window.prototype.devicePixelRatio", () => window.devicePixelRatio);
+  await put("Window.prototype.matchMedia(prefers-color-scheme)", () => (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : matchMedia("(prefers-color-scheme: light)").matches ? "light" : "no-preference"));
+  await put("Window.prototype.matchMedia(prefers-reduced-motion)", () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "reduce" : "no-preference"));
+
+  const ro = Intl.DateTimeFormat().resolvedOptions();
+  for (const k of ["locale", "timeZone", "calendar", "numberingSystem"]) await put(`Intl.DateTimeFormat.prototype.resolvedOptions().${k}`, () => ro[k]);
+  await put("Date.prototype.getTimezoneOffset", () => new Date().getTimezoneOffset());
+
+  await putHash("HTMLCanvasElement.prototype.toDataURL", () => {
+    const c = document.createElement("canvas");
+    c.width = 240;
+    c.height = 60;
+    const g = c.getContext("2d");
+    if (g === null) throw new Error("no 2d context");
+    g.textBaseline = "top";
+    g.font = "14px Arial";
+    g.fillStyle = "#f60";
+    g.fillRect(125, 1, 62, 20);
+    g.fillStyle = "#069";
+    g.fillText("tabcap probe 0.4-G é中", 2, 15);
+    g.fillStyle = "rgba(102, 204, 0, 0.7)";
+    g.fillText("tabcap probe 0.4-G é中", 4, 17);
+    g.beginPath();
+    g.arc(210, 40, 15, 0, Math.PI * 2);
+    g.strokeStyle = "#333";
+    g.stroke();
+    return pngBytes(c.toDataURL("image/png"));
+  });
+
+  const W = "WebGLRenderingContext.prototype.";
+  let gl = null;
+  let glErr = "no webgl context";
+  try {
+    gl = document.createElement("canvas").getContext("webgl");
+  } catch (e) {
+    glErr = errText(e);
+  }
+  const needGl = () => {
+    if (gl === null) throw new Error(glErr);
+    return gl;
+  };
+  for (const p of ["VENDOR", "RENDERER", "VERSION", "SHADING_LANGUAGE_VERSION"]) await put(`${W}getParameter(${p})`, () => needGl().getParameter(needGl()[p]));
+  const dbg = () => {
+    const ext = needGl().getExtension("WEBGL_debug_renderer_info");
+    if (ext === null) throw new Error("WEBGL_debug_renderer_info is not supported");
+    return ext;
+  };
+  for (const p of ["UNMASKED_VENDOR_WEBGL", "UNMASKED_RENDERER_WEBGL"]) await put(`${W}getParameter(${p})`, () => needGl().getParameter(dbg()[p]));
+  await put(W + "getSupportedExtensions", () => needGl().getSupportedExtensions());
+
+  await putHash("OfflineAudioContext.prototype.startRendering", async () => {
+    const ctx = new OfflineAudioContext(1, 5000, 44100);
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.value = 10000;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -50;
+    comp.knee.value = 40;
+    comp.ratio.value = 12;
+    comp.attack.value = 0;
+    comp.release.value = 0.25;
+    osc.connect(comp);
+    comp.connect(ctx.destination);
+    osc.start(0);
+    const buf = await ctx.startRendering();
+    return float32LeBytes(buf.getChannelData(0));
+  });
+
+  await put("SpeechSynthesis.prototype.getVoices", async () => {
+    if (typeof speechSynthesis === "undefined") throw new Error("speechSynthesis is undefined");
+    let voices = speechSynthesis.getVoices();
+    if (voices.length === 0) {
+      // Voices load asynchronously: wait for voiceschanged, at most 1 s.
+      await new Promise((resolve) => {
+        const t = setTimeout(resolve, 1000);
+        speechSynthesis.addEventListener("voiceschanged", () => { clearTimeout(t); resolve(); }, { once: true });
+      });
+      voices = speechSynthesis.getVoices();
+    }
+    return voices.map((v) => v.name);
+  });
+  await put("FontFaceSet.prototype.check", () => FONTS.filter((f) => document.fonts.check(`12px "${f}"`)));
+
+  out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return out;
+}
+
+function show(fields) {
+  const body = document.getElementById("rows");
+  body.textContent = "";
+  for (const f of fields) {
+    const tr = document.createElement("tr");
+    const n = document.createElement("td");
+    n.textContent = f.name;
+    const v = document.createElement("td");
+    v.className = f.error !== undefined ? "v e" : "v";
+    v.textContent = f.error !== undefined ? `error: ${f.error}` : "hash" in f ? f.hash : JSON.stringify(f.value);
+    tr.append(n, v);
+    body.append(tr);
+  }
+}
+
+async function post(path, fields) {
+  const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: TOKEN, fields }), cache: "no-store", credentials: "omit" });
+  const text = await r.text();
+  let body = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+  return { ok: r.ok, body, text };
+}
+
+(async () => {
+  const status = document.getElementById("status");
+  const fields = await collect();
+  show(fields);
+  try {
+    const r = await post("/probe", fields);
+    if (r.ok && r.body !== null && Array.isArray(r.body.fields)) show(r.body.fields);
+    status.textContent = r.ok ? `read ${fields.length} fields` : `read ${fields.length} fields; tabcap answered: ${r.text.slice(0, 200)}`;
+  } catch (e) {
+    status.textContent = `read ${fields.length} fields; tabcap did not answer: ${errText(e)}`;
+  }
+  if (MODE === "serve") {
+    const form = document.getElementById("save");
+    const saved = document.getElementById("saved");
+    form.hidden = false;
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const name = document.getElementById("refname").value.trim();
+      saved.textContent = "saving…";
+      try {
+        const r = await post(`/ref/${encodeURIComponent(name)}`, fields);
+        saved.textContent = r.ok ? `saved reference ${name}` : `not saved: ${r.body !== null && typeof r.body.error === "string" ? r.body.error : r.text.slice(0, 200)}`;
+      } catch (e) {
+        saved.textContent = `not saved: ${errText(e)}`;
+      }
+    });
+  }
+  document.body.dataset.done = "1";
+})();
+</script>
+</body>
+</html>

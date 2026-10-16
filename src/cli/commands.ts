@@ -729,6 +729,21 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap replay check ./b --against http://127.0.0.1:4500",
   },
   {
+    path: ["fingerprint", "serve"],
+    pos: [],
+    flags: [
+      { flag: "--port", key: "port", kind: "number", help: "port on 127.0.0.1 (0: any free port)", default: 0, metavar: "port" },
+      { flag: "--once", key: "once", kind: "bool", help: "exit after the first saved reference" },
+      { flag: "--force", key: "force", kind: "bool", help: "let a save replace an existing reference of the same name" },
+    ],
+    summary:
+      "serve the signal probe page on 127.0.0.1 for your own browser: open the printed URL by hand and press Save as reference (written to config/fingerprint/refs/<name>.json, 0600); Ctrl-C to stop",
+    example: "tabcap fingerprint serve --once",
+  },
+  { path: ["fingerprint", "ref", "list"], pos: [], flags: [], summary: "saved references: name, savedAt, userAgent, file", example: "tabcap fingerprint ref list" },
+  { path: ["fingerprint", "ref", "show"], pos: ["name"], flags: [], summary: "one saved reference with all its fields", example: "tabcap fingerprint ref show daily" },
+  { path: ["fingerprint", "ref", "remove"], pos: ["name"], flags: [], summary: "delete a saved reference", example: "tabcap fingerprint ref remove daily" },
+  {
     path: ["schema"],
     pos: [],
     flags: [{ flag: "--json", key: "json", kind: "bool", help: "print the bare schema document (no envelope)" }],
