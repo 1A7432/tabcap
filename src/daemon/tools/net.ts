@@ -24,6 +24,7 @@ import { decodePlugins } from "../hooks/plugins.ts";
 import { redactedDetail, redactUrl, revealOf, withRedactedUrl, type LiveCtx } from "./liveredact.ts";
 import { parseBodiesMode, type BodiesMode } from "../../shared/bodies.ts";
 import { readRecordBodies } from "../../shared/config.ts";
+import { allSiteRules } from "../siterules.ts";
 
 /** 0.6-E: how a net command prints values (docs/04 §8.3); null with --reveal. */
 const liveCtx = (d: Daemon, a: Args): LiveCtx | null => (revealOf(a) ? null : { scrub: (s) => d.secrets.scrub(s) });
@@ -37,6 +38,8 @@ export function bodiesOf(d: Daemon, a: Args): BodiesMode {
 export async function netStart(d: Daemon, a: Args, session: string): Promise<unknown> {
   checkSessionName(session);
   const bodies = bodiesOf(d, a);
+  // 0.6-I: a bad site stop rule in config.json is refused here, not silently skipped later.
+  allSiteRules(d.paths.configFile);
   const { t, tabs, info, console } = d.need();
   const have = d.recorders.get(session);
   if (have !== undefined) {

@@ -3813,7 +3813,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": null,
           "flag": "--site",
-          "help": "the store site (or host) whose fetches a stop rule stopped",
+          "help": "the store site (or host) a stop rule stopped",
           "key": "site",
           "repeatable": false,
           "required": true,
@@ -3828,7 +3828,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         "resume",
       ],
       "positionals": [],
-      "summary": "resume fetches: let \`tabcap fetch\` send to a site again after one of its stop rules fired (decide first: look at the stopped response)",
+      "summary": "resume a site after a stop rule fired: \`tabcap fetch\` sends to it again, and a session a site rule (config.json sites.<s>.guard) put into waiting goes on (decide first: look at the stopped response)",
       "usage": "tabcap guard resume [--session name] --site <site>",
     },
     {

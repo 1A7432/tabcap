@@ -815,7 +815,7 @@ Example: `tabcap handoff continue`
 
 ### `tabcap guard resume`
 
-resume fetches: let `tabcap fetch` send to a site again after one of its stop rules fired (decide first: look at the stopped response)
+resume a site after a stop rule fired: `tabcap fetch` sends to it again, and a session a site rule (config.json sites.<s>.guard) put into waiting goes on (decide first: look at the stopped response)
 
 ```
 tabcap guard resume [--session name] --site <site>
@@ -825,7 +825,7 @@ Example: `tabcap guard resume --site example`
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--site <site>` |  | the store site (or host) whose fetches a stop rule stopped (required) |
+| `--site <site>` |  | the store site (or host) a stop rule stopped (required) |
 
 ### `tabcap plugin list`
 

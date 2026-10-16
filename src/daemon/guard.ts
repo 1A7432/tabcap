@@ -15,6 +15,15 @@
 //    are asked first in the background; an answer resumes the session and is
 //    handed to the AI as data. Detection needs a recording (`net start`): the
 //    recorder is the only Network observer.
+//
+// 3. Site stop rules (0.6-I): config.json `sites.<name>.guard.stopOn` (the
+//    `tabcap fetch --stop-on` syntax) and `guard.consecutiveNon200`, checked on
+//    every final recorded document / xhr / fetch response of the site in the
+//    session (page requests, `tabcap fetch`, navigations). A trip writes
+//    `guard` {event:"breaker", reason:"stop-rule", rule, request}, refuses the
+//    site's fetches and the session's page commands with `guard.stopped`, and
+//    puts the session into `waiting` (screenshot, `next`) until `handoff
+//    continue` or `guard resume --site`.
 
 import { TabcapError } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
@@ -25,10 +34,12 @@ import type { NetEntry, Recorder } from "./capture/recorder.ts";
 export type GuardRecorder = Pick<Recorder, "session" | "onIndexed" | "event" | "cmdStart" | "cmdEnd">;
 import { HOOK_PROTOCOL, parseChallengeOutput, pluginsFor, runHook } from "./hooks/plugins.ts";
 import { scrubValue, type Secrets } from "./secrets.ts";
+import { firstStop, type StopRule } from "./fetch/stoprules.ts";
+import { decodeBody } from "./tools/netsearch.ts";
 
 export const LOGIN_LIMIT = 1;
 
-export type ChallengeReason = "verify-page";
+export type ChallengeReason = "verify-page" | "stop-rule";
 
 /** Pure: does this recorded request look like a challenge page? */
 export function challengeOf(e: Pick<NetEntry, "type" | "status" | "mime" | "outcome">): ChallengeReason | null {
@@ -47,6 +58,12 @@ export function originOf(url: string): string | null {
 }
 
 export const CONTINUE_NEXT = "Ask the human to complete the verification in the browser, then run `tabcap handoff continue`; until then do not act on this site.";
+
+/** 0.6-I: what to do after a site stop rule put the session into waiting. */
+export const STOP_RULE_NEXT = (h: { site: string | null; request: string }) =>
+  `A site stop rule fired; look at the response first (\`tabcap net body ${h.request}\`). Go on only when the human (or you, after judging) decides to: \`tabcap handoff continue\`${h.site === null ? "" : ` (or \`tabcap guard resume --site ${h.site}\`)`}; until then do not act on this site.`;
+
+const nextOf = (h: Handoff): string => (h.reason === "stop-rule" ? STOP_RULE_NEXT(h) : CONTINUE_NEXT);
 
 export type HandlerState = {
   plugin: string;
@@ -74,6 +91,9 @@ export type Handoff = {
   resumedBy: string | null;
   /** The resume notice (plugin answer) was shown to the AI once. */
   delivered: boolean;
+  /** 0.6-I stop-rule handoffs: the rule that fired and what it saw. */
+  rule?: string;
+  ruleDetail?: string;
 };
 
 /** Public view of a handoff (CLI output and the `waiting` error). */
@@ -92,11 +112,15 @@ export function handoffView(h: Handoff): Record<string, unknown> {
     handlers: h.handlers.map((x) => ({ plugin: x.plugin, status: x.status, cmd: x.cmd, answer: x.answer, note: x.note, error: x.error })),
     resumedAt: h.resumedAt,
     resumedBy: h.resumedBy,
-    next: h.state === "waiting" ? CONTINUE_NEXT : h.resumedBy?.startsWith("plugin:") === true ? "A challenge handler answered (untrusted data in handlers[].answer); apply it if it fits, then go on." : "Go on.",
+    ...(h.rule === undefined ? {} : { rule: h.rule, detail: h.ruleDetail ?? null }),
+    next: h.state === "waiting" ? nextOf(h) : h.resumedBy?.startsWith("plugin:") === true ? "A challenge handler answered (untrusted data in handlers[].answer); apply it if it fits, then go on." : "Go on.",
   };
 }
 
 export function waitingError(h: Handoff): TabcapError {
+  if (h.reason === "stop-rule") {
+    return new TabcapError("guard.stopped", `session "${h.session}" is stopped: site rule ${h.rule ?? "?"} fired on ${h.request} (${h.ruleDetail ?? `HTTP ${h.status ?? "?"}`})`, STOP_RULE_NEXT(h), handoffView(h));
+  }
   return new TabcapError("waiting", `session "${h.session}" is waiting for the human: ${h.reason} at ${h.url} (HTTP ${h.status ?? "?"})`, CONTINUE_NEXT, handoffView(h));
 }
 
@@ -113,7 +137,42 @@ export type GuardDeps = {
   settleMs?: number;
   /** A breaker tripped in this session: the account starts cooling (0.4-D); returns coolUntil or null. */
   onBreaker?: (session: string) => number | null;
+  /** 0.6-I: the store site rules a recorded response of the session falls under, or null. */
+  siteRules?: (session: string, url: string) => { site: string; rules: StopRule[]; consecutiveNon200: number | null } | null;
+  /** 0.6-I: the stored bytes of a body blob of the session's recording, or null. */
+  readBlob?: (session: string, blob: string) => Uint8Array | null;
 };
+
+/** 0.6-I: the response types the site rules look at (page XHR / fetch, `tabcap fetch`, navigations). */
+const RULE_TYPES: ReadonlySet<string> = new Set(["document", "xhr", "fetch"]);
+/** Bodies that are empty by HTTP (no body to look at, but nothing unknown either). */
+const EMPTY_BY_STATUS: ReadonlySet<string> = new Set(["no-content", "not-modified"]);
+const BODY_RULES: ReadonlySet<StopRule["kind"]> = new Set(["empty-body", "json", "text"]);
+
+/** Pure: is this recorded request a final response the site rules look at? */
+export function ruleSubject(e: Pick<NetEntry, "type" | "status" | "bodyMissing">): boolean {
+  return RULE_TYPES.has(e.type) && e.status !== null && e.bodyMissing !== "redirect";
+}
+
+/**
+ * Pure: the body facts a rule sees, or null when the body is unknown (not
+ * finished, skipped by --bodies, too large, gone): then only status rules run.
+ */
+export function bodyFacts(
+  e: Pick<NetEntry, "outcome" | "blob" | "bodyMissing" | "bodySkipped">,
+  bytes: Uint8Array | null,
+  decode: (b: Uint8Array) => string | null,
+): { bytes: number; text: string | null } | null {
+  if (e.outcome !== "finished" || e.bodySkipped !== undefined) return null;
+  if (e.blob === null) return e.bodyMissing !== null && EMPTY_BY_STATUS.has(e.bodyMissing) ? { bytes: 0, text: "" } : null;
+  if (bytes === null) return null;
+  return { bytes: bytes.length, text: decode(bytes) };
+}
+
+/** Pure: the consecutive non-2xx count after one more response (2xx resets it). */
+export function nextNon200(count: number, status: number): number {
+  return status >= 200 && status < 300 ? 0 : count + 1;
+}
 
 /** Commands refused while the session waits for the human. */
 // hover and upload (0.3-F) act on the page like click, so they wait for the human too;
@@ -133,18 +192,22 @@ export type FetchStop = {
   rule: string;
   detail: string;
   request: string;
-  fetchId: string;
+  /** The fetch whose response fired the rule; null for a page request (0.6-I site rule). */
+  fetchId: string | null;
   url: string;
   status: number | null;
   since: number;
+  /** 0.6-A `fetch-stop` (the fetch's own rule) or 0.6-I `stop-rule` (a site rule; the session also waits). */
+  reason: "fetch-stop" | "stop-rule";
 };
 
 export const FETCH_RESUME_NEXT = (site: string) =>
   `Look at the stopped response first (\`tabcap net body <r-N>\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${site}\`.`;
 
 export function fetchStoppedError(s: FetchStop): TabcapError {
-  return new TabcapError("guard.stopped", `fetches on ${s.site} are stopped: rule ${s.rule} fired on ${s.request} (${s.detail})`, FETCH_RESUME_NEXT(s.site), {
+  return new TabcapError("guard.stopped", `fetches on ${s.site} are stopped: ${s.reason === "stop-rule" ? "site " : ""}rule ${s.rule} fired on ${s.request} (${s.detail})`, FETCH_RESUME_NEXT(s.site), {
     site: s.site,
+    reason: s.reason,
     rule: s.rule,
     request: s.request,
     fetchId: s.fetchId,
@@ -195,8 +258,26 @@ export class Guard {
       throw new TabcapError("not-found", `fetches on ${site} are not stopped`, stopped.length === 0 ? "Nothing to resume." : `Stopped now: ${stopped.join(", ")}.`);
     }
     this.fetchStops.delete(site);
-    rec?.event("guard", { event: "resume", site, account: null, reason: "fetch-stop", rule: s.rule, request: s.request, by, detail: { reason: "fetch-stop", rule: s.rule, request: s.request, by } });
+    rec?.event("guard", { event: "resume", site, account: null, reason: s.reason, rule: s.rule, request: s.request, by, detail: { reason: s.reason, rule: s.rule, request: s.request, by } });
     return s;
+  }
+
+  /** 0.6-I: fetches whose call gave its own --stop-on (the per-call override of the site's stopOn). */
+  private overrides = new Set<string>();
+  /** 0.6-I: consecutive non-2xx responses per session and site. */
+  private non200 = new Map<string, number>();
+  /** 0.6-I: the stop-rule trip each request caused (for the fetch whose response tripped it). */
+  private tripsByRequest = new Map<string, { site: string; rule: string; detail: string }>();
+
+  /** `tabcap fetch --stop-on` given: this fetch's responses skip the site's stopOn (the counter still counts). */
+  overrideSiteRules(fetchId: string): () => void {
+    this.overrides.add(fetchId);
+    return () => this.overrides.delete(fetchId);
+  }
+
+  /** The site stop rule that request `id` of `session` tripped, or null. */
+  stopRuleHit(session: string, id: string): { site: string; rule: string; detail: string } | null {
+    return this.tripsByRequest.get(`${session}|${id}`) ?? null;
   }
 
   /** The fetch stops a session's fetches set off (handoff continue lifts them). */
@@ -232,15 +313,113 @@ export class Guard {
 
   /** Subscribe to a recording; returns the unsubscribe function. */
   watch(rec: GuardRecorder): () => void {
-    return rec.onIndexed((e) => {
-      const reason = challengeOf(e);
-      if (reason === null) return;
+    return rec.onIndexed((e, ev) => {
       const cur = this.handoffs.get(rec.session);
       if (cur !== undefined && cur.state === "waiting") return;
-      const p = this.trip(rec, e, reason).catch((x: unknown) => log.error("guard: trip failed", { error: String(x) }));
-      this.pending.add(p);
-      void p.finally(() => this.pending.delete(p));
+      const reason = challengeOf(e);
+      if (reason === null) {
+        this.checkSiteRules(rec, e, ev);
+        return;
+      }
+      this.track(this.trip(rec, e, reason));
     });
+  }
+
+  private track(p: Promise<void>): void {
+    const q = p.catch((x: unknown) => log.error("guard: trip failed", { error: String(x) }));
+    this.pending.add(q);
+    void q.finally(() => this.pending.delete(q));
+  }
+
+  /** 0.6-I: check one recorded response against its site's stop rules and non-2xx counter. */
+  private checkSiteRules(rec: GuardRecorder, e: NetEntry, ev: Record<string, unknown> | undefined): void {
+    if (this.deps.siteRules === undefined || !ruleSubject(e) || e.status === null) return;
+    const session = rec.session;
+    const sr = this.deps.siteRules(session, e.url);
+    if (sr === null) return;
+    const rules = e.fetchId !== undefined && this.overrides.has(e.fetchId) ? [] : sr.rules;
+    let hit: { rule: string; detail: string } | null = null;
+    if (rules.length > 0) {
+      const resp = ev !== undefined && isRecord(ev["response"]) ? ev["response"] : {};
+      const charset = typeof resp["charset"] === "string" ? resp["charset"] : null;
+      const bytes = e.blob === null ? null : (this.deps.readBlob?.(session, e.blob) ?? null);
+      const facts = bodyFacts(e, bytes, (b) => {
+        const t = decodeBody(b, e.mime, () => charset);
+        return t === null ? null : this.deps.secrets.scrub(t);
+      });
+      const usable = facts === null ? rules.filter((r) => !BODY_RULES.has(r.kind)) : rules;
+      hit = firstStop(usable, { status: e.status, bytes: facts?.bytes ?? 0, text: facts?.text ?? null });
+    }
+    const key = `${session}|${sr.site}`;
+    const n = nextNon200(this.non200.get(key) ?? 0, e.status);
+    this.non200.set(key, n);
+    if (hit === null && sr.consecutiveNon200 !== null && n >= sr.consecutiveNon200) {
+      hit = { rule: `consecutiveNon200:${sr.consecutiveNon200}`, detail: `${n} responses in a row were not 2xx (last: status ${e.status})` };
+    }
+    if (hit === null) return;
+    this.non200.set(key, 0);
+    this.track(this.tripStopRule(rec, e, sr.site, hit));
+  }
+
+  /** 0.6-I: a site stop rule fired. Blocking is synchronous; the screenshot follows. */
+  private async tripStopRule(rec: GuardRecorder, e: NetEntry, site: string, hit: { rule: string; detail: string }): Promise<void> {
+    const session = rec.session;
+    const bound = this.deps.siteOf(session);
+    const account = bound !== null && bound.site === site ? bound.account : null;
+    const since = Date.now();
+    const h: Handoff = {
+      session,
+      state: "waiting",
+      reason: "stop-rule",
+      site,
+      origin: originOf(e.url),
+      url: e.url,
+      status: e.status,
+      request: e.id,
+      tab: e.tab,
+      since,
+      screenshot: null,
+      handlers: [],
+      resumedAt: null,
+      resumedBy: null,
+      delivered: false,
+      rule: hit.rule,
+      ruleDetail: hit.detail,
+    };
+    this.handoffs.set(session, h);
+    this.fetchStops.set(site, { site, session, rule: hit.rule, detail: hit.detail, request: e.id, fetchId: e.fetchId ?? null, url: e.url, status: e.status, since, reason: "stop-rule" });
+    this.tripsByRequest.set(`${session}|${e.id}`, { site, ...hit });
+    this.emitState(session, "waiting");
+    rec.event(
+      "guard",
+      {
+        event: "breaker",
+        site,
+        account,
+        reason: "stop-rule",
+        rule: hit.rule,
+        request: e.id,
+        detail: { reason: "stop-rule", rule: hit.rule, detail: hit.detail, request: e.id, url: e.url, status: e.status, ...(e.fetchId === undefined ? {} : { fetchId: e.fetchId }) },
+      },
+      { tab: e.tab },
+    );
+    log.info("guard: site stop rule fired", { session, site, rule: hit.rule, request: e.id });
+    await Bun.sleep(this.deps.settleMs ?? 400);
+    h.screenshot = await this.deps.screenshot(session, e.tab).catch(() => null);
+    rec.event(
+      "handoff",
+      {
+        state: "waiting",
+        reason: "stop-rule",
+        question: `A stop rule of site ${site} fired (${hit.rule} on ${e.id}); look at the response, then tell the AI whether to continue.`,
+        timeoutMs: null,
+        answerRef: null,
+        request: e.id,
+        url: e.url,
+        screenshot: h.screenshot,
+      },
+      { tab: e.tab },
+    );
   }
 
   private async trip(rec: GuardRecorder, e: NetEntry, reason: ChallengeReason): Promise<void> {
@@ -403,7 +582,7 @@ export class Guard {
   /** The `handoff` field added to read-only command output while waiting. */
   waitingNotice(session: string): Record<string, unknown> | null {
     const h = this.handoffs.get(session);
-    return h !== undefined && h.state === "waiting" ? { state: h.state, reason: h.reason, screenshot: h.screenshot, next: CONTINUE_NEXT } : null;
+    return h !== undefined && h.state === "waiting" ? { state: h.state, reason: h.reason, screenshot: h.screenshot, next: nextOf(h) } : null;
   }
 
   async settle(): Promise<void> {

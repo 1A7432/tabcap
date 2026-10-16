@@ -726,8 +726,9 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["guard", "resume"],
     pos: [],
-    flags: [SESSION, { flag: "--site", key: "site", kind: "string", help: "the store site (or host) whose fetches a stop rule stopped", required: true, metavar: "site" }],
-    summary: "resume fetches: let `tabcap fetch` send to a site again after one of its stop rules fired (decide first: look at the stopped response)",
+    flags: [SESSION, { flag: "--site", key: "site", kind: "string", help: "the store site (or host) a stop rule stopped", required: true, metavar: "site" }],
+    summary:
+      "resume a site after a stop rule fired: `tabcap fetch` sends to it again, and a session a site rule (config.json sites.<s>.guard) put into waiting goes on (decide first: look at the stopped response)",
     example: "tabcap guard resume --site example",
     action: "guard.resume",
   },

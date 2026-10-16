@@ -189,3 +189,53 @@ export function recordBodiesFrom(raw: Record<string, unknown>): BodiesMode {
 export function readRecordBodies(file: string): BodiesMode {
   return recordBodiesFrom(readRaw(file));
 }
+
+// ------------------------------------------------------------ site guard (0.6-I)
+
+/**
+ * `config.json` `sites.<name>.guard` (owner design 10-16): stop rules the
+ * guard checks on every recorded response of the site, in every session:
+ * {stopOn: [<rule>…], consecutiveNon200: <N>|null}. Rule syntax is the one of
+ * `tabcap fetch --stop-on` (daemon/fetch/stoprules.ts), checked by the guard.
+ */
+export type SiteGuardConfig = { stopOn: string[]; consecutiveNon200: number | null };
+
+export const SITE_GUARD_DEFAULTS: SiteGuardConfig = { stopOn: [], consecutiveNon200: null };
+
+/** Parse one `sites.<site>.guard` object; a wrong value is an error (never silently replaced). */
+export function parseSiteGuard(raw: unknown, site: string): SiteGuardConfig {
+  const where = `sites.${site}.guard`;
+  if (raw === undefined || raw === null) return { stopOn: [], consecutiveNon200: null };
+  if (!isRecord(raw)) throw new TabcapError("bad-input", `config.json ${where} is invalid`, `Set ${where} to an object {stopOn: [...], consecutiveNon200: N}, or remove it.`);
+  const out: SiteGuardConfig = { stopOn: [], consecutiveNon200: null };
+  const s = raw["stopOn"];
+  if (s !== undefined && s !== null) {
+    if (!Array.isArray(s) || !s.every((x) => typeof x === "string")) throw badFetch(where, "stopOn", "a list of stop rule strings");
+    out.stopOn = s.filter((x): x is string => typeof x === "string");
+  }
+  const n = raw["consecutiveNon200"];
+  if (n !== undefined && n !== null) {
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 10_000) throw badFetch(where, "consecutiveNon200", "null or an integer from 1 to 10000");
+    out.consecutiveNon200 = n;
+  }
+  return out;
+}
+
+/** Every site's `guard` settings that say something (no rule and no counter: left out). */
+export function siteGuardsFrom(raw: Record<string, unknown>): Map<string, SiteGuardConfig> {
+  const out = new Map<string, SiteGuardConfig>();
+  const sites = raw["sites"];
+  if (sites === undefined || sites === null) return out;
+  if (!isRecord(sites)) throw new TabcapError("bad-input", "config.json sites is invalid", "Set sites to an object {<site>: {guard: {...}}}, or remove it.");
+  for (const [name, entry] of Object.entries(sites)) {
+    if (entry === undefined || entry === null) continue;
+    if (!isRecord(entry)) throw new TabcapError("bad-input", `config.json sites.${name} is invalid`, `Set sites.${name} to an object, or remove it.`);
+    const g = parseSiteGuard(entry["guard"], name);
+    if (g.stopOn.length > 0 || g.consecutiveNon200 !== null) out.set(name, g);
+  }
+  return out;
+}
+
+export function readSiteGuards(file: string): Map<string, SiteGuardConfig> {
+  return siteGuardsFrom(readRaw(file));
+}

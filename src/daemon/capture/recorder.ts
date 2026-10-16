@@ -1020,10 +1020,10 @@ export class Recorder {
   }
 
   private writerClosed = false;
-  private indexListeners = new Set<(e: NetEntry) => void>();
+  private indexListeners = new Set<(e: NetEntry, event?: Record<string, unknown>) => void>();
 
-  /** Called for every request written to the bundle (after its body is stored). */
-  onIndexed(fn: (e: NetEntry) => void): () => void {
+  /** Called for every request written to the bundle (after its body is stored), with the stored event. */
+  onIndexed(fn: (e: NetEntry, event?: Record<string, unknown>) => void): () => void {
     this.indexListeners.add(fn);
     return () => this.indexListeners.delete(fn);
   }
@@ -1175,7 +1175,7 @@ export class Recorder {
     if (entry !== undefined) {
       for (const fn of [...this.indexListeners]) {
         try {
-          fn(entry);
+          fn(entry, stored);
         } catch (e) {
           log.warn("recorder: index listener failed", { error: String(e) });
         }

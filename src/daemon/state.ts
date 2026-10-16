@@ -14,6 +14,9 @@ import type { Store } from "./store/db.ts";
 import { Pool } from "./pool/runtime.ts";
 import { HostLimiter } from "./fetch/limiter.ts";
 import { DecodeHost } from "./hooks/decode.ts";
+import { siteRulesFor } from "./siterules.ts";
+import { BlobStore } from "../bundle/blobs.ts";
+import { readFileSync } from "node:fs";
 
 export type BrowserInfo = {
   transport: "direct";
@@ -80,6 +83,18 @@ export class Daemon {
       screenshot: (s, tab) => deps.screenshot?.(this, s, tab) ?? Promise.resolve(null),
       pageInfo: (s, tab) => deps.pageInfo?.(this, s, tab) ?? Promise.resolve({ url: null, title: null, text: null }),
       onBreaker: (s) => this.coolAccount(s),
+      // 0.6-I site stop rules: config.json sites.<name>.guard, bodies read from the session's recording.
+      siteRules: (s, url) => siteRulesFor(this, s, url),
+      readBlob: (s, blob) => {
+        const r = this.recorders.get(s);
+        const path = r === undefined ? null : new BlobStore(r.dir).pathOf(blob);
+        if (path === null) return null;
+        try {
+          return readFileSync(path);
+        } catch {
+          return null;
+        }
+      },
     });
     this.guard.recorder = (s) => this.recorders.get(s);
     // Trace mode skips debugger pauses while a session waits for the human (0.4-F).

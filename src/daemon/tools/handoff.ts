@@ -56,5 +56,17 @@ export function guardResume(d: Daemon, a: Args, session: string): unknown {
   const stop = d.guard.fetchStopOf(name);
   const rec = d.recorders.get(session) ?? (stop === null ? undefined : d.recorders.get(stop.session));
   const s = d.guard.resumeFetch(name, "guard-resume", rec);
-  return { site: s.site, resumed: true, rule: s.rule, request: s.request, stoppedSince: s.since, stoppedBy: s.session };
+  // 0.6-I: a site stop rule also put its session into waiting; the explicit un-trip ends that too.
+  const h = s.reason === "stop-rule" ? d.guard.get(s.session) : null;
+  const handoffResumed = h !== null && h.state === "waiting" && h.reason === "stop-rule" ? d.guard.resume(s.session, "guard-resume").session : null;
+  return {
+    site: s.site,
+    resumed: true,
+    reason: s.reason,
+    rule: s.rule,
+    request: s.request,
+    stoppedSince: s.since,
+    stoppedBy: s.session,
+    ...(handoffResumed === null ? {} : { handoffResumed }),
+  };
 }

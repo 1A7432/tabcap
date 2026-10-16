@@ -21,7 +21,7 @@ import { isRecord, num, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
 import type { FetchRecord, Recorder } from "../capture/recorder.ts";
 import type { FetchReg } from "../capture/fetchmark.ts";
-import { fetchStoppedError, originOf } from "../guard.ts";
+import { fetchStoppedError, originOf, STOP_RULE_NEXT } from "../guard.ts";
 import type { Daemon } from "../state.ts";
 import type { Tab, Tabs } from "../browser/targets.ts";
 import type { ConsoleLog } from "../capture/console.ts";
@@ -249,6 +249,8 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
   const fetchId = `${cmd ?? "c-0"}:f-${k}`;
   let releaseStage: (() => Promise<void>) | null = null;
   let recorded: FetchRecord | null = null;
+  // 0.6-I: --stop-on is the per-call override of the site's guard.stopOn (the site's non-2xx counter still counts).
+  const releaseOverride = spec.stopOn.length > 0 ? d.guard.overrideSiteRules(fetchId) : null;
   try {
     const again = d.guard.fetchStopOf(where.key);
     if (again !== null) throw fetchStoppedError(again);
@@ -286,10 +288,24 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
       throw new TabcapError("internal", `the page got the response of ${fetchId} (HTTP ${helper.status}) but the recording has no request for it`, "Run `tabcap net list` to look for it; rerun with TABCAP_LOG=debug and report the output.", { fetchId });
     }
     const env = buildEnvelope(d, rec, recorded, { fetchId, waitedMs: slot.waitedMs, spec });
+    // 0.6-I: a site stop rule fired on this very response (the guard already stopped the site and the session waits).
+    const site = d.guard.stopRuleHit(session, recorded.entry.id);
+    if (site !== null) {
+      throw new TabcapError(
+        "fetch.stopped",
+        `site stop rule ${site.rule} fired on ${recorded.entry.id} (${site.detail}); the session waits and fetches on ${site.site} are refused from now on`,
+        STOP_RULE_NEXT({ site: site.site, request: recorded.entry.id }),
+        { site: site.site, reason: "stop-rule", rule: site.rule, detail: site.detail, request: recorded.entry.id, fetchId, result: { ...env.data, stopped: { rule: site.rule, detail: site.detail } } },
+      );
+    }
     const hit = firstStop(rules, { status: env.status, bytes: env.bytes, text: env.text });
     if (hit === null) return env.data;
     const data = { ...env.data, stopped: hit };
-    d.guard.stopFetch(rec, { site: where.key, session, rule: hit.rule, detail: hit.detail, request: recorded.entry.id, fetchId, url: target.href, status: env.status, since: Date.now() }, { tab: tab.id, account: bound !== null && bound.site === where.site ? bound.account : null });
+    d.guard.stopFetch(
+      rec,
+      { site: where.key, session, rule: hit.rule, detail: hit.detail, request: recorded.entry.id, fetchId, url: target.href, status: env.status, since: Date.now(), reason: "fetch-stop" },
+      { tab: tab.id, account: bound !== null && bound.site === where.site ? bound.account : null },
+    );
     throw new TabcapError("fetch.stopped", `stop rule ${hit.rule} fired on ${recorded.entry.id} (${hit.detail}); fetches on ${where.key} are refused from now on`, `Look at the response (\`tabcap net body ${recorded.entry.id}\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${where.key}\`.`, {
       site: where.key,
       rule: hit.rule,
@@ -299,6 +315,7 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
       result: data,
     });
   } finally {
+    releaseOverride?.();
     slot.release();
     if (releaseStage !== null) await releaseStage();
     // A request that is written after the command gave up still finds its fetch for a while.
