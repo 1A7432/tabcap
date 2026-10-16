@@ -9,8 +9,6 @@ English | [中文](CHANGELOG.zh-CN.md)
 - Credential rule: storing a password once is recommended for the human (`site add` / `account add` at a prompt or with `--password-stdin`), but no longer reserved to them: an agent the user hands a value to may store it once with `--password-stdin` (no terminal needed), and from then on only the `<secret:…>` references are used. The help of `site add`, `account add` and `proxy add`, the skill, docs/04 §8.1 and the README say so; the code already allowed it.
 - README: the five differences describe 0.4 (credentials stored once then referenced; the plugin interface for your own challenge handlers next to "ships no solvers"; `where`, `analyze deps` / `chain`, `export-python` `verify()`, `recon`, trace mode and the two probes), and the Chinese README carries the same information as the English one.
 
-## Unreleased
-
 ### MCP server (0.5-A)
 
 - **`tabcap mcp`**: a Model Context Protocol server on stdin / stdout, written by hand (JSON-RPC 2.0, one message per line, no new dependency): the initialize lifecycle of MCP 2025-11-25 (also answers clients asking for 2025-06-18, 2025-03-26 or 2024-11-05 with their version), `ping`, `tools/list`, `tools/call`; only MCP messages on stdout, logs on stderr; it exits when stdin closes, after the calls in flight have answered.
