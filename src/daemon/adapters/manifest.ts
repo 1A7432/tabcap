@@ -294,5 +294,9 @@ export function loadAdapterDir(dir: string): Adapter {
 
 /** Calling a hook the adapter declares but this version does not run (read, decode). */
 export function hookNotImplemented(a: Adapter, hook: HookName): TabcapError {
-  return new TabcapError("unsupported", `adapter ${a.name}: the ${hook} hook is declared and validated, but tabcap 0.3 does not run ${hook} hooks yet`, "Use snapshot / outline (detect, describe) or click / fill (act) for now.");
+  const next =
+    hook === "decode"
+      ? 'Body decoding runs through decode plugins (a plugin with "kind": "decode" under the plugins directory, docs/04 §26), not adapter hooks.'
+      : "Use snapshot / outline (detect, describe) or click / fill (act) for now.";
+  return new TabcapError("unsupported", `adapter ${a.name}: the ${hook} hook is declared and validated, but tabcap 0.3 does not run ${hook} hooks yet`, next);
 }

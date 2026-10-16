@@ -16,6 +16,12 @@
 // Trace mode (0.4-F, daemon/trace/) writes `signal` events through `signal()`,
 // opens / closes trace windows (`note` events, manifest `traceWindows`) and
 // flushes what it has seen through a before-stop hook.
+// Decode plugins (0.6-B, hooks/decode.ts): when a request or response body
+// matches an enabled decode plugin, the plugin is asked after the body is
+// captured, before the event is written; its plaintext is stored as a blob
+// and referenced as `decoded` on the `request` / `response` side (docs/04
+// §26). The original body is never changed. A plugin disabled after repeated
+// failures gets a `note` event.
 
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
@@ -42,6 +48,7 @@ import {
 import { framePayload, WsBook, type WsConn } from "./ws.ts";
 import { cookieArray, cookieStateFields, navCookieParams, navWantsCookies, stateOrigin, type StateReason } from "./cookies.ts";
 import { continueHeaders, initiatorMatch, markerOf, withoutMarker, type FetchReg } from "./fetchmark.ts";
+import { decodedField, type DecodeDirection, type DecodeJob, type DecodeOutcome } from "../hooks/decode.ts";
 
 const NETWORK_ENABLE = { maxTotalBufferSize: 256 * 1024 * 1024, maxResourceBufferSize: 64 * 1024 * 1024, maxPostDataSize: 1024 * 1024 };
 const FETCH_ENABLE = {
@@ -87,6 +94,8 @@ export type NetEntry = {
   unreadByPage?: boolean;
   /** 0.6-A: the `tabcap fetch` this request belongs to (`c-N:f-K`). */
   fetchId?: string;
+  /** The response body's decoded view (decode plugin, 0.6-B), when one was stored. */
+  decoded?: { by: string; version: string; mime: string | null; blob: string; bytes: number };
   /** Daemon clock when the event was written. */
   at: number;
 };
@@ -169,7 +178,12 @@ export type RecorderOptions = {
   onFinished?: (dir: string) => void;
   /** docs/04 §5.2 rule 9 delay (tests shorten it); default UNREAD_AFTER_MS. */
   unreadAfterMs?: number;
+  /** Decode plugins of this recording (0.6-B); null / absent: none. */
+  decode?: RecorderDecode | null;
 };
+
+/** What the recorder needs from the decode plugins (hooks/decode.ts DecodeSession). */
+export type RecorderDecode = { readonly empty: boolean; decode(job: DecodeJob): Promise<DecodeOutcome | null> };
 
 export class Recorder {
   readonly dir: string;
@@ -904,8 +918,9 @@ export class Recorder {
       if (put.outcome === "stored") bodyRef = { blob: put.ref, size: put.size };
       else missing = { reason: "too-large", detail: `${put.size} bytes > ${put.cap}` };
     }
-    const { postData, postDataMissing } = await this.postOf(q);
+    const { postData, postDataMissing, post } = await this.postOf(q);
     if (q.redirectPending !== null) q.redirectFrom = await q.redirectPending;
+    const decoded = await this.decodeBodies(q, post, postData !== null, o.body !== null && bodyRef !== null ? o.body : null);
     if (this.writerClosed) return;
     const ev = this.buildEvent(q, {
       outcome: o.outcome,
@@ -918,6 +933,7 @@ export class Recorder {
       postData,
       postDataMissing,
       unreadByPage: o.unreadByPage === true && bodyRef !== null,
+      decoded,
     });
     this.extraReq.delete(q.key);
     this.extraResp.delete(q.key);
@@ -925,7 +941,7 @@ export class Recorder {
   }
 
   /** The request body of `q` as the bundle stores it (docs/04 §5.2): inline up to INLINE_POST_MAX, else a blob. */
-  private async postOf(q: Pending): Promise<{ postData: InlineOrBlob | null; postDataMissing: { reason: string; detail: string | null } | null }> {
+  private async postOf(q: Pending): Promise<{ postData: InlineOrBlob | null; postDataMissing: { reason: string; detail: string | null } | null; post: string | null }> {
     let postData: InlineOrBlob | null = null;
     let postDataMissing: { reason: string; detail: string | null } | null = null;
     let post = q.postData;
@@ -944,7 +960,43 @@ export class Recorder {
         else postDataMissing = { reason: "too-large", detail: null };
       }
     }
-    return { postData, postDataMissing };
+    return { postData, postDataMissing, post };
+  }
+
+  /**
+   * Ask the decode plugins about the request body (as stored) and the response
+   * body; the views go to blobs. Never throws: a failure is a `decoded` with
+   * `ok: false`, an error here (bundle closed meanwhile) means no view.
+   */
+  private async decodeBodies(q: Pending, post: string | null, postStored: boolean, body: Uint8Array | null): Promise<{ request: Record<string, unknown> | null; response: Record<string, unknown> | null }> {
+    const none = { request: null, response: null };
+    const dec = this.opts.decode;
+    if (dec === undefined || dec === null || dec.empty) return none;
+    // The plugin sees the headers as recorded: without a `tabcap fetch` marker (0.6-A).
+    const reqH = mergeHeaders(withoutMarker(q.headers), this.extraReq.get(q.key) ?? null).headers;
+    const side = async (direction: DecodeDirection, bytes: Uint8Array, mime: string | null, response: DecodeJob["response"]): Promise<Record<string, unknown> | null> => {
+      try {
+        const out = await dec.decode({ direction, id: null, url: q.url, method: q.method, requestHeaders: reqH, response, body: bytes, mime });
+        if (out === null || this.writerClosed) return null;
+        return await decodedField(out, (b) => this.writer.putBlob(b));
+      } catch (e) {
+        log.warn("recorder: decode failed", { error: String(e) });
+        return null;
+      }
+    };
+    const request = post !== null && postStored ? await side("request", new TextEncoder().encode(post), headerValue(reqH, "content-type"), null) : null;
+    let response: Record<string, unknown> | null = null;
+    if (body !== null && q.response !== null) {
+      const respH = mergeHeaders(normalizeHeaders(q.response["headers"]), this.extraResp.get(q.key) ?? null).headers;
+      response = await side("response", body, str(q.response, "mimeType") ?? headerValue(respH, "content-type"), { status: num(q.response, "status"), headers: respH });
+    }
+    return { request, response };
+  }
+
+  /** A `note` event from the daemon (decode plugin disabled …); written while the bundle is open, also during stop. */
+  note(text: string, fields: Record<string, unknown> = {}): number | null {
+    if (this.writerClosed) return null;
+    return this.writer.append({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(), text, refs: [], ...fields }).seq;
   }
 
   private writerClosed = false;
@@ -992,6 +1044,7 @@ export class Recorder {
       postData?: InlineOrBlob | null;
       postDataMissing?: { reason: string; detail: string | null } | null;
       unreadByPage?: boolean;
+      decoded?: { request: Record<string, unknown> | null; response: Record<string, unknown> | null };
     },
   ): UnsequencedEvent {
     // 0.6-A: the marker of a `tabcap fetch` never reached the server (Request stage); the recorded headers say so.
@@ -1022,6 +1075,7 @@ export class Recorder {
             ? null
             : { blob: o.body.blob, size: o.body.size, base64: false, wireEncoding: headerValue(respH.headers, "content-encoding"), truncated: false },
         bodyMissing: o.body === null ? (o.missing ?? { reason: "unsupported", detail: null }) : null,
+        ...(o.decoded?.response === null || o.decoded?.response === undefined ? {} : { decoded: o.decoded.response }),
       };
     }
     const end = o.endMono;
@@ -1048,6 +1102,7 @@ export class Recorder {
         headersSource: reqH.source,
         postData: o.postData ?? null,
         ...(o.postDataMissing === undefined || o.postDataMissing === null ? {} : { postDataMissing: o.postDataMissing }),
+        ...(o.decoded?.request === null || o.decoded?.request === undefined ? {} : { decoded: o.decoded.request }),
       },
       response,
       redirect: q.redirectFrom === null ? null : { from: q.redirectFrom },
@@ -1067,6 +1122,8 @@ export class Recorder {
     const resp = isRecord(stored["response"]) ? stored["response"] : null;
     const body = resp !== null && isRecord(resp["body"]) ? resp["body"] : null;
     const missing = resp !== null && isRecord(resp["bodyMissing"]) ? str(resp["bodyMissing"], "reason") : null;
+    const dv = resp !== null && isRecord(resp["decoded"]) ? resp["decoded"] : null;
+    const dBlob = dv === null || dv["ok"] !== true ? null : str(dv, "blob");
     this.index.push({
       id,
       tab: q.tab.id,
@@ -1083,6 +1140,7 @@ export class Recorder {
       at: Date.now(),
       ...(stored["unreadByPage"] === true ? { unreadByPage: true } : {}),
       ...(q.fetchId === null ? {} : { fetchId: q.fetchId }),
+      ...(dv === null || dBlob === null ? {} : { decoded: { by: str(dv, "by") ?? "", version: str(dv, "version") ?? "", mime: str(dv, "mime"), blob: dBlob, bytes: num(dv, "bytes") ?? 0 } }),
     });
     const entry = this.index[this.index.length - 1];
     if (entry !== undefined && q.fetchId !== null) this.noteFetchWritten(q.fetchId, { entry, event: stored });

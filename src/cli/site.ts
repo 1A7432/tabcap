@@ -6,6 +6,7 @@
 import { TabcapError } from "../shared/envelope.ts";
 import type { Paths } from "../shared/paths.ts";
 import { HOOK_PROTOCOL, listPlugins, pluginsDir, setEnabled } from "../daemon/hooks/plugins.ts";
+import { DECODE_PROTOCOL } from "../daemon/hooks/decode.ts";
 import { Store, checkSiteName, type SiteListing } from "../daemon/store/db.ts";
 
 export function withStore<T>(p: Paths, fn: (s: Store) => T): T {
@@ -134,10 +135,13 @@ export function pluginList(p: Paths): unknown {
     dir: pluginsDir(p.config),
     protocol: HOOK_PROTOCOL,
     shipped: "none: tabcap ships the interface only; handlers are your own programs",
+    decodeProtocol: DECODE_PROTOCOL,
     plugins: listPlugins(p.config).map((x) => ({
       name: x.name,
       enabled: x.enabled,
+      kind: x.manifest === null ? null : x.manifest.decode !== undefined ? "decode" : "challenge",
       hooks: x.manifest?.hooks ?? [],
+      ...(x.manifest?.decode === undefined ? {} : { match: x.manifest.decode.match, maxBytes: x.manifest.decode.maxBytes }),
       version: x.manifest?.version ?? null,
       description: x.manifest?.description ?? null,
       command: x.manifest?.command ?? null,
@@ -150,5 +154,5 @@ export function pluginList(p: Paths): unknown {
 export function pluginSet(p: Paths, args: Record<string, unknown>, on: boolean): unknown {
   const name = typeof args["name"] === "string" ? args["name"] : "";
   const x = setEnabled(p.config, name, on);
-  return { name: x.name, enabled: x.enabled, hooks: x.manifest?.hooks ?? [] };
+  return { name: x.name, enabled: x.enabled, hooks: x.manifest?.hooks ?? [], ...(x.manifest?.decode === undefined ? {} : { kind: "decode" }) };
 }

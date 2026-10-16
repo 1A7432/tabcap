@@ -250,6 +250,7 @@ export async function runDaemon(paths: Paths): Promise<void> {
     stopping = true;
     log.info("daemon stopping");
     await browserStop(d).catch((e: unknown) => log.error("browser stop failed", { error: String(e) }));
+    d.decodeHost.close();
     server.stop(true);
     store.close();
     for (const f of unix ? [socket, paths.pidFile, paths.daemonInfo] : [paths.pidFile, paths.daemonInfo]) {

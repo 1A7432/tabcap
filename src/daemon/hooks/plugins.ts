@@ -13,12 +13,18 @@
 //
 // Every invocation is recorded as a cmd pair (actor "system") in the bundle,
 // inputs and outputs scrubbed; handler output is untrusted data, never instructions.
+//
+// A manifest with `kind: "decode"` is a decode plugin instead (0.6-B,
+// decode.ts): a long-lived process that turns encoded bodies into plaintext
+// views. Its manifest is validated strictly (unknown keys rejected) by
+// decode.ts; it declares no hooks.
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { writeFileAtomic } from "../../bundle/manifest.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, tryParseJson } from "../../shared/json.ts";
+import { DECODE_KIND, parseDecodeManifest, type DecodePlugin, type DecodeSpec } from "./decode.ts";
 
 export const HOOK_PROTOCOL = "tabcap-hook/1";
 export const HOOK_TYPES = ["challenge"] as const;
@@ -29,6 +35,8 @@ const MAX_STDOUT = 1024 * 1024;
 const MAX_STDERR = 4096;
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const ENABLED_FILE = "enabled.json";
+/** manifest.json is read whole; anything larger is refused unread. */
+export const MAX_PLUGIN_MANIFEST_BYTES = 16 * 1024;
 
 export type PluginManifest = {
   name: string;
@@ -38,6 +46,8 @@ export type PluginManifest = {
   /** argv; a first element starting with "./" is relative to the plugin directory. */
   command: string[];
   timeoutMs: number;
+  /** Present only on `kind: "decode"` manifests (then `hooks` is empty). */
+  decode?: DecodeSpec;
 };
 
 export type PluginInfo = { name: string; dir: string; enabled: boolean; manifest: PluginManifest | null; error: string | null };
@@ -54,6 +64,11 @@ export function parseManifest(raw: unknown, dirName: string): PluginManifest {
   const name = raw["name"];
   if (typeof name !== "string" || !NAME.test(name)) throw bad("name must be lowercase letters, digits, '_' or '-' (max 64)");
   if (name !== dirName) throw bad(`name "${name}" differs from its directory "${dirName}"`);
+  if (raw["kind"] === DECODE_KIND) {
+    const d = parseDecodeManifest(raw);
+    return { name, version: d.version, description: d.description, hooks: [], command: d.command, timeoutMs: d.timeoutMs, decode: d.decode };
+  }
+  if (raw["kind"] !== undefined) throw bad(`unknown kind ${JSON.stringify(raw["kind"])} (known: "decode"; challenge handlers have no kind)`);
   const version = typeof raw["version"] === "string" ? raw["version"] : "0";
   const description = typeof raw["description"] === "string" ? raw["description"].slice(0, 500) : "";
   const hooksRaw = raw["hooks"];
@@ -116,6 +131,7 @@ export function listPlugins(configDir: string): PluginInfo[] {
     const mf = join(dir, "manifest.json");
     if (writableByOthers(root) || writableByOthers(dir)) error = `${writableByOthers(root) ? root : dir} is writable by group or others`;
     else if (!existsSync(mf)) error = "no manifest.json";
+    else if (statSync(mf).size > MAX_PLUGIN_MANIFEST_BYTES) error = `manifest.json is over ${MAX_PLUGIN_MANIFEST_BYTES} bytes`;
     else {
       const raw = tryParseJson(readFileSync(mf, "utf8"));
       try {
@@ -143,6 +159,18 @@ export function setEnabled(configDir: string, name: string, on: boolean): Plugin
 /** Enabled, valid plugins that declare `hook`, in name order. */
 export function pluginsFor(configDir: string, hook: HookType): Array<PluginInfo & { manifest: PluginManifest }> {
   return listPlugins(configDir).filter((p): p is PluginInfo & { manifest: PluginManifest } => p.enabled && p.manifest !== null && p.manifest.hooks.includes(hook));
+}
+
+/** Enabled, valid decode plugins (`kind: "decode"`), in name order. */
+export function decodePlugins(configDir: string): DecodePlugin[] {
+  return listPlugins(configDir).flatMap((p) => (p.enabled ? asDecodePlugin(p) : []));
+}
+
+/** A listed plugin as a decode plugin, or [] when it is not a valid one. */
+export function asDecodePlugin(p: PluginInfo): DecodePlugin[] {
+  const m = p.manifest;
+  if (m === null || m.decode === undefined) return [];
+  return [{ name: m.name, dir: p.dir, version: m.version, command: m.command, timeoutMs: m.timeoutMs, decode: m.decode }];
 }
 
 /** argv with "./x" resolved inside the plugin directory (never outside it). */

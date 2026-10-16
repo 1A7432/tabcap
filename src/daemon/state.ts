@@ -13,6 +13,7 @@ import { Secrets } from "./secrets.ts";
 import type { Store } from "./store/db.ts";
 import { Pool } from "./pool/runtime.ts";
 import { HostLimiter } from "./fetch/limiter.ts";
+import { DecodeHost } from "./hooks/decode.ts";
 
 export type BrowserInfo = {
   transport: "direct";
@@ -53,6 +54,8 @@ export class Daemon {
    */
   readonly proxySecrets = new Secrets();
   readonly pool = new Pool();
+  /** Decode plugin processes (0.6-B): one per plugin, shared by the sessions, killed at shutdown. */
+  readonly decodeHost = new DecodeHost();
   /** Credential store (docs/04 §8.1); null only in unit tests that do not need it. */
   store: Store | null = null;
   /** Store site bound to each session by `session start --site`. */

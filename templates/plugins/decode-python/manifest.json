@@ -1,0 +1,10 @@
+{
+  "name": "decode-python",
+  "kind": "decode",
+  "version": "1",
+  "description": "Python decode plugin from the tabcap template (runner.py + plugin.py)",
+  "match": { "host": ["127.0.0.1"], "path": ["/s42/api/*"], "contentTypes": ["text/plain"], "direction": "both" },
+  "command": ["uv", "run", "--project", ".", "runner.py"],
+  "timeoutMs": 10000,
+  "maxBytes": 8388608
+}
