@@ -57,6 +57,19 @@
 - expected：12 条全命中；另有一条**阴性对照**：搜一段不存在的文字 → 0 命中、**不**提示加密（页面没有高熵正文时）。
 - 配套 HAR 夹具：`fixtures/har/s04-devtools.har`（人用 DevTools 对此场景导出一次）、`fixtures/har/s04-gzip-raw.har`（脚本合成：正文仍是压缩字节 + base64），导入后 `find` 结果与自录一致。
 
+内嵌状态步骤（0.4-H，作者 10-16 定；靶场场景见 §5 s41）：HTML 文档里的内嵌状态是解码链的三个内置步骤，`find` / `where` / `deps` 共用，不走适配器的 `decode` 钩子；页面脚本一律不执行，只做有上限的文本扫描。步骤名是契约的一部分：
+
+| 步骤 | 识别 | 节点地址与路径 | 上限与失败 |
+|---|---|---|---|
+| `script-json` | `<script type="application/json">`、`<script type="application/ld+json">`（含 Next.js `<script id="__NEXT_DATA__" type="application/json">`） | `script[<n>]`，n 是这类 script 在文档里的序号（解不开的也占号）；其下接 `.$` 再接 JSON 路径：`script[0].$.props.pageProps.rows[0].amount`，非标识符键照 `find` 的写法加引号：`script[1].$["@graph"][0].sku`。`find` 的命中带 `node`（地址、`id`、`type`） | 单个 > 4 MiB（UTF-8 字节）不解，记 `truncated`；JSON 坏记 `unparsed` |
+| `inline-assign` | 无 `src`、JavaScript 类型的内联脚本里，**顶层**（不在任何括号内）的 `window.X = <字面量>`、`var\|let\|const X = <字面量>`；字面量是对象或数组，按 JSON 或宽松超集解析（无引号的标识符键、单引号字符串、尾随逗号、`undefined` → null），且语句在字面量后结束 | `assign[<X>]`（不带 `window.`），其下直接接 JSON 路径：`assign[__STATE__].rows[0].amount`；同名赋值两次地址相同 | 每文档 ≤ 64 个（第 65 个起记 `truncated`）、每个字面量 ≤ 1 MiB（超出记 `truncated`）；解析失败记 `unparsed` 并引用前 80 字符。函数调用、表达式、模板字符串、函数体内的赋值都不解 |
+| `viewstate` | `type=hidden` 的 `__VIEWSTATE`、`__VIEWSTATEGENERATOR`、`__EVENTVALIDATION`、JSF `javax.faces.ViewState` | `viewstate[<name>]` 是表单里的原值（`deps` 用它对回 POST 的同值字段）；base64 解开后是 `{bytes:{length, sha256}, strings:[…]}`：`viewstate[__VIEWSTATE].strings[0]` | 每字段 ≤ 2 MiB（超出只搜原值，记 `truncated`）；不是 base64 记 `unparsed`，原值照搜。**不做** .NET LOS / Java 序列化对象图解码 |
+
+- `strings`：≥ 4 个可打印 ASCII 字节（0x20–0x7e）的串，加 ≥ 4 个可打印 UTF-16LE 码元的串（两种字节对齐都扫；可打印 = ASCII、Latin-1、希腊 / 西里尔、常用标点、CJK 符号与假名、CJK 统一汉字、谚文、全角；非 ASCII 码元低字节不为 0；一串里超过一半的码元不能是「两个字节都是可打印 ASCII」，否则那是按错宽度读的 ASCII 文本），按起始字节排序、去重，每字段最多 10000 个（超出记 `truncated`）。所以 3 个字的 `条目甲` 单独存在时不成串，要带前缀（s41 用 `user:条目甲`）。
+- 解开的节点「认领」它的文本（script 正文、字面量、input 的 value）：文档其余部分照常按字面量匹配，同一个值在表格单元格里还会单独报一次（链 `[]`、无路径）。节点里没命中、但认领的原文里有字面量命中时，退回整篇文档的字面量命中，不丢结果。
+- script JSON 与字面量里的值要解转义才对得上原文时，链末尾加 `json-unescape`（与 s04 f 同一规则）；JSON 字符串里再套 JSON 照常加 `json-string`、`json`。
+- 没解开的节点（`unparsed` / `truncated`）列在 `find` 输出的 `searched.embedded`（`ref`、地址、状态、说明）。
+
 ### s05 encrypted（P1，验收 3 反例；P3 trace 对象）
 
 - 先 `GET /api/key` 拿 AES-GCM 密钥，再 `GET /api/secret`（密文，base64），页面 JS 解密后渲染目标文字。
@@ -187,6 +200,17 @@
 - 列表页：同一份 `GET /api/rows` 返回 `[{id, amount, qty, date, code, dir}]`（`amount` 为浮点、`date` 为 `YYYY-MM-DD`、`code` 为 `100101`、`dir` 为 `1`/`-1`）。页面按 `?locale=` 用五种方式渲染同一数据：`en-US`（`1,234.56`）、`de-DE`（`1.234,56`）、`fr-FR`（窄空格千分位）、`en-IN`（`1,23,456.00`）、`accounting`（负数 `(1,234.56)` 与尾随负号 `1234.56-`）；`date` 渲染为 `2026-09` / `202609` / `09/2026`；`code` 渲染为带点 `1001.01`；`dir` 渲染为 `DR`/`CR`。另一列用全角数字与 `&nbsp;` 填充。
 - 走法：`net start` → 依次导航五个 locale → `snapshot` 取每格 ref → 对每格 `where <ref>`；再 `where "1.234,56"`（文字入参）。
 - expected：每个 `where` 的首个候选都是 `r(rows)` 的 `$[i].amount|qty|date|code|dir` 同一路径；`normalized` 字段给出归一化后的值与所用规则名（`thousands-sep` / `decimal-comma` / `accounting-negative` / `trailing-minus` / `fullwidth` / `nbsp` / `date-yyyymm` / `dotted-code` / `dr-cr`）；DD/MM 与 MM/DD 歧义的格子只有当同页另一个值能消歧时才给候选，否则返回 `ambiguous` 并列出两种解释；文字入参命中与 ref 入参一致。
+
+### s41 embedded-state（P1，0.4-H：内嵌状态解码器）
+- 页面 `/s41`（`test/e2e/site.ts` 的 `startEmbeddedSite`，所有值在源码里手写）：服务端渲染 HTML，同一份行数据 `[{"id":4201,"amount":1234.56,"code":"100101"},{"id":4202,"amount":56.78,"code":"200202"}]` 出现在四处：(a) `<script id="__NEXT_DATA__" type="application/json">` 的 `props.pageProps.rows`；(b) `<script type="application/ld+json">`，`@graph` 里一个 `Product`，`sku` 等于 code `100101`，`offers.price` 为 `19.99`；(c) 内联脚本 `window.__STATE__ = {user:{id:4201,name:'条目甲'},rows:[…同上…],};`（故意用无引号键、单引号、尾随逗号）；(d) 表单里的 `__VIEWSTATE`，base64 载荷是手写字节：一段假头、ASCII 串 `VIEWSTATE-TOKEN-7f3a9c`、UTF-16LE 串 `user:条目甲`（逐码元写出），另有 `__VIEWSTATEGENERATOR`（`CA0B0334`）与 `__EVENTVALIDATION`。表格列 amount / code / name，显示纯字符串 `1234.56` / `100101` / `条目甲`（不加千分位：`find` 不做数字归一化，加了就搜不到单元格）。按钮的脚本从解开的 `__VIEWSTATE` 里截出 token，`POST /api/s41/submit`（form-urlencoded：`__VIEWSTATE`、`token`）；token 原文不在页面文字里，站点日志记下收到的两个值。
+- 走法：`net start` → 导航 `/s41` → `snapshot` → `where <amount 单元格的 ref>` → 点 submit → `net wait --url /api/s41/submit` → `net stop` → `analyze find "1234.56"`、`find "100101"`、`find "VIEWSTATE-TOKEN-7f3a9c"`、`find "条目甲"` → `analyze deps`。
+- expected（文档响应记作 r(doc)，命中按此顺序）：
+  - `find "1234.56"`：r(doc) 3 处——`script[0].$.props.pageProps.rows[0].amount`（链 `["script-json"]`，`node` 带 `id:"__NEXT_DATA__"`、`type:"application/json"`）、`assign[__STATE__].rows[0].amount`（`["inline-assign"]`）、HTML 单元格（链 `[]`、`path:null`）。
+  - `find "100101"`：同上再加 `script[1].$["@graph"][0].sku`（排在 script[0] 之后、assign 之前，共 4 处）。
+  - `find "VIEWSTATE-TOKEN-7f3a9c"`：r(doc) 的 `viewstate[__VIEWSTATE].strings[0]`（`["viewstate"]`），外加 POST 请求正文里的原文（`request-body`，链 `[]`）。
+  - `find "条目甲"`：`assign[__STATE__].user.name`、`viewstate[__VIEWSTATE].strings[1]`（串是 `user:条目甲`）、HTML 单元格。
+  - `where <amount 单元格>`：`normalized` 为 `[{1234.56, []}, {123456, [dotted-code]}]`；候选依次为 r(doc) 的 script 路径、assign 路径（都 `exact`、score 1）、单元格选择器 `form > table > tbody > tr:nth-of-type(1) > td:nth-of-type(1)`（0.4-C 排序：JSON 类在 HTML 文本节点前）。
+  - `deps`：POST 的 body `__VIEWSTATE` 主来源 `{kind:"response", request:r(doc), path:"viewstate[__VIEWSTATE]", decode:["viewstate"], match:"exact"}`；body `token` 主来源同一请求的 `viewstate[__VIEWSTATE].strings[0]`（同样 `["viewstate"]`、`exact`）。
 
 ## 6. 输入保真（作者定 10-15；提案 `docs/10`，0.3-E 落地）
 
