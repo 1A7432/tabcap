@@ -1,0 +1,9 @@
+{
+  "name": "fixture-harness",
+  "kind": "fixture",
+  "version": "1",
+  "description": "range fixture plugin (docs/04 §31): one cases/<r-N>.json in a made-up harness format per fixture; test only",
+  "command": ["bun", "./fixture.ts"],
+  "timeoutMs": 5000,
+  "maxBytes": 1048576
+}
