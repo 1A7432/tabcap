@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## Unreleased
+## 未发布
 
 ### 会话导出（0.6-F）
 
@@ -10,8 +10,6 @@
 - 格式：`requests` 是 JSON（schema `tabcap-session-export/0`：origin、capturedAt、cookies、headers、storage、note）；`httpx` 是可直接 import 的 Python 模块（缺 `.py` 自动补），含 `cookies`、`COOKIE_RECORDS`、`headers`、`storage` 和 `client(base_url)`；`playwright` 是 `replay session` 的 storageState，放不下的头和 sessionStorage 在 `omitted` 里报。
 - 文件权限 0600（新建目录 0700），里面是活的凭据；输出只有路径、计数和头名（`{file, for, origin, mode, cookies, headers, storage, source, note}`），录制包里照常只记带计数的 `cmd` 事件。
 - `replay export-python` 生成的包附带 `_tabcap_session.py`（读 JSON 导出、建 httpx 客户端，运行时不依赖 tabcap），包里的 README 写了用法。
-
-## 未发布
 
 ### 经已登录标签发请求（0.6-A）
 
@@ -32,6 +30,14 @@
 - **被重定向回答的 POST 保留请求体**：录制器写被重定向的那一跳时没带请求体（`postData: null`）；现在按常规规则存（≤ 64 KiB 内联，否则 blob），下一跳的 `redirect.from` 仍指向它。
 - **图片验证码提示**：登录表单旁的图片验证码（图片的 src / id / class / alt / 标签含 captcha / verify / 验证码 / 校验码，或输入框名字像 captcha / vcode / verifyCode）让 `snapshot` / `outline` 头多一行 `challenge  image-captcha img [e12] → input [e13]; …`、JSON 多 `challenge`，对该表单的 `fill` / `click` 带 `challenge: {kind, image, input}`，每个页面写一条 `guard` 事件 `{event: "challenge", detail: {kind: "image-captcha", advisory: true, …}}`。不等待、不拒绝：模型自己读图（`screenshot --ref`）或叫人。其他挑战照旧转交。
 - **一账号一浏览器上下文**：每个绑了账号的 `session start --site <s>`（含 `--account auto`，也含没绑池代理的账号）都有自己的 browser context，开始时恢复该账号的 cookie，并像池账号一样回写，第二个账号不会再撞见第一个账号已登录。不带账号的会话用默认 context。
+
+### 解码插件（0.6-B）
+
+- **解码插件**：`manifest.json` 写 `"kind": "decode"` 的插件（同一个 `plugins/` 目录，`tabcap plugin enable` 才生效）按 host 通配、路径通配、内容类型与方向匹配并解码请求 / 响应正文。它是你自己的进程外程序，说 `tabcap-decode/1`：stdin 上一行一个 JSON 请求（`{id, op: "decode", direction, request: {id, url, method, headers}, response?: {status, headers}, body: {encoding: "base64", data, mime}}`），stdout 上一行一个回答（`{id, ok: true, mime, body: {encoding: "utf8" | "base64", data}, note?}` 或 `{id, ok: false, error}`）。每个守护进程每个插件一个长驻进程，每次调用有硬超时（`timeoutMs`，默认 5000）和大小上限（`maxBytes`，默认 8 MiB）；超时、崩溃或回答不合协议会重启进程，同一录制累计 3 次就在录制余下时间停用该插件并写一条 `note` 事件。cookie 与 authorization 类头从不发给它；密钥留在它自己的 `config.json`，tabcap 从不读。清单严格校验（不认识的键拒绝，16 KB 上限）。
+- **解码视图**：明文存成 blob 放在原正文旁边，请求事件里以 `request.decoded` / `response.decoded` = `{by, version, direction, mime, blob, bytes, ok, error?}` 引用；原正文不变。`analyze find`、`where`、`analyze deps`（从解码后的请求体取输入、在解码后的响应里找来源）、`recon`（通道 `decode`）与 `replay check`（两边都用同一插件解码后比较）都读它，解码链第一步记作 `plugin:<名字>`。脱敏与 HAR 导出像正文一样处理视图。
+- **`tabcap bundle decode <包> [--plugin 名字]`**：给插件出现之前录的、已结束的包补上解码视图（原子改写 `events.jsonl`；seq 与 id 不变）。
+- **`net body`**：有解码视图时默认给视图（`view: "decoded"`），`--raw` 给原文（`view: "raw"`），没有视图时 `--decoded` 报错。`net show` 列出两侧的视图；`net start` 写出生效的解码插件；`plugin list` 显示 `kind` 与 `match`。
+- **Python runner 模板** `templates/plugins/decode-python/`（`manifest.json`、`pyproject.toml`、`runner.py`、示例 `plugin.py`）：拷进 `plugins/<名字>/`，按 mitmproxy 的形状写 `decode(flow)`（`flow.request.url / method / headers / content`、`flow.response.headers / content`）；用 `uv run --project . runner.py` 或 `python3 runner.py` 运行。mitmproxy addon 的 `response(flow)` 函数体通常可以原样搬过来。
 
 ## 0.5.0（2026-10-16）
 

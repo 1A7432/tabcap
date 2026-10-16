@@ -220,6 +220,12 @@
   - `where <amount 单元格>`：`normalized` 为 `[{1234.56, []}, {123456, [dotted-code]}]`；候选依次为 r(doc) 的 script 路径、assign 路径（都 `exact`、score 1）、单元格选择器 `form > table > tbody > tr:nth-of-type(1) > td:nth-of-type(1)`（0.4-C 排序：JSON 类在 HTML 文本节点前）。
   - `deps`：POST 的 body `__VIEWSTATE` 主来源 `{kind:"response", request:r(doc), path:"viewstate[__VIEWSTATE]", decode:["viewstate"], match:"exact"}`；body `token` 主来源同一请求的 `viewstate[__VIEWSTATE].strings[0]`（同样 `["viewstate"]`、`exact`）。
 
+### s42 decode-plugins（P1，0.6-B：解码插件）
+- 页面 `/s42`（`test/e2e/site.ts` 的 `startDecodeSite`，明文全部手写为 `S42_*`）：`/s42/api/*` 的响应正文是「UTF-8 JSON 逐字节 XOR 密钥 `S42_KEY` 再 base64」，`content-type: text/plain`，带 `x-enc: xor`。页面先 `GET /s42/api/token`（`{"token":"S42-TOKEN-5e1f9a3c7b2d4e60","ttl":600}`），再带 `x-auth: <token>` `GET /s42/api/items`（两行商品，`name` 为 `甲号商品` / `乙号商品`），在页面里解码后渲染表格；按钮 order 发 `POST /s42/api/order`，正文同样编码（明文 `{"token":…,"item":"S42-ITEM-0001","qty":2}`，带 `x-enc: xor`、`x-auth`），回答 `{"ok":true,"order":"S42-ORDER-0077"}`，页面显示 `ordered S42-ORDER-0077`。站点日志记下解出的 POST 明文。
+- 插件：`test/e2e/plugins/xor-decode/`（Bun 脚本，密钥在它自己的 `config.json`；`match` 为 host `127.0.0.1`、path `/s42/api/*`、`text/plain`、两个方向；只解带 `x-enc: xor` 的一侧）。
+- 走法：装插件到测试 `TABCAP_HOME` → `plugin enable` → `net start` → 导航 `/s42` → `where <甲号商品 格子>` → 点 order → `net stop` → `analyze find <token>` → `analyze deps` → `net body`（默认 / `--raw`）→ 停用插件再录一遍 → `bundle decode --plugin xor-decode`。
+- expected：token / items / order 的响应与 order 的请求体各带 `decoded`（`by:"xor-decode"`、`version:"1"`、`mime:"application/json"`、`ok:true`，blob 内容等于手写明文），文档没有；`where` 候选 `{request:r(items), path:"$.items[0].name", chain:["plugin:xor-decode"], match:"exact", score:1}`；`find <token>` 命中 r(token) 的 `$.token` 与 r(order) 请求体的 `$.token`，链都是 `["plugin:xor-decode"]`；`deps` 里 r(order) 的 body `$.token` 与 header `x-auth` 主来源都是 `{kind:"response", request:r(token), path:"$.token", decode:["plugin:xor-decode"], match:"exact"}`（不再是更早请求的同名头），body `$.item` 来自 r(items) 的 `$.items[0].id`；`net body r(items)` 默认 `view:"decoded"` 给明文，`--raw` 给密文；停用后录的包没有视图、`find <token>` 0 命中，`bundle decode` 之后 2 个视图（token、items），id 与 seq 不变，`find` 命中 r(token)。
+
 ## 6. 输入保真（作者定 10-15；提案 `docs/10`，0.3-E 落地）
 
 ### s46 input-fidelity（P1；`--trusted` 的拟真点击与逐键输入）

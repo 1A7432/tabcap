@@ -658,10 +658,10 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 
 ### `tabcap net body`
 
-a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)
+a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); a body with a decode plugin's view shows the view (--raw: the original); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)
 
 ```
-tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--file] [--pretty]
+tabcap net body [<id>] [--session name] [--out path] [--url url] [--grep regex] [--lines a-b] [--at line:col] [--context n] [--max-matches n] [--file] [--pretty] [--decoded] [--raw]
 ```
 
 Example: `tabcap net body r-12 --grep 'sign|token' --pretty`
@@ -677,6 +677,8 @@ Example: `tabcap net body r-12 --grep 'sign|token' --pretty`
 | `--max-matches <n>` | `50` | with --grep: matches shown (max 1000); total counts them all |
 | `--file` |  | write the whole decoded body (charset-decoded, secret-scrubbed; with --pretty line-broken) to exports/bodies/<id>.<ext> of the open recording (else <cache>/outputs/bodies/), 0600, and answer {id, url, mime, bytes, lines, pretty, file, scrubbed}: for `rg` / grep on the path; not with --grep / --lines / --at / --out |
 | `--pretty` |  | JavaScript / JSON bodies up to 8 MB: break minified JS into lines (newlines only, never inside strings, templates, regexes, comments), re-indent JSON; line numbers then refer to the pretty text |
+| `--decoded` |  | the decode plugin's plaintext view of the body (the default when the request has one; an error when it has none); the answer says view: "decoded" |
+| `--raw` |  | the original body even when a decoded view exists (view: "raw") |
 
 ### `tabcap net show`
 
@@ -870,7 +872,7 @@ Example: `tabcap guard resume --site example`
 
 ### `tabcap plugin list`
 
-challenge handlers installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, hooks, enabled, errors
+challenge handlers and decode plugins installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, kind, hooks / match, enabled, errors
 
 ```
 tabcap plugin list
@@ -880,7 +882,7 @@ Example: `tabcap plugin list`
 
 ### `tabcap plugin enable`
 
-let the guard ask this handler before handing a challenge to the human
+opt a plugin in: a challenge handler is asked before a challenge goes to the human; a decode plugin decodes matching bodies of recordings started from now on
 
 ```
 tabcap plugin enable <name>
@@ -890,7 +892,7 @@ Example: `tabcap plugin enable my-handler`
 
 ### `tabcap plugin disable`
 
-stop asking this handler
+stop using this handler or decode plugin
 
 ```
 tabcap plugin disable <name>
@@ -951,6 +953,20 @@ tabcap bundle info <bundle>
 ```
 
 Example: `tabcap bundle info ./b`
+
+### `tabcap bundle decode`
+
+run decode plugins over a finished bundle: plaintext views of matching request / response bodies are stored beside the originals (request.decoded / response.decoded), so find / where / deps / recon / replay check read them; rewrites events.jsonl atomically, ids unchanged
+
+```
+tabcap bundle decode <bundle> [--plugin name]
+```
+
+Example: `tabcap bundle decode ./b --plugin xor-decode`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--plugin <name>` |  | only this decode plugin (installed; naming it is the opt-in, it need not be enabled); default: every enabled decode plugin |
 
 ### `tabcap analyze find`
 

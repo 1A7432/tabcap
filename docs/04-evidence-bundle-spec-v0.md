@@ -148,6 +148,7 @@
     "bodyMissing": null                           // 或 {"reason": "...", "detail": "CDP 原文"}
   },
   "redirect": null,                               // 或 {"from": "r-56"}
+                                                  // request / response 两侧可带 "decoded"：解码插件的明文视图（0.6-B，§28）
   "timing": { "start": 88120.1, "responseStart": 88122.0, "end": 88123.4, "cdp": { /* Network.ResourceTiming 原样 */ } },
   "outcome": "finished",                          // finished / failed / incomplete
   "error": null                                   // 或 {"text": "net::ERR_ABORTED", "canceled": true, "blockedReason": null}
@@ -373,6 +374,7 @@
 ## 18. 0.3-A 裁决（10-15）
 
 作者定：外部处理程序给出答案后会话直接恢复，答案作为不可信数据交给 AI；每次调用进证据包并计入该站点 guard 计数，按站点配置「处理后仍需人确认」留待后续。
+解码插件（0.6-B）用同一个插件目录与启用列表，清单带 `kind:"decode"`，协议是 stdin / stdout 上的 JSON 行，见 §28；已有的 mitmproxy addon，`response(flow)` 的函数体通常可以原样搬进模板 `templates/plugins/decode-python/` 的 `decode(flow)`。
 按实现定案：登录尝试在 `fill --secret ...password` 时计数、按会话实例计、`--confirm` 的那次也计；`waiting` 用失败信封（`ok:false`，退出码 1），命令执行期间撞上则本条直接返回 `waiting` 并把原结果放 `error.result`；只拦 AI 的操作命令，不拦页面自己的请求；`raw/cdp.jsonl` 里同一登录 POST 的原始行是明文的第二处，与 `raw/` 的 0600 一致；`session stop` 不清 `waiting`，只有 `handoff continue` 清；处理程序命令组叫 `plugin`，启用列表 `plugins/enabled.json`，目录组或他人可写则拒用；密码少于 3 字符不做替换，`site add` 对少于 8 字符的密码告警；站点名 `[A-Za-z0-9_-]{1,64}`；识别规则目前只有「录制中的 HTML 403」，其余形态按范围规则等靶场场景。
 
 ## 19. 0.3-C 裁决（10-15）
@@ -438,3 +440,77 @@
 - **重定向丢请求体**：根因【实测 s49 的 raw/cdp.jsonl】：POST 的 `Network.requestWillBeSent` 带 `postData`；302 之后 Chrome 用同一 `requestId` 再发一条带 `redirectResponse` 的 `requestWillBeSent`（新的 GET，没有 `postData`），录制器在这里就地写出上一跳，写的时候没带请求体，于是 `postData:null`。现在上一跳按 §5.3 的同一规则存：能内联的照旧同步写出；要进 blob（> 64 KB）或只有 `hasPostData` 的，先存 / 先取再写，下一跳等它的 id 再写 `redirect.from`。Fetch 拦截路径（Response 阶段）不涉及请求体，没改。
 - **图片验证码提示**：作者原话「guard 识别图片验证码也不一定转交，模型能自己过就过吧。就告诉模型有个什么东西拦着，它自己判断要不要喊人」。在根文档与帧（至多 16 个）的隔离世界里扫可见的 `<img>` / `<canvas>` 与文本输入框（`browser/captcha.ts`，纯函数判定）：图片的 src / id / class / alt / title / 附近标签含 captcha / verify / 验证码 / 校验码，或输入框的 name / id / placeholder / 标签像 captcha / vcode / verifyCode / 验证码 / 校验码且在登录表单旁（所在表单有密码框；不在表单里时页面上有密码框）。图片与输入框在同一表单里配对。`snapshot` / `outline` 的头多一行 `challenge  image-captcha img [e12] → input [e13]; read the image (screenshot --ref e12) or hand over (ask the human to type it)`（帧里的加 `· in f2`），JSON 多 `challenge: {kind, image, input, advisory:true[, frame]}`；对该表单的 `fill` / `click` 输出带 `challenge: {kind, image, input}`；录制中每个页面（标签 + 文档身份）写一条 `guard` `{event:"challenge"}`（`guard` 事件的新 `event` 值，§4.2）。不进 `waiting`，不拦命令，原有的挑战（HTML 403 验证页）照旧转交。
 - **一账号一浏览器上下文**：`session start --site <s>`（带或不带 `--account`，含 `auto`）只要绑上账号，`direct` 模式就给它单独一个 `Target.createBrowserContext {disposeOnDetach:false}`（账号绑了池代理时再加 `proxyServer` / `proxyBypassList`，同 0.4-D）；cookie 照 0.4-D 恢复与回写（开始时 `Storage.setCookies`，cookie 状态快照、`session stop`、关浏览器前 `Storage.getCookies`）。没有账号的会话用默认 context。会话已有标签时绑账号报 `conflict`（与 0.4-D 对池账号的规则相同，现在对所有账号）。`ext` 模式只有一个 cookie 罐，没有 context，规则不变（`ext.no-context`）。
+
+## 28. 0.6-B 解码插件（10-16 作者定设计；字段按实现定案，待作者审）
+
+作者定：按站点、按方向用 host / path / content type 匹配；解码器是进程外程序，stdin / stdout 上一行一个 JSON；密钥放插件自己的配置，不进 tabcap 的库，也不进证据包；明文作为「派生视图」存在原正文旁边，`find`、`where`、`deps`、`recon`、`replay check` 都读它。作者补充（10-16）：已有 mitmproxy addon / Burp 扩展里的解密代码要能少改就复用：协议仍是这份 JSON 行，另附 Python runner 模板 `templates/plugins/decode-python/`。
+
+**目录与清单**。和挑战处理程序同一套目录（§18）：`$TABCAP_HOME/config/plugins/<name>/manifest.json`，装上不等于启用，`tabcap plugin enable <name>` 才生效；目录组或他人可写则拒用；`manifest.json` 超过 16 KB 不读。`kind:"decode"` 的清单按不可信输入严格校验，**不认识的键一律拒绝**：
+
+```jsonc
+{
+  "name": "xor-decode",            // 等于目录名，[a-z0-9][a-z0-9_-]{0,63}
+  "kind": "decode",
+  "version": "1",                  // 必填，1..64 字符；写进每个视图
+  "description": "…",              // 可选，≤ 500 字符
+  "match": {
+    "host": ["127.0.0.1", "*.example.test"],   // 必填，1..32 个；* 匹配任意字符（含 .），只比 hostname
+    "path": ["/s42/api/*"],                     // 可选，默认 ["/**"]；* 不跨 /，** 跨；只比 pathname，不含 query
+    "contentTypes": ["text/plain"],             // 可选，默认 ["*/*"]；type/subtype、type/*、*/*，不带参数
+    "direction": "both"                         // response（默认）| request | both
+  },
+  "command": ["bun", "./decode.ts"], // argv；argv[0] 为目录内的 ./文件、绝对路径或 PATH 上的程序名（uv、python3、bun）；其余 ./ ../ 参数必须留在目录内；工作目录是插件目录
+  "timeoutMs": 5000,               // 可选，每次调用的硬超时，100..60000，默认 5000
+  "maxBytes": 1048576              // 可选，送去解码的正文与解出的明文上限，1..32 MiB，默认 8 MiB
+}
+```
+
+同目录可以有 `config.json`（密钥等）：tabcap 从不读它，它也不会进任何包；插件自己读（工作目录、环境变量 `TABCAP_PLUGIN_DIR`）。插件进程的环境只有 PATH、HOME、LANG、`TABCAP_PLUGIN_DIR`、`TABCAP_DECODE_PROTOCOL`、Windows 基本变量与 uv 的缓存变量（`UV_*`、`XDG_CACHE_HOME` 等，让 `uv run` 找到同一份缓存），没有任何 `TABCAP_*` 设置。内容类型取：请求方向用请求的 `content-type` 头，响应方向用 CDP `mimeType`，没有再用 `content-type` 头。
+
+**协议 `tabcap-decode/1`**（一行一个请求，一行一个回答，按顺序；一个插件同一时刻只有一个调用在途）：
+
+```jsonc
+// tabcap → 插件
+{"id":1,"op":"decode","direction":"response",
+ "request":{"id":"r-12","url":"http://127.0.0.1:4310/s42/api/items","method":"GET","headers":{"x-auth":"…"}},
+ "response":{"status":200,"headers":{"content-type":"text/plain; charset=utf-8","x-enc":"xor"}},   // 只在 response 方向
+ "body":{"encoding":"base64","data":"…","mime":"text/plain"}}
+// 插件 → tabcap
+{"id":1,"ok":true,"mime":"application/json","body":{"encoding":"utf8","data":"{…}"},"note":"可选"}
+{"id":1,"ok":false,"error":"为什么解不了"}
+```
+
+- `request.id`：录制时为 `null`（事件写入时才分配 `r-N`，解码在写入之前），`bundle decode` 时为 `r-N`。
+- `headers`：录到的头，去掉 `cookie`、`set-cookie`、`authorization`、`proxy-authorization`，值过已知秘密值替换。正文原样（base64）。
+- 回答 `body.encoding` 为 `utf8` 或 `base64`；`mime` 可选（不是可打印 ASCII 或超过 200 字符记 null）；`error` / `note` 截 500 字符并过秘密值替换后才写进包。
+- **进程模型**：每个守护进程每个插件一个长驻进程（`bundle decode`、`replay check` 每次运行一个），首次用到时启动。超时、退出、非 JSON 行、超长行（`maxBytes` 的 4/3 加 64 KB）、id 对不上或缺 `ok` / `body` 都算一次**失败**，并杀掉进程，下次调用重新启动；`ok:false` 是正常回答，不算失败。同一录制里累计 3 次失败，该插件在这次录制余下的时间里停用，录制器写一条 `note`：`{kind:"note", text:"decode plugin <name> disabled for this session: 3 failures, last: …", refs:[], plugin:"<name>"}`。插件的 stderr 读出后丢弃（可能打印密钥），不进日志、不进包。守护进程退出时杀掉所有插件进程。
+- 多个插件都匹配同一正文时按名字顺序问，第一个 `ok:true` 的胜出；都失败则记第一个失败。正文超过 `maxBytes` 不送，记 `ok:false`。
+
+**视图写在哪里**。录制器取到正文之后、写 `request` 事件之前调用插件，明文存成 `blobs/sha256/<hash>`，在事件的 `request` / `response` 两侧各自带 `decoded`（原正文、`postData`、`body` 都不变）：
+
+```jsonc
+"request":  { "headers": {…}, "postData": {"inline": "<原样密文>"},
+              "decoded": {"by":"xor-decode","version":"1","direction":"request","mime":"application/json","blob":"sha256:…","bytes":44,"ok":true} },
+"response": { …, "body": {"blob":"sha256:<密文>", …},
+              "decoded": {"by":"xor-decode","version":"1","direction":"response","mime":"application/json","blob":"sha256:…","bytes":37,"ok":true} }
+// 解不了：{"by","version","direction","mime":null,"blob":null,"bytes":null,"ok":false,"error":"…"}；插件回答带 note 时多一个 "note"
+```
+
+没有插件匹配的一侧没有 `decoded` 字段。`net list` 的索引项带响应视图的 `decoded:{by, version, mime, blob, bytes}`；`net show` 两侧各列 `decoded`（by、version、ok、mime、bytes、path / blob 或 error）。
+
+**离线补视图** `tabcap bundle decode <bundle> [--plugin <name>]`：不带 `--plugin` 用所有已启用的解码插件；带 `--plugin` 只用它（必须装着且清单有效；点名即同意，可以没启用）。只处理已 `finished` 的包（录制中或中断的拒绝，`conflict`）。这是唯一改写 `events.jsonl` 的命令：临时文件 + fsync + rename 原子替换，只重写得到或改变 `decoded` 的 request 行，其余行逐字节不变，`seq` 与 id 不变；manifest 只更新 `counts.blobBytes`。规则：没有被选中插件匹配的一侧保留原样；新的 `ok` 视图替换旧的；失败从不覆盖已有的 `ok` 视图（计为 `kept`）。回答：`{bundle, requests, decoded, failed, kept, rows:[{request, direction, by, ok, mime, bytes, error?, kept?}], truncated, plugins:[{name, version}], disabled:[{plugin, reason}]}`（`rows` 最多 200 行）。离线没有会话，停用的插件列在 `disabled`，不写 `note`。
+
+**读视图的命令**（`src/analyze/views.ts`）：视图 `ok` 且 blob 在，就以明文代替原正文，决定链第一步是 `plugin:<name>`（与 HAR 导入的线上解压步骤一样是前缀），后面照常走内置步骤。
+
+- `find`：先搜视图；视图没有命中时再搜原正文（这时不判「像加密」）；`searched.decoders` 以 `plugin:<name>` 计数视图。
+- `where`：有视图的响应只读视图，候选的 `chain` 以 `plugin:<name>` 开头。
+- `deps`：有视图的请求体从明文取输入（JSON 叶子 / 表单字段），有视图的响应从明文找来源（`decode` 以 `plugin:<name>` 开头，`--write-findings` 的分级仍为【推断】，因为不是原字节上的 JSON 叶子）。旧包里「`Authorization` 追到更早请求的同名头」的环，在 token 响应可解码时消失（s42：`x-auth` 的主来源是 token 响应的 `$.token`）。
+- `recon`：通道的 `decode` 列出插件步骤（排在内置步骤前）；通道的 `body` 分类仍按原正文。
+- `replay check`：录到的响应有视图、且该插件在本机已启用时，用同一个插件解码收到的回答，比较两份明文（行的 `notes` 写 `body compared as decoded by <name> (plugin:<name>)`）；回答解不了或插件不可用时比较原字节，并在 `notes` 说明原因。`replay serve` 的匹配仍按原字节，按明文匹配留给 0.6-C（扩展点：`src/replay/match.ts` 读 `r.request.decoded`）。
+- `net body r-N`：有视图时默认给视图（信封 `view:"decoded"`、`decoded:{by, version, mime}`，`mime` 是视图的），`--raw` 给原正文（`view:"raw"`），`--decoded` 在没有视图时报 `not-found`，两个一起报 `usage`；没有视图的请求输出不变。视图按 UTF-8 解码、照常过秘密值替换。
+
+**脱敏**：`bundle redact` / HAR 导出把视图 blob 当作该 `mime` 的正文同样脱敏，`error` / `note` 过文本替换。HAR 1.2 没有放视图的位置，HAR 里只有原正文。
+
+**Python runner 模板**（`templates/plugins/decode-python/`，用户整个目录拷到 `plugins/<name>/` 后改 `manifest.json` 的 `name` 与 `match`）：`manifest.json`（`command` 为 `["uv","run","--project",".","runner.py"]`；不用 uv 时改成 `["python3","runner.py"]`，两者都在插件目录里运行）、`pyproject.toml`（默认无依赖，`plugin.py` 要用的库写进 `dependencies`，`uv run` 首次启动时装进本目录的 `.venv`）、`runner.py`（读 JSON 行、解 base64、调用 `plugin.decode(flow)`）、示例 `plugin.py`（s42 的 XOR，密钥从同目录 `config.json` 读；`config.example.json` 是样板）。`flow` 仿 mitmproxy addon 的形状：`flow.request.url / method / headers / content`、`flow.response.status_code / headers / content`（content 是 bytes；问请求体时 `flow.response` 为 None，问响应体时 `flow.request.content` 为 None），`headers` 不分大小写、`get_all()` 取多值，`.text` 可读可写。`decode()` 返回 bytes / str 或 None；也可以像 mitmproxy 那样直接给 `flow.response.content`（或 `.text`）赋值，runner 认赋值后的内容。`plugin.MIME` 可选，没有就按内容猜 JSON / 文本。`plugin.py` 里的 `print()` 进 stderr（被丢弃），不会弄坏协议。
+
+**靶场**：s42（`docs/05`），插件 `test/e2e/plugins/xor-decode/`（Bun 脚本，密钥在它自己的 `config.json`）。【实测 10-16，本机 CfT 155：`test/e2e/v06b.e2e.test.ts` 5/5；`test/unit/decode-*.test.ts`，含 `uv run` 跑 Python runner】
