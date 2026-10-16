@@ -11,9 +11,9 @@
 //       replays that chain against `replay serve` of the bundle and must pass.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { MUST_RUN, need, packageReason, pyCompile, runInPackageAsync, syncPackage } from "../unit/_python.ts";
@@ -23,6 +23,8 @@ const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const SITE = "range-demo";
+/** CI diagnostics: copy this run's daemon / browser logs and bundles here before the temp home is removed. */
+const KEEP = process.env["TABCAP_E2E_KEEP"] ?? "";
 const SPELLINGS = [...new Set([LOGIN_PASSWORD, JSON.stringify(LOGIN_PASSWORD).slice(1, -1), encodeURIComponent(LOGIN_PASSWORD), new URLSearchParams({ p: LOGIN_PASSWORD }).toString().slice(2)])];
 
 let home = "";
@@ -98,6 +100,15 @@ async function timedDeps(bundle: string): Promise<{ data: Record<string, unknown
   return { data, ms: Math.round(performance.now() - t0) };
 }
 
+/** The *.log files of config/ and the bundles of a temp TABCAP_HOME (not the Chrome profile). */
+function keepHome(from: string, to: string): void {
+  for (const sub of ["config", join("data", "bundles")]) {
+    const src = join(from, sub);
+    if (!existsSync(src)) continue;
+    cpSync(src, join(to, sub), { recursive: true, filter: (f) => sub !== "config" || f === src || f.endsWith(".log") });
+  }
+}
+
 async function serve(dir: string): Promise<{ url: string; stop: () => Promise<void> }> {
   const proc = Bun.spawn(["bun", MAIN, "replay", "serve", dir, "--port", "0", "--once", "120", "--json"], { env: { ...process.env, TABCAP_HOME: home }, stdout: "pipe", stderr: "pipe" });
   const reader = proc.stdout.getReader();
@@ -134,6 +145,7 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     await tabcap(["daemon", "stop"]).catch(() => null);
     guard.stop();
     search.stop();
+    if (KEEP !== "") keepHome(home, join(KEEP, basename(home)));
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -211,6 +223,11 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
 
     const { data: deps, ms } = await timedDeps(bundle);
     console.log(`[v04a] analyze deps s07: ${reqs.length} requests, ${ms} ms`);
+    // Diagnostics for the 10-16 Windows flake (x-csrf primary null once): deps orders the login
+    // body (wall `ts` of its end) before the data request's wall start; print both clocks.
+    const wallStart = data.timing?.start == null || data.mono === null ? data.ts : data.ts - (data.mono - data.timing.start);
+    const monoGap = login.mono === null || data.timing?.start == null ? null : Math.round((data.timing.start - login.mono) * 1000) / 1000;
+    console.log(`[v04a] s07 login ${login.id} end ts ${login.ts} mono ${login.mono} unreadByPage ${login["unreadByPage"] === true}; data ${data.id} start ts ${wallStart}: wall gap ${Math.round((wallStart - login.ts) * 1000) / 1000} ms, mono gap ${monoGap} ms`);
     expect(inputOf(deps, data.id, "header", "x-csrf").primary).toEqual({ kind: "response", request: login.id, path: "$.csrf", decode: [], match: "exact" });
     expect(inputOf(deps, data.id, "cookie", "sid").primary).toEqual({ kind: "set-cookie", request: login.id, cookie: "sid" });
     expect(inputOf(deps, login.id, "body", "user").class).toBe("action");

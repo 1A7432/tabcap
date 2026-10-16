@@ -3,6 +3,10 @@
 # Chrome for Testing comes from `tabcap setup` and is cached by its version.
 # Python (the generated replay client) only through uv: a warm-up step fills the
 # uv cache with network, the tests then run uv offline.
+# Flake hunting (workflow_dispatch with e2e_only): only the e2e job runs, on the
+# chosen OS, the one test file e2e_repeat times with TABCAP_LOG=debug; the test
+# files that honour TABCAP_E2E_KEEP leave their daemon logs and bundles in
+# ci-logs/keep/, uploaded with the other logs whether the runs pass or fail.
 name: ci
 
 on:
@@ -11,6 +15,20 @@ on:
     paths-ignore: [NOTES.md]
   pull_request:
   workflow_dispatch:
+    inputs:
+      e2e_only:
+        description: "Flake hunting: run only this e2e test file (unit and native are skipped)"
+        type: string
+        default: ""
+      e2e_repeat:
+        description: "With e2e_only: how many times to run it"
+        type: number
+        default: 5
+      e2e_os:
+        description: "With e2e_only: on which OS"
+        type: choice
+        options: [windows-latest, ubuntu-latest, both]
+        default: windows-latest
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -26,6 +44,7 @@ defaults:
 jobs:
   unit:
     name: unit (${{ matrix.os }})
+    if: ${{ !inputs.e2e_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -64,6 +83,7 @@ jobs:
   # host binary is run once.
   native:
     name: native (${{ matrix.os }})
+    if: ${{ !inputs.e2e_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -108,17 +128,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            cft_cache: ~/.cache/tabcap/chrome
-            # A screen wider than Chrome's default window (at most 1050 px wide at x=10),
-            # so Xvfb's pointer (screen centre) is not over the page and sends no real mouse events.
-            run_prefix: xvfb-run -a -s "-screen 0 2560x1440x24"
-          - os: windows-latest
-            cft_cache: ~/AppData/Local/tabcap/cache/chrome
-            run_prefix: ""
+        # Both, unless a flake hunt (e2e_only) picks one.
+        os: ${{ fromJSON(inputs.e2e_only && inputs.e2e_os != 'both' && format('["{0}"]', inputs.e2e_os) || '["ubuntu-latest","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ inputs.e2e_only && 60 || 20 }}
     env:
       TABCAP_E2E: "1"
     steps:
@@ -157,7 +170,7 @@ jobs:
       - name: Chrome for Testing cache
         uses: actions/cache@v4
         with:
-          path: ${{ matrix.cft_cache }}
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/tabcap/cache/chrome' || '~/.cache/tabcap/chrome' }}
           key: cft-${{ runner.os }}-${{ steps.cft.outputs.version }}
       - name: tabcap setup (default directories)
         run: |
@@ -165,9 +178,14 @@ jobs:
           bun src/cli/main.ts setup | tee setup.json
           echo "setup took $(( $(date +%s) - start )) s"
           bun -e 'Bun.file("setup.json").json().then((j) => { if (!j.ok) process.exit(1); console.log("TABCAP_CHROME=" + j.data.executablePath); })' >> "$GITHUB_ENV"
+      # Linux runs headed Chrome under Xvfb, with a screen wider than Chrome's default window
+      # (at most 1050 px wide at x=10), so Xvfb's pointer (screen centre) is not over the page
+      # and sends no real mouse events. `display` is that prefix (nothing on Windows).
       - name: platform probe (listener, CDP channel, windows, file locations)
         continue-on-error: true
-        run: ${{ matrix.run_prefix }} bun scripts/ci-probe.ts 2>&1 | tee probe.log; exit ${PIPESTATUS[0]}
+        run: |
+          display() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 2560x1440x24" "$@"; else "$@"; fi; }
+          display bun scripts/ci-probe.ts 2>&1 | tee probe.log
       # The wire component for this host (the e2e runs tabcap from source, which uses native/dist/).
       - uses: mlugg/setup-zig@v2
         with:
@@ -178,7 +196,23 @@ jobs:
         env:
           # v04w copies the Chrome for Testing wire profile it captures here (uploaded below).
           TABCAP_WIRE_PROFILE_OUT: ${{ runner.temp }}/wire-profile
-        run: ${{ matrix.run_prefix }} bun test test/e2e --timeout 120000 2>&1 | tee e2e.log; exit ${PIPESTATUS[0]}
+          E2E_ONLY: ${{ inputs.e2e_only }}
+          E2E_REPEAT: ${{ inputs.e2e_repeat }}
+        run: |
+          display() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 2560x1440x24" "$@"; else "$@"; fi; }
+          if [ -z "$E2E_ONLY" ]; then
+            display bun test test/e2e --timeout 120000 2>&1 | tee e2e.log
+            exit
+          fi
+          export TABCAP_LOG=debug TABCAP_E2E_KEEP="$GITHUB_WORKSPACE/ci-logs/keep"
+          failed=0
+          for i in $(seq 1 "$E2E_REPEAT"); do
+            echo "::group::$E2E_ONLY, run $i of $E2E_REPEAT"
+            display bun test "$E2E_ONLY" --timeout 120000 2>&1 | tee -a e2e.log || failed=$((failed + 1))
+            echo "::endgroup::"
+          done
+          echo "$failed of $E2E_REPEAT run(s) of $E2E_ONLY failed"
+          [ "$failed" = 0 ]
       - name: upload the captured wire profile
         if: always()
         uses: actions/upload-artifact@v4
@@ -190,7 +224,7 @@ jobs:
       # upload-artifact takes one root: everything goes into ci-logs/ in the workspace first
       # (the default config dir is outside it: ~/.config/tabcap or %LOCALAPPDATA%\tabcap\config).
       - name: collect logs
-        if: failure() || cancelled()
+        if: failure() || cancelled() || inputs.e2e_only
         run: |
           shopt -s nullglob
           mkdir -p ci-logs/config
@@ -200,7 +234,7 @@ jobs:
           done
           find ci-logs -type f | sort
       - name: upload logs
-        if: failure() || cancelled()
+        if: failure() || cancelled() || inputs.e2e_only
         uses: actions/upload-artifact@v4
         with:
           name: e2e-logs-${{ matrix.os }}
