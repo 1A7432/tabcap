@@ -4,6 +4,14 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## 0.6.0 (2026-10-17)
 
+### Observe mode recall (0.6-Q)
+
+- **Ciphertext in the forms the page holds it**: every candidate (a high-entropy body, a base64 / hex JSON leaf, a bare token) is hashed as served, whitespace-stripped, without surrounding quotes and URL-decoded. MIME-style base64 (a line break every 76 chars, stripped by the page before decrypting) now gives strong rows — on a real site 76 of 91 encrypted bodies were of that kind and none was attributed. Strong rows say which form matched in `evidence.matchForm` (`raw` / `stripped` / `unquoted` / `urldecoded`). MIME-wrapped, quoted and URL-encoded bare bodies are suspects too.
+- **A plaintext cannot be longer than its ciphertext allows**: each suspect carries a bound (base64 × 3/4, hex / 2, a high-entropy body its byte length; no compression before encryption assumed). A plaintext over a suspect's bound is never filed under it as a weak row or as an unattributed candidate; with no suspect it fits, the parse is dropped and counted as `drops.noFit` (a large localStorage parse is no longer filed under a small encrypted response). Strong rows are not size-checked.
+- **Envelope race closed**: unattributed rows settle 500 ms like weak rows and are re-checked against the recorded raw bodies; when a body is indexed, any settling or held parse of exactly that text is dropped as `rawBody`.
+- **`net body` reads page views**: the default answer and `--decoded` resolve the decoded view like `analyze find` (a decode plugin's ok view outranks the page view), during and after recording; a page view's answer carries `decoded.link`. Without a view, a body the observe mode would arm on gets a `next` that points to `trace start --decode`.
+- `net start`'s help and `references/recording.md` point encrypted API responses to `trace start --decode`.
+
 ### Fixes
 
 - macOS popup foreground hand-back now activates the previously frontmost app by bundle identifier (falling back to its name only when it has none). A process name can differ from the application name (Firefox Developer Edition reports `firefox`), which made `tell application "firefox" to activate` fail with -1728 and the hand-back never succeed. `browser status` `popupFocus` also reports `lastSeenBundleId`, and the launch `front` report `beforeBundleId`.

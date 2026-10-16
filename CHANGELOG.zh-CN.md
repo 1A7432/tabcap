@@ -4,6 +4,14 @@
 
 ## 0.6.0（2026-10-17）
 
+### 观察模式召回（0.6-Q）
+
+- **按页面手里的形式比对密文**：每个候选（高熵整段 body、base64 / hex 的 JSON 叶子、裸 token）按原样、去空白、去首尾引号、URL 解码各算一份哈希。MIME 式 base64（每 76 字符一个换行，页面解密前自己去掉）现在能出 strong 行——某真实站点 91 条加密响应里 76 条是这种，此前一条也归不上。strong 行用 `evidence.matchForm`（`raw` / `stripped` / `unquoted` / `urldecoded`）说明命中的是哪种形式。带换行、带引号、URL 编码的裸 body 也进嫌疑。
+- **明文不会比密文允许的更长**：每个嫌疑带一个上限（base64 × 3/4、hex / 2、高熵 body 取其字节数；假设加密前不压缩）。超过某嫌疑上限的明文不会作为 weak 行或 unattributed 候选挂到它名下；一个能装下的嫌疑都没有就丢掉这次 parse，计 `drops.noFit`（大段 localStorage 解析不再挂到小加密响应下）。strong 行不做长度检查。
+- **信封竞态**：unattributed 行和 weak 行一样先等 500 ms，再对一遍已录的原始 body；某个 body 被索引时，正在等待或暂存、文本恰好等于它的 parse 计 `rawBody` 丢弃。
+- **`net body` 读 page 视图**：默认回答和 `--decoded` 按 `analyze find` 的方式解析 decoded 视图（ok 的插件视图优先于 page 视图），录制中和录制后一样；page 视图的回答带 `decoded.link`。没有视图、而 body 是观察模式会武装的那种时，`next` 指向 `trace start --decode`。
+- `net start` 的帮助和 `references/recording.md` 把加密的 API 响应指向 `trace start --decode`。
+
 ### 修正
 
 - macOS 弹窗前台交还改按 bundle identifier 激活之前在前台的应用，没有 bundle id 才退回应用名。进程名可能和应用名不同（Firefox Developer Edition 的进程名是 `firefox`），`tell application "firefox" to activate` 会报 -1728，交还永远不成功。`browser status` 的 `popupFocus` 多了 `lastSeenBundleId`，启动时的 `front` 报告多了 `beforeBundleId`。

@@ -738,6 +738,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   "decoded": { "by": "page", "version": "observe/0", "mime": "application/json",
                "blob": "sha256:…", "bytes": 245, "ok": true,
                "evidence": { "sink": "JSON.parse", "match": "<命中的密文 sha256 或 null>",
+                             "matchForm": "stripped",                                   // 只 strong 行：raw / stripped / unquoted / urldecoded（0.6-Q）
                              "link": "strong",                                          // 或 "weak"；unattributed 行没有（0.6-L2）
                              "frames": [ { "url", "line", "column", "function" } ],      // ≤5
                              "at": 1760000000000, "candidates": ["r-13"] } },              // 只 unattributed 行
@@ -745,7 +746,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 ```
 
 - 行的优先级（D4）：ok 的插件视图 > ok 的 page 视图（page 行后写也顶不掉插件行）；同 rank 后行赢；inline 视图按同一 rank 裁定；`request:null` 的行不 overlay 任何请求。
-- 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`；`trace status` 与 `trace stop` 的 `decode` 块：`{armed, rows:{attributed, weak, unattributed, unattributedKept}, evidenceHits, recovered:{console, scope}, walks, sinks:{resolved, skipped, on}, drops:{plaintextMissing, tooLarge, afterStop, unattributedCapped, rawBody, orphan, unpaired}}`（`weak` 是 attributed 里 `link:"weak"` 的行数；`unpaired` 是没配上暂停的 log-point 行；trace stop 报的是停止前的最后状态）。
+- 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`；`trace status` 与 `trace stop` 的 `decode` 块：`{armed, rows:{attributed, weak, unattributed, unattributedKept}, evidenceHits, recovered:{console, scope}, walks, sinks:{resolved, skipped, on}, drops:{plaintextMissing, tooLarge, afterStop, unattributedCapped, rawBody, orphan, unpaired, noFit}}`（`weak` 是 attributed 里 `link:"weak"` 的行数；`unpaired` 是没配上暂停的 log-point 行；`noFit` 是明文超过所有在场嫌疑上限而丢掉的暂停（0.6-Q）；trace stop 报的是停止前的最后状态）。
 
 字面自定（NOTES 待审）：`sinks.skipped` 只计 evaluate 拿不到函数对象或 setBreakpoint 没返回 bpId；「already exists」的 catch 不计数（它是良性共享信令）；plainText 长 ≥32 / scope 字符串 ≥16 / hold 10 s / hold ≤8 / evidence frames ≤5 / mime 固定 `application/json`（明文必须过 `JSON.parse`）；`--text / --first-n` 等 trace 原有旗标与 decode 无交互。
 
@@ -773,6 +774,23 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 本格**不做**（留给 0.7 或后续）：请求侧加密（只观察响应；生成客户端仍靠解码插件或人写）；分块 / 流式解密（SSE、分页拼接，没有一次完整 `JSON.parse`）；Worker `postMessage` 对象（结构化克隆，主线程不再 parse）、WASM 自带 JSON、明文是 HTML / protobuf / JSON5——没有 `JSON.parse` 就看不见。靶场 s59 `mode=worker` 是「worker 回字符串、主线程再 parse」，已有 e2e；对象克隆仍【待验】。
 
 开销（spike-06l2，页面侧 500 次 1 KB parse）：不设断点 0.2 ms；只有 length condition 9 ms；log-point 26 ms；暂停后立即恢复（不含 walk）107 ms。诊断可接受，**录完就关**（`trace stop` / `--no-decode`）。
+
+### 0.6-Q（10-17）：嫌疑哈希的四种形式、明文长度上限、信封竞态、net body 读 page 视图
+
+依据（隔壁项目真实站点 A，10-17，匿名化；ground truth 是解码插件对 91 条加密网关响应给出的明文）：P0 召回 11%——91 条里 76 条的 base64 是 MIME 式（每 76 字符一个换行），页面解密前先去空白，作用域里的字符串和原文、叶子都对不上哈希，一条 strong 也没有；10 条 strong 全是不带换行的 64 字节短 body，与插件明文 10/10 一致。（换行，strong）交叉表：（无，有）10、（有，无）76、（无，无）5。P1：一条 64 字节密文（明文 ≤48 字节）下挂了 895 字节的 weak 明文，那是页面从 localStorage 解析用户信息；一条 unattributed 行与某个原始响应体逐字节相同（1450 字节，axios `transformResponse` 解析的信封；测试方【推断】页面在 tabcap 索引该响应之前就 parse 了，原文排除没赶上）；`net body <id>` 不读 page 视图；`--decode` 藏在诊断组的 `trace start` 下，从录制流程找不到。
+
+改动（作者 10-17 的 brief A–F；下列字面按实现定案，待作者审）：
+
+- **四种形式（A）**。每个密文候选（熵规则命中的整段 body、JSON 叶子、裸 token）按页面可能拿着的形式各算一份 sha256，至多 4 份：`stripped`（去掉 `\r` `\n` `\t` 空格，与原文不同时）、`unquoted`（去掉一对首尾双引号）、`urldecoded`（`decodeURIComponent` 改变了它时；含孤立 `%` 解不开就不算）、`raw`。顺序是变换过的在前、`raw` 在后：两种形式同时在作用域里时（mime 页面的 `s59Xor(data)` 里有去空白后的 `data`，外层 `env` 往下一层是带换行的原文），`evidence.match` 取变换过的那份——它只因为页面自己做了规整才存在，离解密调用更近。原始 body 文本的 sha（0.6-L2）仍排在所有候选之后，形式记 `raw`。叶子和裸 token 的判定也先规整（去空白、去一对引号、URL 解码）再看是不是 ≥64 字符的 base64 / hex：MIME 式叶子、带引号或 URL 编码的裸 body 以前根本不进嫌疑。裸 token 的候选仍是 trim 后的 body 文本（页面 `atob(body.trim())` 照旧以 `raw` 对上）。strong 行加 `evidence.matchForm: "raw" | "stripped" | "unquoted" | "urldecoded"`，`match` 仍是命中的那个 sha；weak / unattributed 行没有这个字段。
+- **明文长度上限（B）**。每个候选给出它最多能解出的明文字节数：base64 → floor(去空白后长度 × 3 / 4)，hex（全是十六进制且长度为偶数）→ 长度 / 2，熵规则命中的整段 body → 它的字节长度；一个嫌疑的上限取其候选中最大的。**假设：加密前没有压缩**（gzip 后再加密的站点，明文可以比密文长，见下一条的豁免）。明文的 UTF-8 字节数超过某嫌疑的上限，就不可能出自它：该嫌疑退出 single-suspect（weak）和 unattributed 的候选；剩下恰好一个能装下的嫌疑就是 weak，多于一个就是 unattributed、`candidates` 只列能装下的；一个都没有就丢掉这次暂停，计 `drops.noFit`。**scope-string（strong）不受上限约束**：作用域里有密文本身，压缩的站点也照常出 strong 行。hold 中的暂停在 arm 到来时按同一规则判，判成 noFit 也就地丢弃（不再等下一个 arm）。
+- **信封竞态（C）**。unattributed 行和 weak 行一样先 settle 500 ms 再写；flush 时再对一遍原文 sha（`rawShas`），也再查一遍 50 行上限（超出计 `unattributedCapped`）。每当一个原始 body 被索引，settle 队列和 hold 里明文 sha 等于它的条目立即丢弃，计 `drops.rawBody`。50 行上限不变。
+- **`net body` 读 page 视图（D）**。默认和 `--decoded` 都按 D4 的 rank（ok 插件视图 > ok page 视图，同 rank 后行赢）解析视图：索引里的内联视图（录制时的插件）叠上 `decoded.jsonl` sidecar（`bundle decode` 的行和观察模式的 page 行），经 `src/analyze/views.ts` 的 `decodedPayload` 读（blob 缺失或超过 32 MiB 的不算视图），与 `analyze find` 同一条路；录制中与录制后一样。page 视图的回答里 `decoded` 多一个 `link`。没有视图时 `--decoded` 仍报 `not-found`；body 是观察模式会武装的那种（与 `suspectOf` 同一规则：`find` 的熵规则、≥64 字符的 base64 / hex 叶子或裸 token）时，`next` 先指 `tabcap trace start --decode`，再说插件。偏离 brief 一处（待作者审）：brief 写的是「过 `looksEncrypted`」，但带 base64 `data` 的 JSON 信封本身熵只有约 6 bit/字节，永远过不了 `looksEncrypted`——真实站点那 91 条正是这种，所以提示用观察模式自己的嫌疑规则（它包含 `looksEncrypted`）。
+- **可发现性（E）**。`net start` 的 summary 加一句「encrypted API responses: add `trace start --decode` …」（在分号之后，help 索引只取第一个子句，索引大小不变：6490 B，上限 8 KB【实测】）；`references/recording.md` 加一句。`net body` 的 summary 与 `--decoded` 的说明改为「decoded view（插件，或 `trace start --decode` 的 page 视图）」。
+- `trace status` / `trace stop` 的 `decode.drops` 多 `noFit`。
+
+靶场（docs/05 s59 `mode=mime` / `noise` / `race`，e2e `v06l`）：mime → 一条 strong、`matchForm:"stripped"`、`match` = sha256(去空白后的 `data`)，`net body` 默认与 `--decoded` 在录制中和 `net stop` 后都是 page 视图；noise → localStorage 那次 parse 不落行、`drops.noFit ≥ 1`、两条真明文照样 strong；race → 没有任何一行等于某个信封、`rows.unattributed` = 0。
+
+残留（不在本格处理）：上限假设加密前不压缩，压缩站点的真明文若只能 weak / unattributed 归属，会被当成 noFit 丢掉（strong 不受影响）；上限按 UTF-8 字节数比，页面若把 latin1 风格的字节串（`String.fromCharCode` 逐字节、未再做 UTF-8 解码）交给 `JSON.parse` 且含非 ASCII，UTF-8 长度会大于字节数而被误排除——按 UTF-16 码元数比较可以避开（码元数在两种解码方式下都不超过字节数），作者定；noFit 在 hold 里也是就地丢，若真明文的 parse 赢了自己的 arm、而当时在场的只有装不下它的别的嫌疑，这条会丢（改为继续 hold 到 10 s 再计 noFit 可以救回，作者定）。
 
 ## 34. 0.6-P `fetch --credentials` 与 `session export --origin`（10-17 主循环定需求；字段与下列细节按实现定案，待作者审）
 
