@@ -14,6 +14,9 @@ import { frontmostApp, isChromeApp } from "../../src/daemon/transport/direct/lau
 import { isRecord } from "../../src/shared/json.ts";
 import { DATA_IMAGES, POST_PAD, SCAN_PORTS, SIGN_HEADER, SIGN_VALUE, startFieldSite, type Site } from "./site.ts";
 
+// POSIX file modes do not exist on Windows (files get the profile's default ACL, docs/08): mode checks skip there.
+const POSIX_MODES = process.platform !== "win32";
+
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
@@ -295,8 +298,10 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
     expect(evs.filter((e) => e["kind"] === "request").length).toBeGreaterThan(80);
     expect(evs.filter((e) => e["actor"] === "human")).toEqual([]);
     expect(evs.some((e) => e["kind"] === "request" && e["cmd"] === null && e["actor"] === "ai")).toBe(true);
-    expect(statSync(bundle).mode & 0o777).toBe(0o700);
-    for (const p of walk(bundle).filter((x) => !x.includes("/exports/"))) expect([p, statSync(p).mode & 0o777]).toEqual([p, statSync(p).isDirectory() ? 0o700 : 0o600]);
+    if (POSIX_MODES) {
+      expect(statSync(bundle).mode & 0o777).toBe(0o700);
+      for (const p of walk(bundle).filter((x) => !x.includes("/exports/"))) expect([p, statSync(p).mode & 0o777]).toEqual([p, statSync(p).isDirectory() ? 0o700 : 0o600]);
+    }
   }, 60_000);
 
   test("daemon stop leaves no browser process of this TABCAP_HOME", async () => {
