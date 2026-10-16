@@ -229,7 +229,12 @@ function cmdInfo(p: Parsed): unknown {
   const kinds: Record<string, number> = {};
   for (const e of r.events) kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
   const recount = computeCounts(r.events, r.manifest.counts.blobBytes);
-  r.requests(); // adds bad-request issues, if any
+  const typeInferred = { "sec-fetch": 0, "content-type": 0 };
+  for (const q of r.requests()) {
+    // adds bad-request issues, if any
+    if (q["typeInferred"] === "sec-fetch") typeInferred["sec-fetch"]++;
+    else if (q["typeInferred"] === "content-type") typeInferred["content-type"]++;
+  }
   const warnings: string[] = [];
   if (!r.isComplete()) warnings.push("bundle is not finished: recording in progress or interrupted");
   if (r.truncatedLastLine) warnings.push("events.jsonl ends with a truncated line; it was skipped");
@@ -246,6 +251,7 @@ function cmdInfo(p: Parsed): unknown {
     events: r.events.length,
     kinds,
     imported: r.manifest.imported,
+    typeInferred,
     redaction: r.manifest.redaction,
     truncatedLastLine: r.truncatedLastLine,
     decodedSidecar: r.decodedSidecar,

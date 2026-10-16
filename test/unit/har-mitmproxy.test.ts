@@ -42,18 +42,18 @@ const KEPT = [
   `${E}.response.content.mimeType`,
   `${E}.response.content.text`,
   `${E}.serverIPAddress`,
-];
-/** Fields of this file the import drops (docs/13 field-loss table). */
-const DROPPED = [
-  "log.version",
-  "log.creator.comment",
-  "log.pages[]",
   `${E}.time`,
   `${E}.timings.connect`,
   `${E}.timings.receive`,
   `${E}.timings.send`,
   `${E}.timings.ssl`,
   `${E}.timings.wait`,
+];
+/** Fields of this file the import drops (docs/13 field-loss table). */
+const DROPPED = [
+  "log.version",
+  "log.creator.comment",
+  "log.pages[]",
   `${E}.request.httpVersion`,
   `${E}.request.cookies[]`,
   `${E}.request.cookies[].name`,
@@ -123,9 +123,9 @@ describe("0.6-M mitmproxy HAR import", () => {
 
   test("dropped fields leave no trace; what that costs is reported in the manifest", async () => {
     const { res, r } = await importFixture();
-    // timings were in the file but the bundle has none; mitmproxy has no resource type, so every request is "other"
-    expect(r.requests().every((q) => q.timing === null && q.type === "other" && q.nav === null && q.initiator === null)).toBe(true);
-    expect(res.lossy).toEqual(["actor", "tab", "cmd", "mono", "cdp", "timing", "headersSource", "redirect", "initiator"]);
+    // 0.6-N: type and timings are no longer lost; pages and initiators still are (the file has neither)
+    expect(r.requests().every((q) => q.timing !== null && q.nav === null && q.initiator === null)).toBe(true);
+    expect(res.lossy).toEqual(["actor", "tab", "cmd", "mono", "cdp", "headersSource", "redirect", "initiator"]);
     // the Cookie header (not the cookies array) is what keeps the request side whole
     expect(r.requests().filter((q) => "cookie" in q.request.headers).length).toBe(1);
   });

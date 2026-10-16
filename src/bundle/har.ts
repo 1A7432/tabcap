@@ -15,7 +15,7 @@ import { toBytes } from "./blobs.ts";
 import { TOOL_NAME, TOOL_VERSION } from "./manifest.ts";
 import { parseInlineOrBlob, parseRequest, toRawEvent, toResourceType, type BundleView } from "./reader.ts";
 import { blobRefsOf, redactView } from "./redact.ts";
-import type { Headers, RawEvent, RequestEvent, UnsequencedEvent } from "./types.ts";
+import type { Headers, RawEvent, RequestEvent, ResourceType, UnsequencedEvent } from "./types.ts";
 import { BundleWriter } from "./writer.ts";
 
 // ------------------------------------------------------------ HAR shapes (output)
@@ -723,6 +723,7 @@ async function importEntries(w: BundleWriter, har: HarIn, outDir: string): Promi
 
   let lacksInitiator = false;
   let lacksBody = false;
+  let lacksTiming = false;
   const env = { mono: null, actor: "human" as const, tab: "t1", cmd: null };
 
   for (const it of items) {
@@ -742,13 +743,15 @@ async function importEntries(w: BundleWriter, har: HarIn, outDir: string): Promi
     } else {
       const ev = await requestFromEntry(w, it.entry, seqOfPage);
       if (ev.initiator === null) lacksInitiator = true;
+      if (ev.timing === null) lacksTiming = true;
       if (it.entry.content.text === null) lacksBody = true;
       w.append((seq) => ({ ...ev, id: `r-${seq}` }));
     }
     if (w.lastSeq !== expected) throw new TabcapError("internal", `import seq drift at ${expected}`, "This is a bug in HAR import.");
   }
 
-  const lossy = ["actor", "tab", "cmd", "mono", "cdp", "timing", "headersSource", "redirect"];
+  const lossy = ["actor", "tab", "cmd", "mono", "cdp", "headersSource", "redirect"];
+  if (lacksTiming) lossy.push("timing");
   if (lacksInitiator) lossy.push("initiator");
   if (lacksBody) lossy.push("bodies");
   w.updateManifest((m) => {
@@ -764,6 +767,113 @@ async function importEntries(w: BundleWriter, har: HarIn, outDir: string): Promi
     lossy,
     missingBlobs: [],
   };
+}
+
+// ------------------------------------------------------------ import: type and timing
+
+function headerValue(h: Headers, name: string): string | null {
+  const v = h[name];
+  if (typeof v === "string") return v;
+  return Array.isArray(v) && v.length > 0 ? (v[0] ?? null) : null;
+}
+
+/** docs/04 section 9.2 table step 2: `sec-fetch-dest` (`empty` is xhr only with `x-requested-with: XMLHttpRequest`, else fetch). */
+function typeFromSecFetch(req: Headers): ResourceType | null {
+  const dest = headerValue(req, "sec-fetch-dest")?.trim().toLowerCase() ?? null;
+  switch (dest) {
+    case "document":
+    case "iframe":
+      return "document";
+    case "script":
+    case "image":
+    case "font":
+      return dest;
+    case "style":
+      return "stylesheet";
+    case "audio":
+    case "video":
+      return "media";
+    case "empty":
+      return headerValue(req, "x-requested-with")?.trim().toLowerCase() === "xmlhttprequest" ? "xhr" : "fetch";
+    default:
+      return null;
+  }
+}
+
+/** docs/04 section 9.2 table step 3: the response content-type. */
+function typeFromContentType(contentType: string | null): ResourceType {
+  const ct = (contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  if (ct === "text/html") return "document";
+  if (ct.includes("javascript")) return "script";
+  if (ct === "text/css") return "stylesheet";
+  if (ct.startsWith("image/")) return "image";
+  if (ct.startsWith("font/")) return "font";
+  if (ct.startsWith("audio/") || ct.startsWith("video/")) return "media";
+  if (ct.includes("json") || ct.includes("xml") || ct === "text/plain") return "xhr";
+  return "other";
+}
+
+/** The imported event's type and, when `_resourceType` is absent, how it was inferred. */
+export function importedType(raw: Record<string, unknown>, req: Headers, resp: Headers | null, mimeType: string | null): { type: ResourceType; typeInferred?: "sec-fetch" | "content-type" } {
+  if (raw["_resourceType"] !== undefined) return { type: toResourceType(raw["_resourceType"]) };
+  const bySecFetch = typeFromSecFetch(req);
+  if (bySecFetch !== null) return { type: bySecFetch, typeInferred: "sec-fetch" };
+  if (resp === null) return { type: "other" }; // no response: nothing to infer from
+  return { type: typeFromContentType(headerValue(resp, "content-type") ?? mimeType), typeInferred: "content-type" };
+}
+
+/**
+ * HAR `time` + `timings` -> the event's `timing` (docs/04 section 9.2 timing mapping). -1 / absent = unknown.
+ * An import has no monotonic clock (`mono:null`): `timing.start` is the entry's `startedDateTime` in
+ * epoch ms, `end = start + time`, `responseStart = end - receive`, and `timing.cdp` is rebuilt as
+ * offsets from the start (blocked, then dns, connect with ssl inside it, send, wait) so that
+ * `exportHar` reads the same spans back. `null` when the entry has no number at all.
+ */
+export function timingFromHar(ts: number, raw: Record<string, unknown>): RequestEvent["timing"] {
+  const known = (v: number | null): number | null => (v !== null && Number.isFinite(v) && v >= 0 ? v : null);
+  const tm = rec(raw, "timings");
+  const g = (k: string): number | null => (tm === null ? null : known(num(tm, k)));
+  const time = known(num(raw, "time"));
+  const blocked = g("blocked");
+  const dns = g("dns");
+  const connect = g("connect");
+  const ssl = g("ssl");
+  const send = g("send");
+  const wait = g("wait");
+  const receive = g("receive");
+  if (time === null && [blocked, dns, connect, ssl, send, wait, receive].every((x) => x === null)) return null;
+  const cdp: Record<string, number> = {};
+  let at = blocked ?? 0;
+  if (dns !== null) {
+    cdp["dnsStart"] = at;
+    at += dns;
+    cdp["dnsEnd"] = at;
+  }
+  if (connect !== null) {
+    cdp["connectStart"] = at;
+    at += connect;
+    cdp["connectEnd"] = at;
+    if (ssl !== null && ssl <= connect) {
+      cdp["sslStart"] = at - ssl;
+      cdp["sslEnd"] = at;
+    }
+  } else if (ssl !== null) {
+    cdp["sslStart"] = at;
+    at += ssl;
+    cdp["sslEnd"] = at;
+  }
+  if (send !== null || wait !== null) {
+    cdp["sendStart"] = at;
+    at += send ?? 0;
+    cdp["sendEnd"] = at;
+  }
+  if (wait !== null) {
+    at += wait;
+    cdp["receiveHeadersEnd"] = at;
+  }
+  const end = time === null ? null : ts + time;
+  const responseStart = end !== null && receive !== null ? end - receive : wait !== null ? ts + at : null;
+  return { start: ts, responseStart, end, cdp: Object.keys(cdp).length === 0 ? null : cdp };
 }
 
 async function requestFromEntry(w: BundleWriter, e: HarEntryIn, seqOfPage: ReadonlyMap<string, number>): Promise<UnsequencedEvent & { initiator: unknown }> {
@@ -822,6 +932,7 @@ async function requestFromEntry(w: BundleWriter, e: HarEntryIn, seqOfPage: Reado
     };
   }
 
+  const typed = importedType(raw, reqHeaders, response === null ? null : respHeaders, e.content.mimeType);
   const pageSeq = e.pageref === null ? undefined : seqOfPage.get(e.pageref);
   const initRaw = raw["_initiator"];
   const errorText = typeof raw["_error"] === "string" ? raw["_error"] : "unknown (status 0 in HAR)";
@@ -835,7 +946,8 @@ async function requestFromEntry(w: BundleWriter, e: HarEntryIn, seqOfPage: Reado
     nav: pageSeq === undefined ? null : `n-${pageSeq}`,
     id: "",
     cdp: null,
-    type: toResourceType(raw["_resourceType"]),
+    type: typed.type,
+    ...(typed.typeInferred === undefined ? {} : { typeInferred: typed.typeInferred }),
     method: e.method,
     url: e.url,
     urlFragment: null,
@@ -843,7 +955,7 @@ async function requestFromEntry(w: BundleWriter, e: HarEntryIn, seqOfPage: Reado
     request: { headers: reqHeaders, headersSource: "event", postData },
     response,
     redirect: null,
-    timing: null,
+    timing: timingFromHar(e.ts, raw),
     outcome: failed ? "failed" : "finished",
     error: failed ? { text: errorText, canceled: null, blockedReason: null } : null,
   };
