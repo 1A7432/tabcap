@@ -24,7 +24,7 @@ beforeAll(async () => {
 }, SLOW_IO_MS);
 afterAll(() => rmSync(root, { recursive: true, force: true }), SLOW_IO_MS);
 
-const FILES = ["client.py", "conftest.py", "test_replay.py", "_tabcap_session.py"];
+const FILES = ["client.py", "conftest.py", "test_replay.py", "_tabcap_session.py", "_tabcap_fetch.py"];
 
 describe("generated package", () => {
   test("client.py snapshot; files; every Python file compiles", () => {
@@ -34,6 +34,7 @@ describe("generated package", () => {
       ".gitignore",
       "README.md",
       "_tabcap_session.py",
+      "_tabcap_fetch.py",
       "client.py",
       "conftest.py",
       "fixtures/get_api_feed.json",

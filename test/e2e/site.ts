@@ -1231,3 +1231,85 @@ window.addEventListener("message", (e) => { if (e.data === "s22-close") { const 
     },
   };
 }
+
+// ---------------------------------------------------------------- 0.6-A: tabcap fetch range
+// Origin A: the s07 login (LOGIN_PAGE above, same endpoints) plus data
+// endpoints a scraper calls; origin B: a second port on 127.0.0.1 (a different
+// origin, same site), one endpoint that allows A by CORS and one that does
+// not. The access log keeps every request's headers and arrival time: the
+// oracle for "the server never saw the marker header" and for the interval.
+// `served` maps path + query → the exact body text sent.
+
+/** /api/item?n=K answers this body for the logged-in session (literal oracle). */
+export const FETCH_ITEM = (n: string, user: string): string => JSON.stringify({ code: 0, n, user, item: `item-${n}` });
+/** /api/biz: a business error a stop rule `json:$.code!=0` catches. */
+export const FETCH_BIZ_ERROR = JSON.stringify({ code: 1, msg: "busy, try later" });
+export const FETCH_OK = JSON.stringify({ code: 0, ok: true });
+/** /api/big: a JSON body over the 8 KB inline limit. */
+export const FETCH_BIG = JSON.stringify({ code: 0, pad: "b".repeat(12_000) });
+export const FETCH_CORS_BODY = JSON.stringify({ code: 0, from: "origin-b" });
+
+export type FetchHit = { origin: "a" | "b"; method: string; path: string; query: string; headers: Record<string, string>; at: number };
+export type FetchSite = { a: string; b: string; log: FetchHit[]; served: Map<string, string>; stop: () => void };
+
+export function startFetchSite(): FetchSite {
+  const log: FetchHit[] = [];
+  const served = new Map<string, string>();
+  const sessions = new Map<string, string>(); // sid -> user
+  const json = (key: string, body: string, status = 200, extra: Record<string, string> = {}) => {
+    served.set(key, body);
+    return new Response(body, { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...extra } });
+  };
+  const note = (origin: "a" | "b", req: Request): URL => {
+    const u = new URL(req.url);
+    log.push({ origin, method: req.method, path: u.pathname, query: u.search, headers: Object.fromEntries(req.headers), at: Date.now() });
+    return u;
+  };
+  const a = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const u = note("a", req);
+      const p = u.pathname;
+      const key = p + u.search;
+      if (p === "/s07/login") return new Response(LOGIN_PAGE, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      if (p === "/api/login" && req.method === "POST") {
+        const f = new URLSearchParams(await req.text());
+        if (f.get("user") !== LOGIN_USER || f.get("password") !== LOGIN_PASSWORD) return json(key, JSON.stringify({ error: "bad credentials" }), 401);
+        const sid = crypto.randomUUID().replace(/-/g, "");
+        sessions.set(sid, LOGIN_USER);
+        return json(key, JSON.stringify({ csrf: "c" }), 200, { "set-cookie": `sid=${sid}; Path=/; HttpOnly; SameSite=Lax` });
+      }
+      const sid = /(?:^|;\s*)sid=([0-9a-f]+)/.exec(req.headers.get("cookie") ?? "")?.[1] ?? "";
+      const user = sessions.get(sid);
+      if (p === "/api/data" && req.method === "POST") return user === undefined ? json(key, JSON.stringify({ error: "no session" }), 401) : json(key, JSON.stringify({ data: "data-ok" }));
+      if (user === undefined) return json(key, JSON.stringify({ code: 401, error: "no session" }), 401);
+      if (p === "/api/item") return json(key, FETCH_ITEM(u.searchParams.get("n") ?? "", user));
+      if (p === "/api/biz") return json(key, FETCH_BIZ_ERROR);
+      if (p === "/api/ok") return json(key, FETCH_OK);
+      if (p === "/api/big") return json(key, FETCH_BIG);
+      return new Response("nf", { status: 404 });
+    },
+  });
+  const aOrigin = `http://127.0.0.1:${a.port}`;
+  const b = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = note("b", req);
+      if (u.pathname === "/api/cors") return json(`b${u.pathname}`, FETCH_CORS_BODY, 200, { "access-control-allow-origin": aOrigin, "access-control-allow-credentials": "true" });
+      if (u.pathname === "/api/nocors") return json(`b${u.pathname}`, FETCH_CORS_BODY);
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return {
+    a: aOrigin,
+    b: `http://127.0.0.1:${b.port}`,
+    log,
+    served,
+    stop: () => {
+      a.stop(true);
+      b.stop(true);
+    },
+  };
+}

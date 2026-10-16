@@ -255,8 +255,10 @@ describe("tools/list --all-tools: generated from the command table", () => {
       const printFormat = new Set((t.command?.flags ?? []).filter((f) => f.kind === "bool" && ((f.flag === "--text" && f.key === "text") || (f.flag === "--json" && f.key === "json"))).map((f) => f.flag));
       expect(t.bindings.some((b) => b.to === "flag" && b.type === "boolean" && printFormat.has(b.flag))).toBe(false);
       if (t.def.name !== "tabcap_html") expect(t.bindings.some((b) => b.to === "flag" && b.type === "boolean" && (b.flag === "--text" || b.flag === "--json"))).toBe(false);
-      expect(Object.keys(s.properties)).not.toContain("json");
+      // `fetch --json <text>` (0.6-A) is the request body, data like `html --text`; every other `json` would be the print format.
+      if (t.def.name !== "tabcap_fetch") expect(Object.keys(s.properties)).not.toContain("json");
     }
+    expect(tool("tabcap_fetch").def.inputSchema.properties["json"]?.type).toBe("string");
     expect(tool("tabcap_html").def.inputSchema.properties["text"]?.type).toBe("boolean");
     // analyze find's text is its positional; dialog's --text is a value (the prompt answer), not a print format
     expect(tool("tabcap_dialog").def.inputSchema.properties["text"]?.type).toBe("string");
