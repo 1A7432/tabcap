@@ -234,3 +234,8 @@
 - 做了什么：`src/fingerprint/probe.html`（自包含、CSP `default-src 'none'`、页面自己的 world 只读 49 个字段，名字沿用 `signals.ts` 的 IDL 写法，同一 API 多值用 `(参数)` / `().成员`；canvas / audio 只留字节 sha256，JSON 超 1 KB 的值只留 sha256）；`fingerprint serve [--port 0] [--once] [--force]`、`ref list|show|remove`（`config/fingerprint/refs/<名>.json` 0600 / 目录 0700）；`fingerprint probe [--ref] [--text]`（守护进程端口 0 临时起服务、后台标签、用完关、当前标签复原，录制中写 `state` `{what:"env", source:"fingerprint-probe", origin, count, reason:"manual", fields}`，无 blob）；`fingerprint diff <包> --ref`；POST 要 token + `application/json` + 本端口 Host + 同源 Origin；`fingerprint.probe` 进 `BLOCKED_WHILE_WAITING`。【实测】单测 588 pass、tsc 无错、skill valid、gen:docs 无差异；本机 e2e 全量 115/115（v04g 6/6，两次加载 49 个字段全部 same，没有字段因不确定被丢）；CI run 38849716355 全绿（Linux 上无 WebGL 上下文，7 个 WebGL 字段报 `no webgl context`，前后一致仍判 same）；编译后的二进制能出探针页。
 - 卡在哪：按字面定、待作者审：`missing` = 参照缺、`extra` = 本浏览器缺（与常见用法相反，照 brief）；有 `error` 视为「缺」，两边都缺判 `same`；超 1 KB 的值改存 sha256（本机语音列表就是哈希，WebGL 扩展列表 1009 B 贴线，换机器可能变哈希）；`serve` 默认端口 0；参照文件 `savedAt` 用 epoch 毫秒；env 事件 `actor:"system"`；`probe --text` 也算一次探针、也写 env 事件。
 - 下一格从哪开始：作者审 PR #12 与上面几处字面裁定、docs/04 §4.3 新段与 docs/07 §5；合入时主循环重生 schema 快照。
+
+## 2026-10-16 · 0.4-G2 · missing / extra 方向按常规改正
+- 做了什么：作者裁定 brief 里方向写反了，改为 `missing` = 本浏览器缺、参照里有，`extra` = 本浏览器有、参照里缺（`fields.ts` 判定与注释、`--ref` 帮助文字与 schema 快照、生成的 commands.md、SKILL、docs/04 §4.3、docs/07 §5、两份 CHANGELOG 各加一行）；单测与 v04g 只对调期望标签，断言强度不变（参照里删掉的 vendor 现在是 `extra`，summary `{same 46, differs 2, missing 0, extra 1}`）。【实测】单测 589 pass、tsc 无错、skill valid、gen:docs 无差异、v04g 单独跑 6/6。
+- 卡在哪：`--text` 输出本来没有图例，只有末行计数 `same N, differs N, missing N, extra N`，方向说明在 `--ref` 的帮助里，已改那里；没另加图例行（会改变文本输出的行数）。
+- 下一格从哪开始：作者审 0.4-G2 草稿 PR，合入时主循环重生 schema 快照。
