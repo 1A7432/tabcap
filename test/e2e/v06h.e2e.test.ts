@@ -3,6 +3,8 @@
 // the s07 login journal (`loginBodies`) and the pacing contract of `tabcap fetch`
 // (config fetch.minIntervalMs 3000, docs/04 §26). The report is read from the finished bundle;
 // no number comes from tabcap's own counters.
+// 0.6-S: rows are per host and actor and loopback hosts (the range) need --all-hosts;
+// per-host totals are summed over a host's rows, intervals read from the page / fetch rows.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -102,15 +104,42 @@ describe.skipIf(!enabled)("tabcap 0.6-H L2 (bundle info --usage over s07 + s06)"
     expect(guard.loginBodies.length).toBe(1);
     expect(count(searchLog, (h) => h.startsWith("GET /api/search"))).toBe(4); // the page's own + three fetches
 
-    const e = await tabcap(["bundle", "info", bundle, "--usage", "--business-code", "$.data=data-ok"]);
+    const loopOnly = await tabcap(["bundle", "info", bundle, "--usage"]);
+    if (!loopOnly.ok) throw new Error(loopOnly.raw);
+    expect(recs(loopOnly.data["hosts"])).toEqual([]); // both range origins are loopback
+    expect(rec(rec(loopOnly.data["skipped"])["loopback"])["requests"]).toBe(guardLog.length + searchLog.length);
+
+    const e = await tabcap(["bundle", "info", bundle, "--usage", "--all-hosts", "--business-code", "$.data=data-ok"]);
     if (!e.ok) throw new Error(e.raw);
     expect(e.data["schema"]).toBe("tabcap-usage/0");
     expect(rec(e.data["session"])).toMatchObject({ name: "s07h", site: SITE });
-    const hosts = recs(e.data["hosts"]);
-    const g = hosts.find((h) => h["host"] === new URL(guard.origin).host);
-    const q = hosts.find((h) => h["host"] === new URL(search.origin).host);
-    if (g === undefined || q === undefined) throw new Error(`hosts: ${JSON.stringify(hosts.map((h) => h["host"]))}`);
-    expect(hosts.length).toBe(2);
+    const rows = recs(e.data["hosts"]);
+    const sumOf = (host: string): Record<string, unknown> => {
+      const mine = rows.filter((h) => h["host"] === host);
+      const merged = (key: string): Record<string, number> => {
+        const a: Record<string, number> = {};
+        for (const h of mine) for (const [k, v] of Object.entries(rec(h[key]))) a[k] = (a[k] ?? 0) + Number(v);
+        return a;
+      };
+      return {
+        requests: mine.reduce((n, h) => n + Number(h["requests"]), 0),
+        byMethod: merged("byMethod"),
+        statuses: merged("statuses"),
+        emptyBodies: mine.reduce((n, h) => n + Number(h["emptyBodies"]), 0),
+        businessErrors: mine.reduce((n, h) => n + Number(h["businessErrors"]), 0),
+        bytesIn: mine.reduce((n, h) => n + Number(h["bytesIn"]), 0),
+      };
+    };
+    const gHost = new URL(guard.origin).host;
+    const qHost = new URL(search.origin).host;
+    expect([...new Set(rows.map((h) => h["host"]))].sort()).toEqual([gHost, qHost].sort());
+    const g = sumOf(gHost);
+    const q = sumOf(qHost);
+    const qPage = rows.find((h) => h["host"] === qHost && h["actor"] === "page");
+    const qFetch = rows.find((h) => h["host"] === qHost && h["actor"] === "fetch");
+    if (qPage === undefined || qFetch === undefined) throw new Error(`rows: ${JSON.stringify(rows.map((h) => [h["host"], h["actor"]]))}`);
+    expect(qFetch["requests"]).toBe(3); // the three tabcap fetch calls (fetchId)
+    expect(qPage["requests"]).toBe(searchLog.length - 3);
 
     // requests and methods per host = the range's own access log
     expect(g["requests"]).toBe(guardLog.length);
@@ -129,12 +158,13 @@ describe.skipIf(!enabled)("tabcap 0.6-H L2 (bundle info --usage over s07 + s06)"
     expect(q["businessErrors"]).toBe(4);
 
     // intervals, from the pacing contract (fetch.minIntervalMs 3000 between fetches of one host): fetches 2 and 3 start at least
-    // 3000 ms after the one before, so the host's span is at least 6000 ms over 5 gaps (mean >= 1200), and no 1 s window can hold
-    // more than the page document, its XHR, the favicon and the first fetch (4); the page's own requests are within 1 s of each other.
-    expect(Number(q["minIntervalMs"])).toBeLessThan(1000);
-    expect(Number(q["maxBurst1s"])).toBeGreaterThanOrEqual(2);
-    expect(Number(q["maxBurst1s"])).toBeLessThanOrEqual(4);
-    expect(Number(q["meanIntervalMs"])).toBeGreaterThanOrEqual(1200);
+    // 3000 ms after the one before, so the fetch row's two gaps average at least 1200 ms (it is 3000 by the contract), and its
+    // 1 s windows hold one fetch each; the page's own requests (document, its XHR, the favicon) are within 1 s of each other.
+    expect(Number(qPage["minIntervalMs"])).toBeLessThan(1000);
+    expect(Number(qPage["maxBurst1s"])).toBeGreaterThanOrEqual(2);
+    expect(Number(qPage["maxBurst1s"])).toBeLessThanOrEqual(3);
+    expect(Number(qFetch["meanIntervalMs"])).toBeGreaterThanOrEqual(1200);
+    expect(Number(qFetch["maxBurst1s"])).toBe(1);
     expect(Number(g["bytesIn"])).toBeGreaterThan(0);
 
     // logins: one password fill, by the account bound to the site
@@ -159,7 +189,7 @@ describe.skipIf(!enabled)("tabcap 0.6-H L2 (bundle info --usage over s07 + s06)"
     for (const v of [LOGIN_PASSWORD, ...guard.sids, ...guard.csrfs, "usage-1-a"]) expect(e.raw.includes(v)).toBe(false);
 
     // --text is one screen
-    const t = Bun.spawn(["bun", MAIN, "bundle", "info", bundle, "--usage", "--text"], { env: { ...process.env, TABCAP_HOME: home }, stdout: "pipe", stderr: "pipe" });
+    const t = Bun.spawn(["bun", MAIN, "bundle", "info", bundle, "--usage", "--all-hosts", "--text"], { env: { ...process.env, TABCAP_HOME: home }, stdout: "pipe", stderr: "pipe" });
     const text = await new Response(t.stdout).text();
     await t.exited;
     expect(text).toContain(new URL(search.origin).host);

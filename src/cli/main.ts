@@ -9,7 +9,7 @@ import { compactStamp, nowMs } from "../shared/time.ts";
 import { exportHar, importHar } from "../bundle/har.ts";
 import { computeCounts, writeFileAtomic } from "../bundle/manifest.ts";
 import { BundleReader } from "../bundle/reader.ts";
-import { parseBusinessRule, renderUsageText, usageReport, type UsageReport } from "../bundle/usage.ts";
+import { parseBusinessRule, parseUsageActor, renderUsageText, usageReport, type UsageReport } from "../bundle/usage.ts";
 import { newSalt, redactBundle, writeSalt } from "../bundle/redact.ts";
 import { readConfig, writeConfig } from "../shared/config.ts";
 import { envVar } from "../shared/env.ts";
@@ -247,7 +247,7 @@ async function cmdExportFixtures(p: Parsed): Promise<unknown> {
   const rules = bundleRules(dir, flagStr(p, "--rules"));
   const redact = p.flags.get("--no-redact") !== true;
   const salt = redact ? newSalt() : null;
-  const res = await exportFixtures(reader, { out, rules, format, redact: salt === null ? false : { salt, knownSecrets: storeSecrets() }, configDir: config });
+  const res = await exportFixtures(reader, { out, rules, format, redact: salt === null ? false : { salt, knownSecrets: storeSecrets() }, configDir: config, includePreflight: p.flags.get("--include-preflight") === true });
   const saltFile = salt === null ? null : writeSalt(dir, `fixtures-${compactStamp(nowMs())}`, salt);
   return {
     ...res,
@@ -262,11 +262,12 @@ function cmdInfo(p: Parsed): unknown {
   checkFlags(p, flagNames(INFO), usage);
   const [dir = ""] = need(p, 1, usage);
   const wantUsage = p.flags.get("--usage") === true;
-  if (!wantUsage && (p.flags.has("--text") || p.flags.has("--business-code"))) throw new TabcapError("usage", "--text and --business-code belong to --usage", `Usage: ${usage}`);
+  if (!wantUsage && ["--text", "--business-code", "--actor", "--all-hosts"].some((f) => p.flags.has(f))) throw new TabcapError("usage", "--text, --business-code, --actor and --all-hosts belong to --usage", `Usage: ${usage}`);
   const r = BundleReader.open(dir);
   if (wantUsage) {
     const rules = (p.repeated.get("--business-code") ?? []).map(parseBusinessRule);
-    return usageReport(r, dir, rules);
+    const actor = flagStr(p, "--actor");
+    return usageReport(r, dir, rules, { actor: actor === undefined ? null : parseUsageActor(actor), allHosts: p.flags.get("--all-hosts") === true });
   }
   const kinds: Record<string, number> = {};
   for (const e of r.events) kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
