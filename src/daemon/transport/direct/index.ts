@@ -39,6 +39,7 @@ export type DirectOptions = {
 
 export type FrontReport = {
   before: string | null;
+  beforeBundleId: string | null;
   afterLaunch: string | null;
   restored: boolean | null;
   after: string | null;
@@ -78,7 +79,7 @@ export class DirectTransport implements Transport {
   }
 
   static async start(o: DirectOptions): Promise<DirectTransport> {
-    const before = frontmostApp();
+    const beforeApp = frontmostApp();
     const probe: { wire: unknown; client: CdpClient | null } = { wire: null, client: null };
     const launched = await launchChrome({
       executable: o.executable,
@@ -119,27 +120,27 @@ export class DirectTransport implements Transport {
     // moment to do so, then hand the foreground back.
     let afterLaunch: string | null = null;
     let restored: boolean | null = null;
-    if (process.platform === "darwin" && before !== null) {
+    if (process.platform === "darwin" && beforeApp !== null) {
       const deadline = Date.now() + 1500;
       while (Date.now() < deadline) {
-        afterLaunch = frontmostApp();
+        afterLaunch = frontmostApp()?.name ?? null;
         if (isChromeApp(afterLaunch)) break;
         await Bun.sleep(100);
       }
       // Chrome may re-activate itself shortly after we hand the foreground back
       // (measured once with a startup window), so check again a few times.
-      if (o.restoreFront && !isChromeApp(before)) {
+      if (o.restoreFront && !isChromeApp(beforeApp)) {
         for (let i = 0; i < 4 && isChromeApp(frontmostApp()); i++) {
-          restored = activateApp(before);
+          restored = activateApp(beforeApp);
           await Bun.sleep(400);
         }
       }
     }
     // Handing the foreground back uses osascript, which only exists on macOS.
     if (process.platform !== "darwin" && o.restoreFront) log.info("foreground hand-back is macOS-only; skipped", { platform: process.platform });
-    const front: FrontReport = { before, afterLaunch, restored, after: frontmostApp(), noStartupWindow: o.noStartupWindow };
+    const front: FrontReport = { before: beforeApp?.name ?? null, beforeBundleId: beforeApp?.bundleId ?? null, afterLaunch, restored, after: frontmostApp()?.name ?? null, noStartupWindow: o.noStartupWindow };
     const guard = new FrontGuard(
-      isChromeApp(before) ? null : before,
+      isChromeApp(beforeApp) ? null : beforeApp,
       { read: frontmostAppAsync, activate: activateAppAsync, sleep: (ms) => Bun.sleep(ms), now: () => Date.now() },
       o.restoreFront && process.platform === "darwin",
     );
@@ -178,8 +179,8 @@ export class DirectTransport implements Transport {
     void this.frontGuard.note().catch(() => undefined);
   }
 
-  get frontStats(): FrontStats & { lastSeen: string | null } {
-    return { ...this.frontGuard.stats, lastSeen: this.frontGuard.lastSeen };
+  get frontStats(): FrontStats & { lastSeen: string | null; lastSeenBundleId: string | null } {
+    return { ...this.frontGuard.stats, lastSeen: this.frontGuard.lastSeen?.name ?? null, lastSeenBundleId: this.frontGuard.lastSeen?.bundleId ?? null };
   }
 
   onEvent(fn: (e: CdpEvent) => void): () => void {

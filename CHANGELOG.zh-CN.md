@@ -4,6 +4,10 @@
 
 ## 0.6.0（2026-10-17）
 
+### 修正
+
+- macOS 弹窗前台交还改按 bundle identifier 激活之前在前台的应用，没有 bundle id 才退回应用名。进程名可能和应用名不同（Firefox Developer Edition 的进程名是 `firefox`），`tell application "firefox" to activate` 会报 -1728，交还永远不成功。`browser status` 的 `popupFocus` 多了 `lastSeenBundleId`，启动时的 `front` 报告多了 `beforeBundleId`。
+
 ### README 重写
 
 - 两份 README 改回给人读的样子：是什么、为什么、快速开始、做什么、命令分组一览、同类对照、边界、平台、文档。生成的全量命令表从 README 里拿掉，完整参考只在 `skills/tabcap/references/commands.md`（`bun run gen:docs` 现在只写这一个文件）。

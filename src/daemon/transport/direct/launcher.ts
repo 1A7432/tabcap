@@ -267,40 +267,71 @@ export async function killAndWait(proc: ChildProcess, graceMs: number): Promise<
 
 // ------------------------------------------------------------ macOS foreground
 
-/** Name of the frontmost macOS app, or null when unknown / not permitted / not macOS. */
-export function frontmostApp(): string | null {
-  if (process.platform !== "darwin") return null;
-  const p = Bun.spawnSync(
-    ["osascript", "-e", 'tell application "System Events" to get name of first application process whose frontmost is true'],
-    { timeout: 5000, stdout: "pipe", stderr: "pipe" },
-  );
-  const name = p.stdout.toString().trim();
-  return p.exitCode === 0 && name !== "" ? name : null;
+/**
+ * The frontmost macOS process. `name` is the System Events process name, which
+ * can differ from the application name (Firefox Developer Edition: `firefox`),
+ * so the hand-back activates by `bundleId` when there is one.
+ */
+export type FrontApp = { name: string; bundleId: string | null; pid: number | null };
+
+const FRONTMOST_SCRIPT = [
+  'tell application "System Events"',
+  "set p to first application process whose frontmost is true",
+  "return {name of p, bundle identifier of p, unix id of p}",
+  "end tell",
+].join("\n");
+
+/** Parse osascript's `name, bundle id, pid` list output; `missing value` means no bundle id. Null when unusable. */
+export function parseFrontApp(out: string): FrontApp | null {
+  const m = /^(.*), ([^,]*), (\d+)$/s.exec(out.trim());
+  if (m === null) return null;
+  const name = (m[1] ?? "").trim();
+  const bundle = (m[2] ?? "").trim();
+  const pid = Number(m[3]);
+  if (name === "") return null;
+  return { name, bundleId: bundle === "" || bundle === "missing value" ? null : bundle, pid: Number.isSafeInteger(pid) ? pid : null };
 }
 
-/** Bring a macOS app back to the front; true on success. */
-export function activateApp(name: string): boolean {
-  if (process.platform !== "darwin" || !/^[^"\\]+$/.test(name)) return false;
-  const p = Bun.spawnSync(["osascript", "-e", `tell application "${name}" to activate`], { timeout: 5000, stdout: "pipe", stderr: "pipe" });
+/** The frontmost macOS app, or null when unknown / not permitted / not macOS. */
+export function frontmostApp(): FrontApp | null {
+  if (process.platform !== "darwin") return null;
+  const p = Bun.spawnSync(["osascript", "-e", FRONTMOST_SCRIPT], { timeout: 5000, stdout: "pipe", stderr: "pipe" });
+  return p.exitCode === 0 ? parseFrontApp(p.stdout.toString()) : null;
+}
+
+/** AppleScript that brings an app back to the front: by bundle id when known, else by name; null when unsafe to embed or a Chrome app. */
+export function activateScript(app: FrontApp): string | null {
+  if (isChromeApp(app.name)) return null;
+  const SAFE = /^[^"\\\n\r]+$/;
+  if (app.bundleId !== null) return SAFE.test(app.bundleId) ? `tell application id "${app.bundleId}" to activate` : null;
+  return SAFE.test(app.name) ? `tell application "${app.name}" to activate` : null;
+}
+
+/** Bring a macOS app back to the front; true on success. Never activates a Chrome app. */
+export function activateApp(app: FrontApp): boolean {
+  const script = process.platform === "darwin" ? activateScript(app) : null;
+  if (script === null) return false;
+  const p = Bun.spawnSync(["osascript", "-e", script], { timeout: 5000, stdout: "pipe", stderr: "pipe" });
   return p.exitCode === 0;
 }
 
-export const isChromeApp = (name: string | null): boolean => name !== null && /chrom/i.test(name);
-
-const FRONTMOST_SCRIPT = 'tell application "System Events" to get name of first application process whose frontmost is true';
+export const isChromeApp = (app: FrontApp | string | null): boolean => {
+  const name = typeof app === "string" || app === null ? app : app.name;
+  return name !== null && /chrom/i.test(name);
+};
 
 /** Async `frontmostApp` (does not block the daemon's event loop while osascript runs). */
-export async function frontmostAppAsync(): Promise<string | null> {
+export async function frontmostAppAsync(): Promise<FrontApp | null> {
   if (process.platform !== "darwin") return null;
   const p = Bun.spawn(["osascript", "-e", FRONTMOST_SCRIPT], { stdout: "pipe", stderr: "ignore", timeout: 5000 });
   const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
-  const name = out.trim();
-  return code === 0 && name !== "" ? name : null;
+  return code === 0 ? parseFrontApp(out) : null;
 }
 
 /** Async `activateApp`. */
-export async function activateAppAsync(name: string): Promise<boolean> {
-  if (process.platform !== "darwin" || !/^[^"\\]+$/.test(name)) return false;
-  const p = Bun.spawn(["osascript", "-e", `tell application "${name}" to activate`], { stdout: "ignore", stderr: "ignore", timeout: 5000 });
+export async function activateAppAsync(app: FrontApp): Promise<boolean> {
+  const script = process.platform === "darwin" ? activateScript(app) : null;
+  if (script === null) return false;
+  const p = Bun.spawn(["osascript", "-e", script], { stdout: "ignore", stderr: "ignore", timeout: 5000 });
   return (await p.exited) === 0;
 }

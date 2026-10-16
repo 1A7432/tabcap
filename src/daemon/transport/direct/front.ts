@@ -12,11 +12,11 @@
 // (or at launch). When that reading was Chrome itself the human is working in
 // the tabcap browser, and nothing is restored.
 
-import { isChromeApp } from "./launcher.ts";
+import { isChromeApp, type FrontApp } from "./launcher.ts";
 
 export type FrontOps = {
-  read: () => Promise<string | null>;
-  activate: (app: string) => Promise<boolean>;
+  read: () => Promise<FrontApp | null>;
+  activate: (app: FrontApp) => Promise<boolean>;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
 };
@@ -34,6 +34,7 @@ export const RESTORE_DEFAULTS: RestoreOptions = { watchMs: 2500, settleMs: 1200,
 
 export type RestoreReport = {
   before: string;
+  beforeBundleId: string | null;
   /** Chrome was seen frontmost during the watch. */
   stolen: boolean;
   /** null: nothing was stolen, so nothing was attempted. */
@@ -43,11 +44,11 @@ export type RestoreReport = {
 };
 
 /** Watch the frontmost app; whenever Chrome has it, activate `before` again (bounded). */
-export async function restoreFront(before: string, ops: FrontOps, o: RestoreOptions = RESTORE_DEFAULTS): Promise<RestoreReport> {
+export async function restoreFront(before: FrontApp, ops: FrontOps, o: RestoreOptions = RESTORE_DEFAULTS): Promise<RestoreReport> {
   let until = ops.now() + o.watchMs;
   let stolen = false;
   let attempts = 0;
-  let after: string | null = null;
+  let after: FrontApp | null = null;
   while (ops.now() < until) {
     after = await ops.read();
     if (isChromeApp(after)) {
@@ -60,19 +61,19 @@ export async function restoreFront(before: string, ops: FrontOps, o: RestoreOpti
     await ops.sleep(o.pollMs);
   }
   after = await ops.read();
-  return { before, stolen, restored: stolen ? !isChromeApp(after) : null, attempts, after };
+  return { before: before.name, beforeBundleId: before.bundleId, stolen, restored: stolen ? !isChromeApp(after) : null, attempts, after: after?.name ?? null };
 }
 
 export type FrontStats = { windows: number; stolen: number; restored: number; failed: number; skipped: number; last: RestoreReport | null };
 
 export class FrontGuard {
   readonly stats: FrontStats = { windows: 0, stolen: 0, restored: 0, failed: 0, skipped: 0, last: null };
-  private baseline: string | null;
+  private baseline: FrontApp | null;
   private running: Promise<void> | null = null;
   private again = false;
 
   constructor(
-    launchBefore: string | null,
+    launchBefore: FrontApp | null,
     private readonly ops: FrontOps,
     private readonly enabled: boolean,
     private readonly opts: RestoreOptions = RESTORE_DEFAULTS,
@@ -81,7 +82,7 @@ export class FrontGuard {
   }
 
   /** The last frontmost-app reading used as the hand-back target. */
-  get lastSeen(): string | null {
+  get lastSeen(): FrontApp | null {
     return this.baseline;
   }
 

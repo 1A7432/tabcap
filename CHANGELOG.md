@@ -4,6 +4,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## 0.6.0 (2026-10-17)
 
+### Fixes
+
+- macOS popup foreground hand-back now activates the previously frontmost app by bundle identifier (falling back to its name only when it has none). A process name can differ from the application name (Firefox Developer Edition reports `firefox`), which made `tell application "firefox" to activate` fail with -1728 and the hand-back never succeed. `browser status` `popupFocus` also reports `lastSeenBundleId`, and the launch `front` report `beforeBundleId`.
+
 ### README rewritten
 
 - Both READMEs are written for a reader again: what it is, why, a quick start, what it does, a one-table overview of the command groups, the comparison, boundaries, platforms, docs. The generated table of every command left the README; the full reference stays in `skills/tabcap/references/commands.md` (the only file `bun run gen:docs` writes now).

@@ -401,3 +401,8 @@
 - 做了什么：0.6-L2 快进合入 main（f3f488c）；CHANGELOG 的 L2 条目并进 0.6.0（日期改 10-17）；`bun run release` + `bun run npm:pack` 重打四平台二进制与 npm 包（dist/release、dist/npm，SHA256SUMS 随之更新），`--version` 0.6.0、帮助文本含 L2 措辞【实测】；已通知隔壁项目的会话用新包重测并回报体验。README×2 按「给人读」重写：是什么 / 为什么 / 快速开始 / 做什么 / 命令分组一览 / 对照 / 边界 / 平台 / 文档，去掉生成的全量命令表；`scripts/gen-docs.ts` 只生成 `references/commands.md`，schema / release 两处测试随之改。单测 1090、tsc、validate:skill、gen:docs 干净。
 - 卡在哪：【实测】合并 L2 时全量 e2e 197/198，唯一失败是 v02d s17 popup 的前台断言：前台交还用 `tell application "<进程名>" to activate`，Firefox Developer Edition 的进程名是 firefox、应用名不同，报 -1728；前台是 ghostty 时同文件 11/11。与 L2 无关，已派修复格（按 bundle identifier 激活；两条前台断言改按 pid 比较）。README 措辞待作者读一遍。
 - 下一格从哪开始：等隔壁回报后定修复版还是 0.7；修复格合入后再重打包一次；发布流程不变（作者发 npm → 挪目录 → 公开 → 打 tag）。
+
+## 2026-10-17 · 0.6-O · 前台交还按 bundle id、前台断言按 pid
+- 做了什么：前台应用读成 `{name, bundleId, pid}`（一次 osascript 读 System Events 的 name / bundle identifier / unix id，`missing value` 当没有 bundle id），交还按 `tell application id "<bundleId>" to activate`，没有才退回应用名，Chrome 应用仍永不激活；`restoreFront` / `FrontGuard` 行为不变，报告多 `beforeBundleId` / `lastSeenBundleId`；单测加解析、脚本选择（按 id / 退回名）；v02d s17 的前台断言改按 pid 对 `browser status` 的 `pid`（tabcap.e2e 的「never became the frontmost app」早已是 pid 比较，没改）。
+- 卡在哪：按 Firefox Developer Edition 在前台时的真机复测要作者自己跑（我不对作者的应用发 activate）；e2e 结果见交付报告。
+- 下一格从哪开始：作者在 Firefox Developer Edition 在前台时跑 `v02d.e2e.test.ts`，确认 s17 通过后合入并重打包 0.6.0。

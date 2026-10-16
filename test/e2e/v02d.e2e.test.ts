@@ -21,7 +21,6 @@ const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const S = "field";
-const CFT_APP = "Google Chrome for Testing";
 
 let home = "";
 let site: Site;
@@ -139,12 +138,16 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
     await Bun.sleep(3000);
     // The user may switch apps meanwhile: assert only that our Chrome for Testing is not in front.
     if (before !== null && !isChromeApp(before)) {
+      // Compare by pid with THIS daemon's browser: another Chrome for Testing may be running in parallel.
+      const status = await ok("browser", "status");
+      const ourPid = typeof status["pid"] === "number" ? status["pid"] : null;
+      expect(ourPid).not.toBeNull();
       const after = frontmostApp();
-      if (after === CFT_APP) console.log(`frontmost before the popup: ${before}; after: ${after}`);
-      expect(after).not.toBe(CFT_APP);
-      const pf = rec((await ok("browser", "status"))["popupFocus"]);
+      if (after?.pid === ourPid) console.log(`frontmost before the popup: ${before.name}; after: ${after?.name} (pid ${ourPid})`);
+      if (after !== null) expect(after.pid).not.toBe(ourPid);
+      const pf = rec(status["popupFocus"]);
       expect(pf).toMatchObject({ windows: 1, failed: 0 });
-    } else console.log(`note: frontmost app is ${before ?? "unknown"}; focus check skipped`);
+    } else console.log(`note: frontmost app is ${before?.name ?? "unknown"}; focus check skipped`);
     // operate the popup with --tab, then make it current
     const snap = await ok("snapshot", "--tab", "t2", ...P);
     expect(snap["tab"]).toBe("t2");
