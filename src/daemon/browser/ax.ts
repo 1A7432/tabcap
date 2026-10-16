@@ -25,6 +25,8 @@ export type AxNode = {
   password: boolean;
   flags: string[];
   children: AxNode[];
+  /** 0.6-J, snapshot --interactive: a click on this control lands on a descendant (tools/landing.ts). */
+  landing?: "child";
 };
 
 type Raw = {
@@ -225,6 +227,7 @@ export function lineOf(n: AxNode, ref: string | null): string {
     const eq = f.indexOf("=");
     s += eq < 0 ? ` ${f}` : ` ${f.slice(0, eq)}=${JSON.stringify(f.slice(eq + 1))}`;
   }
+  if (n.landing !== undefined) s += ` landing=${JSON.stringify(n.landing)}`;
   if (n.description !== "" && n.role !== "text") {
     const d = n.description.length > MAX_VALUE ? n.description.slice(0, MAX_VALUE) + "…" : n.description;
     s += ` description=${JSON.stringify(d)}`;

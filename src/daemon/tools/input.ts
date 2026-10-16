@@ -35,6 +35,7 @@ import { CdpTimeoutError } from "../transport/direct/cdp.ts";
 import { keyEventParams, planClick, planTyping, type ClickPlan, type Point, type Rng } from "./inputplan.ts";
 import { classifyEffect, watchEffect, type EffectWatch } from "./effect.ts";
 import { actionChallenge } from "./challenge.ts";
+import { inspectLanding, type Landing } from "./landing.ts";
 
 const ELEMENT = "const el = this.nodeType === 1 ? this : this.parentElement;";
 // A ref whose node was replaced (framework re-render) can still resolve to the
@@ -532,6 +533,13 @@ export async function trustedClickOn(t: Transport, tab: Tab, node: InputNode, re
   });
 }
 
+/** 0.6-J: the output fields of a landing decision (b: `target`, c: `candidates`; a / d: nothing). */
+export function landingFields(ref: string, l: Landing): Record<string, unknown> {
+  if (l.kind === "descendant") return { target: { ref, landedOn: l.landedOn, reason: "descendant-listener" } };
+  if (l.kind === "candidates") return { candidates: l.candidates };
+  return {};
+}
+
 export async function click(d: Daemon, a: Args, session: string): Promise<unknown> {
   const ref = reqStr(a, "ref", "tabcap click <ref> [--trusted] [--dbl-click]");
   const trusted = optBool(a, "trusted");
@@ -550,15 +558,20 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
         const overlayCheck = await overlayGate(t, tab, node, ref);
         // 0.6-D: an image captcha on the target's form is an advisory in the output (looked at before the click).
         const challenge = await actionChallenge(d, t, tab, node);
+        // 0.6-J: land on the element that listens (browser/landing.ts); read only, the same choice for --trusted.
+        const landing = await inspectLanding(t, tab, node, (id) => tab.refs.refFor(id, node.frame));
+        const aim: InputNode = landing.kind === "descendant" ? { objectId: landing.node.objectId, backendNodeId: landing.node.backendNodeId, sessionId: node.sessionId, frame: node.frame } : node;
+        const landed = landingFields(ref, landing);
         if (!trusted) {
           if (!noWait) watched.w = await watchEffect(d, t, tab, node);
-          const v = liveOrStale(rec(callResult(await call(t, node.sessionId, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
-          return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), ...dbl, overlayCheck, ...challenge };
+          const v = liveOrStale(rec(callResult(await call(t, node.sessionId, aim.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
+          return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), ...dbl, overlayCheck, ...landed, ...challenge };
         }
-        const r = await trustedClickOn(t, tab, node, ref, DEFAULT_DEPS, clicks);
+        const r = await trustedClickOn(t, tab, aim, ref, DEFAULT_DEPS, clicks);
         if (r.kind === "degraded") {
           return {
             ...challenge,
+            ...landed,
             tab: tab.id,
             ref,
             ...frameField(node),
@@ -588,6 +601,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
           ...(r.held === null ? {} : { paint: r.held }),
           ...dbl,
           overlayCheck,
+          ...landed,
           ...challenge,
         };
       });

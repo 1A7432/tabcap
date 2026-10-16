@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
+import { markLanding } from "./landing.ts";
 import { buildAxTree, findCandidates, hitOf, interactiveOnly, rankClickable, renderAxTree, textInputsWithValue, type AxNode, type FindCandidate, type RefFor, type Rendered } from "../browser/ax.ts";
 import { flattenAx, grepAx, nodesAx, pickLines, subtreeLines } from "../browser/axfilter.ts";
 import { inspectPage } from "../adapters/runtime.ts";
@@ -157,6 +158,8 @@ async function frameView(t: Transport, tab: Tab, f: FrameNode, o: SnapshotOption
     const root = buildAxTree(raw, await passwordIds(t, f.sessionId, raw), { verbose: o.verbose });
     if (root === null) return "(empty)";
     const view = o.interactive ? (interactiveOnly(root) ?? root) : root;
+    // 0.6-J: controls whose click lands on a descendant get `landing="child"`.
+    if (o.interactive) await markLanding(t, tab, frameDocOf(f), view);
     const binding: FrameBinding = bindingOf(f);
     return { view, refFor: (id) => tab.refs.refFor(id, binding) };
   } catch (e) {
@@ -411,6 +414,8 @@ async function renderFiltered(d: Daemon, t: Transport, tab: Tab, o: SnapshotOpti
 export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: SnapshotOptions): Promise<Record<string, unknown>> {
   const { root, doc } = await axTree(t, tab, o.verbose);
   const view = o.interactive ? (interactiveOnly(root) ?? root) : root;
+  // 0.6-J: controls whose click lands on a descendant get `landing="child"` (the root document's, when it is shown).
+  if (o.interactive && o.frame === null) await markLanding(t, tab, rootDoc(tab, doc), view);
   const tree = await frameTree(t, tab).catch(() => null);
   if (o.search !== undefined && o.search !== null) return renderFiltered(d, t, tab, o, o.search, { root, doc, view, tree });
   const expand = framesToExpand(tab, o, tree);
