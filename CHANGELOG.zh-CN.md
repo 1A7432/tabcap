@@ -12,6 +12,13 @@
 - **`net body` 读 page 视图**：默认回答和 `--decoded` 按 `analyze find` 的方式解析 decoded 视图（ok 的插件视图优先于 page 视图），录制中和录制后一样；page 视图的回答带 `decoded.link`。没有视图、而 body 是观察模式会武装的那种时，`next` 指向 `trace start --decode`。
 - `net start` 的帮助和 `references/recording.md` 把加密的 API 响应指向 `trace start --decode`。
 
+### 回放优先级、usage 按 actor、shape 的类型（0.6-S）
+
+- **`replay serve --prefer 2xx|latest`**：一个键录到多条时以前按录制顺序回答，先录到一次失败的尝试（403，之后才是 200）时爬虫当场失败。`--prefer 2xx` 只用这个键的 2xx 录音回答（一条都没有时用全部），`--prefer latest` 只用最后一条；`recorded`（轮换，默认）不变。回放规则里每条规则可写同一字段（`"prefer": "2xx"`），旗标对所有规则覆盖。命中头末尾多 `;prefer=<v>`，每条路由多 `served`。`replay check --prefer` 只发、只比会被拿来回答的录音，其余列在 `notPreferred`；`bundle export fixtures` 按规则的 `prefer` 只导出会回答的录音（其余列在 `notPreferred`；夹具编号数的是写出的夹具）。
+- **夹具默认跳过 CORS 预检**（`OPTIONS`，`skipped` 原因 `preflight`），`--include-preflight` 保留。`replay serve` 不变；docs/04 §31 写明了它怎样回答预检。
+- **`bundle info --usage` 按 actor 分行**：每个主机 × actor 一行，`page` / `fetch`（按 `fetchId`）/ `evaluate`（evaluate 命令窗口）/ `other`，另有 `actors` 合计；`--actor <名>` 只看一个。CORS 预检单独计入 `preflights`，不再算空正文。`data:` URL 与回环主机不进表，一行 `skipped` 汇总；`--all-hosts` 列出回环主机。10 分钟窗口只计列出的请求。
+- **`analyze shape` / `schema-diff` 默认只看像 API 的交换**：资源类型 xhr、fetch、document，加上响应是 JSON content type 的任何类型（一个真实包里大部分端点是带缓存参数的 css / js / 图片）。`--types a,b` 只看这几个类型，`--types all` 看全部；`excluded` 计过滤掉的条数，`filter` 写明用的类型。`schema-diff --types` 两边同过滤。按 `--types xhr,fetch` 导出的 HAR 再导入、与原包比出漂移，原因是两边的请求集合不同（同一端点有别的类型的交换，或 HAR 导出不带的 `incomplete` 交换），不是往返本身；第一种用 `--types xhr,fetch` 即可（docs/04 §32）。
+
 ### 修正
 
 - macOS 弹窗前台交还改按 bundle identifier 激活之前在前台的应用，没有 bundle id 才退回应用名。进程名可能和应用名不同（Firefox Developer Edition 的进程名是 `firefox`），`tell application "firefox" to activate` 会报 -1728，交还永远不成功。`browser status` 的 `popupFocus` 多了 `lastSeenBundleId`，启动时的 `front` 报告多了 `beforeBundleId`。

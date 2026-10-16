@@ -568,28 +568,33 @@
 
 ## 30. 0.6-H 账号使用证据 `bundle info --usage`（10-16 作者定设计；字段与下列细节按实现定案，待作者审）
 
-作者的红线要求每次运行都有证据：每个账号登录几次、每个主机多少请求、最短间隔、空正文与业务错误码。以前靠手数。`tabcap bundle info <bundle> --usage [--text] [--business-code '<$.路径>=<ok 值>']...` 离线读包（不连守护进程、不发请求），输出 `tabcap-usage/0`；不带 `--usage` 的 `bundle info` 不变。`--text` 与 `--business-code` 只能和 `--usage` 同用，否则 `usage` 错误。**只有计数与名字，不含任何值**（不写 URL 路径、头值、正文、cookie、账号以外的凭据）。
+作者的红线要求每次运行都有证据：每个账号登录几次、每个主机多少请求、最短间隔、空正文与业务错误码。以前靠手数。`tabcap bundle info <bundle> --usage [--text] [--business-code '<$.路径>=<ok 值>']... [--actor page|fetch|evaluate|other] [--all-hosts]` 离线读包（不连守护进程、不发请求），输出 `tabcap-usage/0`；不带 `--usage` 的 `bundle info` 不变。`--text`、`--business-code`、`--actor`、`--all-hosts` 只能和 `--usage` 同用，否则 `usage` 错误；`--actor` 的值不是这四个之一也是 `usage`。**只有计数与名字，不含任何值**（不写 URL 路径、头值、正文、cookie、账号以外的凭据）。
 
 ```jsonc
 { "schema": "tabcap-usage/0", "bundle": "<目录>",
   "session": { "name", "site", "account" },               // 取自 manifest.session
   "logins": { "attempts": 2, "byAccount": { "alice": 1, "bob": 1 },
               "guardEvents": [ { "seq", "event", "site", "account", "rule", "decision", "reason", "request" } ] },
-  "hosts": [ { "host": "127.0.0.1:4310", "requests", "byMethod": { "GET": 3 }, "firstMono", "lastMono",
+  "actors": { "page": 5, "fetch": 3, "evaluate": 0, "other": 0 },   // 0.6-S：列出的行按 actor 合计
+  "filter": { "actor": null, "allHosts": false },                    // 0.6-S：--actor / --all-hosts
+  "hosts": [ { "host": "shop.example.test", "actor": "fetch", "requests", "byMethod": { "GET": 3 }, "firstMono", "lastMono",
                "minIntervalMs", "meanIntervalMs", "maxBurst1s", "statuses": { "200": 5 },
-               "emptyBodies", "businessErrors", "bytesIn" } ],
+               "emptyBodies", "preflights", "businessErrors", "bytesIn" } ],
+  "skipped": { "loopback": { "hosts": ["127.0.0.1:4310"], "requests": 14 }, "schemes": { "data": 3 } },   // 0.6-S
   "stops": [ { "kind": "fetch-stop", "request": "r-9", "rule": "empty-body" } ],
   "windows": [ { "from": 1760500200000, "to": 1760500800000, "requests": 8 } ],
   "businessRules": ["$.code=0"], "note": "…" }
 ```
 
 - **登录**：`guard` 事件里 `event:"budget"`、`detail.rule:"login-limit"`、`detail.decision` 为 `allowed` 或 `confirmed` 的算一次登录尝试（被 `refused` 的不算，因为没有碰页面）；`byAccount` 按事件的 `account`（无则 `(none)`）。`guardEvents` 列出包里全部 `guard` 事件的名字字段（`rule` 取事件的或 `detail` 里的，`decision`、`reason`、`request` 同），不含 `detail` 其余内容。
-- **主机**：每条 `request` 事件一次，按 URL 的 `host:port` 分组（重定向的每一跳、CORS 预检、favicon 都算），按请求数降序。开始时刻取 `timing.start`（CDP 单调毫秒），缺失时取事件的 `mono`，两者都没有的计入 `requests` 但不进间隔统计。`minIntervalMs` / `meanIntervalMs` 是同主机按开始时刻排序后相邻两条的间隔（均值 = (最后 − 最先) ÷ (n − 1)，保留三位小数；少于两条为 `null`）；`maxBurst1s` 是任意 1000 ms 窗口 `[t, t+1000)` 内同主机的最多请求数；`firstMono` / `lastMono` 是最早 / 最晚的开始时刻。`statuses` 的键是状态码，没有响应的记 `failed`（`outcome:"failed"`）、`incomplete` 或 `none`。`bytesIn` 是已存正文的字节数之和（解码后，`response.body.size`），没存正文的算 0。
-- **空正文**：有响应、状态码不是 3xx，且（没有正文并且 `bodyMissing` 为空或 `no-content`，或正文 0 字节，或 ≤ 64 KiB 的文本正文去掉空白后为空）。其他没存正文的原因（过大、被导航、被驱逐…）是「不知道」，不算空；被 `net start --bodies` 跳过的（`response.body:{skipped}`，0.6-I）同样不算空。与 `fetch` 的 `empty-body` 停手规则一致。
+- **主机**：每条 `request` 事件一次，按 URL 的 `host:port` 与 actor（下一条）分行（重定向的每一跳、CORS 预检、favicon 都算），按主机的请求总数降序，同一主机内按 page、fetch、evaluate、other 排。开始时刻取 `timing.start`（CDP 单调毫秒），缺失时取事件的 `mono`，两者都没有的计入 `requests` 但不进间隔统计。`minIntervalMs` / `meanIntervalMs` 是同一行（同主机、同 actor）按开始时刻排序后相邻两条的间隔（均值 = (最后 − 最先) ÷ (n − 1)，保留三位小数；少于两条为 `null`）；`maxBurst1s` 是任意 1000 ms 窗口 `[t, t+1000)` 内同一行的最多请求数；`firstMono` / `lastMono` 是最早 / 最晚的开始时刻。`statuses` 的键是状态码，没有响应的记 `failed`（`outcome:"failed"`）、`incomplete` 或 `none`。`bytesIn` 是已存正文的字节数之和（解码后，`response.body.size`），没存正文的算 0。
+- **actor**（0.6-S，按包里的字段，先到先得）：`fetch` = 请求带 `fetchId`（`tabcap fetch` 发出的，含它的重定向跳与预检，§26）；`evaluate` = 请求的 `cmd` 指向一个 `input.action` 为 `evaluate` 的 `cmd` 开始事件（`tabcap evaluate` 的命令窗口里写的）；`other` = 没有 `tab`，或 `cmd` 指向守护进程自己发起的命令（开始事件 `actor:"system"`，如插件钩子）；其余是 `page`（页面自己的请求，包括 `navigate` / `click` / `fill` 窗口里的）。【推断】`evaluate` 按命令窗口归属：窗口里页面自己的定时请求也算 `evaluate`；`fetch` 窗口里页面自己的请求没有 `fetchId`，仍算 `page`。`--actor <名>` 只列这个 actor 的行（`actors` 里其他为 0，窗口也只计它）。
+- **不进表的**（0.6-S）：没有 host 的 URL（`data:`、`blob:`、`about:`）不成行，按 scheme 计入 `skipped.schemes`；回环主机（`127.0.0.0/8`、`localhost`、`*.localhost`、`::1`，与 `replay serve` 的回环判断同一个）默认不列，主机名与请求数计入 `skipped.loopback`，`--all-hosts` 时照常成行（`skipped.loopback` 为空）。
+- **空正文**：有响应、状态码不是 3xx、不是 CORS 预检，且（没有正文并且 `bodyMissing` 为空或 `no-content`，或正文 0 字节，或 ≤ 64 KiB 的文本正文去掉空白后为空）。其他没存正文的原因（过大、被导航、被驱逐…）是「不知道」，不算空；被 `net start --bodies` 跳过的（`response.body:{skipped}`，0.6-I）同样不算空。与 `fetch` 的 `empty-body` 停手规则一致。CORS 预检（`OPTIONS`，CDP 发起者类型 `preflight`，或带 `access-control-request-method` 头）本来就没有正文，单独计入 `preflights`（0.6-S；以前算进了 `emptyBodies`）。
 - **业务错误码**：`--business-code '$.code=0'` 可重复，路径写法同 `--stop-on json:`（`$`、`.键`、`[下标]`），`=` 之后能按 JSON 解析的按 JSON 比（`0` 是数字），否则按字符串。只判断能解析成 JSON 对象或数组的响应正文（≤ 8 MiB）：路径上的值与 ok 值不相等就算错误，**路径上没有值也算错误**（「其余一律算错」）；多条规则时，任一条不满足即算该响应一次错误。HTML、二进制、空正文不判断。
 - **停手**：`guard` 的 `breaker` 事件各一条：`kind` 是事件的 `reason`（`fetch-stop`、或 §4.2 的其他熔断原因，缺则 `breaker`），`request` 是事件的 `request`，`rule` 是事件的 `rule`。`resume` 不算。
-- **窗口**：每个请求的墙钟开始时刻（`ts − (mono − timing.start)`，缺失时取 `ts`）落入对齐到 UTC 整 10 分钟（600000 ms 的倍数）的窗口；只列有请求的窗口，按时间升序。
-- **`--text`**：一屏文本表（每主机一行：请求数、最短 / 平均间隔、1 s 突发、空正文、业务错误、字节），随后是各主机的方法与状态码分布、停手、窗口和 note，可直接贴进运行记录。
+- **窗口**：列出的行里的每个请求（0.6-S：不含 `skipped` 的，`--actor` 时只含该 actor）的墙钟开始时刻（`ts − (mono − timing.start)`，缺失时取 `ts`）落入对齐到 UTC 整 10 分钟（600000 ms 的倍数）的窗口；只列有请求的窗口，按时间升序。
+- **`--text`**：一屏文本表：先一行 `actors page n  fetch n  evaluate n  other n`，再每个主机 × actor 一行（主机、actor、请求数、最短 / 平均间隔、1 s 突发、空正文、预检、业务错误、字节），有不进表的就再一行 `skipped: loopback <n> request(s) on <主机…> (--all-hosts lists them); data: <n> (no host)`，随后是各行的方法与状态码分布、停手、窗口和 note，可直接贴进运行记录。`logins` 行的账号名照旧显示（§8.1 允许 agent 看账号名；隔壁项目试用者对 `--text` 里出现账号名有意见，按转述记在 NOTES，待作者审）。
 - 退出：包缺失 `not-found`；包没收尾（录制中或中断）照常读，不报错（与 `bundle info` 一致）。
 
 ## 31. 0.6-C 回放键规则与夹具导出（10-16 作者定设计；字段按实现定案，待作者审）
@@ -619,7 +624,8 @@
         "compare": "status+decoded-body",      // status | status+body（默认）| status+decoded-body
         "ignorePaths": ["$.serverTime"],       // 比较前从两边的 JSON 里去掉
         "decodeWith": "xor-decode"             // 只配 status+decoded-body
-      }
+      },
+      "prefer": "2xx"                          // 0.6-S：recorded（默认）| 2xx | latest，见下「回放优先级」
     }
   ]
 }
@@ -629,6 +635,24 @@
 - **规则的 id**：在输出里点名用，`rules[0]`（文件）、`sites.example.replay.rules[0]`、`replay.rules[1]`（config.json），都不符合时 `default`。
 - **来源**：`--rules <file>` 给了就只用它；没给就读 `config.json` 的 `sites.<包的站点>.replay`（manifest `session.site`）再接 `replay`，两处都是 `{rules:[…]}`，站点的排在前面，所以站点规则优先、和站点放在一起。`bundle export har --rules` 只认 `--rules`，不读 config.json。
 - **矛盾即报错**：`decodeWith` 不配 `body:"decoded"` / `compare:"status+decoded-body"`、`ignoreBodyFields` 配 `body:"raw"|"none"`、`ignorePaths` 配 `compare:"status"`、JSON 路径写错（`$` 后只认 `.名`、`.*`、`[n]`、`[*]`、`["带空格的名"]`；单写 `$` 表示整个正文，要整个不比用 `body:"none"`），都在开服务前报 `bad-input` 并指到 `rules[i].key.…`。
+
+**回放优先级 `prefer`**（0.6-S；来源：隔壁项目 10-17 用 0.6.0 跑真实站点，同一个键先录到一次失败的尝试 403、后来才录到 200，`replay serve` 按录制顺序轮换，先吐 403，爬虫当场失败）：一个键录到多条时，哪几条拿来回答。
+
+| `prefer` | 回答的录音 |
+|---|---|
+| `recorded`（默认） | 全部，按录制顺序轮换（0.3-B 起的行为，不变） |
+| `2xx` | 只用状态码 200–299 的，按录制顺序轮换；这个键一条 2xx 都没有时用全部（同 `recorded`） |
+| `latest` | 只用最后录到的一条 |
+
+- 每个键取它的规则的 `prefer`（有规则时规则 id 在键里，一个键只有一条规则）；没有规则的键用默认规则，即 `recorded`。`replay serve --prefer <v>` / `replay check --prefer <v>` 对所有键覆盖规则里的值。
+- `replay serve`：不回答的录音永远不会被吐出；命中头在 `prefer` 不是 `recorded` 时多 `;prefer=<v>`（`r-N;n=k[;rule=<id>];prefer=2xx`，`n=k` 在被选中的录音里数），日志行多 `prefer <v>`；启动输出多 `prefer`（`--prefer` 的值，没给为 `null`），`routes[]` 在 `prefer` 不是 `recorded` 时多 `prefer` 与 `served`（回答这个键的 `r-N`）。
+- `replay check`：`prefer` 不是 `recorded` 的键只发、只比那些会被 `replay serve` 拿来回答的录音（键按 `serve` 不带 `--strict` / `--match-cookies`、请求的 Host 是录到的主机时的算法；多主机包里 Host 不是录到的主机时 `serve` 用不带 host 的键，两边可能不一致），其余列在 `notPreferred:[{id, prefer, servedBy:[r-N…]}]`，不发送；结果多 `prefer`（`--prefer` 的值或 `null`）；`--text` 多一行 `not preferred: …`。所以 `check --prefer 2xx` 对着 `serve --prefer 2xx` 应当零差异；不带 `--prefer` 的 `check` 照旧逐条发，会把那条 403 录音的请求也发一次（服务器用 200 回答，行为 `different`）。
+- `bundle export fixtures`：没有 `--prefer`，按规则的 `prefer`（要让全部键都按 `2xx`，写一条只有 `prefer` 的规则 `{"prefer":"2xx"}`，它的 `match` 为空、命中一切）。**定案：只导出被选中的录音**（与 `serve` 回答的完全一致，按录制顺序），没被选中的列在回答与 `index.json` 的 `notPreferred:[{request, prefer, servedBy}]`；没有采用「全部导出、被选中的排在前面」，因为那样夹具集合与回放服务器的行为不一致。夹具编号 `<n>` 数的是写出的夹具（从 1 起连续）。
+- 只录到一条的键不受影响。
+
+**CORS 预检**（0.6-S）：预检 = `OPTIONS` 且（CDP 发起者类型 `preflight`，或带 `access-control-request-method` 请求头，后者覆盖 HAR 导入的包）。
+- `bundle export fixtures` 默认不导出预检，列在 `skipped`（`reason:"preflight"`）；`--include-preflight` 照常导出。
+- `replay serve` 的行为不变（这里只写明）：预检是普通的录音，键是 `OPTIONS` + path + 排序 query + 空正文的 sha256，不看 `access-control-request-*` / `origin` 头（除非 `--strict` 点名）。录到过的，一个同 path、同 query 的 `OPTIONS` 拿到录到的状态（通常 204）和录到的响应头（`access-control-allow-*` 原样；与其他录音一样去掉逐跳头，同源的 `location` 改成路径），没有正文；没录到的，`OPTIONS` 得到上面的 404 `no-match` JSON（浏览器的预检会因此失败；脚本客户端不发预检，不受影响）。`replay check` 照常逐条发预检录音并比较。
 
 **规范化表**（键的两边、`check` 的两边都按同一条规则走）：
 
@@ -644,14 +668,14 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 
 **明文从哪来**（`body:"decoded"`、`compare:"status+decoded-body"`）：插件是规则的 `decodeWith`，没写就用录到的视图的 `decoded.by`。录的一侧：视图是这个插件的就用视图（录制时写的，或 `bundle decode` 旁路文件里的），否则用插件现场解录到的字节；对面（`serve` 收到的请求、`check` 收到的回答）用同一个插件现场解。规则点名即同意：插件只要装着、清单有效，**不必** `plugin enable`（和 `bundle decode --plugin` 一样）；插件自己的 `match`（host / path / content type）照样决定它收不收这个正文（`serve` 用录到的源拼 URL 去比 host）。插件进程每次运行一个，`replay serve` 退出时杀掉。
 
-**`replay serve --rules <file>`**：键 = method + path + 规范 query + 规范正文（+ 规则 id；多主机包仍带 host，`--strict` / `--match-cookies` 照旧）。收到的请求按它可能指的每个录到的主机（Host 头是录到的就只它，否则全部）各取一条规则去读，`decoded` 规则先把正文交给可能的插件解开。启动输出多 `rules:{source:"file"|"config"|"none", file?, site?, rules:n}`，`routes[]` 多 `rule`；写明哪些规则点名的插件没装、哪些录到的请求没有视图而按原字节作键。
+**`replay serve --rules <file> [--prefer <v>]`**：键 = method + path + 规范 query + 规范正文（+ 规则 id；多主机包仍带 host，`--strict` / `--match-cookies` 照旧）。收到的请求按它可能指的每个录到的主机（Host 头是录到的就只它，否则全部）各取一条规则去读，`decoded` 规则先把正文交给可能的插件解开。启动输出多 `rules:{source:"file"|"config"|"none", file?, site?, rules:n}`，`routes[]` 多 `rule`；写明哪些规则点名的插件没装、哪些录到的请求没有视图而按原字节作键。
 
 - 命中：`x-tabcap-replay: r-N;n=k;rule=<id>`（没有规则时仍是 `r-N;n=k`）；被忽略但与这条录音不同的部分写在 `x-tabcap-replay-ignored: query=nonce,t;body=$.ts`（没有不同就没有这个头；名字里不可见的字符和 `%` `,` `;` 按百分号编码）。`replay check` 认带 `;rule=` 的头。
 - 404：`request.rule` 是这条请求按哪条规则读的；每个候选多 `rule`，`differs.query` / `differs.body`（`fields` 是规范化后不同的表单名 / JSON 路径，`as` 是 form / json / raw，退回时带 `fallback`）按候选自己的规则比，`differs.ignored:{query?, body?}` 列出被忽略但不同的部分。没有规则（或候选用默认规则）时 404 与 0.3-B 完全一样。
 
-**`replay check --rules <file>`**：每行按录到的请求选规则（行多 `rule`）。`compare:"status"`：只比 status 和 `--headers` 选的头，正文不比（行 `notes` 写明，结果可为 `same`）；`status+body`：如前，`ignorePaths` 从两边 JSON 去掉后再逐路径比；`status+decoded-body`：两边都按上面的明文来源解开再比（`notes`：`body compared as decoded by <name> (plugin:<name>; rule <id>)`），哪一边解不开就不比正文，行为 `unverified`，`notes` 写原因（不退回比原字节）。`--headers` 仍按原样比。结果多 `rules:{source, file?, site?, rules}`。
+**`replay check --rules <file> [--prefer <v>]`**：每行按录到的请求选规则（行多 `rule`）。`compare:"status"`：只比 status 和 `--headers` 选的头，正文不比（行 `notes` 写明，结果可为 `same`）；`status+body`：如前，`ignorePaths` 从两边 JSON 去掉后再逐路径比；`status+decoded-body`：两边都按上面的明文来源解开再比（`notes`：`body compared as decoded by <name> (plugin:<name>; rule <id>)`），哪一边解不开就不比正文，行为 `unverified`，`notes` 写原因（不退回比原字节）。`--headers` 仍按原样比。结果多 `rules:{source, file?, site?, rules}`。
 
-**`tabcap bundle export fixtures <bundle> --out <dir> [--rules <file>] [--format json|<plugin>] [--no-redact]`**：可回放的每一条录到的交换（同 `replay serve`：有响应、状态 200–599、不是 WebSocket；其余列在 `skipped`）出一个夹具。`--out` 必须不存在或为空（不覆盖旧文件，`conflict`）；文件 0600，目录 0700。
+**`tabcap bundle export fixtures <bundle> --out <dir> [--rules <file>] [--format json|<plugin>] [--no-redact] [--include-preflight]`**：可回放的每一条录到的交换（同 `replay serve`：有响应、状态 200–599、不是 WebSocket；其余列在 `skipped`）出一个夹具。`--out` 必须不存在或为空（不覆盖旧文件，`conflict`）；文件 0600，目录 0700。
 
 ```jsonc
 // fixtures/<n>-<METHOD>-<path slug>.json   （n 从 1 起；slug 只留字母数字 . _ -，其余变 -，≤ 80 字符，空则 root）
@@ -669,7 +693,7 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 }
 ```
 
-另写 `index.json`：`{schema:"tabcap-fixtures/0", bundle:<manifest id>, exported, redacted, rules:{…}, count, fixtures:[{file, request, method, path, query, status, rule}], skipped}`。回答：`{out, format, fixtures, files:[相对路径，最多 500], filesCount, index, rules, redacted, saltFile, skipped, failed:[{request, error}], plugin?, complete, warnings}`。
+另写 `index.json`：`{schema:"tabcap-fixtures/0", bundle:<manifest id>, exported, redacted, rules:{…}, count, fixtures:[{file, request, method, path, query, status, rule}], skipped, notPreferred}`。回答：`{out, format, fixtures, files:[相对路径，最多 500], filesCount, index, rules, redacted, saltFile, skipped, notPreferred, failed:[{request, error}], plugin?, complete, warnings}`。`skipped` 里 0.6-S 起多一种原因 `preflight`（见上「CORS 预检」）；`notPreferred` 见上「回放优先级」。
 
 - **脱敏**：默认先按 HAR 导出的规则（§8）脱敏整个包再读，**键也从脱敏后的包算**（否则登录体的密码会出现在 `key.body` 里），盐写 `<bundle>/exports/fixtures-<时间>.salt`；解码视图同样脱敏（视图里 `token` 等字段名命中就打码）。`--no-redact` 保留录到的值，和 HAR 导出一样，登录体连密码原样进夹具，用的人自己负责。
 
@@ -696,20 +720,27 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 
 **`bundle export har --rules <file>`**：只把每条请求所符合规则的 `ignoreQuery` 参数从 `request.url` 与 `queryString` 里去掉，让按 HAR 回放的工具键对得上；HAR 别的一个字节都不变。回答多 `rules`。
 
+0.6-S 的 `prefer` 与预检只有单测（`test/unit/offline06s.test.ts`：一个键先 403 后 200、一个键两条 200、一个键只有 500 / 502、一条预检；`serve` 的头与路由、`check` 的 `notPreferred`、夹具的选择与编号、预检的跳过与 `serve` 的回答），没有加靶场页【实测 10-17，单测】。
+
 **靶场**：不加新页，复用 s06（t / nonce / sig）、s07（表单登录）、s42（加密正文，`xor-decode`）；夹具插件 `test/e2e/plugins/fixture-harness/`（Bun 脚本，每个夹具出一个 `cases/<r-N>.json`）。【实测 10-16，本机 CfT：`test/e2e/v06c.e2e.test.ts` 7/7；`test/unit/replay-rules.test.ts`、`test/unit/fixtures-export.test.ts`】
 
 ## 32. 0.6-G 响应形状与 schema 漂移（10-16 作者定设计；字段与下列细节按实现定案，待作者审）
 
-作者定：`tabcap analyze shape <bundle> [--request r-N | --template "<METHOD> <路径模板>"] [--text] [--write]` 按端点推断响应形状（类型树，带出现次数）与请求形状（query 名、请求体字段），schema `tabcap-shape/0`，`--write` 存进包的 `exports/shape.json`；`tabcap analyze schema-diff <旧包> <新包> [--template …] [--text] [--write]` 按端点比较两份形状，有漂移时退出码 1（可放 cron）。输出里从不出现值：只有类型、格式、字段名，和不超过 8 个、字段名不敏感（`bundle redact` 的名字规则）的枚举字面量。只读，不发请求，不写事件。
+作者定：`tabcap analyze shape <bundle> [--request r-N | --template "<METHOD> <路径模板>"] [--types <类型,…>|all] [--text] [--write]` 按端点推断响应形状（类型树，带出现次数）与请求形状（query 名、请求体字段），schema `tabcap-shape/0`，`--write` 存进包的 `exports/shape.json`；`tabcap analyze schema-diff <旧包> <新包> [--template …] [--types …] [--text] [--write]` 按端点比较两份形状，有漂移时退出码 1（可放 cron）。输出里从不出现值：只有类型、格式、字段名，和不超过 8 个、字段名不敏感（`bundle redact` 的名字规则）的枚举字面量。只读，不发请求，不写事件。
 
+- **类型**（0.6-S；来源：隔壁项目 10-17 的一个包列出 116 个端点，大多是带 `?v=` 缓存参数的 css / png / js）：默认只推断「像 API 的」交换：资源类型 `xhr`、`fetch`、`document`，加上任何类型里响应 content type 是 JSON 的（`application/json`、`+json`、ndjson / jsonl，参数不论；`recon` 的 JSON 判断）。`--types a,b` 只推断这几个类型，**不再**加 JSON 那条（所以 `--types xhr,fetch` 与 `bundle export har --types xhr,fetch` 的集合一致）；`--types all` 是 0.6-G 的行为（全部交换）。类型名必须是 §5.1 的资源类型之一，否则 `usage`。`--request r-N` 不受类型过滤。被过滤掉的交换不进 `endpoints`、也不进 `unshaped`，只计入 `excluded`；`filter` 多 `types`（类型列表或 `"all"`）与 `json`（是否加 JSON 那条）。`schema-diff --types` 对两边用同一个过滤，结果的 `filter` 同样多这两项。`--text` 头行写明用的类型与过滤掉几条。
 - **端点**：方法 + `recon` 算的路径模板（纯数字、uuid、长十六进制段 → `{id}`，丢掉 query），一个端点合并它录到的全部交换。`key` 写作 `GET /api/list`。`--request r-N` 只用这一条交换推断（列出的仍是它所在端点的 key）；`--template` 只看这一个端点（方法大小写不论，路径模板逐字相等；找不到报 `not-found`）。两者互斥（`usage`）。什么都推不出的端点（脚本、图片、没有 query 的 HTML 页）不进 `endpoints`，只在 `unshaped` 里列 key。
 - **正文**：有 `ok` 的解码视图（§28）用视图的明文，`decode` 以 `plugin:<name>` 开头；否则用录到的字节，沿解码链找到 JSON 文档：gzip / deflate（按魔数）、UTF-8、JSON 对象或数组、jsonp（`jsonp`,`json`）、ndjson / sse（每行 / 每个事件一个元素，按数组推断）、严格 base64（再走一遍），链长 ≤ 4。HAR 导入包的线上解压照 `find` 记前缀步骤。二进制、超过 32 MiB、blob 缺失或走完链也不是 JSON 的响应计入 `notJson`。请求体同理（`request.decoded` 优先），不是 JSON 时按表单字段（`a=1&b=2`）当作字符串对象。JSON 里的字符串字段即使本身是 JSON 文本也按 `string` 记（不走 `json-string`）。
 - **类型树** `Shape`：`{kind:"object"|"array"|"string"|"number"|"boolean"|"null"|"union", fields?:{<名字>:{type:Shape, optional, samples}}, items?:Shape, enum?:[…], format?, variants?:[Shape…]}`。`samples` 是该字段出现的次数，`optional` = 出现次数少于其所在对象的样本数。同一位置见过多种 kind 时为 `union`，`variants` 每种 kind 一个，顺序固定为 object、array、string、number、boolean、null；`null` 与别的 kind 一起出现也是 union（`string|null`）。只见过空数组时没有 `items`。数字：全是整数为 `format:"int"`，否则 `"float"`。字符串的 `format`：`datetime`（ISO 8601，`T` 或空格分隔，秒、小数、时区可省）、`date`（`YYYY-MM-DD`）、`int` / `float`（十进制数字串）、`id`（uuid，或 ≥ 16 位且含数字的十六进制，与 `recon` 的 `{id}` 同规则）、`email`、`url`（`http(s)://`），按这个顺序取第一个；每个样本都是同一格式才写 `format`。
 - **枚举**（`enum`，排序后的字面量）只在字符串节点上、且同时满足时给出：没有 `format`；不同值 ≤ 8；每个值是短词（字母、数字、`_ . : -`，≤ 64 字符，无空白）；样本数 ≥ 不同值数 × 2（小样本里的自由值不算枚举）；所在字段名不被 `isSensitiveName` 判为敏感（`token`、`session`、`sid`、`auth`、`pwd`…；数组元素沿用数组字段的名字）。
 - **上限**：每个端点 ≤ 2000 个字段（query、请求体、响应合计，超出的新字段不再记，`capped.fields`）；深度 ≤ 32（更深的不展开，`capped.depth`）；每个数组只取前 200 个元素（`capped.items`）；前两种超限另写 `warnings`。
-- **`tabcap-shape/0`**：`{schema, bundle, session, generatedAt, filter:{request, template}, limits:{fields:2000, depth:32, arrayItems:200, enum:8}, endpoints:[{key, method, template, exchanges, requests:[r-N…≤10], status:[…], decode:[步骤名], request:{query:Shape|null, body:Shape|null}, response:Shape|null, samples:{query, body, response}, notJson, capped:{fields, depth, items}}], unshaped:[key…], warnings, written?}`。`query` 是一个 object，字段即参数名（值都是字符串，同名重复时为字符串数组）。`--write` 把同一个对象（不含 `written`）写到 `<bundle>/exports/shape.json`，0600、`exports/` 0700，每次覆写；和侦查档案一样不参与分析，`bundle redact` 的副本不带。`--text` 每个端点一行头，然后一行一个位置：`  $.items[].price  string(float)[  optional][  enum a,b]`。
+- **`tabcap-shape/0`**：`{schema, bundle, session, generatedAt, filter:{request, template, types, json}, limits:{fields:2000, depth:32, arrayItems:200, enum:8}, excluded, endpoints:[{key, method, template, exchanges, requests:[r-N…≤10], status:[…], decode:[步骤名], request:{query:Shape|null, body:Shape|null}, response:Shape|null, samples:{query, body, response}, notJson, capped:{fields, depth, items}}], unshaped:[key…], warnings, written?}`。`query` 是一个 object，字段即参数名（值都是字符串，同名重复时为字符串数组）。`--write` 把同一个对象（不含 `written`）写到 `<bundle>/exports/shape.json`，0600、`exports/` 0700，每次覆写；和侦查档案一样不参与分析，`bundle redact` 的副本不带。`--text` 每个端点一行头，然后一行一个位置：`  $.items[].price  string(float)[  optional][  enum a,b]`。
 - **扁平路径**（比较与 `--text` 用）：响应从 `$` 起（`$.items[].name`；不是标识符的名字写成 `$["a b"]`，同 `find` 的 JSON 路径），query 参数为 `query:<名字>`，请求体从 `body:$` 起（与 `analyze deps` 的输入标签同形）。类型文字：`kind` 加可选 `(format)`，union 用 `|` 连接各 variant（`number(int)|null`）。
-- **`schema-diff`**（schema `tabcap-schema-diff/0`）：两包都用上面的规则推断（带 `--template` 时只看这个端点，一边没有就是 new / gone，两边都没有报 `not-found`），按 key 配对。每个端点 `{key, method, template, verdict:"same"|"drift"|"new"|"gone", added:["<路径>:<类型>"…], removed:[…], changed:[{path, from, to}], optionalityChanged:[{path, from:"required"|"optional", to}], enumChanged:[{path, from:[…], to:[…]}]}`；`added` / `removed` 列出每一个新增 / 消失的位置（父节点新增时子节点也逐个列出），`changed` 是两边都有、类型文字不同（含 format 与 union 的变化），`enumChanged` 只在两边都有枚举且不同时报。五个列表任一非空即 `drift`。只在旧包 / 新包里的端点为 `gone` / `new`（不算漂移）；但端点在另一边录到了、只是什么都推不出（如 JSON 接口改回了 HTML 登录页）时，按空形状比较，是 `drift`（全部 removed / added）。另一边那个数组一个元素都没有时，数组下面的位置不比较（没有证据），写一条 `warnings`。顶层：`{schema, old:{dir, id, session, endpoints}, new:{…}, filter:{template}, drift, summary:{same, drift, new, gone}, endpoints:[…], warnings, written?}`，旧包里的端点在前，新包独有的在后。有 `drift` 时 CLI 退出码 1，信封仍是 `ok:true`（比较本身成功了）；`new` / `gone` 不影响退出码。`--text` 一行一个变化：`drift GET /api/list added $.items[].name:string`、`… removed …`、`… changed <路径> <旧> -> <新>`、`… optionality <路径> required -> optional`、`… enum <路径> [a] -> [a,b]`、`new <key>`、`gone <key>`，末行 `schema-diff: <n> drift, <n> same, <n> new, <n> gone`。`--write` 把两边的形状各写进自己的 `exports/shape.json`。
+- **`schema-diff`**（schema `tabcap-schema-diff/0`）：两包都用上面的规则推断（带 `--template` 时只看这个端点，一边没有就是 new / gone，两边都没有报 `not-found`），按 key 配对。每个端点 `{key, method, template, verdict:"same"|"drift"|"new"|"gone", added:["<路径>:<类型>"…], removed:[…], changed:[{path, from, to}], optionalityChanged:[{path, from:"required"|"optional", to}], enumChanged:[{path, from:[…], to:[…]}]}`；`added` / `removed` 列出每一个新增 / 消失的位置（父节点新增时子节点也逐个列出），`changed` 是两边都有、类型文字不同（含 format 与 union 的变化），`enumChanged` 只在两边都有枚举且不同时报。五个列表任一非空即 `drift`。只在旧包 / 新包里的端点为 `gone` / `new`（不算漂移）；但端点在另一边录到了、只是什么都推不出（如 JSON 接口改回了 HTML 登录页）时，按空形状比较，是 `drift`（全部 removed / added）。另一边那个数组一个元素都没有时，数组下面的位置不比较（没有证据），写一条 `warnings`。顶层：`{schema, old:{dir, id, session, endpoints}, new:{…}, filter:{template, types, json}, drift, summary:{same, drift, new, gone}, endpoints:[…], warnings, written?}`，旧包里的端点在前，新包独有的在后。有 `drift` 时 CLI 退出码 1，信封仍是 `ok:true`（比较本身成功了）；`new` / `gone` 不影响退出码。`--text` 一行一个变化：`drift GET /api/list added $.items[].name:string`、`… removed …`、`… changed <路径> <旧> -> <新>`、`… optionality <路径> required -> optional`、`… enum <路径> [a] -> [a,b]`、`new <key>`、`gone <key>`，末行 `schema-diff: <n> drift, <n> same, <n> new, <n> gone`。`--write` 把两边的形状各写进自己的 `exports/shape.json`。
+- **HAR 往返的假漂移**（0.6-S 调查；来源：试用者把包按 `--types xhr,fetch` 导出 HAR 再导入，与原包 `schema-diff`，一个端点报了 query 的 optionality 变化）。本地合成包上复现【实测 10-17，`test/unit/offline06s.test.ts` 最后三条】：
+  - HAR 往返本身不改 query：全类型、`--no-redact` 导出再导入，`schema-diff` 全部 `same`（含 `+`、空值、没有 `=` 的名、重复的名、百分号编码的值）。默认脱敏时，名字敏感的 query 值（`token` 等）变成占位符，`format` 丢失，报 `changed`（如 `query:token string(id) -> string`），不报 optionality。
+  - 静态资源本身不会让一个 API 端点的 optionality 变：它们是别的端点（`GET /app.js`），旧版里表现为一堆 `gone` / `new` 的噪声；0.6-S 默认类型后不再出现。
+  - optionality 的假漂移来自**两边的请求集合不同**：(a) 同一个端点（方法 + 模板）还有一条 `xhr` / `fetch` 以外类型的交换（如 `document` 导航到同一路径、query 少一个参数），HAR 按类型过滤后没有它 → `query:size optional -> required`；`schema-diff --types xhr,fetch` 两边同过滤后为 `same`。(b) 同一端点有一条 `outcome:"incomplete"` 的交换（被导航打断、SSE），§9.1 的 HAR 导出默认不导出 incomplete → 同样的 optionality 漂移，与类型无关。这两种都不是形状推断的错；(b) 怎么处理（形状默认不计没有响应的交换，或 HAR 导出加开关）待作者定，本格没改。试用者那个包是 (a) 还是 (b) 要看原包，本地无法判断。比较 HAR 导入包与原包时：两边用同一个 `--types`，并注意 incomplete 与脱敏占位符。
 - **靶场**：s06 加 `GET /api/list` 与变体 `?v=2`（`title` 改名 `name`、`price` 由小数字符串变数字、加 `currency`；`docs/05` s06）。【实测 10-16，本机 CfT 155：`test/e2e/v06g.e2e.test.ts` 3/3；`test/unit/shape.test.ts`】
 
 ## 33. 0.6-L 页面内解码·观察模式 `trace start --decode`（10-16 brief + 两处实测修正；字面与下列细节按实现定案，待作者审）
