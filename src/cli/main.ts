@@ -27,6 +27,7 @@ import { Store, storePath } from "../daemon/store/db.ts";
 import { variantsOf } from "../daemon/secrets.ts";
 import { BUNDLE_USAGE, COMMANDS, flagNames, helpAll, helpFor, helpGroup, matchCommand, parseCommand, schema, specOf, usageOf, type CommandSpec } from "./commands.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
+import { renderTraceText } from "../daemon/trace/table.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -293,6 +294,8 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
         const seqs = saved !== null && Array.isArray(saved["seqs"]) ? saved["seqs"].length : 0;
         if (r !== null) return { code, envelope: env, text: renderWhereText(r) + (saved === null ? "" : `\nwrote ${seqs} finding event(s) to ${String(saved["bundle"] ?? "")}`) };
       }
+      // `trace list --text`: the report is rendered here from the daemon's JSON.
+      if (key === "trace list" && parsed.args["text"] === true && env.ok) return { code, envelope: env, text: renderTraceText(env.data) };
       return { code, envelope: env };
     }
   }

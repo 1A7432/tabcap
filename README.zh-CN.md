@@ -87,6 +87,10 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap where <query> [--as ref\|text] [--top n] [--text] [--write-findings]` | which recorded response carries a value the page shows (a snapshot ref's visible text, or a text): JSON paths through analyze find's decode chain, then HTML text nodes (selectors), matched exactly or after normalisation (thousands / decimal separators, accounting negatives, full-width, nbsp, YYYY-MM dates, dotted codes, DR / CR); searches only the session's recording and sends no request |
 | `tabcap handoff status` | is the session handed to the human? state running \| waiting \| resumed, reason, screenshot, handler answers |
 | `tabcap handoff continue` | end a waiting state after the human finished in the browser (run it only when they say so) |
+| `tabcap trace start [--apis file] [--stack n] [--first-n n] [--max-hits n]` | trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into `signal` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable |
+| `tabcap trace stop` | end trace mode: breakpoints removed, debugger off, open documents written to the recording |
+| `tabcap trace status` | trace mode state: on \| paused (handoff) \| off, active APIs, names skipped in this browser, per-document read counts |
+| `tabcap trace list [--api name] [--script url] [--text]` | API × script table of the signal reads in the session's recording (open documents included): read counts, caller line:col (1-based), documents, truncated, value recorded |
 | `tabcap plugin list` | challenge handlers installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, hooks, enabled, errors |
 | `tabcap plugin enable <name>` | let the guard ask this handler before handing a challenge to the human |
 | `tabcap plugin disable <name>` | stop asking this handler |
