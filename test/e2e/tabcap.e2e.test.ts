@@ -10,7 +10,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { pngInfo, pngIsUniform } from "../../src/shared/png.ts";
-import { frontmostApp } from "../../src/daemon/transport/direct/launcher.ts";
 import { SLOW_MS, startSmokeSite, startSite, type Site } from "./site.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
@@ -24,11 +23,26 @@ let site: Site;
 let smoke: Site;
 const outputs: string[] = [];
 // Focus rule: the user may switch apps while the suite runs, so the frontmost
-// app is allowed to change; it must never become our Chrome for Testing.
-// Every change is recorded for diagnostics and printed on failure.
-const CFT_APP = "Google Chrome for Testing";
-let front: string | null = null;
-const frontChanges: string[] = [];
+// app is allowed to change; it must never become OUR Chrome for Testing, the
+// browser process `browser start` reports (its pid). Another Chrome for Testing
+// on the machine (a parallel run, a spike) does not count: the check keys on
+// the frontmost app's pid, not its name. Every change of the frontmost app
+// process is recorded for diagnostics and printed on failure.
+type Front = { pid: number; name: string };
+let front: Front | null = null;
+let ourPid: number | null = null;
+const frontChanges: Array<{ cmd: string; to: Front | null }> = [];
+const frontLabel = (f: Front | null): string => (f === null ? "?" : `${f.name} (pid ${f.pid})`);
+
+/** The frontmost macOS app process (System Events' unix id and name), or null when unknown / not permitted / not macOS. */
+function frontmostProcess(): Front | null {
+  if (process.platform !== "darwin") return null;
+  const script = ['tell application "System Events"', "set p to first application process whose frontmost is true", "return (unix id of p as text) & linefeed & (name of p)", "end tell"];
+  const p = Bun.spawnSync(["osascript", ...script.flatMap((l) => ["-e", l])], { timeout: 5000, stdout: "pipe", stderr: "pipe" });
+  const [pid = "", ...name] = p.stdout.toString().trim().split("\n");
+  const n = Number(pid);
+  return p.exitCode === 0 && Number.isSafeInteger(n) && n > 0 ? { pid: n, name: name.join("\n") } : null;
+}
 
 type Env = { ok: boolean; data: Record<string, unknown>; error?: { code: string; message: string; next: string } };
 
@@ -40,8 +54,8 @@ async function tabcap(...args: string[]): Promise<Env> {
   const env: unknown = JSON.parse(out);
   if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
   if (front !== null) {
-    const now = frontmostApp();
-    if (now !== front) frontChanges.push(`${args.join(" ")} -> ${now ?? "?"}`);
+    const now = frontmostProcess();
+    if (now?.pid !== front.pid) frontChanges.push({ cmd: args.join(" "), to: now });
     if (now !== null) front = now;
   }
   const e = env["error"];
@@ -113,9 +127,12 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
     }
     const b = await ok("browser", "start", "--proxy", "none", "--executable-path", CHROME);
     expect(b).toMatchObject({ transport: "direct", channel: "pipe", proxy: "none", executableSource: "flag" });
-    front = frontmostApp();
+    expect(typeof b["pid"]).toBe("number");
+    ourPid = typeof b["pid"] === "number" ? b["pid"] : null;
+    front = frontmostProcess();
     if (front === null) console.log("note: macOS frontmost-app query not available; focus checks skipped");
-    expect(front).not.toBe(CFT_APP);
+    // the frontmost app right after the launch is not our browser (null: query not available)
+    expect(front?.pid ?? null).not.toBe(ourPid);
     await ok("net", "start", "--session", S);
   }, 60_000);
 
@@ -276,8 +293,8 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
 
   test("our Chrome for Testing never became the frontmost app", () => {
     if (front === null) return;
-    const stolen = frontChanges.filter((c) => c.endsWith(`-> ${CFT_APP}`));
-    if (stolen.length > 0) console.log(`frontmost-app changes during the suite:\n${frontChanges.join("\n")}`);
+    const stolen = frontChanges.filter((c) => c.to !== null && c.to.pid === ourPid).map((c) => `${c.cmd} -> ${frontLabel(c.to)}`);
+    if (stolen.length > 0) console.log(`frontmost-app changes during the suite (ours: pid ${ourPid ?? "?"}):\n${frontChanges.map((c) => `${c.cmd} -> ${frontLabel(c.to)}`).join("\n")}`);
     expect(stolen).toEqual([]);
   });
 
