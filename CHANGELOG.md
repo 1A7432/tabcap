@@ -18,6 +18,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 - Bodies that are not UTF-8 are decoded with their declared charset (response charset, content-type, else an HTML `<meta charset>`), e.g. GBK; an unknown charset gives reason `unsupported-charset` when nothing else matched.
 - Range scenario s40 locale-numbers (en-US, de-DE, fr-FR, en-IN, accounting renderings of one `/api/rows`) in the end-to-end suite.
 
+### Removed
+
+- The 0.3 deprecated aliases are gone, with no compatibility kept: the commands `tabs` (use `tab list`), `tab use` (`tab select`), `press` (`press-key`) and the bare `console` (`console list`); the options `net list --type` (`--resource-types`), `--limit` (`--page-size`) and `--offset` (`--page-idx`), `screenshot --out` (`--file-path`) and `--full` (`--full-page`); the `net list` answer fields `offset`, `limit` and `nextOffset`; the "deprecated" lines in `--help` and the generated docs; the `deprecatedFor` / `deprecatedAliases` / `deprecated` fields of `tabcap schema --json`. Old names now fail with the normal `unknown command` / `unknown option` usage error. `console list --limit` (the last N messages) and `dialog --prompt-text` (a plain alias of `--text`) stay.
+
 ## 0.3.0 (2026-10-16)
 
 ### Names aligned with Chrome DevTools MCP

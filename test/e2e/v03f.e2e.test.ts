@@ -162,13 +162,13 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
     const sel = await ok("tab", "select", first, ...S);
     expect(sel).toMatchObject({ current: first, broughtToFront: false });
     expect((await ok("tab", "list", ...S))["current"]).toBe(first);
-    // deprecated aliases still answer for one release
-    expect((await ok("tabs", ...S))["current"]).toBe(first);
-    expect(await ok("tab", "use", first, ...S)).toMatchObject({ current: first });
+    // the 0.3 aliases were removed in 0.4: the normal unknown-command error
+    expect((await tabcap("tabs", ...S)).error).toMatchObject({ code: "usage", message: expect.stringMatching(/^unknown command: tabs/) });
+    expect((await tabcap("tab", "use", first, ...S)).error).toMatchObject({ code: "usage", message: expect.stringMatching(/^unknown command: tab use/) });
     await ok("tab", "close", s(n["tab"]), ...S);
   }, 60_000);
 
-  test("console list: everything without paging flags, page-index paging, --types, console show by msgid; old `console --limit` still works", async () => {
+  test("console list: everything without paging flags, page-index paging, --types, console show by msgid; the old bare `console` is gone", async () => {
     const all = await ok("console", "list", ...S);
     const entries = recs(all["entries"]);
     const texts = entries.map((e) => s(e["text"]));
@@ -190,10 +190,11 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
     const id = s(warn.find((e) => e["text"] === "f-warn-1")?.["msgid"]);
     expect(await ok("console", "show", id, ...S)).toMatchObject({ msgid: Number(id), type: "warn", text: "f-warn-1" });
     expect((await tabcap("console", "show", "99999", ...S)).error?.["code"]).toBe("not-found");
-    expect(recs((await ok("console", "--limit", "1", ...S))["entries"])).toHaveLength(1);
+    expect(recs((await ok("console", "list", "--limit", "1", ...S))["entries"])).toHaveLength(1);
+    expect((await tabcap("console", "--limit", "1", ...S)).error).toMatchObject({ code: "usage", message: expect.stringMatching(/^unknown command: console 1/) });
   }, 60_000);
 
-  test("net list: every match without paging flags; --page-size / --page-idx pages with nextPageIdx; old --limit / --offset still page", async () => {
+  test("net list: every match without paging flags; --page-size / --page-idx pages with nextPageIdx; the old --limit / --offset / --type are unknown options", async () => {
     await until("all API calls recorded", () => ok("net", "list", "--filter", "/api/n", ...S), (d) => Number(d["matched"]) === API_CALLS);
     const all = await ok("net", "list", "--filter", "/api/n", ...S);
     const ids = recs(all["requests"]).map((r) => s(r["id"]));
@@ -207,12 +208,10 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
     expect(last["nextPageIdx"]).toBeNull();
     const bad = await ok("net", "list", "--filter", "/api/n", "--page-size", "10", "--page-idx", "9", ...S);
     expect(bad).toMatchObject({ invalidPage: true, pageIdx: 0 });
-    const old = await ok("net", "list", "--filter", "/api/n", "--limit", "10", "--offset", "5", ...S);
-    expect(recs(old["requests"]).map((r) => s(r["id"]))).toEqual(ids.slice(5, 15));
-    expect(old["nextOffset"]).toBe(15);
+    for (const k of ["offset", "limit", "nextOffset"]) expect(Object.keys(p1)).not.toContain(k);
+    for (const flag of ["--limit", "--offset", "--type"]) expect((await tabcap("net", "list", flag, "10", ...S)).error).toMatchObject({ code: "usage", message: `unknown option ${flag}` });
     const typed = await ok("net", "list", "--resource-types", "fetch", "--filter", "/api/n", ...S);
     expect(typed["matched"]).toBe(API_CALLS);
-    expect((await ok("net", "list", "--type", "fetch", "--filter", "/api/n", ...S))["matched"]).toBe(API_CALLS);
   }, 60_000);
 
   test("post-action wait: a click that navigates returns only after the new document is there and its DOM is quiet", async () => {
@@ -252,12 +251,12 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
     expect(await textOf("hovered")).toBe("hovered true");
   }, 60_000);
 
-  test("type --submit-key presses the key after typing; press-key and the old press both work", async () => {
+  test("type --submit-key presses the key after typing; press-key works, the old press is gone", async () => {
     await ok("fill", await refFromTree(/textbox "Query"[^\n]*\[(e\d+)\]/), "ab", ...S); // focuses the field
     await ok("type", "c", "--submit-key", "Enter", ...S);
     expect(await textOf("keys")).toBe("enter abc");
     await ok("press-key", "End", ...S);
-    await ok("press", "End", ...S);
+    expect((await tabcap("press", "End", ...S)).error).toMatchObject({ code: "usage", message: expect.stringMatching(/^unknown command: press End/) });
   }, 60_000);
 
   test("upload puts files into a file input (relative paths resolve against the caller), and answers a file chooser opened by a button", async () => {
@@ -310,7 +309,7 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
     expect(await page("window.__answer")).toBe("zed");
   }, 60_000);
 
-  test("screenshot --format jpeg --ref and --file-path (old --out still works)", async () => {
+  test("screenshot --format jpeg --ref and --file-path (the old --out / --full are unknown options)", async () => {
     const out = join(files, "el.jpeg");
     const r = await ok("screenshot", "--format", "jpeg", "--quality", "70", "--ref", await refOf("Hover me"), "--file-path", out, ...S);
     expect(r).toMatchObject({ format: "jpeg", path: out });
@@ -318,8 +317,9 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
     expect([bytes[0], bytes[1]]).toEqual([0xff, 0xd8]);
     expect(imageSize(bytes)).toEqual({ width: Number(r["width"]), height: Number(r["height"]) });
     const old = join(files, "old.png");
-    await ok("screenshot", "--out", old, "--full", ...S);
-    expect(existsSync(old)).toBe(true);
+    expect((await tabcap("screenshot", "--out", old, ...S)).error).toMatchObject({ code: "usage", message: "unknown option --out" });
+    expect((await tabcap("screenshot", "--full", ...S)).error).toMatchObject({ code: "usage", message: "unknown option --full" });
+    expect(existsSync(old)).toBe(false);
     expect((await tabcap("screenshot", "--ref", "e1", "--full-page", ...S)).error?.["code"]).toBe("usage");
   }, 60_000);
 });

@@ -1,11 +1,11 @@
-// docs/08 §5: names aligned with Chrome DevTools MCP, old names kept one
-// release as deprecated aliases. The schema snapshot pins the whole CLI
+// docs/08 §5: names aligned with Chrome DevTools MCP; the 0.3 deprecated
+// aliases were removed in 0.4. The schema snapshot pins the whole CLI
 // contract (names, positionals, flags, defaults, aliases); update it with
 // `bun test --update-snapshots` only for an intended contract change.
 
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { COMMANDS, deprecatedAliases, helpFor, matchCommand, parseCommand, schema, specOf, usageOf } from "../../src/cli/commands.ts";
+import { COMMANDS, helpFor, matchCommand, parseCommand, schema, specOf, usageOf } from "../../src/cli/commands.ts";
 import { run, withLocalPaths } from "../../src/cli/main.ts";
 
 const parse = (words: string[], argv: string[]) => {
@@ -20,48 +20,52 @@ describe("CLI contract (schema snapshot)", () => {
   });
 });
 
-describe("renamed commands and their deprecated aliases (docs/08 §5)", () => {
-  test("old command → same daemon action as the new one, marked deprecated", () => {
-    const pairs: Array<[string, string]> = [
-      ["tabs", "tab list"],
-      ["tab use", "tab select"],
-      ["press", "press-key"],
-      ["console", "console list"],
-    ];
-    expect(deprecatedAliases()).toEqual(pairs.map(([alias, use]) => ({ alias, use })));
-    for (const [oldName, newName] of pairs) {
-      const o = specOf(oldName);
-      const n = specOf(newName);
-      expect(o.deprecatedFor).toBe(newName);
-      expect(n.deprecatedFor).toBeUndefined();
-      // console list is a new action (msgid, types, paging); the others share theirs
-      if (newName !== "console list") expect(o.action).toBe(n.action ?? "missing");
-    }
-    expect(matchCommand(["tabs"])?.deprecatedFor).toBe("tab list");
-    expect(matchCommand(["console", "warn"])?.path).toEqual(["console"]);
+describe("renamed commands; the 0.3 aliases are gone (docs/08 §5, removed in 0.4)", () => {
+  const OLD_COMMANDS = ["tabs", "tab use", "press", "console"];
+  const OLD_FLAGS: Array<[string[], string]> = [
+    [["net", "list"], "--type"],
+    [["net", "list"], "--limit"],
+    [["net", "list"], "--offset"],
+    [["screenshot"], "--out"],
+    [["screenshot"], "--full"],
+  ];
+
+  test("the old command names are no commands any more; the new ones are", () => {
+    for (const name of OLD_COMMANDS) expect(COMMANDS.some((c) => c.path.join(" ") === name)).toBe(false);
+    for (const name of ["tab list", "tab select", "press-key", "console list", "console show"]) expect(specOf(name).path.join(" ")).toBe(name);
+    expect(matchCommand(["tabs"])).toBeNull();
+    expect(matchCommand(["tab", "use", "t2"])).toBeNull();
+    expect(matchCommand(["press", "Enter"])).toBeNull();
+    expect(matchCommand(["console", "warn"])).toBeNull();
     expect(matchCommand(["console", "list"])?.path).toEqual(["console", "list"]);
     expect(matchCommand(["console", "show", "3"])?.path).toEqual(["console", "show"]);
   });
 
-  test("--help of an alias says what to use instead, in one line", () => {
-    const h = helpFor(specOf("press"));
-    expect(h.split("\n")[1]).toBe("Deprecated: use `tabcap press-key` instead (this alias is removed in 0.4).");
-    expect(helpFor(specOf("press-key"))).not.toContain("Deprecated");
+  test("old names fail with the normal unknown-command / unknown-option usage error", async () => {
+    for (const argv of [["tabs"], ["tab", "use", "t2"], ["press", "Enter"], ["console"], ["console", "--level", "warn"]]) {
+      const r = await run(argv);
+      expect(r.code).toBe(2);
+      expect(r.envelope).toMatchObject({ ok: false, error: { code: "usage" } });
+      if (r.envelope.ok) throw new Error("expected failure");
+      expect(r.envelope.error.message).toStartWith("unknown command: ");
+    }
+    for (const [words, flag] of OLD_FLAGS) {
+      const c = specOf(words.join(" "));
+      expect(() => parseCommand(c, [flag, "x"])).toThrow(`unknown option ${flag}`);
+      const r = await run([...words, flag, "1"]);
+      expect(r.code).toBe(2);
+      expect(r.envelope).toMatchObject({ ok: false, error: { code: "usage", message: `unknown option ${flag}` } });
+    }
   });
 
-  test("old flag spellings parse to the new keys and are marked in help", () => {
-    expect(parse(["net", "list"], ["--type", "xhr", "--limit", "5"]).p.args).toEqual({ types: "xhr", pageSize: 5 });
+  test("the new flag names parse; dialog --prompt-text stays a plain alias of --text", () => {
     expect(parse(["net", "list"], ["--resource-types", "xhr", "--page-size", "5", "--page-idx", "1"]).p.args).toEqual({ types: "xhr", pageSize: 5, pageIdx: 1 });
-    expect(parse(["screenshot"], ["--out", "a.png", "--full"]).p.args).toEqual({ filePath: "a.png", fullPage: true });
     expect(parse(["screenshot"], ["--file-path", "a.png", "--full-page"]).p.args).toEqual({ filePath: "a.png", fullPage: true });
     expect(parse(["dialog"], ["accept", "--prompt-text", "x"]).p.args).toEqual({ op: "accept", text: "x" });
+    expect(parse(["dialog"], ["accept", "--text", "x"]).p.args).toEqual({ op: "accept", text: "x" });
     const help = helpFor(specOf("net list"));
-    expect(help).toContain("old spelling --limit still works; deprecated, removed in 0.4");
-    expect(help).toContain("--offset <n>");
-    expect(help).toContain("deprecated, use --page-idx");
-    // deprecated flags and old spellings stay out of the usage line
-    expect(usageOf(specOf("net list"))).not.toContain("--offset");
-    expect(usageOf(specOf("net list"))).not.toContain("--type ");
+    expect(help).not.toMatch(/deprecated|old spelling|--offset/i);
+    expect(helpFor(specOf("dialog"))).toContain("--text, --prompt-text");
   });
 
   test("tab new is navigate in a new tab; wait --text repeats; upload keeps its files as a list", () => {
@@ -87,19 +91,16 @@ describe("renamed commands and their deprecated aliases (docs/08 §5)", () => {
     for (const name of ["click", "hover", "fill", "type", "press-key", "navigate", "tab new", "go", "reload"]) expect(specOf(name).flags.some((f) => f.flag === "--no-wait")).toBe(true);
   });
 
-  test("the schema lists aliases and old spellings for tools", () => {
-    const byName = new Map(schema().commands.map((c) => [c.name, c]));
-    expect(byName.get("tabs")?.deprecatedFor).toBe("tab list");
-    expect(byName.get("tab list")?.deprecatedFor).toBeNull();
-    expect(byName.get("net list")?.flags.find((f) => f.flag === "--page-size")).toMatchObject({ deprecatedAliases: ["--limit"], deprecated: null });
-    expect(byName.get("net list")?.flags.find((f) => f.flag === "--offset")).toMatchObject({ deprecated: "use --page-idx" });
+  test("the schema has no deprecation fields; plain aliases stay", () => {
+    const sc = schema();
+    const byName = new Map(sc.commands.map((c) => [c.name, c]));
+    for (const name of ["tabs", "tab use", "press", "console"]) expect(byName.has(name)).toBe(false);
+    for (const c of sc.commands) {
+      expect(Object.keys(c)).not.toContain("deprecatedFor");
+      for (const f of c.flags) expect(Object.keys(f).filter((k) => k.startsWith("deprecated"))).toEqual([]);
+    }
+    expect(byName.get("net list")?.flags.map((f) => f.flag)).not.toContain("--offset");
+    expect(byName.get("dialog")?.flags.find((f) => f.flag === "--text")).toMatchObject({ alias: "--prompt-text" });
     expect(byName.get("wait")?.flags.find((f) => f.flag === "--text")).toMatchObject({ repeatable: true });
-    expect(COMMANDS.filter((c) => c.deprecatedFor !== undefined).every((c) => specOf(c.deprecatedFor ?? "").deprecatedFor === undefined)).toBe(true);
-  });
-
-  test("a deprecated alias still runs through the same path (usage errors as before)", async () => {
-    const r = await run(["press"]);
-    expect(r.code).toBe(2);
-    expect(r.envelope).toMatchObject({ ok: false, error: { code: "usage" } });
   });
 });

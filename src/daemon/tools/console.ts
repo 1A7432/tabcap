@@ -3,8 +3,6 @@
 // Names and paging follow chrome-devtools-mcp's list_console_messages /
 // get_console_message (docs/08 §5): `--types`, `--page-size` / `--page-idx`
 // (no paging flag: every buffered message), `--include-stack-traces`.
-// `tabcap console` (deprecated alias, removed in 0.4) keeps its 0.2 behaviour:
-// the last `--limit` (100) entries, stacks included.
 
 import { TabcapError } from "../../shared/envelope.ts";
 import { atLeast, CONSOLE_TYPES, isLevel, whereOf, type StoredConsole } from "../capture/console.ts";
@@ -12,8 +10,6 @@ import type { Daemon } from "../state.ts";
 import { optBool, optNum, optStr, type Args } from "./args.ts";
 import { pagedFields } from "./net.ts";
 import { pageOf, parsePaging } from "./netquery.ts";
-
-const DEFAULT_LIMIT = 100;
 
 function levelArg(a: Args): string | null {
   const level = optStr(a, "level");
@@ -51,42 +47,6 @@ const brief = (e: StoredConsole, stack: boolean) => ({
   at: whereOf(e),
   ...(stack && e.stack !== null ? { stack: e.stack } : {}),
 });
-
-/** Deprecated `tabcap console`: 0.2 output (last --limit entries, stacks), plus msgid / type. */
-export function consoleRead(d: Daemon, a: Args, session: string): unknown {
-  const level = levelArg(a);
-  const limit = limitArg(a, "console") ?? DEFAULT_LIMIT;
-  const { tabs, console } = d.need();
-  const tab = tabs.pick(session, optStr(a, "tab"));
-  const ring = console.ring(tab.id);
-  const all = ring.toArray();
-  const matching = level === null ? all : all.filter((e) => isLevel(level) && atLeast(e.level, level));
-  const shown = matching.slice(-limit);
-  const dropped = ring.dropped;
-  const clear = optBool(a, "clear");
-  if (clear) ring.clear();
-  return {
-    tab: tab.id,
-    url: tab.url,
-    buffered: all.length,
-    dropped,
-    matching: matching.length,
-    returned: shown.length,
-    cleared: clear,
-    entries: shown.map((e) => ({
-      msgid: e.id,
-      type: e.type,
-      ts: e.ts,
-      level: e.level,
-      source: e.source,
-      text: e.text,
-      ...(e.truncated ? { truncated: true } : {}),
-      at: whereOf(e),
-      ...(e.stack === null ? {} : { stack: e.stack }),
-    })),
-    ...(matching.length > shown.length ? { note: `showing the last ${shown.length} of ${matching.length}; raise --limit or narrow with --level` } : {}),
-  };
-}
 
 export function consoleList(d: Daemon, a: Args, session: string): unknown {
   const level = levelArg(a);

@@ -75,18 +75,14 @@ describe("generated docs (bun run gen:docs)", () => {
     expect(() => replaceGenerated(`${e}\n${b}`, "t", "x")).toThrow();
   });
 
-  test("the generated docs list every user-facing command; deprecated aliases only as old → new", () => {
+  test("the generated docs list every user-facing command and no removed alias", () => {
     const ref = readFileSync(join(ROOT, REFERENCE_FILE), "utf8");
     const readme = readFileSync(join(ROOT, "README.md"), "utf8");
     for (const c of COMMANDS.filter((x) => x.internal !== true)) {
       const name = c.path.join(" ");
-      if (c.deprecatedFor === undefined) {
-        expect(ref).toContain(`### \`tabcap ${name}\``);
-        expect(readme).toContain(`| \`tabcap ${name}`);
-      } else {
-        expect(ref).toContain(`\`tabcap ${name}\` → \`tabcap ${c.deprecatedFor}\``);
-        expect(ref).not.toContain(`### \`tabcap ${name}\``);
-      }
+      expect(ref).toContain(`### \`tabcap ${name}\``);
+      expect(readme).toContain(`| \`tabcap ${name}`);
     }
+    for (const doc of [ref, readme]) expect(doc).not.toMatch(/[Dd]eprecated/);
   });
 });

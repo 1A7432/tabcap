@@ -3,7 +3,7 @@
 import type { Daemon } from "../state.ts";
 import type { Args } from "./args.ts";
 import { browserStart, browserStatus, browserStop } from "./browser.ts";
-import { consoleList, consoleRead, consoleShow } from "./console.ts";
+import { consoleList, consoleShow } from "./console.ts";
 import { emulate, resize } from "./device.ts";
 import { click, fill, hover, press, typeText, upload } from "./input.ts";
 import { handoffContinue, handoffStatus } from "./handoff.ts";
@@ -50,7 +50,6 @@ export const TOOLS: Record<string, Tool> = {
   "net.list": netList,
   "net.body": netBody,
   "net.show": netShow,
-  console: consoleRead,
   "console.list": consoleList,
   "console.show": consoleShow,
   wait,

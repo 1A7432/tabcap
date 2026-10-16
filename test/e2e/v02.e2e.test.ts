@@ -75,7 +75,7 @@ describe.skipIf(!enabled)("tabcap 0.2-A L2", () => {
       await Bun.sleep(100);
     }
     await Bun.sleep(300);
-    const reqs = recs((await ok("net", "list", "--type", "websocket", "--session", S))["requests"]);
+    const reqs = recs((await ok("net", "list", "--resource-types", "websocket", "--session", S))["requests"]);
     expect(reqs).toHaveLength(1);
     expect(reqs[0]).toMatchObject({ type: "websocket", status: 101, url: `ws://${site.origin.slice("http://".length)}/ws` });
     const hs = s(reqs[0]?.["id"]);
@@ -100,7 +100,7 @@ describe.skipIf(!enabled)("tabcap 0.2-A L2", () => {
   async function consoleUntil(session: string, pred: (es: Record<string, unknown>[]) => boolean): Promise<Record<string, unknown>[]> {
     let es: Record<string, unknown>[] = [];
     for (let i = 0; i < 50; i++) {
-      es = recs((await ok("console", "--session", session))["entries"]);
+      es = recs((await ok("console", "list", "--include-stack-traces", "--session", session))["entries"]);
       if (pred(es)) break;
       await Bun.sleep(100);
     }
@@ -122,11 +122,11 @@ describe.skipIf(!enabled)("tabcap 0.2-A L2", () => {
     expect(s(ex?.["text"])).toContain("uncaught-marker");
     expect(s(ex?.["stack"])).toContain("explode");
     // --level filters to that level and above; --limit keeps the newest
-    const warn = recs((await ok("console", "--level", "warn", "--session", S))["entries"]);
+    const warn = recs((await ok("console", "list", "--level", "warn", "--session", S))["entries"]);
     expect(warn.every((e) => e["level"] === "warn" || e["level"] === "error")).toBe(true);
     expect(warn.some((e) => e["text"] === "warn-marker")).toBe(true);
-    expect(recs((await ok("console", "--limit", "1", "--session", S))["entries"])).toHaveLength(1);
-    const bad = await tabcap("console", "--level", "loud", "--session", S);
+    expect(recs((await ok("console", "list", "--limit", "1", "--session", S))["entries"])).toHaveLength(1);
+    const bad = await tabcap("console", "list", "--level", "loud", "--session", S);
     expect(bad.error).toMatchObject({ code: "usage" });
   }, 60_000);
 
@@ -136,9 +136,9 @@ describe.skipIf(!enabled)("tabcap 0.2-A L2", () => {
     const es = await consoleUntil("plain", hasException);
     expect(es.map((e) => e["level"])).toEqual(expect.arrayContaining(["log", "warn", "error"]));
     expect(hasException(es)).toBe(true);
-    const cleared = await ok("console", "--clear", ...P);
+    const cleared = await ok("console", "list", "--clear", ...P);
     expect(cleared["cleared"]).toBe(true);
-    expect(recs((await ok("console", ...P))["entries"])).toHaveLength(0);
+    expect(recs((await ok("console", "list", ...P))["entries"])).toHaveLength(0);
     await ok("session", "stop", "plain");
   }, 60_000);
 

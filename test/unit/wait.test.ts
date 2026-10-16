@@ -44,7 +44,7 @@ describe("wait arguments", () => {
     expect(parseCommand(w, ["--idle", "--timeout", "3000"]).args).toEqual({ idle: true, timeoutMs: 3000 });
     expect(matchCommand(["net", "wait"])?.action).toBe("net.wait");
     expect(matchCommand(["wait", "net"])?.action).toBe("wait");
-    expect(matchCommand(["console"])?.action).toBe("console");
+    expect(matchCommand(["console"])).toBeNull();
   });
 });
 

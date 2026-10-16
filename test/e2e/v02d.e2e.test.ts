@@ -120,14 +120,14 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
     expect(g.raw).toContain("tabcap net show <id>");
   });
 
-  test("s17 popup: foreground handed back, owned, operable with --tab / tab use, closed by session stop", async () => {
+  test("s17 popup: foreground handed back, owned, operable with --tab / tab select, closed by session stop", async () => {
     const P = ["--session", "pop"];
     await ok("navigate", `${site.origin}/popup`, ...P);
     const before = frontmostApp();
     const hit = recs((await ok("find", "打开弹窗", ...P))["hits"])[0];
     expect(hit?.["clickable"]).toBeTruthy();
     await ok("click", s(hit?.["clickable"]), ...P);
-    const tabs = await until("the popup tab", () => ok("tabs", ...P), (d) => recs(d["tabs"]).length === 2);
+    const tabs = await until("the popup tab", () => ok("tab", "list", ...P), (d) => recs(d["tabs"]).length === 2);
     const pop = recs(tabs["tabs"])[1];
     expect(pop).toMatchObject({ tab: "t2", owned: true, reason: "popup", opener: "t1", current: false });
     expect(tabs["current"]).toBe("t1");
@@ -150,9 +150,9 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
     await ok("click", s(pb?.["clickable"]), "--tab", "t2", ...P);
     expect((await ok("evaluate", "window.__pb", "--tab", "t2", ...P))["value"]).toBe(1);
     expect((await tabcap("snapshot", "--tab", "t9", ...P)).error?.code).toBe("no-tab");
-    expect(await ok("tab", "use", "t2", ...P)).toMatchObject({ current: "t2", opener: "t1" });
+    expect(await ok("tab", "select", "t2", ...P)).toMatchObject({ current: "t2", opener: "t1" });
     expect((await ok("evaluate", "document.title", ...P))["value"]).toBe("popup target");
-    await ok("tab", "use", "t1", ...P);
+    await ok("tab", "select", "t1", ...P);
     const stop = await ok("session", "stop", "pop");
     expect(stop["closed"]).toEqual(["t1", "t2"]);
     expect(stop["released"]).toEqual([]);
@@ -214,11 +214,11 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
     expect(Number(data["total"])).toBeGreaterThanOrEqual(Number(data["matched"]) + closed + DATA_IMAGES);
     // paging over the failed ones
     const seen: string[] = [];
-    let offset: unknown = 0;
-    for (let page = 0; offset !== null && page < 10; page++) {
-      const p = await ok("net", "list", "--failed", "--since", c, "--limit", "25", "--offset", s(offset), "--session", S);
+    let pageIdx: unknown = 0;
+    for (let page = 0; pageIdx !== null && page < 10; page++) {
+      const p = await ok("net", "list", "--failed", "--since", c, "--page-size", "25", "--page-idx", s(pageIdx), "--session", S);
       seen.push(...recs(p["requests"]).map((r) => s(r["id"])));
-      offset = p["nextOffset"];
+      pageIdx = p["nextPageIdx"];
     }
     expect(seen).toEqual(recs(failed["requests"]).map((r) => s(r["id"])));
     const all = await ok("net", "list", "--all", "--since", c, "--session", S);

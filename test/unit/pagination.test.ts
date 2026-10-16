@@ -45,17 +45,14 @@ describe("paging options of net list / console list", () => {
     return "none";
   };
 
-  test("no paging option → all; --page-size / --page-idx → page index; the old --limit is --page-size; --offset keeps skip-N", () => {
+  test("no paging option → all; --page-size / --page-idx → page index; the removed --limit / --offset keys page nothing", () => {
     expect(parsePaging({}, "net list")).toEqual({ mode: "all" });
     expect(parsePaging({ pageSize: 10 }, "net list")).toEqual({ mode: "page", size: 10, idx: null });
     expect(parsePaging({ pageIdx: 2 }, "net list")).toEqual({ mode: "page", size: 100, idx: 2 });
-    expect(parsePaging({ limit: 25 }, "net list")).toEqual({ mode: "page", size: 25, idx: null });
-    expect(parsePaging({ limit: 25, offset: 50 }, "net list")).toEqual({ mode: "offset", size: 25, offset: 50 });
-    expect(parsePaging({ offset: 5 }, "net list")).toEqual({ mode: "offset", size: 100, offset: 5 });
+    expect(parsePaging({ limit: 25, offset: 50 }, "net list")).toEqual({ mode: "all" });
   });
 
   test("bad values are usage errors", () => {
-    expect(code(() => parsePaging({ pageIdx: 1, offset: 5 }, "net list"))).toBe("usage");
     expect(code(() => parsePaging({ pageSize: 0 }, "net list"))).toBe("usage");
     expect(code(() => parsePaging({ pageSize: 1001 }, "net list"))).toBe("usage");
     expect(code(() => parsePaging({ pageIdx: -1 }, "net list"))).toBe("usage");
@@ -63,14 +60,12 @@ describe("paging options of net list / console list", () => {
     expect(code(() => parsePaging({ pageSize: "x" }, "net list"))).toBe("usage");
   });
 
-  test("pageOf: next page index, the deprecated offset fields, and the texts", () => {
+  test("pageOf: next page index and the texts; the 0.3 offset / limit / nextOffset fields are gone", () => {
     const p = pageOf(items, { mode: "page", size: 10, idx: 1 });
-    expect(p).toMatchObject({ rows: items.slice(10, 20), pageSize: 10, pageIdx: 1, totalPages: 3, nextPageIdx: 2, invalidPage: false, offset: 10, limit: 10, nextOffset: 20 });
+    expect(p).toMatchObject({ rows: items.slice(10, 20), pageSize: 10, pageIdx: 1, totalPages: 3, nextPageIdx: 2, invalidPage: false });
     expect(p.pagination[0]).toBe("Showing 11-20 of 23 (Page 2 of 3).");
-    expect(pageOf(items, { mode: "page", size: 10, idx: 2 })).toMatchObject({ nextPageIdx: null, nextOffset: null });
-    expect(pageOf(items, { mode: "all" })).toMatchObject({ rows: items, pageSize: null, limit: null, nextPageIdx: null, totalPages: 1 });
-    const o = pageOf(items, { mode: "offset", size: 10, offset: 5 });
-    expect(o).toMatchObject({ rows: items.slice(5, 15), offset: 5, limit: 10, nextOffset: 15, nextPageIdx: null });
-    expect(pageOf(items, { mode: "offset", size: 10, offset: 20 }).nextOffset).toBeNull();
+    expect(pageOf(items, { mode: "page", size: 10, idx: 2 })).toMatchObject({ nextPageIdx: null });
+    expect(pageOf(items, { mode: "all" })).toMatchObject({ rows: items, pageSize: null, nextPageIdx: null, totalPages: 1 });
+    for (const k of ["offset", "limit", "nextOffset"]) expect(Object.keys(p)).not.toContain(k);
   });
 });

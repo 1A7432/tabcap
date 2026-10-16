@@ -23,7 +23,7 @@ describe("help at two levels and --version (field report P2)", () => {
     for (const sub of ["start", "stop", "list", "body", "show", "wait"]) expect(r.text).toContain(`tabcap net ${sub}`);
     const tab = (await run(["tab", "-h"])).text;
     expect(tab).toContain("tabcap tab select <tab>");
-    expect(tab).toContain("Deprecated (removed in 0.4): tab use → tab select");
+    expect(tab).not.toContain("tab use");
   });
 
   test("an unknown command with --help is still a usage error; `--` ends help scanning", async () => {

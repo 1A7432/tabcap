@@ -7,7 +7,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { ALIASES_REMOVED_IN, COMMANDS, COMMON_FLAGS, currentCommands, deprecatedAliases, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
+import { COMMON_FLAGS, currentCommands, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export const SKILL_DIR = "skills/tabcap";
@@ -18,11 +18,10 @@ export const README_ZH_FILE = "README.zh-CN.md";
 
 const cell = (s: string) => s.replace(/\|/g, "\\|");
 
-/** Markdown table of every current command: usage (common flags left out) and one-line help; then the deprecated aliases. */
-export function commandTable(header: [string, string], aliasLabel: string): string {
+/** Markdown table of every current command: usage (common flags left out) and one-line help. */
+export function commandTable(header: [string, string]): string {
   const rows = currentCommands().map((c) => `| \`${cell(usageOf(c, COMMON_FLAGS))}\` | ${cell(c.summary)} |`);
-  const aliases = deprecatedAliases().map((x) => `\`${x.alias}\` → \`${x.use}\``);
-  return [`| ${header[0]} | ${header[1]} |`, "|---|---|", ...rows, "", `${aliasLabel}: ${aliases.join(", ")}`].join("\n");
+  return [`| ${header[0]} | ${header[1]} |`, "|---|---|", ...rows].join("\n");
 }
 
 function flagValue(f: FlagSpec): string {
@@ -36,8 +35,6 @@ function flagRow(f: FlagSpec): string {
   const notes: string[] = [];
   if (f.required === true) notes.push("required");
   if (f.repeat === true) notes.push("repeatable");
-  if (f.deprecatedNote !== undefined) notes.push(`deprecated: ${f.deprecatedNote}`);
-  if (f.deprecated !== undefined) notes.push(`old spelling ${f.deprecated.map((x) => `\`${x}\``).join(", ")}, deprecated`);
   const dflt = f.default === undefined ? "" : `\`${String(f.default)}\``;
   return `| ${names} | ${dflt} | ${cell(f.help)}${notes.length === 0 ? "" : ` (${notes.join("; ")})`} |`;
 }
@@ -86,10 +83,6 @@ export function referenceDoc(): string {
     "",
     "Every command prints one JSON envelope on stdout: `{\"ok\":true,\"data\":…}` or `{\"ok\":false,\"error\":{\"code\",\"message\",\"next\"}}`. Browser commands also take `--session <name>` (else `$TABCAP_SESSION`, else `default`) and most take `--timeout <ms>` (default 30000; `wait` / `net wait` 10000); they are left out below. `tabcap <command> --help` prints the same as one section here; `tabcap schema --json` is the machine-readable form.",
     "",
-    `Deprecated aliases, removed in ${ALIASES_REMOVED_IN}: ${deprecatedAliases()
-      .map((x) => `\`tabcap ${x.alias}\` → \`tabcap ${x.use}\``)
-      .join(", ")}.`,
-    "",
     ...sections,
   ]
     .join("\n")
@@ -113,13 +106,13 @@ export function replaceGenerated(text: string, name: string, body: string): stri
 
 /** The files as they should be, given their current hand-written parts. */
 export function generatedDocs(root: string = ROOT): { file: string; current: string; wanted: string }[] {
-  const spec: [string, [string, string], string][] = [
-    [README_FILE, ["Command", "What it does"], `Deprecated aliases (removed in ${ALIASES_REMOVED_IN})`],
-    [README_ZH_FILE, ["命令", "作用"], `旧名别名（${ALIASES_REMOVED_IN} 删除）`],
+  const spec: [string, [string, string]][] = [
+    [README_FILE, ["Command", "What it does"]],
+    [README_ZH_FILE, ["命令", "作用"]],
   ];
-  const tables = spec.map(([file, header, label]) => {
+  const tables = spec.map(([file, header]) => {
     const current = readFileSync(join(root, file), "utf8");
-    return { file, current, wanted: replaceGenerated(current, "commands", commandTable(header, label)) };
+    return { file, current, wanted: replaceGenerated(current, "commands", commandTable(header)) };
   });
   const ref = join(root, REFERENCE_FILE);
   let current = "";

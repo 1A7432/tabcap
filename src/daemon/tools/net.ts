@@ -75,7 +75,6 @@ export function netList(d: Daemon, a: Args, session: string): unknown {
   if (r.hidden.failed > 0) notes.push(`${r.hidden.failed} failed request(s) hidden: --failed shows only them, --all shows everything`);
   if (r.hidden.data > 0) notes.push(`${r.hidden.data} data: URL(s) hidden: --all shows them`);
   if (r.nextPageIdx !== null) notes.push(`more: --page-idx ${r.nextPageIdx}`);
-  else if (q.paging.mode === "offset" && r.nextOffset !== null) notes.push(`more: --offset ${r.nextOffset} (deprecated; use --page-idx)`);
   return {
     session,
     bundle: dir,
@@ -90,7 +89,7 @@ export function netList(d: Daemon, a: Args, session: string): unknown {
   };
 }
 
-/** The paging part of a list answer; offset / limit / nextOffset are the pre-0.3 names, kept one release. */
+/** The paging part of a list answer. */
 export function pagedFields(p: Paged<unknown>): Record<string, unknown> {
   return {
     pageSize: p.pageSize,
@@ -99,9 +98,6 @@ export function pagedFields(p: Paged<unknown>): Record<string, unknown> {
     nextPageIdx: p.nextPageIdx,
     ...(p.invalidPage ? { invalidPage: true } : {}),
     pagination: p.pagination,
-    offset: p.offset,
-    limit: p.limit,
-    nextOffset: p.nextOffset,
   };
 }
 
@@ -120,7 +116,7 @@ function wsList(dir: string, frames: WsFrameEntry[], recording: boolean, session
     shown: page.rows.length,
     ...pagedFields(page),
     frames: page.rows.map(({ url, ...rest }) => ({ ...rest, ...listUrl(url) })),
-    ...(page.nextPageIdx !== null ? { note: `more: --page-idx ${page.nextPageIdx}` } : page.nextOffset !== null && q.paging.mode === "offset" ? { note: `more: --offset ${page.nextOffset}` } : {}),
+    ...(page.nextPageIdx !== null ? { note: `more: --page-idx ${page.nextPageIdx}` } : {}),
   };
 }
 

@@ -4,8 +4,6 @@
 
 Every command prints one JSON envelope on stdout: `{"ok":true,"data":…}` or `{"ok":false,"error":{"code","message","next"}}`. Browser commands also take `--session <name>` (else `$TABCAP_SESSION`, else `default`) and most take `--timeout <ms>` (default 30000; `wait` / `net wait` 10000); they are left out below. `tabcap <command> --help` prints the same as one section here; `tabcap schema --json` is the machine-readable form.
 
-Deprecated aliases, removed in 0.4: `tabcap tabs` → `tabcap tab list`, `tabcap tab use` → `tabcap tab select`, `tabcap press` → `tabcap press-key`, `tabcap console` → `tabcap console list`.
-
 ## Setup and lifecycle
 
 ### `tabcap setup`
@@ -480,8 +478,8 @@ Example: `tabcap screenshot --full-page`
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
-| `--file-path <path>` |  | image path (default under ~/.local/share/tabcap/shots/) (old spelling `--out`, deprecated) |
-| `--full-page` |  | the whole page, not just the viewport (not with --ref) (old spelling `--full`, deprecated) |
+| `--file-path <path>` |  | image path (default under ~/.local/share/tabcap/shots/) |
+| `--full-page` |  | the whole page, not just the viewport (not with --ref) |
 | `--format <png\|jpeg\|webp>` | `png` | png \| jpeg \| webp |
 | `--quality <0-100>` |  | jpeg / webp quality 0–100 (ignored for png) |
 | `--ref <e12>` |  | only this element (a ref from snapshot) |
@@ -593,15 +591,14 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 | `--host <s>` |  | host[:port] substring |
 | `--status <code>` |  | status code or class: 200 \| 2xx \| 3xx \| 4xx \| 5xx |
 | `--method <M>` |  | only this HTTP method |
-| `--resource-types <xhr,fetch>` |  | comma list: xhr,fetch,document,script … (old spelling `--type`, deprecated) |
+| `--resource-types <xhr,fetch>` |  | comma list: xhr,fetch,document,script … |
 | `--tab <t2>` |  | only requests of this tab |
 | `--since <c-12>` |  | only requests finished after this command started (the `cmd` id commands return while recording) |
 | `--failed` |  | only failed requests (hidden by default) |
 | `--no-failed` |  | hide failed requests (the default) |
 | `--all` |  | also failed requests and data: URLs |
-| `--page-size <n>` |  | requests per page (max 1000); without --page-size / --page-idx every match is returned (old spelling `--limit`, deprecated) |
+| `--page-size <n>` |  | requests per page (max 1000); without --page-size / --page-idx every match is returned |
 | `--page-idx <n>` |  | page to return, 0-based (100 per page unless --page-size); nextPageIdx names the next one |
-| `--offset <n>` |  | skip this many matches (oldest first) (deprecated: use --page-idx) |
 | `--kind <http\|ws>` | `http` | http (requests) \| ws (WebSocket frames: id, direction, opcode, size, ts) |
 
 ### `tabcap net body`

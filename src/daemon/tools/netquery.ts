@@ -12,10 +12,9 @@ export const LIST_MAX_LIMIT = 1000;
 
 /**
  * docs/08 §5 (chrome-devtools-mcp semantics): no paging flag → every match;
- * `--page-size` / `--page-idx` → page-index paging (100 per page by default);
- * the deprecated `--offset` keeps its old skip-N meaning for one release.
+ * `--page-size` / `--page-idx` → page-index paging (100 per page by default).
  */
-export type Paging = { mode: "all" } | { mode: "page"; size: number; idx: number | null } | { mode: "offset"; size: number; offset: number };
+export type Paging = { mode: "all" } | { mode: "page"; size: number; idx: number | null };
 
 export type StatusFilter = { code: number } | { klass: number };
 
@@ -65,8 +64,7 @@ export function parseListQuery(a: Args, sinceOf: (cmd: string) => number | null)
     since = sinceOf(sinceArg);
     if (since === null) throw new TabcapError("not-found", `no command ${sinceArg} in this recording`, "Use a `cmd` id returned while `net start` was recording, or leave --since out.");
   }
-  // `type` / `limit` are the pre-0.3 argument keys (CLI `--type` / `--limit`), still accepted.
-  const types = (optStr(a, "types") ?? optStr(a, "type"))
+  const types = optStr(a, "types")
     ?.split(",")
     .map((s) => s.trim().toLowerCase())
     .filter((s) => s !== "");
@@ -85,14 +83,11 @@ export function parseListQuery(a: Args, sinceOf: (cmd: string) => number | null)
   };
 }
 
-/** `--page-size` (old `--limit`), `--page-idx`, deprecated `--offset`. */
+/** `--page-size`, `--page-idx`. */
 export function parsePaging(a: Args, cmd: string): Paging {
-  const sizeKey = a["pageSize"] !== undefined && a["pageSize"] !== null ? "pageSize" : "limit";
   const given = (k: string) => a[k] !== undefined && a[k] !== null;
-  if (given("pageIdx") && given("offset")) throw usage("--page-idx and --offset exclude each other", `Use --page-idx (0-based page number), e.g. \`tabcap ${cmd} --page-size 50 --page-idx 1\`.`);
-  if (!given(sizeKey) && !given("pageIdx") && !given("offset")) return { mode: "all" };
-  const size = count(a, sizeKey, "--page-size", LIST_DEFAULT_LIMIT, 1, LIST_MAX_LIMIT, cmd);
-  if (given("offset")) return { mode: "offset", size, offset: count(a, "offset", "--offset", 0, 0, Number.MAX_SAFE_INTEGER, cmd) };
+  if (!given("pageSize") && !given("pageIdx")) return { mode: "all" };
+  const size = count(a, "pageSize", "--page-size", LIST_DEFAULT_LIMIT, 1, LIST_MAX_LIMIT, cmd);
   return { mode: "page", size, idx: given("pageIdx") ? count(a, "pageIdx", "--page-idx", 0, 0, Number.MAX_SAFE_INTEGER, cmd) : null };
 }
 
@@ -104,35 +99,12 @@ export type Paged<T> = {
   totalPages: number;
   nextPageIdx: number | null;
   invalidPage: boolean;
-  /** Deprecated (pre-0.3 `--offset`): kept one release. */
-  offset: number;
-  limit: number | null;
-  nextOffset: number | null;
   /** "Showing a-b of n (Page x of y)." … (chrome-devtools-mcp wording). */
   pagination: string[];
 };
 
 /** Apply a paging request to the matches (oldest first). */
 export function pageOf<T>(matched: readonly T[], p: Paging): Paged<T> {
-  if (p.mode === "offset") {
-    const rows = matched.slice(p.offset, p.offset + p.size);
-    const end = p.offset + rows.length;
-    const totalPages = Math.max(1, Math.ceil(matched.length / p.size));
-    const currentPage = Math.min(totalPages - 1, Math.floor(p.offset / p.size));
-    const r: PaginationResult<T> = { items: rows, currentPage, totalPages, hasNextPage: end < matched.length, hasPreviousPage: p.offset > 0, startIndex: p.offset, endIndex: end, invalidPage: false };
-    return {
-      rows,
-      pageSize: p.size,
-      pageIdx: currentPage,
-      totalPages,
-      nextPageIdx: null,
-      invalidPage: false,
-      offset: p.offset,
-      limit: p.size,
-      nextOffset: end < matched.length ? end : null,
-      pagination: [`Showing ${rows.length === 0 ? 0 : p.offset + 1}-${end} of ${matched.length} (--offset ${p.offset}).`, ...(end < matched.length ? [`Next offset: ${end}`] : [])],
-    };
-  }
   const opts = p.mode === "all" ? undefined : { pageSize: p.size, ...(p.idx === null ? {} : { pageIdx: p.idx }) };
   const r = paginate(matched, opts);
   return {
@@ -142,9 +114,6 @@ export function pageOf<T>(matched: readonly T[], p: Paging): Paged<T> {
     totalPages: r.totalPages,
     nextPageIdx: r.hasNextPage ? r.currentPage + 1 : null,
     invalidPage: r.invalidPage,
-    offset: r.startIndex,
-    limit: p.mode === "all" ? null : p.size,
-    nextOffset: r.hasNextPage ? r.endIndex : null,
     pagination: paginationLines(matched.length, r, p.mode !== "all"),
   };
 }
