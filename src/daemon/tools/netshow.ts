@@ -11,6 +11,7 @@ import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
 import type { WsFrameEntry } from "../capture/recorder.ts";
 import { inlineBytes } from "../capture/ws.ts";
+import { parseDecoded } from "../../bundle/decoded.ts";
 
 export const SHOW_INLINE_MAX = 2048;
 
@@ -55,6 +56,24 @@ export function summariseHeaders(h: unknown): Record<string, string | string[]> 
 }
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** A side's decoded view (0.6-B) for `net show`: who decoded it, its path, or why it failed; {} when there is none. */
+function decodedDetail(v: unknown, store: Pick<BlobStore, "pathOf">): Record<string, unknown> {
+  const d = parseDecoded(v);
+  if (d === undefined) return {};
+  return {
+    decoded: {
+      by: d.by,
+      version: d.version,
+      ok: d.ok,
+      mime: d.mime,
+      bytes: d.bytes,
+      ...(d.blob === null ? {} : { path: store.pathOf(d.blob), blob: d.blob }),
+      ...(d.error === undefined ? {} : { error: d.error }),
+      ...(d.note === undefined ? {} : { note: d.note }),
+    },
+  };
+}
 
 /** `url:line:col`, 1-based (CDP numbers are 0-based), like `console`. */
 export function initiatorAt(init: Record<string, unknown>): string | null {
@@ -105,6 +124,7 @@ export function requestDetail(ev: Record<string, unknown>, store: Pick<BlobStore
       headers: summariseHeaders(req["headers"]),
       postData,
       ...(isRecord(req["postDataMissing"]) ? { postDataMissing: req["postDataMissing"] } : {}),
+      ...decodedDetail(req["decoded"], store),
     },
     response: {
       headers: summariseHeaders(resp["headers"]),
@@ -115,6 +135,7 @@ export function requestDetail(ev: Record<string, unknown>, store: Pick<BlobStore
       fromCache: resp["fromCache"] ?? null,
       body: blob === null ? null : { path: store.pathOf(blob), blob, size: body === null ? null : num(body, "size"), wireEncoding: body === null ? null : (body["wireEncoding"] ?? null) },
       bodyMissing: missing,
+      ...decodedDetail(resp["decoded"], store),
     },
     redirect: ev["redirect"] ?? null,
     timing: {

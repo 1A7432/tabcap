@@ -535,9 +535,11 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--max-matches", key: "maxMatches", kind: "number", help: "with --grep: matches shown (max 1000); total counts them all", default: 50, metavar: "n" },
       { flag: "--file", key: "file", kind: "bool", help: "write the whole decoded body (charset-decoded, secret-scrubbed; with --pretty line-broken) to exports/bodies/<id>.<ext> of the open recording (else <cache>/outputs/bodies/), 0600, and answer {id, url, mime, bytes, lines, pretty, file, scrubbed}: for `rg` / grep on the path; not with --grep / --lines / --at / --out" },
       { flag: "--pretty", key: "pretty", kind: "bool", help: "JavaScript / JSON bodies up to 8 MB: break minified JS into lines (newlines only, never inside strings, templates, regexes, comments), re-indent JSON; line numbers then refer to the pretty text" },
+      { flag: "--decoded", key: "decoded", kind: "bool", help: "the decode plugin's plaintext view of the body (the default when the request has one; an error when it has none); the answer says view: \"decoded\"" },
+      { flag: "--raw", key: "raw", kind: "bool", help: "the original body even when a decoded view exists (view: \"raw\")" },
     ],
     summary:
-      "a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)",
+      "a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); a body with a decode plugin's view shows the view (--raw: the original); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)",
     example: "tabcap net body r-12 --grep 'sign|token' --pretty",
     action: "net.body",
     localPaths: ["out"],
@@ -759,9 +761,21 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap fingerprint probe --ref daily --text",
     action: "fingerprint.probe",
   },
-  { path: ["plugin", "list"], pos: [], flags: [], summary: "challenge handlers installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, hooks, enabled, errors", example: "tabcap plugin list" },
-  { path: ["plugin", "enable"], pos: ["name"], flags: [], summary: "let the guard ask this handler before handing a challenge to the human", example: "tabcap plugin enable my-handler" },
-  { path: ["plugin", "disable"], pos: ["name"], flags: [], summary: "stop asking this handler", example: "tabcap plugin disable my-handler" },
+  {
+    path: ["plugin", "list"],
+    pos: [],
+    flags: [],
+    summary: "challenge handlers and decode plugins installed under ~/.config/tabcap/plugins/ (none ship with tabcap): name, kind, hooks / match, enabled, errors",
+    example: "tabcap plugin list",
+  },
+  {
+    path: ["plugin", "enable"],
+    pos: ["name"],
+    flags: [],
+    summary: "opt a plugin in: a challenge handler is asked before a challenge goes to the human; a decode plugin decodes matching bodies of recordings started from now on",
+    example: "tabcap plugin enable my-handler",
+  },
+  { path: ["plugin", "disable"], pos: ["name"], flags: [], summary: "stop using this handler or decode plugin", example: "tabcap plugin disable my-handler" },
   // Offline commands: no daemon. Parsed by src/cli/main.ts (bundle), src/cli/analyze.ts and src/cli/replay.ts.
   {
     path: ["bundle", "export", "har"],
@@ -785,6 +799,14 @@ export const COMMANDS: CommandSpec[] = [
   },
   { path: ["bundle", "redact"], pos: ["in", "out"], flags: [], summary: "write a redacted copy of a bundle (the original is never changed)", example: "tabcap bundle redact ./b ./b-redacted" },
   { path: ["bundle", "info"], pos: ["bundle"], flags: [], summary: "bundle summary: counts, event kinds, finished or not, issues", example: "tabcap bundle info ./b" },
+  {
+    path: ["bundle", "decode"],
+    pos: ["bundle"],
+    flags: [{ flag: "--plugin", key: "plugin", kind: "string", help: "only this decode plugin (installed; naming it is the opt-in, it need not be enabled); default: every enabled decode plugin", metavar: "name" }],
+    summary:
+      "run decode plugins over a finished bundle: plaintext views of matching request / response bodies are stored beside the originals (request.decoded / response.decoded), so find / where / deps / recon / replay check read them; rewrites events.jsonl atomically, ids unchanged",
+    example: "tabcap bundle decode ./b --plugin xor-decode",
+  },
   {
     path: ["analyze", "find"],
     pos: ["bundle", "text..."],
@@ -1027,7 +1049,7 @@ export function currentCommands(): CommandSpec[] {
   return COMMANDS.filter((c) => c.internal !== true);
 }
 
-const BUNDLE_PATHS = ["bundle export har", "bundle import har", "bundle redact", "bundle info"];
+const BUNDLE_PATHS = ["bundle export har", "bundle import har", "bundle redact", "bundle info", "bundle decode"];
 export const BUNDLE_USAGE: string[] = BUNDLE_PATHS.map((p) => usageOf(specOf(p)));
 
 function posName(c: CommandSpec, p: string): string {

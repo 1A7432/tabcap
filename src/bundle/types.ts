@@ -4,6 +4,8 @@
 // Event shapes are `type` aliases (not interfaces) so they stay assignable to
 // the open `RawEvent` record: readers must keep unknown fields (§3).
 
+import type { DecodedView } from "./decoded.ts";
+
 export const FORMAT_ID = "evidence-bundle/0";
 export const FORMAT_MAJOR = 0;
 
@@ -263,6 +265,8 @@ export type RequestSide = {
   headersSource: HeadersSource;
   postData: InlineOrBlob | null;
   postDataMissing?: { reason: string; detail: string | null };
+  /** Plaintext view of the request body from a decode plugin (docs/04 §26). */
+  decoded?: DecodedView;
 };
 
 export type ResponseSide = {
@@ -280,6 +284,8 @@ export type ResponseSide = {
   fromPrefetch: boolean;
   body: ResponseBody | null;
   bodyMissing: { reason: BodyMissingReason; detail: string | null } | null;
+  /** Plaintext view of the response body from a decode plugin (docs/04 §26). */
+  decoded?: DecodedView;
 };
 
 export type RequestEvent = Envelope & {

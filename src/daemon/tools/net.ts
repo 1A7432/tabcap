@@ -17,6 +17,10 @@ import { checkSessionName, optBool, optStr, reqStr, type Args } from "./args.ts"
 import { bodySearchOf, charsetOf, decodeBody, netGrep, prettify, requestByUrl, searchBody } from "./netsearch.ts";
 import { splitLines } from "./textsearch.ts";
 import { exportBody, fileFlagOf } from "./bodyexport.ts";
+import { DecodeSession } from "../hooks/decode.ts";
+import { parseDecoded } from "../../bundle/decoded.ts";
+import { isRecord } from "../../shared/json.ts";
+import { decodePlugins } from "../hooks/plugins.ts";
 
 export async function netStart(d: Daemon, _a: Args, session: string): Promise<unknown> {
   checkSessionName(session);
@@ -27,6 +31,12 @@ export async function netStart(d: Daemon, _a: Args, session: string): Promise<un
   const dir = join(d.paths.bundles, `${session}-${compactStamp(nowMs())}`);
   if (existsSync(dir)) throw new TabcapError("conflict", `bundle ${dir} already exists`, "Wait a second and run `tabcap net start` again.");
   const bound = d.sites.get(session) ?? null;
+  // 0.6-B: the enabled decode plugins, as installed when the recording starts.
+  let rec: Recorder | null = null;
+  const decode = new DecodeSession(d.decodeHost, decodePlugins(d.paths.config), {
+    scrub: (s) => d.secrets.scrub(s),
+    onDisabled: (name, reason) => void rec?.note(`decode plugin ${name} disabled for this session: ${reason}`, { plugin: name }),
+  });
   const r = await Recorder.start({
     session,
     dir,
@@ -43,7 +53,9 @@ export async function netStart(d: Daemon, _a: Args, session: string): Promise<un
     onCookieState: () => {
       if (d.store !== null && d.pool.contexts.has(session)) d.pool.saveSoon(d.store, t, session, () => d.refreshSecrets());
     },
+    decode,
   });
+  rec = r;
   // 0.4-D: recorded requests count against the account's hourly budget (and the egress rotation trigger).
   r.onIndexed(() => noteAccountRequest(d, session));
   d.store?.noteBundle({ path: dir, site: bound?.site ?? null, sessionName: session });
@@ -57,6 +69,7 @@ export async function netStart(d: Daemon, _a: Args, session: string): Promise<un
     alreadyRecording: false,
     instrumentation:
       "Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied; while a same-origin `tabcap fetch` runs, its tab's fetch() requests also pause at the Request stage (the x-tabcap-fetch marker is removed, nothing else changes)",
+    ...(decode.empty ? {} : { decode: decode.plugins.map((p) => p.name) }),
   };
 }
 
@@ -162,7 +175,7 @@ export async function netBody(d: Daemon, a: Args, session: string): Promise<unkn
   if ((idArg === null || idArg === "") === (url === null || url === "")) {
     throw new TabcapError("usage", url === null ? "missing id" : "give either an id or --url, not both", "Usage: tabcap net body <id> [--out path], or tabcap net body --url <script url> --at line:col");
   }
-  const { dir, index, frames, rec } = current(d, session);
+  const { dir, index, frames, recording, rec } = current(d, session);
   let id = idArg ?? "";
   let byUrl: Record<string, unknown> = {};
   if (url !== null && url !== "") {
@@ -181,16 +194,39 @@ export async function netBody(d: Daemon, a: Args, session: string): Promise<unkn
   if (e.blob === null) {
     throw new TabcapError("not-found", `request ${id} has no stored body (${e.bodyMissing ?? "none"})`, "Bodies are missing for redirects, 204/304, failures and navigated-away requests; see bodyMissing in the bundle.");
   }
+  // 0.6-B: the decode plugin's view is the default when there is one; --raw the original.
+  const wantDecoded = optBool(a, "decoded");
+  const wantRaw = optBool(a, "raw");
+  if (wantDecoded && wantRaw) throw new TabcapError("usage", "--decoded and --raw exclude each other", "Pick one: the decode plugin's view (the default when there is one) or the original body.");
+  const dv = decodedEntry(e, dir, recording);
+  if (wantDecoded && dv === null) throw new TabcapError("not-found", `request ${id} has no decoded view`, "Decoded views come from enabled decode plugins (`tabcap plugin list`); `tabcap bundle decode <bundle>` adds them to a finished bundle.");
+  const useView = dv !== null && !wantRaw;
+  const blob = useView && dv !== null ? dv.blob : e.blob;
+  const mime = useView && dv !== null ? dv.mime : e.mime;
+  const viewExtra = dv === null ? {} : useView ? { view: "decoded", decoded: { by: dv.by, version: dv.version, mime: dv.mime } } : { view: "raw" };
   const store = new BlobStore(dir);
-  const path = store.pathOf(e.blob);
-  if (path === null || !existsSync(path)) throw new TabcapError("not-found", `blob ${e.blob} is missing from ${dir}`, "The bundle is damaged; record again.");
+  const path = store.pathOf(blob);
+  if (path === null || !existsSync(path)) throw new TabcapError("not-found", `blob ${blob} is missing from ${dir}`, "The bundle is damaged; record again.");
+  // A decoded view is the plugin's text: decoded as UTF-8, never with the original's charset.
+  const cs = () => (useView ? null : charsetOf(dir, e.id));
   if (s !== null) await rec.flushEvents();
   if (exp !== null) {
     await rec.flushEvents();
-    return exp.write({ id, url: e.url, bytes: readFileSync(path), mime: e.mime, resourceType: e.type, charset: () => charsetOf(dir, e.id) });
+    const written = exp.write({ id, url: e.url, bytes: readFileSync(path), mime, resourceType: e.type, charset: cs });
+    return isRecord(written) ? { ...written, ...viewExtra } : written;
   }
-  const search = s === null ? null : { s, scrub, charset: () => charsetOf(dir, e.id), resourceType: e.type };
-  return bodyResult({ id, url: e.url, path, blob: e.blob, mime: e.mime, out: optStr(a, "out"), extra: byUrl }, search);
+  const search = s === null ? null : { s, scrub, charset: cs, resourceType: e.type };
+  return bodyResult({ id, url: e.url, path, blob, mime, out: optStr(a, "out"), extra: { ...byUrl, ...viewExtra } }, search);
+}
+
+/** The response's ok decoded view: from the index while recording, else from the event on disk (bundle decode may have added one). */
+function decodedEntry(e: NetEntry, dir: string, recording: boolean): { by: string; version: string; mime: string | null; blob: string } | null {
+  if (e.decoded !== undefined) return e.decoded;
+  if (recording) return null;
+  const ev = findRequestEvent(dir, e.id);
+  const resp = ev !== null && isRecord(ev["response"]) ? ev["response"] : null;
+  const d = resp === null ? undefined : parseDecoded(resp["decoded"]);
+  return d === undefined || !d.ok || d.blob === null ? null : { by: d.by, version: d.version, mime: d.mime, blob: d.blob };
 }
 
 function bodyResult(o: { id: string; url: string; path: string; blob: string | null; mime: string | null; out: string | null; extra: Record<string, unknown> }, search: SearchCtx | null = null): unknown {

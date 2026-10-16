@@ -10,6 +10,7 @@ import { TabcapError } from "../shared/envelope.ts";
 import { isBlobRef } from "../shared/ids.ts";
 import { bool, isRecord, num, oneOf, rec, str } from "../shared/json.ts";
 import { BlobStore } from "./blobs.ts";
+import { decodedOf } from "./decoded.ts";
 import { EVENTS_FILE, readManifest } from "./manifest.ts";
 import type {
   Actor,
@@ -174,6 +175,7 @@ function parseResponse(v: unknown): ResponseSide | null {
     fromPrefetch: bool(v, "fromPrefetch") ?? false,
     body: parseBody(v["body"]),
     bodyMissing: parseBodyMissing(v["bodyMissing"]),
+    ...decodedOf(v["decoded"]),
   };
 }
 
@@ -214,6 +216,7 @@ export function parseRequest(e: RawEvent): RequestEvent | string {
       headersSource: parseHeadersSource(reqRaw["headersSource"]),
       postData: parseInlineOrBlob(reqRaw["postData"]),
       ...postDataMissingOf(reqRaw["postDataMissing"]),
+      ...decodedOf(reqRaw["decoded"]),
     },
     response: parseResponse(e["response"]),
     redirect: redirectRaw === null || str(redirectRaw, "from") === null ? null : { from: str(redirectRaw, "from") ?? "" },

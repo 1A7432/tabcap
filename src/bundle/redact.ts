@@ -16,6 +16,8 @@
 // headers, URLs, bodies and state, which keeps `diff` classifications intact.
 // Two passes: pass 1 collects every value masked by a name rule; pass 2 also
 // replaces those exact values wherever else they appear (min length 6).
+// Decoded views (0.6-B, docs/04 §26) are plaintext of a body: redacted like
+// a body of their own mime type; their error / note texts are scrubbed.
 
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -287,6 +289,20 @@ function headerOf(h: unknown, name: string): string | null {
 
 type BlobRewrite = (ref: string, fn: (bytes: Uint8Array) => Uint8Array | null) => { ref: string; size: number } | null;
 
+/** A request / response side's `decoded` view: its blob redacted as a body of the view's mime. */
+function redactDecoded(r: Redactor, side: Record<string, unknown>, rewrite: BlobRewrite): void {
+  const d = side["decoded"];
+  if (!isRecord(d)) return;
+  for (const k of ["error", "note"]) if (typeof d[k] === "string") d[k] = r.scrubText(d[k]);
+  if (!isBlobRef(d["blob"])) return;
+  const mime = typeof d["mime"] === "string" ? d["mime"] : null;
+  const nb = rewrite(d["blob"], (b) => r.bytes(b, mime));
+  if (nb !== null) {
+    d["blob"] = nb.ref;
+    d["bytes"] = nb.size;
+  }
+}
+
 function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewrite): void {
   for (const key of ["url", "from"]) {
     const v = e[key];
@@ -314,6 +330,7 @@ function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewri
           pd["size"] = nb.size;
         }
       }
+      redactDecoded(r, req, rewrite);
     }
     const resp = e["response"];
     if (isRecord(resp)) {
@@ -327,6 +344,7 @@ function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewri
           body["size"] = nb.size;
         }
       }
+      redactDecoded(r, resp, rewrite);
     }
   } else if (kind === "ws") {
     const p = e["payload"];

@@ -24,7 +24,10 @@ import { runReplay } from "./replay.ts";
 import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts";
 import { accountAdd, accountBind, accountList, accountRemove, accountSetState, proxyAdd, proxyCheck, proxyList, proxyRemove, proxySetState } from "./pool.ts";
 import { Store, storePath } from "../daemon/store/db.ts";
-import { variantsOf } from "../daemon/secrets.ts";
+import { Secrets, variantsOf } from "../daemon/secrets.ts";
+import { decodeBundle } from "../bundle/decode.ts";
+import { DecodeHost, DecodeSession, type DecodePlugin } from "../daemon/hooks/decode.ts";
+import { asDecodePlugin, decodePlugins, listPlugins, pluginsDir } from "../daemon/hooks/plugins.ts";
 import { BUNDLE_USAGE, COMMANDS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, flagNames, helpAll, helpFor, helpTopic, matchCommand, parseCommand, schema, specOf, spellingsOf, usageOf, type CommandSpec } from "./commands.ts";
 import { applyFilters, filterOptions, hasFilters, type FilterOptions } from "../shared/filter.ts";
 import { applyBudget, outputLimit } from "../shared/budget.ts";
@@ -44,6 +47,7 @@ type Parsed = { positional: string[]; flags: Map<string, string | true> };
 
 const EXPORT_HAR = specOf("bundle export har");
 const IMPORT_HAR = specOf("bundle import har");
+const DECODE = specOf("bundle decode");
 
 /** Flags that take a value; everything else starting with "-" is boolean. */
 const VALUE_FLAGS = new Set(
@@ -164,6 +168,44 @@ async function cmdRedact(p: Parsed): Promise<unknown> {
   const [src = "", out = ""] = need(p, 2, usage);
   const res = await redactBundle(src, out, { knownSecrets: storeSecrets() });
   return { ...res, warnings: ["redaction is rule based; free text in bodies may still hold personal data, review before sharing"] };
+}
+
+/** `tabcap bundle decode <bundle> [--plugin name]` (0.6-B, bundle/decode.ts). */
+async function cmdDecode(p: Parsed): Promise<unknown> {
+  const usage = USAGE[4] ?? "";
+  checkFlags(p, flagNames(DECODE), usage);
+  const [dir = ""] = need(p, 1, usage);
+  const config = paths().config;
+  const name = flagStr(p, "--plugin");
+  let plugins: DecodePlugin[];
+  if (name !== undefined) {
+    const info = listPlugins(config).find((x) => x.name === name);
+    if (info === undefined) throw new TabcapError("not-found", `no plugin named "${name}" in ${pluginsDir(config)}`, "Install it in its own directory with a manifest.json, then `tabcap plugin list`.");
+    if (info.manifest === null) throw new TabcapError("bad-input", `plugin "${name}" is not usable: ${info.error ?? "invalid"}`, "Fix its manifest.json; `tabcap plugin list` shows the error.");
+    plugins = asDecodePlugin(info);
+    if (plugins.length === 0) throw new TabcapError("usage", `plugin "${name}" is not a decode plugin`, 'Decode plugins have "kind": "decode" in manifest.json (docs/04 §26).');
+  } else {
+    plugins = decodePlugins(config);
+    if (plugins.length === 0) throw new TabcapError("not-found", "no enabled decode plugin", "Install one under the plugins directory and `tabcap plugin enable <name>`, or pass --plugin <name>.");
+  }
+  const secrets = new Secrets();
+  if (existsSync(storePath(config))) {
+    const s = Store.open(config);
+    try {
+      secrets.setStored(s.knownSecrets());
+    } finally {
+      s.close();
+    }
+  }
+  const host = new DecodeHost();
+  const disabled: { plugin: string; reason: string }[] = [];
+  const session = new DecodeSession(host, plugins, { scrub: (t) => secrets.scrub(t), onDisabled: (plugin, reason) => disabled.push({ plugin, reason }) });
+  try {
+    const res = await decodeBundle(dir, session);
+    return { ...res, plugins: plugins.map((x) => ({ name: x.name, version: x.version })), disabled };
+  } finally {
+    host.close();
+  }
 }
 
 function cmdInfo(p: Parsed): unknown {
@@ -562,6 +604,7 @@ async function runBundle(argv: readonly string[]): Promise<{ code: number; envel
     else if (group === "bundle" && sub === "import" && third === "har") data = await cmdImportHar(rest(3));
     else if (group === "bundle" && sub === "redact") data = await cmdRedact(rest(2));
     else if (group === "bundle" && sub === "info") data = cmdInfo(rest(2));
+    else if (group === "bundle" && sub === "decode") data = await cmdDecode(rest(2));
     else {
       const got = p.positional.slice(0, 3).join(" ");
       return { code: 2, envelope: fail("usage", got === "" ? "no command given" : `unknown command: ${got}`, `Available: ${USAGE.join(" | ")}`) };
