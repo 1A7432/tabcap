@@ -79,7 +79,7 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
   let bundle = "";
 
   beforeAll(async () => {
-    // A TABCAP_HOME longer than sun_path allows (bug 10-15): the socket must fall back.
+    // A TABCAP_HOME longer than sun_path allows (bug 10-15): the socket must fall back (Unix only).
     home = join(mkdtempSync(join(tmpdir(), "tabcap-e2e-")), "a-deliberately-long-directory-name-so-config-daemon-sock-exceeds-the-unix-socket-limit");
     site = startSite();
     smoke = startSmokeSite();
@@ -93,13 +93,24 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
   });
 
   test("daemon + browser start with --executable-path and --proxy none (no setup)", async () => {
-    expect(Buffer.byteLength(join(home, "config", "daemon.sock"))).toBeGreaterThan(104);
     const d = await ok("daemon", "start");
     expect(d["running"]).toBe(true);
-    expect(d["socketFallback"]).toBe(true);
-    expect(Buffer.byteLength(s(d["socket"]))).toBeLessThanOrEqual(103);
-    expect((statSync(s(d["socket"])).mode & 0o777).toString(8)).toBe("600");
-    expect(await ok("daemon", "status")).toMatchObject({ running: true, socket: d["socket"] });
+    if (process.platform === "win32") {
+      // Windows listens on loopback TCP with a bearer token kept in config/daemon.json (no Unix socket, no POSIX modes).
+      expect(d).toMatchObject({ listener: "tcp", socket: null, socketFallback: false });
+      const st = await ok("daemon", "status");
+      expect(st).toMatchObject({ running: true, listener: "tcp", socket: null, port: d["port"] });
+      expect(typeof st["port"]).toBe("number");
+      const info: unknown = JSON.parse(readFileSync(join(home, "config", "daemon.json"), "utf8"));
+      expect(isRecord(info) && info["listener"] === "tcp" && info["port"] === st["port"]).toBe(true);
+      expect(isRecord(info) && typeof info["token"] === "string" && /^[0-9a-f]{64}$/.test(info["token"])).toBe(true);
+    } else {
+      expect(Buffer.byteLength(join(home, "config", "daemon.sock"))).toBeGreaterThan(104);
+      expect(d["socketFallback"]).toBe(true);
+      expect(Buffer.byteLength(s(d["socket"]))).toBeLessThanOrEqual(103);
+      expect((statSync(s(d["socket"])).mode & 0o777).toString(8)).toBe("600");
+      expect(await ok("daemon", "status")).toMatchObject({ running: true, socket: d["socket"] });
+    }
     const b = await ok("browser", "start", "--proxy", "none", "--executable-path", CHROME);
     expect(b).toMatchObject({ transport: "direct", channel: "pipe", proxy: "none", executableSource: "flag" });
     front = frontmostApp();
