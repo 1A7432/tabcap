@@ -90,7 +90,7 @@
 
 - **`handoff`**：`{state:"waiting"|"human-active"|"resumed", reason, question, timeoutMs, answerRef}`。
 - **`confirm`**：`{question, options, answer, by:"human", refs, producesFinding:"<seq>"}`。
-- **`guard`**：`{event:"budget"|"breaker"|"probe", site, account, detail}`。
+- **`guard`**：`{event:"budget"|"breaker"|"probe", site, account, detail}`。0.4-D 起 `budget` 与 `breaker` 实际写出（`probe` 仍只占位）：配置了每小时请求预算（`config.json` `pool.budget.requestsPerHour`）时，账号用满预算写 `budget`（`detail.rule:"requests-per-hour"`）；账号 24 h 内第 2 次登录失败转 `needs-human` 时写 `budget`（`detail.rule:"failed-logins"`）；熔断时写 `breaker`，会话绑了账号时 `detail.coolUntil` 是冷却结束时刻。
 
 ### 4.3 `sample` 挑战样本包（`03` §5 新增模块，P2/P3，先占位）
 
@@ -183,7 +183,7 @@
   "created": 1760500000000, "finished": 1760500900000,   // finished 缺失 = 未收尾
   "producer": { "tool": "tabcap", "version": "0.1.0", "daemon": "0.1.0", "extension": "0.1.0",
                 "browser": { "name": "Chrome", "version": "155.0.8059.41", "userAgent": "…" }, "platform": "darwin-arm64" },
-  "session": { "name": "range-s02", "site": "range-demo", "account": "demo",   // 只记站点名和账号名，与本地库靠站点名关联
+  "session": { "name": "range-s02", "site": "range-demo", "account": "demo", "proxy": "p1",   // 只记站点名、账号名和代理名（或 system / none），与本地库靠站点名关联
                "tabs": [ { "tab": "t1", "chromeTabId": 1234, "owned": true, "firstUrl": "…" } ] },
   "mode": { "capture": "mixed", "trace": false, "raw": true, "humanRecorder": true },
   "counts": { "events": 412, "requests": 97, "bodies": 91, "blobBytes": 18234567,
@@ -211,12 +211,13 @@
 探路由 AI 做，就要把作者给的登录信息交给工具而不是交给模型。凭据住在工具的本地库（`03` §5 `store`）：
 
 - **载体**：`bun:sqlite` 单文件 `~/.config/tabcap/state.db`（定名后换目录名），权限 0600，守护进程启动时检查权限，不对就拒跑。明文存，暂不接系统钥匙串；README 写清楚这是 `~/.netrc` 一级的保护，能用测试账号就别用主账号。库永远不在仓库里、不在证据包目录里。零安装：SQLite 随 Bun 运行时和编译产物一起带【实测】。
-- **表**：`sites`（名字、入口网址、域名列表、备注）、`accounts`（站点、用户名、密码、可选 TOTP 种子，默认空）、`login_recipes`（P2）、`sessions`（P2：最近会话 cookie、保存时间、最后验证时间）、`guard_counters`、`bundles`（证据包索引）。
+- **表**：`sites`（名字、入口网址、域名列表、备注）、`accounts`（站点、用户名、密码、可选 TOTP 种子，默认空；0.4-D 加 `proxy`、`state`、`cool_until`、`last_used_at`、`fail_streak`）、`login_recipes`（P2）、`sessions`（P2：最近会话 cookie、保存时间、最后验证时间）、`guard_counters`（0.4-D 加账号维度）、`bundles`（证据包索引）、`proxies`（0.4-D：代理名、scheme、host、port、用户名、密码、bypass 与健康状态）。
 - **录入只手动**：`tabcap site add shop --url … --user …`，密码交互输入或 `--password-stdin`，不走命令行参数；扩展表单从当前标签预填入口网址（P2）。不在人手动登录时自动抓密码。
 - **AI 看到的**：`tabcap site list` 给站点名、入口网址、账号名（不打码）。命令只写引用：`tabcap session start --site shop`、`tabcap fill <ref> --secret shop.password`。守护进程取值填入页面。
 - **输出替换**：守护进程对所有 CLI 输出、日志、`snapshot` / `evaluate` / `read_page` 的文本结果，把库里已知的秘密值替换成 `<secret:shop.password>`；`cmd.input`、`action.value` 里也只有引用。AI 即使故意 `evaluate` 读密码框，拿到的也是占位符。截图里密码框本来就是圆点。
 - 页面把密码回显到请求里（登录 POST 的表单体）时，正文原样进包，这是事实不能改；导出时 §8 的规则按名字和值两路打码，值的来源包括库里的密码。本地原包默认 `0700` 且不进仓库。
-- manifest 记 `session.site`、`session.account`，证据包与库之间只靠站点名关联。
+- **代理凭据**（0.4-D）：代理密码只走 `--password-stdin` 或交互提示；替换表里每个代理有三种写法：密码本身、`user:pass@host:port`、`base64(user:pass)`（Chrome 把 `Proxy-Authorization: Basic …` 报在 `Network.requestWillBeSentExtraInfo` 里，录制器会写进 `raw/cdp.jsonl`），一律替换成 `<secret:proxy.<name>>`。录制器写 `raw/cdp.jsonl` 与 `events.jsonl` 时只替换代理凭据（站点密码仍按上一条原样留在登录请求里）。Chrome 只拿到 `host:port`，认证由守护进程在浏览器会话上用 `Fetch.enable {handleAuthRequests:true}` → `Fetch.authRequired` → `Fetch.continueWithAuth` 应答；这是插桩，开着时每条命令输出带 `fetchAuth:"on"`。
+- manifest 记 `session.site`、`session.account`、`session.proxy`（0.4-D，名字），证据包与库之间只靠站点名关联。
 - 验证：`06` §2 的「凭据不泄漏」检查、A2.9。
 
 ## 9. 与 HAR 互转

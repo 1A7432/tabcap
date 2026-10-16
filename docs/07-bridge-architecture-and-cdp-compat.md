@@ -25,7 +25,12 @@
 启动参数：
 - `--user-data-dir=<profile>`、`--remote-debugging-pipe`（备选 `--remote-debugging-port=0` + 读 `DevToolsActivePort`）、`--load-extension=<ui ext>`、`--no-first-run`、`--no-default-browser-check`。
 - macOS 固定加 **`--use-mock-keychain`**。否则每次启动都会弹 macOS 钥匙串对话框「Chrome for Testing 想要使用 Chromium Safe Storage」，在人点掉之前第一次导航一个请求都发不出去（实测卡 17.5 s，正好是弹窗到点击的间隔）；点「始终允许」也靠不住，CfT 是 ad-hoc 签名，ACL 绑代码哈希，换版本大概率再弹【推断】。代价：profile 里的 cookie 用固定密钥加密，保护退到文件权限，与 `store` 的定位一致。
+- **`--disable-features=…,PreconnectToSearch`**（0.4-D 起所有模式都加）【实测 spike 10-16，netlog】：带自己代理的 browser context 每次新开标签 / 每次导航都经该 context 的代理发 `CONNECT www.google.com:443`（对默认搜索引擎的 preconnect，与扩展无关）；单独关 `PreconnectToSearch` 就消失，关 `SearchEnginePreconnector` / `SearchEnginePreconnector2` / `LoadingPredictorUseOptimizationGuide` / `NavigationPredictor` 都无效。【实测 0.4-D e2e】加上之后两个池代理的日志里 CONNECT 为 0。
 - Chrome 自己会向 Google 发 GCM 注册请求，`--disable-background-networking` 挡不住，并且会走系统代理。端到端测试要用黑洞代理 `--proxy-server=127.0.0.1:1 --proxy-bypass-list="127.0.0.1;localhost"` 把外连全部截断【待验】；生产模式要不要跟随系统代理是作者的决定（见 §4 第 6 条）。
+
+管道断开与 browser context（spike 10-16，CfT 155）：
+- 【实测】管道（写端）一断，500 ms 内**所有**标签都被关（默认 context 的、`disposeOnDetach:false` 的 context 的都算），Chrome 进程**不退出**（观察 20 s）。所以池账号 context 的 cookie 必须在管道还通时取（`Storage.getCookies {browserContextId}`）；`Target.disposeBrowserContext` 之后 cookie 也取不到了。守护进程停浏览器前先回写（0.4-D）。
+- 【实测】以后 UI 扩展要在新建的 context 里运行，不能用 `--load-extension`（新 context 里没有 content script），要在启动后发 `Extensions.loadUnpacked {path, enableInIncognito:true}`：之后默认 context、之后新建的和之前已建好的 context 里都运行。仓库里目前没有扩展。
 
 挂接协议：
 - 浏览器级 `Target.setAutoAttach {autoAttach:true, waitForDebuggerOnStart:true, flatten:true}`；每收到 `Target.attachedToTarget`，先 `Runtime.enable`、`Page.enable`（录制时再 `Network.enable`），然后**必须**发 `Runtime.runIfWaitingForDebugger`。
@@ -136,4 +141,4 @@ Playwright `connectOverCDP`、puppeteer `connect`、agent-browser `--cdp` 也是
 3. `Storage.getCookies` 只回会话涉及的域。
 4. `Browser.setDownloadBehavior` 回成功但不生效，记警告。
 5. `ws /devtools/page/<id>` 先不做。
-6. 生产模式默认跟随系统代理，`tabcap browser start --proxy system|none|<url>` 和配置项可切换（10-15 作者定）；Chrome 自身的后台外连（GCM、组件更新等）用 Playwright 的默认启动参数表压到最少（Apache-2.0，抄并保留 NOTICE）；端到端测试再叠加黑洞代理。
+6. 生产模式默认跟随系统代理，`tabcap browser start --proxy system|none|<url>` 和配置项可切换（10-15 作者定）；0.4-D 起账号绑了代理池里的代理时，`direct` 模式给它单独一个 browser context（`Target.createBrowserContext {proxyServer:"host:port", proxyBypassList, disposeOnDetach:false}`），Chrome 只拿到 `host:port`，代理认证由守护进程经 `Fetch.authRequired` 应答；绑 `system` / `none` 的账号仍用浏览器自己的 context 与上面的启动参数【实测 spike 10-16：context 级代理生效；本机代理要在 bypass 里写 `<-loopback>`，否则 loopback 静默直连】；Chrome 自身的后台外连（GCM、组件更新等）用 Playwright 的默认启动参数表压到最少（Apache-2.0，抄并保留 NOTICE）；端到端测试再叠加黑洞代理。
