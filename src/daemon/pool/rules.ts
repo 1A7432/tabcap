@@ -51,6 +51,11 @@ export function proxyUnchecked(p: Pick<ProxyRow, "state">): ProxyCheckPatch {
   return p.state === "disabled" ? {} : { state: "unchecked" };
 }
 
+/** `proxy set-state … active` on a disabled proxy: back to `unknown` with the failure history forgotten (the next check decides). */
+export function proxyReactivated(): ProxyCheckPatch {
+  return { state: "unknown", failCount: 0, recheckAt: null };
+}
+
 /** Is a periodic health check due (daemon loop, only when `pool.health.url` is set)? */
 export function proxyDue(p: Pick<ProxyRow, "state" | "lastCheckAt" | "recheckAt">, now: number, intervalMs: number): boolean {
   if (p.state === "disabled") return false;
