@@ -38,6 +38,10 @@ export const NETWORK_QUIET_DISABLED_FEATURES = [
   "GlobalMediaControls",
   "LensOverlay",
   "HttpsUpgrades",
+  // Spike 10-16 (CfT 155, netlog): a context with its own proxy sends
+  // CONNECT www.google.com:443 through it on every navigation (search engine
+  // preconnect); only this feature switch stops it (docs/07 §1.1).
+  "PreconnectToSearch",
 ];
 /** Background tabs keep running (pairs with focus emulation, docs/07 §1.1). */
 export const NO_THROTTLE_FLAGS = [
