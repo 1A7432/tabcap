@@ -708,7 +708,7 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 
 ## 33. 0.6-L 页面内解码·观察模式 `trace start --decode`（10-16 brief + 两处实测修正；字面与下列细节按实现定案，待作者审）
 
-观察模式借页面的解密：站点把 API 响应体加密、靠页面自己的 JS 解出明文；解码插件（§28）要密钥与算法，页面两者都有、每次都在跑。`tabcap trace start --decode`（`--no-decode` 关闭；config.json `trace.decode` 设默认）在页面上装三个 sink 断点，把页面交给 `JSON.parse` 的明文归属到加密响应，写进 `decoded.jsonl`（§28 的 sidecar 形状）成为 `by:"page"` 的 `decoded` 视图；`find` / `where` / `deps` / `recon` / `replay check` 经内置链步骤 `page` 读它。**只断点，不改页面任何值；`CryptoKey` 永不读。**证据包规范之外它是诊断组命令，不进 MCP core、不进 SKILL.md 本体（文档在 `skills/tabcap/references/trace-and-probes.md`）。
+观察模式借页面的解密：站点把 API 响应体加密、靠页面自己的 JS 解出明文；解码插件（§28）要密钥与算法，页面两者都有、每次都在跑。`tabcap trace start --decode`（`--no-decode` 关闭；config.json `trace.decode` 设默认）在页面上装三个 sink 断点，把页面交给 `JSON.parse` 的明文归属到加密响应，写进 `decoded.jsonl`（§28 的 sidecar 形状）成为 `by:"page"` 的 `decoded` 视图；`find` / `where` / `deps` / `recon` / `replay check` 经内置链步骤 `page` 读它。**对页面做什么（作者 10-16 定的表述，0.6-L2）：不改页面状态；在页面里只调用原生 `console.dirxml`（log-point，见下）；不拿页面函数处理 tabcap 的数据；`CryptoKey` 永不读。**守卫要读 `console.dirxml` 和它的 `name`，页面若在这两处装了 getter，getter 会执行（页面也就能察觉观察模式——它本来就能从时序察觉）；守卫能被同名函数骗过，后果是页面拿到它自己的明文、tabcap 这次退回作用域。`--decode` 时**不装签名断点**（作者 10-16 定）：不读 signals.json、不设 API 断点、instrumentation 只留 scriptFirstStatement 安装通道；`--apis` 与 `--decode` 同给报 `usage`。证据包规范之外它是诊断组命令，不进 MCP core、不进 SKILL.md 本体（文档在 `skills/tabcap/references/trace-and-probes.md`）。
 
 sink 与断点（D1；spike exp2/exp3，e2e【实测】）：
 - `JSON.parse`——明文源，condition `typeof arguments[0] === "string" && arguments[0].length >= 32`（exp2：2000 次短 parse 的 heavy 页带 condition 中位 +15 ms，不带 +837 ms）；
@@ -716,14 +716,14 @@ sink 与断点（D1；spike exp2/exp3，e2e【实测】）：
 - **修正（待作者审）：sink 常装**。brief D3「每 suspect 5 s 窗口装断点」与页面竞态必输：arm 由录制 index 推送驱动，而页面的 fetch→解密→`JSON.parse` 在同一微任务串里结束（s59 xor【实测】，首轮 e2e 三次全 miss）。改为 decode 开启即常装：每个 realm 在其 scriptFirstStatement 暂停里装好（0.4-F 的安装通道，JS 内建断点**不**跨 realm 共享，逐 realm 装；同进程重复报 "already exists"、容忍），armed 窗口只做归属。
 - **修正（待作者审）：hold 10 s 补匹配**。微任务串还可以再赢一次：暂停时 armed 为空的 walk 结果先暂存（≤8 个、10 s 过期），arm 一到由 `matchHeld` 补判（归属规则不变）。信封 parse（`{"code":0,"data":…}` 那层）没有明文、其 suspect 也不会命中，自然过期——`drops.plaintextMissing` 里的这类计数是语义内的噪声（「该次暂停没找到明文」），不是错误。
 
-suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `find` 的熵规则（`looksEncrypted`）或 JSON 里有 ≥64 字符的 base64/hex 叶子 → arm 5 s；候选 = sha256(整段 body 文本) + sha256(每个叶子)。
+suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `find` 的熵规则（`looksEncrypted`）或 JSON 里有 ≥64 字符的 base64/hex 叶子（0.6-L2 起还有裸 token，见下节）→ arm 5 s；候选 = sha256(整段 body 文本，熵规则命中时) + sha256(每个叶子)，0.6-L2 起末尾再加 sha256(原始 body 文本)（页面拿着原文解密时也能对上，如 axios 的 `transformResponse(data)`）。
 
 归属（作者 10-16 定，替换 brief 的 sequence/recent；**绝不按时间取最近**）：
-1. scope-string：暂停帧 local/closure 里某个字符串值的 sha256 命中某 live suspect 的候选 → 该 suspect；
-2. 恰有一个 live suspect → single-suspect；
+1. scope-string：暂停帧 local/closure/block 里某个字符串值——0.6-L2 起也包括这些 scope 里普通对象往下一层的字符串属性——的 sha256 命中某 live suspect 的候选 → 该 suspect，`evidence.link: "strong"`；
+2. 恰有一个 live suspect → single-suspect，`evidence.link: "weak"`（0.6-L2，作者 10-16 定）：作用域里没有任何东西把明文和这个响应连起来，只是窗口里只有它；`find` 在这种视图里的 hit 带 `"link":"weak"`；
 3. 否则 unattributed：行 `request: null`、`evidence.candidates` 列出当时全部 live suspects；每录制至多 50 行（D7），超出计 `unattributedCapped` 丢弃。
 
-明文恢复（0.6-L2 主通道，见下节）：JSON.parse 的 condition 用 log-point 发出被调实参；作用域 walk（≤4 帧 local/closure/**block**，每 scope ≤200 属性）只做密文 sha 匹配，log-point 被页面换掉 `console.dirxml` 时才当明文回退。ArrayBuffer/TypedArray 经 objectId 只读 `callFunctionOn` 复制字节（CSV，> 16 MiB 不复制计 oversize）；`CryptoKey` 从不触碰。明文 <32 字符不成候选，>16 MiB 只当 evidence（tooLarge）。**不调用页面覆盖的函数**（守卫失败则退回暂停）。tabcap 自己的 evaluation 与隔离世界帧的暂停一律丢弃（0.4-F 实测：JS 内建断点跨 context 也会打进来）。
+明文恢复（0.6-L2 主通道，见下节）：JSON.parse 的 condition 用 log-point 发出被调实参；作用域 walk（≤4 帧 local/closure/**block**，每 scope ≤200 属性；其中 className 为 `Object` 的普通对象往下读一层，每次暂停 ≤16 个、只取字符串做哈希——`ownProperties` 的 `getProperties` 不调用 accessor；数组不进（`getProperties` 会列出全部下标），DOM / Proxy / Map 等也不进）只做密文 sha 匹配，log-point 被页面换掉 `console.dirxml` 时才当明文回退。ArrayBuffer/TypedArray 经 objectId 只读 `callFunctionOn` 复制字节（CSV，> 16 MiB 不复制计 oversize；有 log-point 明文时不复制）；`CryptoKey` 从不触碰。明文 <32 字符不成候选，>16 MiB 只当 evidence（tooLarge）。守卫不过（`console.dirxml` 被换成匿名函数）就不调用、退回暂停。tabcap 自己的 evaluation 与隔离世界帧的暂停一律丢弃（0.4-F 实测：JS 内建断点跨 context 也会打进来）。
 
 行形状（§28 的 sidecar 行 + `evidence`；oracle 是靶场 s59 的字面量，e2e `v06l`）：
 
@@ -732,13 +732,14 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   "decoded": { "by": "page", "version": "observe/0", "mime": "application/json",
                "blob": "sha256:…", "bytes": 245, "ok": true,
                "evidence": { "sink": "JSON.parse", "match": "<命中的密文 sha256 或 null>",
+                             "link": "strong",                                          // 或 "weak"；unattributed 行没有（0.6-L2）
                              "frames": [ { "url", "line", "column", "function" } ],      // ≤5
                              "at": 1760000000000, "candidates": ["r-13"] } },              // 只 unattributed 行
   "at": 1760000000000 }
 ```
 
 - 行的优先级（D4）：ok 的插件视图 > ok 的 page 视图（page 行后写也顶不掉插件行）；同 rank 后行赢；inline 视图按同一 rank 裁定；`request:null` 的行不 overlay 任何请求。
-- 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`；`trace status` 与 `trace stop` 的 `decode` 块：`{armed, rows:{attributed, unattributed, unattributedKept}, evidenceHits, sinks:{resolved, skipped, on}, drops:{plaintextMissing, tooLarge, afterStop, unattributedCapped}}`（trace stop 报的是停止前的最后状态）。
+- 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`；`trace status` 与 `trace stop` 的 `decode` 块：`{armed, rows:{attributed, weak, unattributed, unattributedKept}, evidenceHits, recovered:{console, scope}, walks, sinks:{resolved, skipped, on}, drops:{plaintextMissing, tooLarge, afterStop, unattributedCapped, rawBody, orphan, unpaired}}`（`weak` 是 attributed 里 `link:"weak"` 的行数；`unpaired` 是没配上暂停的 log-point 行；trace stop 报的是停止前的最后状态）。
 
 字面自定（NOTES 待审）：`sinks.skipped` 只计 evaluate 拿不到函数对象或 setBreakpoint 没返回 bpId；「already exists」的 catch 不计数（它是良性共享信令）；plainText 长 ≥32 / scope 字符串 ≥16 / hold 10 s / hold ≤8 / evidence frames ≤5 / mime 固定 `application/json`（明文必须过 `JSON.parse`）；`--text / --first-n` 等 trace 原有旗标与 decode 无交互。
 
@@ -746,15 +747,22 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 【实测 spike-06l2，CfT 155，真实守护进程】0.6-L 只从暂停作用域捞明文，真实页面里 `JSON.parse` 的实参经常是临时值：axios 式 `transformResponse(data)` 把信封写成了 `by:"page"` 视图（错证）；`JSON.parse(decrypt(res.data))` 内联 0 行；s59 worker（`JSON.parse(e.data)`）0 行；整段 body 是一条低熵 base64、没有 JSON 信封时不进嫌疑。根因是函数调用断点读不到被调实参（§33 上段 exp4），作用域里也没有那份临时明文。
 
-改动（作者 10-16 定 log-point 通道；其余按实现定案，待审）：
+改动（作者 10-16 定 log-point 通道；同日第二轮作者定：强关联加两条 + weak 标记、对页面做什么的表述、`--decode` 不装签名断点；其余按实现定案，待审）：
 
-- **明文主通道是 log-point**。`JSON.parse` 的 condition 在长度门之后、且 `console.dirxml` 仍是原生函数时（`console.dirxml.name === "dirxml"`；页面换成匿名函数则守卫失败、退回暂停+作用域，**不调用页面函数**——spike E7），执行 `console.dirxml(nonce, arguments[0])`。`nonce` 是本窗口随机标记；录制器的 console 捕获丢掉带它的消息，明文不进 `console list`。`Runtime.consoleAPICalled` 严格先于同一次 parse 的暂停（spike E6），按 session FIFO 配对。condition 仍为真，暂停照旧走，作用域只做密文归属（scope-string）和守卫失败时的明文回退。
+- **明文主通道是 log-point**。`JSON.parse` 的 condition 在长度门之后、且 `console.dirxml` 仍是原生函数时（`console.dirxml.name === "dirxml"`；页面换成匿名函数则守卫失败、退回暂停+作用域，**不调用页面函数**——spike E7），执行 `console.dirxml(nonce, arguments[0])`。`nonce` 是本窗口随机标记；录制器的 console 捕获丢掉带它的消息，明文不进 `console list`。`Runtime.consoleAPICalled` 严格先于同一次 parse 的暂停（spike E6），按 session 排队、**按位置配对**：取第一条「栈前三帧里有暂停顶帧位置（scriptId:line:column）」的行（spike E10：log 的调用方帧就是暂停顶帧），排在它前面的行丢了暂停、计 `drops.unpaired`，超过 10 s 的行作废；没有栈帧的行按顺序配；交接期间（skip pauses）来的行不入队。condition 仍为真，暂停照旧走，作用域只做密文归属（scope-string）和守卫失败时的明文回退。
 - **明文上限 16 MiB**（原 1 MiB）。超过只记 `drops.tooLarge`、不给视图；仍低于 §5.2.4 的 32 MiB blob 上限。log-point 对超限实参发 `null`。
 - **裸 token 嫌疑**（item 6）：整段 body 去空白后是一条 ≥64 字符的 base64 / hex（`[A-Za-z0-9+/=_-]+` 或 hex），即使熵到不了 `looksEncrypted`，也按去空白后的 sha256 武装。自定义字母表只要仍落在这套字符里就能武装；含空格或其它字符的字典仍不会，明文若出现则进 unattributed 或 `drops.orphan`。
 - **原文排除**：每个已录响应体文本的 sha256 进 `rawShas`（含信封、`/api/plain` 对照）。log-point 拿到的明文若等于其中之一，计 `drops.rawBody`、不写行——这是信封不再被当成明文的规则。
 - **single-suspect 先 settle 500 ms**：只有一个 live suspect、没有 scope-string 命中时（axios 的密文在对象属性里、worker 的 `e.data` 已是明文），先暂存再写。期间若该请求已被 scope-string 行占用、或明文后来对上了 `rawShas`（对照接口自己的 body 刚写入），则丢。scope-string 行立刻写。每请求至多一行（`filedRequests`）。
 - **orphan**：hold 10 s 内没遇上任何 suspect 的暂停只计数（`drops.orphan`），不写 `request:null` 行。`find` 契约不变。
 - **交接**：`setSkipAllPauses` 期间丢掉 log-point 队列，避免和后来的暂停错配。
+- **实现修正（10-16 第二轮，【实测】诊断循环：同一守护进程连跑 s59 各变体，修前 8 次里 2 次零行、axios 每次约 5.4 s 才出行；修后 18/18 出行，axios ≈0.45 s，weak 的 deferred ≈0.85 s；e2e v06l 连跑 3 次 9/9）**：
+  - 暂停的「有无 live suspect」改在 walk 的 await **之后**读（L2 初稿把它挪到了 walk 之前：walk 期间到达的 arm 已经跑过补判，这次暂停再按「无嫌疑」暂存就没人再判，10 s 后成 orphan——零行的根因【推断，修后不再复现】）；`matchHeld` 串行执行、每个暂停先摘下再判、每次重读 armed 列表。
+  - sweep 定时器遇到更早的截止时间就重排：settle 500 ms 不再等 5 s 的嫌疑窗口定时器。
+  - `rawShas` 满 8192 后淘汰最旧的，不再停止收录（长录制里信封又被当成明文的回归）。
+  - sink 打开时给已追踪的 target 补装：先 `trace start --decode`、后 `net start` 时，已加载页面以前要等下一次导航才有 sink（0.6-L 起就有的缺口；e2e 新增一条，去掉补装即零行【实测】）。
+
+残留风险（不在本格处理，记下）：scope-string 只说明「解析帧够得着这段密文」，不说明实参就是它解出来的——同一函数里先 parse 一段无关 JSON（配置、`__NEXT_DATA__`）再解密，无关那次会先以 strong 写入，每请求一行，真明文被挡掉；weak 的同类情况在 settle 里先到先得。要更好得等页面侧的因果证据（0.7 call mode）。
 
 本格**不做**（留给 0.7 或后续）：请求侧加密（只观察响应；生成客户端仍靠解码插件或人写）；分块 / 流式解密（SSE、分页拼接，没有一次完整 `JSON.parse`）；Worker `postMessage` 对象（结构化克隆，主线程不再 parse）、WASM 自带 JSON、明文是 HTML / protobuf / JSON5——没有 `JSON.parse` 就看不见。靶场 s59 `mode=worker` 是「worker 回字符串、主线程再 parse」，已有 e2e；对象克隆仍【待验】。
 

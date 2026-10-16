@@ -11,6 +11,9 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **A bare base64 / hex body** (≥64 chars, no JSON envelope) is a suspect.
 - **Single-suspect rows settle 500 ms** so a control parse cannot take the only armed suspect.
 - **Turn it off after the recording**: `trace start --decode` and `references/trace-and-probes.md` say every parse of a string ≥32 chars pauses, and a table-heavy or high-frequency WebSocket page will slow down. Request-side encryption, SSE / chunked decrypts, and a Worker `postMessage` of an object stay out of scope.
+- **Strong and weak links**: a row says how it is tied to its request, `evidence.link`. `"strong"` when the parsing frames reach the ciphertext — now also the raw response text (axios' `transformResponse(data)`) and a string one level down in a plain object (`env.data`). `"weak"` when it was only the one armed suspect; `analyze find` hits in such a view carry `"link":"weak"`, and `trace status` counts them as `rows.weak`.
+- **`--decode` installs no signal breakpoints** (no API list, only the install channel); `--decode --apis` is a usage error. The help and docs now say exactly what the mode does to the page: no page state is changed, the only page function called is the native `console.dirxml` of the log-point.
+- **Fixes**: a pause whose suspect was armed during its scope walk was held and lost (one variant in four came back with no row); the 500 ms settle waited for the 5 s window; the raw-body set stopped growing at 8192 bodies (envelopes would be filed as plaintext again on long recordings); a page already loaded when `trace start --decode` came before `net start` got no sinks until its next document. A log-point line is paired with its pause by position too (the log's caller frame is the pause's top frame), and lines that lost their pause are counted as `drops.unpaired`.
 
 ## 0.6.0 (2026-10-16)
 

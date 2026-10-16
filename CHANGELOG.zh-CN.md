@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## Unreleased
+## 未发布
 
 ### 观察模式补丁（0.6-L2）
 
@@ -11,6 +11,9 @@
 - **裸 base64 / hex 正文**（≥64 字符、无 JSON 信封）也进嫌疑窗口。
 - **single-suspect 先等 500 ms** 再写，避免对照接口的 parse 抢到唯一嫌疑。
 - **录完就关**：`trace start --decode` 的提示和 `references/trace-and-probes.md` 写明每次 ≥32 字符的 parse 都暂停，表格密集或 WebSocket 高频 parse 会变慢。请求侧加密、SSE / 分块、Worker `postMessage` 对象仍不覆盖。
+- **强关联与弱关联**：每行用 `evidence.link` 说明它和请求怎么连上的。解析帧够得着密文时是 `"strong"`——现在也包括原始响应文本（axios 的 `transformResponse(data)`）和普通对象往下一层的字符串（`env.data`）。只因为窗口里只有这一个嫌疑时是 `"weak"`；`analyze find` 在这种视图里的 hit 带 `"link":"weak"`，`trace status` 记作 `rows.weak`。
+- **`--decode` 不再装签名断点**（不读 API 列表，只留安装通道）；`--decode --apis` 报用法错误。帮助和文档把对页面做了什么写准：不改页面状态，在页面里只调用 log-point 的原生 `console.dirxml`。
+- **修正**：嫌疑在作用域 walk 期间才到的暂停会被暂存后丢掉（四个变体里约有一个零行）；500 ms 的 settle 实际等满 5 s 窗口；原文 sha 集合到 8192 条就不再收（长录制里信封又会被当成明文）；先 `trace start --decode`、后 `net start` 时，已加载页面要等下一次导航才有 sink。log-point 行和暂停还按位置配对（log 的调用方帧就是暂停顶帧），丢了暂停的行计 `drops.unpaired`。
 
 ## 0.6.0（2026-10-16）
 

@@ -49,7 +49,8 @@
 - 【实测 spike-06l2】页面侧 500 次 1 KB `JSON.parse`：不设断点 0.2 ms；只有 length condition 9 ms；log-point 26 ms；暂停后立即恢复（不含 walk）107 ms。表格密集或 WebSocket 高频 parse 的页面会明显变慢，也改变时序——诊断可接受，录完就关。
 - 【实测 v06l e2e】JS 内建函数的断点**跨 realm 不共享**：装在 about:blank realm 的 `JSON.parse` 断点拦不住新文档 realm 的调用（与上面「跨上下文共享」相对——共享只发生在同一个 V8 context 的多个 world 之间）；所以每个 realm 都要在自己的 `scriptFirstStatement` 暂停里装（0.4-F 的安装通道），同进程重复装报 "already exists"、容忍。
 - 【实测 exp2】断点开销由 condition 兜底：heavy 页 2000 次短 `JSON.parse`，无 condition 中位 +837 ms，带 `length >= 32` condition 中位 +15 ms；s59 整页加载到 12 行（一次解密），unarmed 中位 11.5 ms、armed（带 condition、无 walk）约 19–21 ms；walk 本身（4 帧×每 scope `getProperties` ≈ 一打 CDP 往返）在 0.6-L2 有 log-point 明文时不再复制字节缓冲，只哈希作用域字符串。
-- 【实测 v06l e2e】页面可以在一个微任务串里跑完 fetch→解密→`JSON.parse`，而 arm 由录制 index 推送驱动、晚几毫秒：观察模式把这种情况 walk 的结果先暂存 10 s（≤8 个），arm 一到补判。
+- 【实测 v06l e2e】页面可以在一个微任务串里跑完 fetch→解密→`JSON.parse`，而 arm 由录制 index 推送驱动、晚几毫秒：观察模式把这种情况 walk 的结果先暂存 10 s（≤8 个），arm 一到补判。arm 也可能落在一次 walk 的 CDP 往返之间，所以「当时有无嫌疑」要在 walk 之后读（0.6-L2 第二轮修正；读在之前时同一守护进程连跑 8 个变体有 2 个零行【实测】）。
+- 【实测 v06l e2e，0.6-L2 第二轮】暂停帧的 scope 链能看到外层函数里被内层闭包引用的变量：s59 worker 的 `onmessage` 箭头函数暂停时，`Runtime.getProperties` 在它的 closure scope 里读到 `s59Worker` 的参数 `data`（Promise executor 用了它，所以它在 context 里）；`Object` 类的局部对象往下读一层能拿到 `env.data`。只在栈上、没被闭包引用的变量不会出现在内层函数的 scope 链里——s59 deferred 的定时器回调就够不着密文。
 
 帧与帧路径 ref（0.4-I，spike 10-16 无头 CfT 155 + e2e v04i 有头后台标签，docs/05 s22）：
 - 【实测 spike】标签会话的 `Page.getFrameTree` 只列根帧和同进程的子帧（`frameset` 的 `frame`、同源 iframe）；OOPIF 不在里面（`main` 的 `childFrames` 为空）。每个 OOPIF 是自动挂上的 `iframe` 目标，它会话里的 `Page.getFrameTree` 从它自己开始，`parentId` 是装它的那个帧，下面列它同进程的后代（s22 的 `/s22/table`）。
