@@ -17,3 +17,18 @@ declare module "*/page.js" {
   const text: string;
   export default text;
 }
+// Native wire binaries embedded with `import x from "…" with { type: "file" }`:
+// the value is a path inside the compiled executable (src/wire/embedded.ts).
+declare module "*/wireprint" {
+  const path: string;
+  export default path;
+}
+declare module "*/wireprint.exe" {
+  const path: string;
+  export default path;
+}
+// PEM files of the wire echo (src/wire/certs/), embedded as text.
+declare module "*.pem" {
+  const text: string;
+  export default text;
+}
