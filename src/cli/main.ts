@@ -25,6 +25,7 @@ import { Store, storePath } from "../daemon/store/db.ts";
 import { variantsOf } from "../daemon/secrets.ts";
 import { BUNDLE_USAGE, COMMANDS, flagNames, helpAll, helpFor, helpGroup, matchCommand, parseCommand, schema, specOf, usageOf, type CommandSpec } from "./commands.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
+import { renderTraceText } from "../daemon/trace/table.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -262,7 +263,10 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       const session = parsed.session ?? envVar("SESSION") ?? "default";
       const timeout = typeof parsed.args["timeoutMs"] === "number" ? parsed.args["timeoutMs"] : 30_000;
       const env = await send(p, c.action, withLocalPaths(c, parsed.args, process.cwd()), session, [...raw], timeout);
-      return { code: env.ok ? 0 : env.error.code === "usage" ? 2 : 1, envelope: env };
+      const code = env.ok ? 0 : env.error.code === "usage" ? 2 : 1;
+      // `trace list --text`: the report is rendered here from the daemon's JSON.
+      if (key === "trace list" && parsed.args["text"] === true && env.ok) return { code, envelope: env, text: renderTraceText(env.data) };
+      return { code, envelope: env };
     }
   }
   return { code: 0, envelope: ok(data) };
