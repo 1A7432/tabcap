@@ -207,3 +207,10 @@ Playwright `connectOverCDP`、puppeteer `connect`、agent-browser `--cdp` 也是
 ## 9. 解码插件进程（0.6-B）
 
 守护进程为每个启用的解码插件最多开一个长驻子进程（`src/daemon/hooks/decode.ts` 的 `DecodeHost`），各录制共用；协议是 stdin / stdout 上的 JSON 行（`04` §28）。调用排队、一次一个、每次硬超时；超时、崩溃、坏行都杀掉进程，下次用到再起；同一录制里 3 次失败就在这次录制里停用该插件并写 `note`。录制器在取到正文之后、写 `request` 事件之前同步等插件回答，所以有插件匹配的请求事件会晚写出这么久（超时上限为清单的 `timeoutMs`）；页面不受影响（Fetch 拦截照常在取到正文时放行）。插件进程只拿到最小环境（无 `TABCAP_*`），stderr 丢弃；`daemon stop` 时全部杀掉。`bundle decode`、`replay check` 在 CLI 进程里各起自己的一套，运行结束即关。
+
+## 10. 按资源类型取正文与站点停手规则（0.6-I）
+
+字段与语义见 `04` §5.2 规则 10、§18 后的 0.6-I 段；这里是机制。
+
+- **正文模式**：`Recorder` 构造时带 `bodies`（`net start --bodies`，否则 `config.json` `record.bodies`），写进 manifest `record.bodies`。`loadingFinished` 后判定 `keepsBody(模式, 类型)`（`src/shared/bodies.ts`，纯函数表）：不存的不发 `Network.getResponseBody`，直接写事件，`response.body:{skipped:"resource-type"}`。Fetch 拦截的三类（XHR / Fetch / Document）在 `api` / `api+script` 下都存，只有 `none` 会把 Fetch 已取到的正文丢掉（拦截照开，保证规则 9 与跳转救回的时序不变）。
+- **站点规则**：`Guard.watch` 订阅录制器的 `onIndexed`（现在带上写出的事件，用于取 `charset`）；先查 HTML 403 挑战，不是挑战再查站点规则。规则来自 `src/daemon/siterules.ts`：按 `config.json` 的 mtime / 大小缓存解析结果，URL → 库站点用 `tabcap fetch` 的 `siteOf`。正文从录制包的 blob 读（守护进程依赖 `readBlob`）。命中时同步写入两张表（会话的 `waiting` handoff、站点的停止表，与 0.6-A 的 `fetch-stop` 同一张，多一个 `reason`），再异步截图、写 `handoff` 事件；拦截路径复用 `BLOCKED_WHILE_WAITING`，`waitingError` 对 `stop-rule` 给 `guard.stopped`。`fetch --stop-on` 在发出前向 guard 登记 `fetchId`，guard 对这条响应跳过站点 `stopOn`。

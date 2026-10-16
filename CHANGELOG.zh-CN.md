@@ -22,6 +22,12 @@
 - **`replay export-python` 少发头**：默认每个函数只发浏览器不会自己加的请求头：`content-type`、`authorization`、不是 Chrome 默认值的 `accept`、与请求不同源的 `referer`，以及浏览器默认头表以外的头（自定义 `x-*` …）；`user-agent`、`accept-language`、`origin`、`sec-ch-ua*`、`sec-fetch-*`、`priority`、缓存与条件请求头都不发，也不为它们生成参数。**`--browser-headers`** 恢复原来的输出。头表与 `session export` 用的是同一张（移到 `replay/common.ts`）；`client.py` 开头写明按哪种方式生成。
 - **帮助索引**：诊断命令（`trace`、`fingerprint`、`wire`）归到 `tabcap --help` 末尾的 `Diagnostics (optional)` 组（`tabcap help diagnostics`），排在 `Other` 之后；README 的生成表把它们放进表尾单独的小表，`references/commands.md` 里是最后一节。MCP 核心集与 SKILL.md 本来就不含它们（未改）。
 
+### 按资源类型取正文与站点停手规则（0.6-I）
+
+- **`tabcap net start --bodies all|api|api+script|none`**（缺省取 `config.json` `record.bodies`，再缺省 `all`）：`api` 存文档、XHR / fetch、WebSocket、EventSource 和其余非静态响应的正文；`api+script` 再加脚本（`net body --at`、追踪模式要它）；图片、字体、样式表、媒体在两者下都只记元数据；`none` 不存任何响应正文。跳过的正文不向 Chrome 要；其 `request` 事件照常有状态、头、时序，`response.body` 是 `{skipped: "resource-type"}`，`net list` 的行带 `bodySkipped`，manifest 记 `record.bodies`，`net body` 会说明是哪个模式跳过的。靶场上带 1.5 MiB 脚本的页面，`api` 包比 `all` 包正好少了脚本、样式表、图片的字节数。
+- **站点停手规则**：`config.json` `sites.<名>.guard: {stopOn: [<规则>…], consecutiveNon200: N}`（规则语法同 `fetch --stop-on`）。guard 对会话里该站点每一条最终录下的 document / XHR / fetch 响应求值（页面自己的请求、`tabcap fetch`、导航；正文类规则只在正文确知时求值），任何 2xx 让计数归零。命中写 `guard {event: "breaker", reason: "stop-rule", rule, request}`，会话进 `waiting`（截图与 `next`），该会话的页面操作命令和发往该站点的所有 `fetch` 以 `guard.stopped` 拒绝（触发它的那条 fetch 回 `fetch.stopped`、`reason: "stop-rule"`）。`handoff continue` 恢复会话并解除站点停止；`guard resume --site` 也一并结束它引起的 `waiting`（回 `handoffResumed`）。`fetch --stop-on` 是每次调用的覆盖：给了它，这次响应不跑站点的 `stopOn`（仍计数）。config.json 里有坏规则时 `net start` 回 `bad-input`。登录次数限制不变。
+- `net start` 的答案带 `bodies`；`guard.stopped` 与 `guard` 事件带 `reason`（`fetch-stop` 或 `stop-rule`）。
+
 ### 会话导出（0.6-F）
 
 - **`tabcap session export --for requests|httpx|playwright --out <文件> [--origin <url>] [--tab t2]`** 把已登录标签的会话交给脚本：cookie（该源的 `Network.getCookies`，池账号再加会话自己浏览器上下文里的）、页面为认证发出的头（取发往该源 host 的最近一条带这类头的录下请求：按 `bundle redact` 规则的敏感头，加 `x-csrf*`、`x-xsrf*`、`*-token`、`*-auth*`、`api-key`，以及页面自己设、不是浏览器默认的头；`cookie` 归入 cookies，`proxy-*` 永不导出）和 localStorage / sessionStorage（在 tabcap 隔离世界里读，超过 64 KB 的值跳过并列出）。没在录时 `headers` 为空、`source.headers` 为 `none`，提示先 `net start`。

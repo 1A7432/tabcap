@@ -279,3 +279,15 @@
 ### s53 token-bearer（P1；0.6-E，`analyze deps` 认出带 `Bearer ` 前缀的头）
 - 页面 `/s53/`（`test/e2e/site.ts` 的 `startTokenSite`）：加载时 `POST /api/s53/token`（表单 `client=web`），服务端回 `{access_token, token_type:"Bearer", expires_in:3600}`（`access_token` 是新的无横线 UUID，记进 `tokens`）；页面再 `GET /api/s53/me`，头 `Authorization: Bearer <access_token>`，服务端只对自己发过的 token 回 200 `{name:"demo-user"}`，每次收到的 Authorization 记进 `meAuth`（oracle）。
 - expected：录一次后 `tokens` 一个、`meAuth` 等于 `["Bearer " + 它]`；`analyze deps` 里 `/api/s53/me` 的 `header authorization` 类为 `response`，`primary` 是 `{kind:"response", request:<token 请求>, path:"$.access_token", decode:[], match:"exact", prefix:"Bearer "}`；`analyze chain` 两步（token → me）；`replay export-python` 生成的 `client.py` 发 `"Bearer " + authorization`，用它对靶场本身先调 token 再调 me 回 200，靶场第二次收到的 Authorization 是 `"Bearer " + 第二个 token`。
+
+## 10. 0.6-I 按资源类型取正文与站点停手规则（10-16，均 P1）
+
+### s54 big-script（P1；0.6-I，`--bodies api` 与 `all` 的包大小差）
+- 页面 `/s54`（`test/e2e/site.ts` 的 `startBodiesSite`）：一个 1.5 MiB 的脚本 `/s54/big.js`、样式表 `/s54/site.css`、1×1 图片 `/s54/logo.png`，页面脚本 `fetch("/s54/api")` 后把 `rows` 写进 `#s54-out`（`s54-a,s54-b`）；`served` 记每个正文发出的字节数（oracle）。
+- 走法：同一会话先 `net start --bodies all` 录一遍、`net stop`，再 `net start --bodies api` 录一遍。
+- expected：两个 manifest 的 `record.bodies` 分别是 `all` / `api`；`counts.blobBytes` 之差等于 `served` 里脚本 + 样式表 + 图片的字节数之和；`api` 包里这三条 `request` 的 `response.status` 为 200、`body` 为 `{skipped:"resource-type"}`、`bodyMissing` 为 null，文档与 `/s54/api` 有 blob；`net body <脚本 id>` 回 `not-found`（`bodies:"api"`、`next` 提 `--bodies api+script`）；`net list` 里带 `bodySkipped` 的恰是 image / script / stylesheet。
+
+### s55 site-stop（P1；0.6-I，站点规则在第三个连续非 200 上命中）
+- 页面 `/s55`：按钮「加载」每点一次 `fetch("/s55/api")` 并读正文，把 `n<序号>=<状态>` 写进 `#s55-out`；`/s55/api` 按到达顺序回 200、500、500、500，之后 200；`api` 记每次回了什么（oracle）。配置 `sites.example.guard.consecutiveNon200: 3`，站点 `example` 入口 `/s55`。
+- 走法：录制中点两次（200、500），`tabcap fetch /s55/api`（500），再点一次（500，连续第三个非 2xx）→ `handoff status` → 再点、再 `fetch` → `handoff continue` → `fetch`。
+- expected：`handoff status` 为 `waiting`、`reason:"stop-rule"`、`rule:"consecutiveNon200:3"`、`request` 是第四条 `/s55/api`、截图文件存在；之后的 `click` 与 `fetch` 都是 `guard.stopped`，靶场没有收到第五条；`handoff continue` 回 `fetchResumed:["example"]`，下一条 `fetch` 拿到 200；包里 `guard` 事件依次是 `breaker` 与 `resume`（都是 `stop-rule`、同一 `request`），`handoff` 依次是 `waiting` 与 `resumed`。

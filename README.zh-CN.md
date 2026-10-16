@@ -160,7 +160,7 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 
 ## 让你自己的爬虫经浏览器发请求
 
-只录人的浏览，只能录到页面当时发过的请求。`tabcap fetch <url>` 让已登录的标签替你发一个请求（页面自己的 `fetch()`，带它的 cookie、受它的 CORS 规则）并录下，每条带 `fetchId`，并发的请求也不会混；`--batch file.jsonl` 按序发一批。同一主机的请求按间隔排队（`config.json` `fetch.minIntervalMs`，默认 3000 ms，命令行没有跳过它的开关）；停手规则（`--stop-on 'json:$.code!=0'`、`status>=400`、`empty-body` …）一旦命中，该站点就停下，直到你运行 `tabcap guard resume --site <站点>`。已有的 Python 爬虫可以经守护进程的套接字做同样的事（`POST /fetch`）：`replay export-python` 会写出 `_tabcap_fetch.py`，`TabcapFetch(session).fetch(url, …)` 返回 `(status, headers, bytes)`。闭环是：录制 → 爬虫的请求经标签发出 → 导出 HAR / 夹具 → 离线回放。
+只录人的浏览，只能录到页面当时发过的请求。`tabcap fetch <url>` 让已登录的标签替你发一个请求（页面自己的 `fetch()`，带它的 cookie、受它的 CORS 规则）并录下，每条带 `fetchId`，并发的请求也不会混；`--batch file.jsonl` 按序发一批。同一主机的请求按间隔排队（`config.json` `fetch.minIntervalMs`，默认 3000 ms，命令行没有跳过它的开关）；停手规则（`--stop-on 'json:$.code!=0'`、`status>=400`、`empty-body` …）一旦命中，该站点就停下，直到你运行 `tabcap guard resume --site <站点>`。已有的 Python 爬虫可以经守护进程的套接字做同样的事（`POST /fetch`）：`replay export-python` 会写出 `_tabcap_fetch.py`，`TabcapFetch(session).fetch(url, …)` 返回 `(status, headers, bytes)`。闭环是：录制 → 爬虫的请求经标签发出 → 导出 HAR / 夹具 → 离线回放。这类会话用 `net start --bodies api+script` 录（不存图片 / 字体 / 样式表 / 媒体的正文，`api` 连脚本也不存），并在 `config.json` 里给站点配自己的停手规则（`sites.<名>.guard: {stopOn: [...], consecutiveNon200: 3}`）：它们对会话的全部流量生效（包括页面自己的请求），命中即转交（`waiting`）。
 
 ## MCP
 
