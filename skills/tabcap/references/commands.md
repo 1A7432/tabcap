@@ -349,7 +349,7 @@ Example: `tabcap outline`
 
 ### `tabcap find`
 
-search the accessibility tree (name, value, description); up to 20 hits with refs, clickable ones first
+search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs), clickable ones first
 
 ```
 tabcap find <text> [--session name] [--timeout ms] [--tab t2]

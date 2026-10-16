@@ -202,6 +202,8 @@
 - 走法：`net start` → `navigate /s22` → `snapshot`（只有帧头）→ `snapshot --frames` → `fill f2/f1/e<q> "abc"` → `click f2/f1/e<go>` → `snapshot --frame f2/f1/f1` → `where f2/f1/f1/e<格>` → 用遮挡头给的 ref 关掉 iframe 弹层。
 - expected：帧头列出 `f1`（menu，same-origin，depth 1）、`f2`（main，same-origin，depth 1）、`f2/f1`（cross-origin，depth 2）、`f2/f1/f1`（same-origin，depth 3），另有弹层的 `f2/f2`（cross-origin，depth 2）；默认 `snapshot` 不出任何帧里的元素行；`--frames` 在 `f2/f1/…` 下列出表单元素、在 `f2/f1/f1/…` 下列出表格格子（文字取自 site.ts）；`fill` + `click` 产生一条从跨源帧发出的录制请求 `GET /s22/search?q=abc`（B 服务端日志有这条；`cdp.sessionId` 是子会话），这次动作的帧路径为 `f2/f1`（见 docs/04 §23）；`where` 对格子找到帧文档 `/s22/table` 的响应；弹层的关闭 ref 形如 `f2/f2/e<n>`，`click` 它之后弹层消失（下一次 `snapshot` 头为 `overlays  none`）。
 
+- 0.6-D：`find <文字>` 也搜帧。`find S22-0002` 的第一个命中带 `frame:"f2/f1/f1"` 与 `f2/f1/f1/e<n>` 的 ref，`find 栏目二` 的命中 `frame:"f1"`、`clickable` 为 `f1/e<n>`，点它后 A 服务端日志有 `GET /s22/main?p=2`；输出 `frames` 为 5。
+
 ### s40 locale-numbers（P1，验收：`where` 对回同一 JSON 值）
 - 列表页：同一份 `GET /api/rows` 返回 `[{id, amount, qty, date, code, dir}]`（`amount` 为浮点、`date` 为 `YYYY-MM-DD`、`code` 为 `100101`、`dir` 为 `1`/`-1`）。页面按 `?locale=` 用五种方式渲染同一数据：`en-US`（`1,234.56`）、`de-DE`（`1.234,56`）、`fr-FR`（窄空格千分位）、`en-IN`（`1,23,456.00`）、`accounting`（负数 `(1,234.56)` 与尾随负号 `1234.56-`）；`date` 渲染为 `2026-09` / `202609` / `09/2026`；`code` 渲染为带点 `1001.01`；`dir` 渲染为 `DR`/`CR`。另一列用全角数字与 `&nbsp;` 填充。
 - 走法：`net start` → 依次导航五个 locale → `snapshot` 取每格 ref → 对每格 `where <ref>`；再 `where "1.234,56"`（文字入参）。
@@ -242,3 +244,6 @@
 - 页面 `/s48`：子菜单标题 `#s48-sub` 与表格格子 `#s48-cell` 的 click 处理只认 `isTrusted`；`#s48-count` 改计数（DOM 变动）；`#s48-link` 到 `/s48/next`（导航）；`#s48-ping` 只发 `fetch('/s48/ping')`（请求，不改 DOM）。
 - expected（不录制）：DOM `click` 子菜单与格子都是 `effect:"none"`、`note` 提 `--trusted`、退出码 0，子菜单仍 `display:none`、格子文字不变；计数 `dom`、ping `request`（服务端日志多一条 `GET /s48/ping`）、链接 `navigation`；`click --trusted` 子菜单后它展开（`display:block`），输出没有 `effect`；`--no-wait` 不报 `effect`。
 
+### s52 frame-dates（P1；0.6-D，`where` 读帧里的页面文字）
+- 页面 `/s52`：根文档 `p#s52-date` 写 `03/04/2026`（日月顺序不定），iframe `/s52/frame` 写 `截止 25/04/2026`（日 > 12，只能是 DD/MM）。
+- expected：录制中 `where <#s52-date 的 ref>` 没有 `ambiguous`，`normalized` 含 `2026-04-03`、不含 `2026-03-04`。

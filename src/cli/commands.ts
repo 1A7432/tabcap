@@ -331,7 +331,7 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap outline",
     action: "outline",
   },
-  { path: ["find"], pos: ["text..."], flags: TT, summary: "search the accessibility tree (name, value, description); up to 20 hits with refs, clickable ones first", example: "tabcap find Add to cart", action: "find" },
+  { path: ["find"], pos: ["text..."], flags: TT, summary: "search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs), clickable ones first", example: "tabcap find Add to cart", action: "find" },
   {
     path: ["html"],
     pos: ["ref"],

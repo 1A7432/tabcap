@@ -28,6 +28,7 @@
 
 - **DOM 支撑的 ref**：`snapshot --css` / `--xpath` 命中、却没有无障碍节点的元素（UI 库把输入框、按钮从无障碍树里藏掉）现在也有 ref，打印成 `(no accessible node) <input#id.class> [e31]`：与普通 ref 一样绑 backend node id、帧与 loaderId，一样失效。`click`、`fill`、`type`（在 `fill` / `click` 聚焦它之后）、`hover`、`upload`、`html`、`screenshot --ref` 都收它。`search.domRefs` 计数。
 - **点击效果**：默认（DOM）`click` 的回答说明点击后的等待里发生了什么：`effect: "dom" | "navigation" | "request"`（最先看到的那个），页面什么都没做时是 `effect: "none"` 加一条建议 `--trusted` 的 `note`（处理程序只认可信输入）。只观察（tabcap 隔离世界里的 MutationObserver、Page / Network 事件；没在录制时只为这次观察临时开 Network）；退出码不变；`--trusted` 与 `--no-wait` 不报效果。
+- **`find` 搜子帧**：根文档与帧树里的每个帧；帧里的命中带 `frame` 与帧路径 ref，回答带 `frames`（搜了几个帧）。`where` 判日期顺序时也读全部帧的页面文字。
 
 ## 0.5.0（2026-10-16）
 

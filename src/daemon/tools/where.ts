@@ -10,7 +10,11 @@ import { DEFAULT_TOP, whereFindings, whereIn, type WhereQuery } from "../../anal
 import { BundleReader } from "../../bundle/reader.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
+import { descendants, docOf, frameTree } from "../browser/frames.ts";
 import { isRef, sameDoc } from "../browser/refs.ts";
+import type { Tab } from "../browser/targets.ts";
+import { inWorld, rootDoc, type FrameDoc } from "../browser/worlds.ts";
+import type { Transport } from "../transport/types.ts";
 import { scrubValue } from "../secrets.ts";
 import type { Daemon } from "../state.ts";
 import { optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
@@ -22,8 +26,30 @@ const USAGE = "tabcap where <ref|text> [--as ref|text] [--top n] [--text] [--wri
 const MAX_REF_TEXT = 10_000;
 const MAX_PAGE_TEXT = 1_000_000;
 const REF_TEXT_FN = `function () { const s = this.nodeType === 1 ? this.innerText : this.textContent; return String(s == null ? "" : s).slice(0, ${MAX_REF_TEXT}); }`;
-// The page text of the element's own document (a frame ref reads its frame's page, 0.4-I).
-const PAGE_TEXT_FN = `function () { const b = (this.ownerDocument || document).body; return b ? String(b.innerText).slice(0, ${MAX_PAGE_TEXT}) : ""; }`;
+// The page text of one document of the tab, read in tabcap's isolated world.
+const DOC_TEXT_EXPR = `(() => { const b = document.body; return b ? String(b.innerText).slice(0, ${MAX_PAGE_TEXT}) : ""; })()`;
+
+/**
+ * The page text `where` disambiguates dates with (0.6-D): the root document
+ * and every child frame of the frame tree (0.4-I), in tree order, at most
+ * MAX_PAGE_TEXT characters in all. A document that cannot be read is skipped.
+ */
+async function tabText(t: Transport, tab: Tab): Promise<string> {
+  const docs: FrameDoc[] = [rootDoc(tab, await docIdentity(t, tab))];
+  const tree = await frameTree(t, tab).catch(() => null);
+  if (tree !== null) docs.push(...descendants(tree.root).map(docOf));
+  const parts: string[] = [];
+  let left = MAX_PAGE_TEXT;
+  for (const doc of docs) {
+    if (left <= 0) break;
+    const v = await inWorld(t, tab, doc, async (ctx) => callResult(await t.send("Runtime.evaluate", { expression: DOC_TEXT_EXPR, contextId: ctx, returnByValue: true }, doc.sessionId, 10_000))).catch(() => null);
+    if (typeof v !== "string" || v === "") continue;
+    const part = v.slice(0, left);
+    parts.push(part);
+    left -= part.length + 1;
+  }
+  return parts.join("\n");
+}
 
 /** The session's current tab has refs minted for the document it shows now. */
 async function hasCurrentSnapshot(d: Daemon, session: string): Promise<boolean> {
@@ -50,8 +76,7 @@ async function refText(d: Daemon, session: string, ref: string, a: Args): Promis
     async () => {
       const { objectId, sessionId } = await resolveRef(t, tab, ref);
       const v = callResult(await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: REF_TEXT_FN, returnByValue: true }, sessionId, 10_000));
-      const p = callResult(await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: PAGE_TEXT_FN, returnByValue: true }, sessionId, 10_000));
-      return { text: typeof v === "string" ? v : "", page: typeof p === "string" ? p : "" };
+      return { text: typeof v === "string" ? v : "", page: await tabText(t, tab) };
     },
     { timeoutMs: timeoutOf(a) },
   );

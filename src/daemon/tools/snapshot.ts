@@ -501,12 +501,12 @@ const ANCESTOR_FN = `function (depth) {
 }`;
 const CLICK_EVENTS = new Set(["click", "mousedown", "mouseup", "pointerdown", "pointerup"]);
 
-async function ancestorId(t: Transport, tab: Tab, objectId: string, depth: number): Promise<{ objectId: string; backendNodeId: number } | null> {
-  const r = await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: ANCESTOR_FN, arguments: [{ value: depth }], returnByValue: false }, tab.sessionId, 5000);
+async function ancestorId(t: Transport, sessionId: string, objectId: string, depth: number): Promise<{ objectId: string; backendNodeId: number } | null> {
+  const r = await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: ANCESTOR_FN, arguments: [{ value: depth }], returnByValue: false }, sessionId, 5000);
   const res = isRecord(r["result"]) ? r["result"] : null;
   const oid = res === null ? null : str(res, "objectId");
   if (oid === null) return null;
-  const d = await t.send("DOM.describeNode", { objectId: oid }, tab.sessionId, 5000);
+  const d = await t.send("DOM.describeNode", { objectId: oid }, sessionId, 5000);
   const node = isRecord(d["node"]) ? d["node"] : null;
   const id = node === null ? null : node["backendNodeId"];
   return typeof id === "number" && Number.isSafeInteger(id) ? { objectId: oid, backendNodeId: id } : null;
@@ -517,27 +517,37 @@ async function ancestorId(t: Transport, tab: Tab, objectId: string, depth: numbe
  * control for it (custom checkboxes, `div role=none` buttons, docs/05 s19):
  * a native control / clickable role / cursor:pointer within 4 levels, else an
  * element within 3 levels with a click-type listener (DOMDebugger.getEventListeners).
+ * `sessionId`: the session that owns the node's document (a frame's, 0.6-D).
  */
-async function domClickable(t: Transport, tab: Tab, backendNodeId: number): Promise<{ backendId: number; by: string } | null> {
-  const r = await t.send("DOM.resolveNode", { backendNodeId }, tab.sessionId, 5000).catch(() => null);
+async function domClickable(t: Transport, sessionId: string, backendNodeId: number): Promise<{ backendId: number; by: string } | null> {
+  const r = await t.send("DOM.resolveNode", { backendNodeId }, sessionId, 5000).catch(() => null);
   const obj = r !== null && isRecord(r["object"]) ? r["object"] : null;
   const objectId = obj === null ? null : str(obj, "objectId");
   if (objectId === null) return null;
-  const up = callResult(await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: CLICKABLE_UP_FN, returnByValue: true }, tab.sessionId, 5000));
+  const up = callResult(await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: CLICKABLE_UP_FN, returnByValue: true }, sessionId, 5000));
   if (isRecord(up) && typeof up["depth"] === "number") {
-    const el = await ancestorId(t, tab, objectId, up["depth"]);
+    const el = await ancestorId(t, sessionId, objectId, up["depth"]);
     return el === null ? null : { backendId: el.backendNodeId, by: str(up, "by") ?? "tag" };
   }
   for (let depth = 0; depth < 3; depth++) {
-    const el = await ancestorId(t, tab, objectId, depth);
+    const el = await ancestorId(t, sessionId, objectId, depth);
     if (el === null) return null;
-    const l = await t.send("DOMDebugger.getEventListeners", { objectId: el.objectId }, tab.sessionId, 5000).catch(() => null);
+    const l = await t.send("DOMDebugger.getEventListeners", { objectId: el.objectId }, sessionId, 5000).catch(() => null);
     const list = l !== null && Array.isArray(l["listeners"]) ? l["listeners"].filter(isRecord) : [];
     if (list.some((x) => CLICK_EVENTS.has(str(x, "type") ?? ""))) return { backendId: el.backendNodeId, by: "listener" };
   }
   return null;
 }
 
+/** One document `find` searches: the root (frame null) or a child frame, with its ref minting and session. */
+type FindDoc = { frame: FrameNode | null; root: AxNode; refFor: RefFor; sessionId: string };
+
+/**
+ * `find <text>` (0.6-D): the root document and every child frame of the frame
+ * tree (0.4-I), in tree order; hits in a frame carry `frame` and frame-path
+ * refs. A frame whose tree cannot be read is skipped and counted in
+ * `framesSkipped`. Clickable hits first over all documents, document order otherwise.
+ */
 export async function find(d: Daemon, a: Args, session: string): Promise<unknown> {
   const text = reqStr(a, "text", "tabcap find <text>");
   const { t, tabs } = d.need();
@@ -546,19 +556,47 @@ export async function find(d: Daemon, a: Args, session: string): Promise<unknown
     tab,
     async () => {
       const { root, doc } = await axTree(t, tab);
-      const { cands, total } = findCandidates(root, text, FIND_SCAN);
-      // docs/05 s19: clickable hits first (AX controls, then DOM signals), document order otherwise.
-      const dom = new Map<FindCandidate, { backendId: number; by: string }>();
-      let probed = 0;
-      for (const c of cands) {
-        if (c.clickId !== null || c.node.backendId === null || probed >= FIND_PROBE) continue;
-        probed++;
-        const hit = await domClickable(t, tab, c.node.backendId).catch(() => null);
-        if (hit !== null) dom.set(c, hit);
+      const docs: FindDoc[] = [{ frame: null, root, refFor: (id) => tab.refs.refFor(id), sessionId: tab.sessionId }];
+      const tree = await frameTree(t, tab).catch(() => null);
+      let skipped = 0;
+      for (const f of tree === null ? [] : descendants(tree.root)) {
+        const v = await frameView(t, tab, f, { interactive: false, verbose: false, maxChars: SNAPSHOT_MAX_CHARS, filePath: null, frames: false, frame: null });
+        if (typeof v === "string") {
+          skipped++;
+          continue;
+        }
+        docs.push({ frame: f, root: v.view, refFor: v.refFor, sessionId: f.sessionId });
       }
-      const ranked = rankClickable(cands, (c) => c.clickId !== null || dom.has(c));
-      const hits = ranked.slice(0, FIND_LIMIT).map((c) => hitOf(c, (id) => tab.refs.refFor(id), dom.get(c) ?? null));
-      return { tab: tab.id, url: doc.url, nav: d.navOf(tab), query: text, total, order: "clickable first, then document order", hits };
+      type Cand = { c: FindCandidate; doc: FindDoc };
+      const cands: Cand[] = [];
+      let total = 0;
+      for (const x of docs) {
+        const r = findCandidates(x.root, text, Math.max(0, FIND_SCAN - cands.length));
+        total += r.total;
+        for (const c of r.cands) cands.push({ c, doc: x });
+      }
+      // docs/05 s19: clickable hits first (AX controls, then DOM signals), document order otherwise.
+      const dom = new Map<Cand, { backendId: number; by: string }>();
+      let probed = 0;
+      for (const x of cands) {
+        if (x.c.clickId !== null || x.c.node.backendId === null || probed >= FIND_PROBE) continue;
+        probed++;
+        const hit = await domClickable(t, x.doc.sessionId, x.c.node.backendId).catch(() => null);
+        if (hit !== null) dom.set(x, hit);
+      }
+      const ranked = rankClickable(cands, (x) => x.c.clickId !== null || dom.has(x));
+      const hits = ranked.slice(0, FIND_LIMIT).map((x) => ({ ...hitOf(x.c, x.doc.refFor, dom.get(x) ?? null), ...(x.doc.frame === null ? {} : { frame: x.doc.frame.path }) }));
+      const frames = docs.length - 1;
+      return {
+        tab: tab.id,
+        url: doc.url,
+        nav: d.navOf(tab),
+        query: text,
+        total,
+        order: "clickable first, then document order",
+        ...(frames + skipped > 0 ? { frames, ...(skipped > 0 ? { framesSkipped: skipped } : {}) } : {}),
+        hits,
+      };
     },
     { timeoutMs: timeoutOf(a) },
   );

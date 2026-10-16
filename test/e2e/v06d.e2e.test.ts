@@ -194,4 +194,39 @@ describe.skipIf(!enabled)("tabcap 0.6-D L2 (docs/05 s22, s47–s52: DOM-backed r
     const again = (await cssRef("#s48-count", S)).ref;
     expect((await ok("click", again, "--no-wait", ...S))["effect"]).toBeUndefined();
   }, 120_000);
+
+  test("D3 s22: find searches every frame (hits carry frame and frame-path refs); s52: where reads the dates of the frames too", async () => {
+    const S = ["--session", "d3"];
+    await ok("navigate", `${frames.a}/s22`, ...S);
+    await ok("wait", "--text", S22_TABLE_CELLS[1][0], ...S);
+    const cell = await ok("find", S22_TABLE_CELLS[1][0], ...S);
+    expect(cell["frames"]).toBe(5);
+    const hit = recs(cell["hits"])[0];
+    expect(hit).toMatchObject({ frame: "f2/f1/f1", name: S22_TABLE_CELLS[1][0] });
+    expect(s(hit?.["ref"])).toMatch(/^f2\/f1\/f1\/e\d+$/);
+    const menu = await ok("find", S22_MENU_LINKS[1], ...S);
+    const link = recs(menu["hits"])[0];
+    expect(link).toMatchObject({ frame: "f1", role: "link", name: S22_MENU_LINKS[1] });
+    expect(s(link?.["clickable"])).toMatch(/^f1\/e\d+$/);
+    await ok("click", s(link?.["clickable"]), ...S);
+    await until("main frame p=2", async () => frames.hits.includes("A GET /s22/main?p=2"), (v) => v);
+    // a hit in the root document carries no frame
+    await ok("navigate", `${site.origin}/s48`, ...S);
+    const root = recs((await ok("find", "加一", ...S))["hits"])[0];
+    expect(root?.["frame"]).toBeUndefined();
+
+    const W = ["--session", "d3w"];
+    await ok("net", "start", ...W);
+    await ok("navigate", `${site.origin}/s52`, ...W);
+    await ok("wait", "--text", S52_FRAME_DATE, ...W);
+    const date = (await cssRef("#s52-date", W)).ref;
+    const w = await ok("where", date, ...W);
+    // 25/04/2026 (frame) has a day over 12: the page writes DD/MM, so 03/04/2026 is 3 April
+    expect(w["ambiguous"]).toBeUndefined();
+    const values = recs(w["normalized"]).map((x) => x["value"]);
+    expect(values).toContain("2026-04-03");
+    expect(values).not.toContain("2026-03-04");
+    expect(rec(w["query"])).toMatchObject({ kind: "ref", text: S52_ROOT_DATE });
+    await ok("net", "stop", ...W);
+  }, 120_000);
 });
