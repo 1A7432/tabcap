@@ -12,6 +12,7 @@
 // (`--snapshot`).
 
 import { TabcapError } from "../../shared/envelope.ts";
+import { accountState, FAILED_LOGIN_LIMIT } from "../pool/rules.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
 import { withFocusEmulation } from "../browser/focus.ts";
 import type { Tab } from "../browser/targets.ts";
@@ -527,6 +528,10 @@ export function parseSecretRef(ref: string): { site: string; field: "password" |
 /**
  * docs/06 A6.2: one `fill --secret <site>.password` per site per session. Checked
  * before the page is touched; `--confirm` overrides. Each decision is a `guard` event.
+ * 0.4-D: a `--confirm`ed retry means the human judged the previous login failed:
+ * it counts as a failed login of the account; the second within 24 h makes the
+ * account `needs-human`, and from then on its password is not filled until
+ * `handoff continue` or `account set-state <site>.<user> active`.
  */
 function loginGate(d: Daemon, session: string, site: string, confirm: boolean, tab: string): () => void {
   const store = d.needStore();
@@ -537,8 +542,20 @@ function loginGate(d: Daemon, session: string, site: string, confirm: boolean, t
     store.resetGuard(site, session);
     before = store.guardCounter(site, session);
   }
-  const account = store.accountOf(site);
+  const bound = d.sites.get(session);
+  const account = (bound?.site === site ? bound.account : null) ?? store.accountOf(site);
   const rec = d.recorders.get(session);
+  const needsHuman = (failures: number | null, decision: "refused" | "needs-human") => {
+    rec?.event("guard", { event: "budget", site, account, detail: { rule: "failed-logins", failures, limit: FAILED_LOGIN_LIMIT, decision } }, { tab });
+    return new TabcapError(
+      "guard.login-limit",
+      `account ${site}.${account ?? "?"} needs the human: ${FAILED_LOGIN_LIMIT} failed logins within 24 h`,
+      `Do not log in again: ask the human to check the account in the browser; they clear it with \`tabcap handoff continue\` (in this session) or \`tabcap account set-state ${site}.${account ?? "<user>"} active\`.`,
+      { site, account, state: "needs-human" },
+    );
+  };
+  const row = account === null ? null : store.account(site, account);
+  if (row !== null && accountState(row, d.pool.now()) === "needs-human") throw needsHuman(row.failStreak, "refused");
   const limited = before.loginAttempts >= LOGIN_LIMIT;
   if (limited && !confirm) {
     rec?.event("guard", { event: "budget", site, account, detail: { rule: "login-limit", attempts: before.loginAttempts, limit: LOGIN_LIMIT, decision: "refused" } }, { tab });
@@ -549,9 +566,15 @@ function loginGate(d: Daemon, session: string, site: string, confirm: boolean, t
       { site, attempts: before.loginAttempts, limit: LOGIN_LIMIT },
     );
   }
+  if (limited && account !== null) {
+    const f = d.pool.failedLogin(store, site, account);
+    // The budget event only when the limit is reached (docs/04 §4.2: budget hit).
+    if (f?.needsHuman === true) throw needsHuman(f.failures, "needs-human");
+  }
   // Counted only once the value is really in the field.
   return () => {
     const after = store.noteLoginAttempt(site, session);
+    if (account !== null) store.noteAccountLogin(site, account, d.pool.now());
     rec?.event("guard", { event: "budget", site, account, detail: { rule: "login-limit", attempts: after.loginAttempts, limit: LOGIN_LIMIT, decision: limited ? "confirmed" : "allowed" } }, { tab });
   };
 }

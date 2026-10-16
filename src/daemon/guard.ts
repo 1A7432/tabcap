@@ -111,6 +111,8 @@ export type GuardDeps = {
   pageInfo: (session: string, tab: string) => Promise<{ url: string | null; title: string | null; text: string | null }>;
   /** Delay before the screenshot so the page can render the challenge. */
   settleMs?: number;
+  /** A breaker tripped in this session: the account starts cooling (0.4-D); returns coolUntil or null. */
+  onBreaker?: (session: string) => number | null;
 };
 
 /** Commands refused while the session waits for the human. */
@@ -179,7 +181,17 @@ export class Guard {
     };
     // Block first; everything else is bookkeeping.
     this.handoffs.set(session, h);
-    rec.event("guard", { event: "breaker", site: h.site, account: bound?.account ?? null, detail: { reason, request: e.id, url: e.url, status: e.status, mime: e.mime } }, { tab: e.tab });
+    let coolUntil: number | null = null;
+    try {
+      coolUntil = this.deps.onBreaker?.(session) ?? null;
+    } catch (x) {
+      log.warn("guard: starting the account's cooling failed", { error: String(x) });
+    }
+    rec.event(
+      "guard",
+      { event: "breaker", site: h.site, account: bound?.account ?? null, detail: { reason, request: e.id, url: e.url, status: e.status, mime: e.mime, ...(coolUntil === null ? {} : { coolUntil }) } },
+      { tab: e.tab },
+    );
     await Bun.sleep(this.deps.settleMs ?? 400);
     h.screenshot = await this.deps.screenshot(session, e.tab).catch(() => null);
     rec.event(

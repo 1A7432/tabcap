@@ -4,38 +4,95 @@ import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
 import { cookieArray, siteCookieUrls } from "../capture/cookies.ts";
-import type { Daemon } from "../state.ts";
+import type { Daemon, SiteBinding } from "../state.ts";
+import type { Tabs } from "../browser/targets.ts";
+import { extContextError } from "../pool/runtime.ts";
 import { checkSiteName, type Store } from "../store/db.ts";
 import type { Transport } from "../transport/types.ts";
 import { checkSessionName, optBool, optStr, reqStr, type Args } from "./args.ts";
 
-export function sessionStart(d: Daemon, a: Args): unknown {
-  const name = checkSessionName(reqStr(a, "name", "tabcap session start <name> [--site <site>]"));
+const START_USAGE = "tabcap session start <name> [--site <site>] [--account <user>|auto]";
+
+/**
+ * `session start <name> [--site <s>] [--account <user>|auto]` (0.4-D): the
+ * account is the given one, the strategy's pick (`auto`), or the site's first;
+ * one bound to a pool proxy gets its own browser context through it, with its
+ * saved cookies restored. The output and the manifest carry account and proxy
+ * names only.
+ */
+export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
+  const name = checkSessionName(reqStr(a, "name", START_USAGE));
   const siteArg = optStr(a, "site");
-  const { tabs } = d.need();
-  let binding: { site: string; account: string | null } | null = null;
+  const accountArg = optStr(a, "account");
+  if (accountArg !== null && siteArg === null) throw new TabcapError("usage", "--account needs --site", `Usage: ${START_USAGE}`);
+  const { t, tabs } = d.need();
+  let binding: SiteBinding | null = null;
+  let restored: number | null = null;
   if (siteArg !== null) {
     const store = d.needStore();
     const site = store.site(checkSiteName(siteArg));
     if (site === null) throw new TabcapError("not-found", `no site named "${siteArg}" in the store`, "Run `tabcap site list`, or add it with `tabcap site add <name> --url <entry> --user <username>`.");
     const bound = d.sites.get(name);
     if (bound !== undefined && bound.site !== site.name) throw new TabcapError("conflict", `session "${name}" is already bound to site "${bound.site}"`, `Use another session name, or \`tabcap session stop ${name}\` first.`);
-    binding = { site: site.name, account: store.accountOf(site.name) };
+    if (bound !== undefined && (accountArg === null || accountArg === bound.account || (accountArg === "auto" && bound.account !== null))) {
+      binding = bound; // already started: same binding, nothing new
+    } else if (bound !== undefined) {
+      throw new TabcapError("conflict", `session "${name}" is already bound to account ${bound.site}.${bound.account ?? "(none)"}`, `Use another session name, or \`tabcap session stop ${name}\` first.`);
+    } else {
+      const r = await bindAccount(d, t, tabs, name, site.name, accountArg);
+      binding = r.binding;
+      restored = r.restored;
+    }
   }
   const { session, created } = tabs.ensureSession(name);
   if (binding !== null) {
     d.sites.set(name, binding);
-    d.recorders.get(name)?.setSite(binding.site, binding.account);
+    d.recorders.get(name)?.setSite(binding.site, binding.account, binding.proxy);
   }
   const b = d.sites.get(name) ?? null;
+  const ctx = d.pool.contexts.get(name);
   return {
     session: session.name,
     created,
     tabs: tabs.sessionTabs(name).map((x) => x.id),
     site: b?.site ?? null,
     account: b?.account ?? null,
+    proxy: b?.proxy ?? null,
     ...(binding === null ? {} : { entryUrl: d.needStore().site(binding.site)?.entryUrl ?? null, secrets: [`${binding.site}.username`, `${binding.site}.password`] }),
+    ...(ctx === undefined ? {} : { browserContext: "own", cookiesRestored: restored }),
   };
+}
+
+/** Pick the account, check it may be used, open its context when it goes out through a pool proxy. */
+async function bindAccount(d: Daemon, t: Transport, tabs: Tabs, session: string, site: string, accountArg: string | null): Promise<{ binding: SiteBinding; restored: number | null }> {
+  const store = d.needStore();
+  const acc = d.pool.pick(store, site, accountArg);
+  if (acc === null) return { binding: { site, account: null, proxy: null }, restored: null };
+  const kind: Transport["kind"] = t.kind;
+  if (kind === "ext") {
+    const err = extContextError(acc.proxy, { site, user: acc.username }, [...d.sites.values()]);
+    if (err !== null) throw err;
+  }
+  const egress = d.pool.egress(store, acc);
+  let restored: number | null = null;
+  if (egress.proxy !== null) {
+    const row = store.proxy(egress.proxy);
+    if (row === null) throw new TabcapError("not-found", `no proxy named "${egress.proxy}"`, "Run `tabcap proxy list`; rebind the account with `tabcap account bind`.");
+    if (tabs.sessionTabs(session).length > 0) {
+      throw new TabcapError("conflict", `session "${session}" already has tabs outside account ${site}.${acc.username}'s browser context`, "Start a new session name for this account (its tabs must open in its own context).");
+    }
+    const ctx = await d.pool.open(t, { session, site, account: acc.username, proxy: row });
+    try {
+      restored = await d.pool.restoreCookies(store, t, ctx);
+    } catch (e) {
+      log.warn("pool: restoring the account's cookies failed", { session, error: String(e) });
+      restored = null;
+    }
+    tabs.contexts.set(session, ctx.browserContextId);
+    egress.commit();
+  }
+  store.patchAccount(site, acc.username, { lastUsedAt: d.pool.now() });
+  return { binding: { site, account: acc.username, proxy: egress.proxy ?? acc.proxy }, restored };
 }
 
 export type SavedSessionInfo = { site: string; account: string; cookies: number; savedAt: number };
@@ -65,13 +122,20 @@ export async function saveSiteCookies(
 /**
  * Called at `session stop` (before the tabs close) and `handoff continue`.
  * null when the session is not bound to a site with an account, has no open
- * tab, or the browser does not answer (logged).
+ * tab, or the browser does not answer (logged). A pool account's context
+ * saves all its cookies (Storage.getCookies {browserContextId}).
  */
 export async function saveSiteSession(d: Daemon, session: string): Promise<SavedSessionInfo | null> {
   const bound = d.sites.get(session);
   if (bound === undefined || bound.account === null || d.store === null || d.browser === null) return null;
   try {
-    const saved = await saveSiteCookies(d.store, d.browser.t, { site: bound.site, account: bound.account }, d.browser.tabs.sessionTabs(session));
+    let saved: SavedSessionInfo | null;
+    if (d.pool.contexts.has(session)) {
+      const n = await d.pool.saveCookies(d.store, d.browser.t, session);
+      saved = n === null ? null : { site: bound.site, account: bound.account, cookies: n, savedAt: d.pool.now() };
+    } else {
+      saved = await saveSiteCookies(d.store, d.browser.t, { site: bound.site, account: bound.account }, d.browser.tabs.sessionTabs(session));
+    }
     d.refreshSecrets(); // the saved values are secrets from now on
     return saved;
   } catch (e) {
@@ -91,11 +155,15 @@ export async function sessionStop(d: Daemon, a: Args): Promise<unknown> {
     d.recorders.delete(name);
     d.lastBundles.set(name, r);
   }
-  // Before the tabs close: their cookies are the session to save.
+  // Before the tabs close: their cookies are the session to save (after any write-back the last snapshot started).
+  await d.pool.settle();
   const storeSession = await saveSiteSession(d, name);
   const res = await tabs.dropSession(name);
+  // 0.4-D: the account's own context goes with the session (its cookies are saved above).
+  const disposed = await d.pool.close(d.browser?.t ?? tabs.t, name);
+  tabs.contexts.delete(name);
   d.sites.delete(name);
-  return { session: name, ...res, bundle, storeSession };
+  return { session: name, ...res, bundle, storeSession, ...(disposed ? { browserContext: "disposed" } : {}) };
 }
 
 export function sessionList(d: Daemon): unknown {
@@ -108,6 +176,8 @@ export function sessionList(d: Daemon): unknown {
       current: s.current,
       recording: d.recorders.has(s.name),
       site: d.sites.get(s.name)?.site ?? null,
+      account: d.sites.get(s.name)?.account ?? null,
+      proxy: d.sites.get(s.name)?.proxy ?? null,
       handoff: d.guard.get(s.name)?.state ?? null,
     })),
   };

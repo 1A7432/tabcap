@@ -51,6 +51,7 @@ export function newManifest(o: NewManifestOptions): Manifest {
       name: o.session?.name ?? "",
       site: o.session?.site ?? null,
       account: o.session?.account ?? null,
+      ...(o.session?.proxy === undefined ? {} : { proxy: o.session.proxy }),
       tabs: o.session?.tabs ?? [],
     },
     mode: {
@@ -167,6 +168,7 @@ export function parseManifest(raw: unknown): Manifest {
       name: str(sessionRaw, "name") ?? "",
       site: str(sessionRaw, "site"),
       account: str(sessionRaw, "account"),
+      ...("proxy" in sessionRaw ? { proxy: str(sessionRaw, "proxy") } : {}),
       tabs,
     },
     mode,

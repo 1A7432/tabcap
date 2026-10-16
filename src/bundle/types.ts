@@ -358,6 +358,8 @@ export type Manifest = {
     name: string;
     site: string | null;
     account: string | null;
+    /** 0.4-D: the proxy name the session went out through, `system` / `none`, or null (names only). */
+    proxy?: string | null;
     tabs: ManifestTab[];
   };
   mode: { capture: CaptureMode; trace: boolean; raw: boolean; humanRecorder: boolean; sample?: boolean };

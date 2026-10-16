@@ -24,7 +24,13 @@ export function handoffStatus(d: Daemon, _a: Args, session: string): unknown {
  * renewed them), so `replay session --site` gets the fresh ones.
  */
 export async function handoffContinue(d: Daemon, _a: Args, session: string): Promise<unknown> {
+  // 0.4-D: `handoff continue` also clears the bound account's needs-human state.
+  const b = d.sites.get(session);
+  const cleared = b !== undefined && b.account !== null && d.store !== null && d.pool.clearNeedsHuman(d.store, b.site, b.account);
+  const account = cleared && b !== undefined ? { account: `${b.site}.${b.account}`, state: "active", cleared: "needs-human" } : null;
+  const waiting = d.guard.get(session)?.state === "waiting";
+  if (!waiting && account !== null) return { session, state: "running", handoff: null, account };
   const h = d.guard.resume(session, "human");
   const storeSession = await saveSiteSession(d, session);
-  return { session, state: h.state, reason: h.reason, waitedMs: (h.resumedAt ?? Date.now()) - h.since, handoff: handoffView(h), storeSession };
+  return { session, state: h.state, reason: h.reason, waitedMs: (h.resumedAt ?? Date.now()) - h.since, handoff: handoffView(h), storeSession, ...(account === null ? {} : { account }) };
 }

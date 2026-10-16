@@ -12,6 +12,7 @@ import { bodyPreview, listUrl } from "./formatters.ts";
 import { findRequestEvent, frameDetail, materialize, notFound, requestDetail } from "./netshow.ts";
 import { inlineBytes } from "../capture/ws.ts";
 import type { Daemon } from "../state.ts";
+import { noteAccountRequest } from "./pool.ts";
 import { checkSessionName, optStr, reqStr, type Args } from "./args.ts";
 
 export async function netStart(d: Daemon, _a: Args, session: string): Promise<unknown> {
@@ -33,7 +34,15 @@ export async function netStart(d: Daemon, _a: Args, session: string): Promise<un
     scrub: (s) => d.secrets.scrub(s),
     site: bound,
     onFinished: (done) => d.store?.finishBundle(done),
+    // 0.4-D: proxy credentials never reach raw/cdp.jsonl or events.jsonl.
+    scrubOut: (line) => d.proxySecrets.scrub(line),
+    // 0.4-D: a pool account's cookies go back to the store on every snapshot.
+    onCookieState: () => {
+      if (d.store !== null && d.pool.contexts.has(session)) d.pool.saveSoon(d.store, t, session, () => d.refreshSecrets());
+    },
   });
+  // 0.4-D: recorded requests count against the account's hourly budget (and the egress rotation trigger).
+  r.onIndexed(() => noteAccountRequest(d, session));
   d.store?.noteBundle({ path: dir, site: bound?.site ?? null, sessionName: session });
   d.guard.watch(r);
   d.recorders.set(session, r);

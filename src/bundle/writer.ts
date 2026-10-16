@@ -37,6 +37,8 @@ export type WriterOptions = {
   flushMs?: number;
   manifestMs?: number;
   sizeCap?: number;
+  /** Applied to every events.jsonl line before it is written (known proxy secrets, 0.4-D); must keep the line valid JSON. */
+  scrubLine?: (line: string) => string;
 };
 
 const ACTORS: readonly Actor[] = ["human", "ai", "system"];
@@ -90,6 +92,7 @@ export class BundleWriter {
   private closed = false;
   private readonly now: () => number;
   private readonly flushMs: number;
+  private readonly scrubLine: ((line: string) => string) | null;
 
   private constructor(dir: string, fh: FileHandle, manifest: Manifest, counts: ManifestCounts, lastSeq: number, opts: WriterOptions) {
     this.dir = dir;
@@ -99,6 +102,7 @@ export class BundleWriter {
     this.seq = lastSeq;
     this.now = opts.now ?? nowMs;
     this.flushMs = opts.flushMs ?? 100;
+    this.scrubLine = opts.scrubLine ?? null;
     this.blobs = new BlobStore(dir, opts.sizeCap === undefined ? {} : { sizeCap: opts.sizeCap });
     const manifestMs = opts.manifestMs ?? 5000;
     this.manifestTimer = setInterval(() => this.queueManifest(), manifestMs);
@@ -184,7 +188,8 @@ export class BundleWriter {
 
   private push(seq: number, body: Record<string, unknown>): RawEvent {
     const stored = toStored(seq, body);
-    const line = JSON.stringify(stored);
+    const json = JSON.stringify(stored);
+    const line = this.scrubLine === null ? json : this.scrubLine(json);
     this.seq = seq;
     countEvent(this.counts, stored);
     this.pending.push(line + "\n");
