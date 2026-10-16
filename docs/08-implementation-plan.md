@@ -64,6 +64,8 @@ Windows 待验项：`--remote-debugging-pipe` 在 Bun 的 `node:child_process` �
 
 格 3 顺手解决三个未验点：黑洞代理是否真截断外连（`lsof`）、`--no-startup-window` / `open -g` 能否不抢前台、`CDPScreenshotNewSurface` 对隐藏标签截图是否有效。
 
+wire 工具并入 `native/wireprint/`（10-16 作者定）：基准画像为集成的 Chrome for Testing 版本，作者个人浏览器画像不进仓；`serve` 不编译，TLS 终结由 Bun 做（0.4-W2）
+
 ## 4. 子 agent 的工作规则
 
 - 读 `AGENTS.md`，遵守全部条款；expected 只来自规范与靶场，不为过测试改 expected。

@@ -16,6 +16,10 @@
 - 非 UTF-8 的正文按声明的字符集解码（响应的 charset、content-type，否则 HTML `<meta charset>`），例如 GBK；不认识的字符集在无其它命中时给 reason `unsupported-charset`。
 - 端到端测试加入靶场场景 s40 locale-numbers（同一份 `/api/rows` 的 en-US、de-DE、fr-FR、en-IN、会计格式五种渲染）。
 
+### 原生线路层指纹组件（0.4-W1）
+
+- **`native/wireprint/`**（Zig 0.16.0，与仓库其余部分同为 Apache-2.0）：线路层指纹工具作为原生组件并入本仓库。读 pcap、原始 TLS record 与 HTTP/2 客户端流，算 ClientHello 全字段、JA3、JA4（`_r` / `_o` / `_ro`）、HTTP/2 的 SETTINGS / WINDOW_UPDATE / 伪头顺序、HPACK 解码后的头与 Akamai 串，另有画像组装、跨层一致性检查与按层分组的 diff。`bun run test:native` 跑它的离线测试（`zig build test -Dopenssl=false`），`bun run fmt:native` 格式化；CI 在 Linux、Windows、macOS 上构建，并交叉编译 darwin-arm64、linux-x64、linux-arm64、windows-x64（暂不进发布包）。只构建 `-Dopenssl=false`：原来的 `serve` 回显服务器留在源码里但不编译。JA4H / JA4T 代码与 `-Dja4plus` 选项在并入前删除。浏览器画像（`corpus/`）今后只来自 tabcap 集成的 Chrome for Testing 版本。第三方声明（JA3、JA4、RFC 7541 表）见 NOTICE。
+
 ## 0.3.0（2026-10-16）
 
 - **命令名对齐 Chrome DevTools MCP**（docs/08 §5）：`press` → `press-key`，`tabs` / `tab use` → `tab list` / `tab select`，`console` → `console list`（新增 `--types`、`--page-size`、`--page-idx`、`--include-stack-traces`，`--level`、`--limit` 保留）与 `console show <msgid>`；`net list --type / --limit / --offset` → `--resource-types / --page-size / --page-idx`（页码语义，`nextPageIdx`；不给分页参数时返回全部匹配，给了默认每页 100；默认仍藏失败与 `data:`，`--all` 全列）；`screenshot --out / --full` → `--file-path / --full-page`，新增 `--format png|jpeg|webp`、`--quality`、`--ref`；`snapshot` 新增 `--verbose`、`--file-path`；`type --submit-key`；`click --dbl-click`；`dialog --prompt-text`；`wait --text` 可重复（任一命中），并在所有帧里找；`evaluate --function` / `--args`；`reload --ignore-cache`。旧名保留到 0.4，`--help` 标为弃用；`net list` 输出仍带旧的 `offset` / `limit` / `nextOffset` 字段一版。

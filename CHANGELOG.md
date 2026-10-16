@@ -18,6 +18,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 - Bodies that are not UTF-8 are decoded with their declared charset (response charset, content-type, else an HTML `<meta charset>`), e.g. GBK; an unknown charset gives reason `unsupported-charset` when nothing else matched.
 - Range scenario s40 locale-numbers (en-US, de-DE, fr-FR, en-IN, accounting renderings of one `/api/rows`) in the end-to-end suite.
 
+### Native wire-fingerprint component (0.4-W1)
+
+- **`native/wireprint/`** (Zig 0.16.0, Apache-2.0 like the rest of the repo): the wire-level fingerprint tool joins the repository as a native component. It reads pcaps, raw TLS records and HTTP/2 client streams and computes ClientHello fields, JA3, JA4 (`_r` / `_o` / `_ro`), HTTP/2 SETTINGS / WINDOW_UPDATE / pseudo-header order, HPACK-decoded headers and the Akamai string, plus profile assembly, cross-layer consistency checks and a layer-grouped diff. `bun run test:native` runs its offline tests (`zig build test -Dopenssl=false`), `bun run fmt:native` formats it, and CI builds it on Linux, Windows and macOS and cross-compiles it for darwin-arm64, linux-x64, linux-arm64 and windows-x64 (not shipped in the release packages yet). Only `-Dopenssl=false` is built: the old `serve` echo server stays in the source but is not compiled. The JA4H / JA4T code and its `-Dja4plus` option were deleted before import. Browser profiles (`corpus/`) will come only from the Chrome for Testing version tabcap ships. Third-party notices (JA3, JA4, RFC 7541 tables) are in NOTICE.
+
 ## 0.3.0 (2026-10-16)
 
 ### Names aligned with Chrome DevTools MCP
