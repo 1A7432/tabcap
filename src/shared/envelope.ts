@@ -23,6 +23,8 @@ export type ErrorCode =
   | "covered" // an overlay (dialog, mask, layer, consent, timeout prompt) covers the target; `overlay` names it and its close-button refs
   | "waiting" // the session is handed to the human (guard / handoff); run `tabcap handoff continue` after they finish
   | "guard.login-limit" // a second login attempt in the same session (docs/06 A6.2); --confirm overrides
+  | "guard.budget" // the account used its configured hourly request budget (config.json pool.budget); page commands wait for the next hour
+  | "ext.no-context" // ext mode cannot give this account its own browser context (proxy-bound, or a second account): use the direct mode
   | "internal"; // bug
 
 export interface OkEnvelope<T> {

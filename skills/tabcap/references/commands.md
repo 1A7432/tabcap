@@ -131,10 +131,10 @@ Example: `tabcap site remove shop`
 
 ### `tabcap session start`
 
-create a session (navigate also creates it); --site binds a stored site → entryUrl and the secret references
+create a session (navigate also creates it); --site binds a stored site → entryUrl, the secret references, account and proxy (names only)
 
 ```
-tabcap session start <name> [--site site]
+tabcap session start <name> [--site site] [--account user|auto]
 ```
 
 Example: `tabcap session start shop --site shop`
@@ -142,6 +142,7 @@ Example: `tabcap session start shop --site shop`
 | Option | Default | Meaning |
 |---|---|---|
 | `--site <site>` |  | bind a stored site: its account is used by fill --secret and recorded in the bundle manifest |
+| `--account <user\|auto>` |  | which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); an account bound to a proxy gets its own browser context through it |
 
 ### `tabcap session stop`
 
@@ -855,7 +856,7 @@ Example: `tabcap replay session ./b -o storage-state.json`
 generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs
 
 ```
-tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain]
+tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--proxy-env file]
 ```
 
 Example: `tabcap replay export-python ./b -o ./client`
@@ -867,6 +868,7 @@ Example: `tabcap replay export-python ./b -o ./client`
 | `--exclude <glob,glob>` |  | leave out paths matching these globs |
 | `--chain` |  | use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response) |
 | `--no-chain` |  | 0.3 behaviour: per-request heuristics only, no verify() |
+| `--proxy-env <file>` |  | also write TABCAP_PROXY_URL (the bundle account's proxy, with its credentials) to this file, mode 0600; never printed. The generated client reads TABCAP_PROXY_URL |
 
 ### `tabcap replay check`
 
@@ -881,7 +883,7 @@ Example: `tabcap replay check ./b --against http://127.0.0.1:4500`
 | Option | Default | Meaning |
 |---|---|---|
 | `--against <url>` | `http://127.0.0.1:4500` | target origin; non-loopback needs --live |
-| `--live` |  | allow a non-loopback target: needs a stored site (--site or the bundle's), paced and counted per site |
+| `--live` |  | allow a non-loopback target: needs a stored site (--site or the bundle's), paced and counted per site; goes out through the account's proxy when it is bound to one |
 | `--rate <n>` |  | live requests per second (default 0.5) |
 | `--site <site>` |  | stored site whose guard counters a live check uses |
 | `--filter <glob,glob>` |  | only paths matching these globs |
@@ -902,3 +904,94 @@ Example: `tabcap schema --json`
 | Option | Default | Meaning |
 |---|---|---|
 | `--json` |  | print the bare schema document (no envelope) |
+
+## Other
+
+### `tabcap proxy add`
+
+add a proxy to the local store (state.db, 0600) for the account pool; for the human: the password is typed at a prompt or piped, never passed as an argument, and never shown in tabcap output
+
+```
+tabcap proxy add <name> --url <scheme://host:port> [--user username] [--password-stdin] [--bypass list]
+```
+
+Example: `tabcap proxy add p1 --url http://127.0.0.1:8080 --user pool1 --password-stdin`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--url <scheme://host:port>` |  | scheme://host:port (http, https, socks4, socks5); never credentials (required) |
+| `--user <username>` |  | proxy username (not a secret: shown in listings); SOCKS with a username is refused (Chrome offers no-auth SOCKS only) |
+| `--password-stdin` |  | read the proxy password from stdin (else an interactive prompt when --user is given; never an argument) |
+| `--bypass <list>` |  | Chrome proxy bypass list for the account's browser context, e.g. "<-loopback>" to send loopback through the proxy too |
+
+### `tabcap proxy list`
+
+stored proxies: name, scheme, host:port, user, hasAuth, bypass, state, last check (never the password)
+
+```
+tabcap proxy list
+```
+
+Example: `tabcap proxy list`
+
+### `tabcap proxy remove`
+
+delete a proxy no account is bound to
+
+```
+tabcap proxy remove <name>
+```
+
+Example: `tabcap proxy remove p1`
+
+### `tabcap proxy check`
+
+one health check through the proxy: unknown → up on success; 3 failures in a row → down (rechecked after 1 / 5 / 15 min)
+
+```
+tabcap proxy check <name> [--url url]
+```
+
+Example: `tabcap proxy check p1 --url http://127.0.0.1:8080/`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--url <url>` |  | address to fetch through the proxy (else config.json pool.health.url; with neither nothing is contacted and the state is unchecked) |
+
+### `tabcap account bind`
+
+bind a stored account (<site>.<user>) to a proxy, or to the browser's own network (system / none)
+
+```
+tabcap account bind <account> --proxy <name|system|none>
+```
+
+Example: `tabcap account bind example.alice --proxy p1`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--proxy <name\|system\|none>` |  | a proxy name: the account gets its own browser context through it; system / none: the browser's own context and proxy flags (required) |
+
+### `tabcap account list`
+
+stored accounts: state (active / cooling / needs-human / disabled), coolUntil, proxy, lastUsedAt (never passwords)
+
+```
+tabcap account list [--site site]
+```
+
+Example: `tabcap account list --site example`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--site <site>` |  | only this site's accounts |
+
+### `tabcap account set-state`
+
+set an account active (also clears cooling and needs-human) or disabled (never allocated)
+
+```
+tabcap account set-state <account> active|disabled
+```
+
+Example: `tabcap account set-state example.alice disabled`

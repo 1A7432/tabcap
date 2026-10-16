@@ -44,7 +44,14 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap site add <name> --url <entry> --user <username> [--domains a,b] [--notes text] [--password-stdin]` | add a site and its account to the local store (state.db, 0600); for the human, not the AI: the password is typed at a prompt or piped, never passed as an argument |
 | `tabcap site list` | stored sites: name, entry URL, domains, usernames and the secret references to use (never secret values) |
 | `tabcap site remove <name>` | delete a site with its accounts and guard counters from the store |
-| `tabcap session start <name> [--site site]` | create a session (navigate also creates it); --site binds a stored site → entryUrl and the secret references |
+| `tabcap proxy add <name> --url <scheme://host:port> [--user username] [--password-stdin] [--bypass list]` | add a proxy to the local store (state.db, 0600) for the account pool; for the human: the password is typed at a prompt or piped, never passed as an argument, and never shown in tabcap output |
+| `tabcap proxy list` | stored proxies: name, scheme, host:port, user, hasAuth, bypass, state, last check (never the password) |
+| `tabcap proxy remove <name>` | delete a proxy no account is bound to |
+| `tabcap proxy check <name> [--url url]` | one health check through the proxy: unknown → up on success; 3 failures in a row → down (rechecked after 1 / 5 / 15 min) |
+| `tabcap account bind <account> --proxy <name\|system\|none>` | bind a stored account (<site>.<user>) to a proxy, or to the browser's own network (system / none) |
+| `tabcap account list [--site site]` | stored accounts: state (active / cooling / needs-human / disabled), coolUntil, proxy, lastUsedAt (never passwords) |
+| `tabcap account set-state <account> active\|disabled` | set an account active (also clears cooling and needs-human) or disabled (never allocated) |
+| `tabcap session start <name> [--site site] [--account user\|auto]` | create a session (navigate also creates it); --site binds a stored site → entryUrl, the secret references, account and proxy (names only) |
 | `tabcap session stop <name>` | close the session's own tabs (never tabs it did not open) and finish its recording |
 | `tabcap session list` | list sessions |
 | `tabcap navigate <url> [--tab t2] [--new-tab] [--no-wait]` | load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav |
@@ -92,7 +99,7 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 | `tabcap analyze chain <bundle> [--request r-N] [--session name] [--text]` | the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input) |
 | `tabcap replay serve <bundle> [--port port] [--host host] [--strict h1,h2] [--match-cookies] [--json] [--once seconds]` | serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256; repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k); no match → 404 with the nearest recordings and what differs |
 | `tabcap replay session [<bundle>] --out <file> [--site site]` | write the recording's cookies (latest state snapshot), or with --site and no bundle the store's saved session, as a Playwright storageState file, mode 0600; it holds live session cookies, values are never printed |
-| `tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain]` | generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs |
+| `tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--proxy-env file]` | generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs |
 | `tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--json]` | send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference |
 | `tabcap schema [--json]` | this command table as JSON: names, arguments, flags with types and defaults, help, examples |
 
