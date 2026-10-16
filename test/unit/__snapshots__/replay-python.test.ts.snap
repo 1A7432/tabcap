@@ -103,6 +103,20 @@ def _send(session: Session, method: str, url: str, params: list[tuple[str, str |
     return session.client.request(method, url, params=q or None, headers=h, content=content)
 
 
+class _Todo(str):
+    """Default of a parameter tabcap could not derive from the recording (see the TODO comment at the function)."""
+
+
+TODO = _Todo("TODO")
+
+
+def _need(mark: str, **values: Any) -> None:
+    """Raise NotImplementedError naming every parameter still at its TODO default."""
+    missing = [k for k, v in values.items() if isinstance(v, _Todo)]
+    if missing:
+        raise NotImplementedError(f"{mark} ({', '.join(missing)} not given)")
+
+
 # ---------------------------------------------------------------- response shapes (inferred from the recording; illustrative)
 
 PostApiLoginResponse = TypedDict(
@@ -183,15 +197,21 @@ def get_root(session: Session, *, base_url: str | None = None) -> Reply[Any]:
     return Reply(_send(session, "GET", url, params, headers, None))
 
 
-def post_api_login(session: Session, *, base_url: str | None = None) -> Reply[PostApiLoginResponse]:
-    """POST /api/login (1 sample(s): r-4)."""
+def post_api_login(session: Session, *, pass_: Any = TODO, base_url: str | None = None) -> Reply[PostApiLoginResponse]:
+    """POST /api/login (1 sample(s): r-4).
+
+    form pass: varying -> pass_
+    """
+    # TODO: secret input; pass it in (tabcap never writes it)
+    #   - form pass: secret input
+    _need("TODO: secret input; pass it in (tabcap never writes it)", pass_=pass_)
     url = (base_url or "http://127.0.0.1:4310") + "/api/login"
     params: list[tuple[str, str | None]] = []
     headers: list[tuple[str, str | None]] = [
         ("content-type", "application/x-www-form-urlencoded"),
         ("origin", "http://127.0.0.1:4310"),
     ]
-    return Reply(_send(session, "POST", url, params, headers, b"user=demo&pass=hunter2+x"))
+    return Reply(_send(session, "POST", url, params, headers, _form_bytes([("user", "demo"), ("pass", pass_)])))
 
 
 def get_api_items(session: Session, *, page: str, base_url: str | None = None) -> Reply[GetApiItemsResponse]:

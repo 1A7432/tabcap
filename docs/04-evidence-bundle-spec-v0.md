@@ -199,7 +199,7 @@
 - 触发：`tabcap bundle export har` 默认开，`--no-redact` 关；`tabcap bundle redact <in> <out>` 生成脱敏副本。原包永不原地改。
 - 规则来源：`redaction.json`（可改），默认规则：
   - 请求/响应头：`cookie`、`set-cookie`、`authorization`、`proxy-authorization`、`x-api-key`，以及名字含 `token` / `secret` / `session` / `auth` 的头。
-  - query、表单、JSON 字段：名字匹配 `(token|secret|passw|session|sid|auth|api[-_]?key)`。
+  - query、表单、JSON 字段：名字含 `(token|secret|passw|session|sid|auth|api[-_]?key)`，或有一段正好是 `pass` / `pwd`（按非字母数字、驼峰、字母数字交界切段：`user_pass`、`userPass`、`login-pwd`、`Pwd2` 算，`bypass`、`passport`、`compass`、`passenger` 不算；规则 `default@2`，0.4 作者定）。
   - 值模式：18 位身份证、11 位手机号、邮箱、JWT（`xxx.yyy.zzz` 且 base64url）。
   - `state` 事件（cookies / storage）整体打码。
 - 占位符：`«r:<类别>:<sha256(salt+值) 前 8 位>»`。同一个值在整包里映射到同一个占位符，所以 `diff` 的「会话值 / 常量」分类在脱敏副本上不变。salt 只存在本地原包的 `exports/<name>.salt`，不进副本。

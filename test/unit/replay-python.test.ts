@@ -10,7 +10,7 @@ import { exportPython, pyBytes, pyIdent, pyStr, TODO_MARK } from "../../src/repl
 import { run } from "../../src/cli/main.ts";
 import { buildBundle, tmp } from "./_analyze.ts";
 import { PYTHON3, pyCompile } from "./_python.ts";
-import { buildReplayBundle } from "./_replay.ts";
+import { LOGIN_BODY, buildReplayBundle } from "./_replay.ts";
 import { SLOW_IO_MS } from "./_platform.ts";
 
 let root = "";
@@ -47,6 +47,18 @@ describe("generated package", () => {
     const client = readFileSync(join(out, "client.py"), "utf8");
     expect(client).toMatchSnapshot();
     expect(pyCompile(FILES.map((f) => join(out, f)))).toBeNull();
+  });
+
+  test("--no-chain: a login form field named `pass` is a secret input; its recorded value is written nowhere (default@2)", () => {
+    const out = join(root, "py-pass");
+    const r = exportPython({ bundle, out, chain: false });
+    const recorded = new URLSearchParams(LOGIN_BODY).get("pass") ?? "?";
+    expect(recorded).toBe("hunter2 x");
+    expect(r.functions.find((f) => f.name === "post_api_login")?.args).toEqual(["pass_"]);
+    for (const f of r.files) {
+      const text = readFileSync(join(out, f), "utf8");
+      for (const v of [recorded, "hunter2+x", "hunter2"]) expect([f, text.includes(v)]).toEqual([f, false]);
+    }
   });
 
   test("functions: arguments for varying values, timestamps optional, TODO for signatures and unrecorded bodies", () => {

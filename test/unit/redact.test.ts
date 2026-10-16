@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { exportHar } from "../../src/bundle/har.ts";
 import { BundleReader } from "../../src/bundle/reader.ts";
-import { redactBundle } from "../../src/bundle/redact.ts";
+import { isSensitiveName, nameWords, redactBundle } from "../../src/bundle/redact.ts";
 import { JWT, SECRET_SID, buildRichBundle } from "./_fixtures.ts";
 
 const tmp = (p = "tabcap-redact-") => mkdtempSync(join(tmpdir(), p));
@@ -35,6 +35,15 @@ async function redactedRich() {
   const salt = readFileSync(join(src, "exports", "copy.salt"), "utf8").trim();
   return { src, out, res, salt, before, copy: BundleReader.open(out), orig: BundleReader.open(src) };
 }
+
+describe("sensitive names (default@2, owner 2026-10-16)", () => {
+  test("pass / pwd match as a name segment only; the default@1 substrings keep matching anywhere", () => {
+    for (const n of ["pass", "user_pass", "userPass", "login-pwd", "pwd", "Pwd2", "PASS", "user.pass", "USER_PWD", "loginPwd"]) expect([n, isSensitiveName(n)]).toEqual([n, true]);
+    for (const n of ["bypass", "passport", "compass", "passenger", "pwds", "q", "page", "user"]) expect([n, isSensitiveName(n)]).toEqual([n, false]);
+    for (const n of ["password", "passwd", "mypassword", "x-token", "csrftoken", "secretKey", "sessionid", "sid", "oauth", "api_key", "apikey"]) expect([n, isSensitiveName(n)]).toEqual([n, true]);
+    expect(nameWords("XMLPass2go")).toEqual(["XML", "Pass", "2", "go"]);
+  });
+});
 
 describe("redaction (docs/04 §8)", () => {
   test("same secret -> same placeholder across cookie header, query and JSON body", async () => {
@@ -80,7 +89,7 @@ describe("redaction (docs/04 §8)", () => {
 
   test("copy has manifest.redaction and recomputed counts; source unchanged; salt only in source exports/", async () => {
     const { src, out, res, salt, before, copy, orig } = await redactedRich();
-    expect(copy.manifest.redaction).toEqual({ rules: "default@1", applied: 1760500999000 });
+    expect(copy.manifest.redaction).toEqual({ rules: "default@2", applied: 1760500999000 });
     expect(orig.manifest.redaction).toBeNull();
     expect(copy.manifest.counts.events).toBe(orig.events.length);
     expect(copy.manifest.counts.requests).toBe(orig.manifest.counts.requests);

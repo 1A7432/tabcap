@@ -9,8 +9,9 @@
 // timestamp-shaped values. Signature-like parameters and encrypted request
 // bodies are NOT reproduced (docs/03 §6): those functions raise
 // NotImplementedError with a TODO marker. Inputs with a sensitive name (the
-// `bundle redact` name rule: passw / token / secret / session / sid / auth /
-// api key, and sensitive headers) are never written into any generated file,
+// `bundle redact` name rule default@2: passw / token / secret / session / sid /
+// auth / api key anywhere in the name, pass / pwd as a name segment, and
+// sensitive headers) are never written into any generated file,
 // in any mode: they become parameters defaulting to TODO (TODO_SECRET) and
 // their recorded values stay out of fixtures. Response JSON → TypedDict per group,
 // types inferred from every recorded sample (analyze decoders parse).
