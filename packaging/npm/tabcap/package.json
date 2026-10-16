@@ -12,15 +12,11 @@
     "tabcap": "bin/tabcap.js"
   },
   "files": [
-    "bin/"
+    "bin/",
+    "skills/",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=18"
-  },
-  "optionalDependencies": {
-    "@tabcap/darwin-arm64": "0.4.0",
-    "@tabcap/linux-x64": "0.4.0",
-    "@tabcap/linux-arm64": "0.4.0",
-    "@tabcap/win32-x64": "0.4.0"
   }
 }

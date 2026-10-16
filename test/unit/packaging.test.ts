@@ -1,10 +1,12 @@
 // 0.3-G packaging templates (unpublished): Homebrew formula, npm wrapper with
-// per-platform optional dependencies, Scoop manifest. Checks syntax and that
-// every file points at the archives scripts/release.ts actually produces.
+// per-platform optional dependencies (names filled in by scripts/npm-pack.ts
+// since 0.5-N), Scoop manifest. Checks syntax and that every file points at
+// the archives scripts/release.ts actually produces.
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { NPM_PLATFORMS, mainManifest, platformPackageName } from "../../scripts/npm-pack.ts";
 import { planFor } from "../../scripts/release.ts";
 import { TOOL_VERSION } from "../../src/bundle/manifest.ts";
 import { isRecord } from "../../src/shared/json.ts";
@@ -43,32 +45,33 @@ describe("Homebrew formula template", () => {
 });
 
 describe("npm wrapper template", () => {
+  // Names come from NPM_SCOPE in scripts/npm-pack.ts, so the templates hold none.
   const wrapper = json(join(PKG, "npm", "tabcap", "package.json"));
   const platforms = readdirSync(join(PKG, "npm", "platforms")).sort();
-  test("one optional dependency per platform package, same version, no install scripts", () => {
-    expect(platforms).toEqual(["darwin-arm64", "linux-arm64", "linux-x64", "win32-x64"]);
+  test("the tabcap template: this version, the shim as bin, no names of platform packages, no install scripts", () => {
+    expect(platforms).toEqual([...NPM_PLATFORMS].sort());
     expect(wrapper).toMatchObject({ name: "tabcap", version: TOOL_VERSION, bin: { tabcap: "bin/tabcap.js" }, license: "Apache-2.0" });
     expect("scripts" in wrapper).toBe(false);
-    const deps = rec(wrapper["optionalDependencies"]);
-    expect(Object.keys(deps).sort()).toEqual(platforms.map((p) => `@tabcap/${p}`));
+    expect("optionalDependencies" in wrapper).toBe(false);
+    const deps = rec(mainManifest(wrapper, TOOL_VERSION)["optionalDependencies"]);
+    expect(Object.keys(deps).sort()).toEqual(NPM_PLATFORMS.map((p) => platformPackageName(p)).sort());
     for (const v of Object.values(deps)) expect(v).toBe(TOOL_VERSION);
   });
-  test("each platform package selects itself by os / cpu and ships bin/ only", () => {
+  test("each platform package selects itself by os / cpu and ships bin/ and NOTICE only", () => {
     for (const p of platforms) {
       const m = json(join(PKG, "npm", "platforms", p, "package.json"));
       const [os, cpu] = p.split("-");
-      expect(m).toMatchObject({ name: `@tabcap/${p}`, version: TOOL_VERSION, os: [os], cpu: [cpu], files: ["bin/"], license: "Apache-2.0" });
+      expect(m).toMatchObject({ version: TOOL_VERSION, os: [os], cpu: [cpu], files: ["bin/", "NOTICE"], license: "Apache-2.0" });
+      expect("name" in m).toBe(false);
       expect("scripts" in m).toBe(false);
     }
   });
-  test("the shim parses, maps every platform package, and says what is missing", () => {
+  test("the shim template parses and, unfilled, says what is missing", () => {
     const shim = join(PKG, "npm", "tabcap", "bin", "tabcap.js");
-    const src = readFileSync(shim, "utf8");
-    new Bun.Transpiler({ loader: "js" }).transformSync(src); // throws on a syntax error
-    for (const p of platforms) expect(src).toContain(`"${p}": "@tabcap/${p}"`);
+    new Bun.Transpiler({ loader: "js" }).transformSync(readFileSync(shim, "utf8")); // throws on a syntax error
     const r = Bun.spawnSync(["bun", shim, "--version"], { stdout: "pipe", stderr: "pipe" });
     expect(r.exitCode).toBe(1);
-    expect(r.stderr.toString()).toMatch(/^tabcap: (@tabcap\/\S+ is not installed|no prebuilt binary for )/);
+    expect(r.stderr.toString()).toMatch(/^tabcap: no prebuilt binary for \S+; build from source/);
   });
 });
 

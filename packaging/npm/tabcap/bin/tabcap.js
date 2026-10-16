@@ -1,18 +1,17 @@
 #!/usr/bin/env node
-// tabcap npm shim (template; not published). npm installs exactly one of the
-// @tabcap/<os>-<cpu> optional dependencies (their package.json `os` / `cpu`
-// fields pick it); this shim finds that package's binary and runs it with the
-// same arguments, stdio and exit code. No postinstall step.
+// tabcap npm shim. npm installs exactly one of the per-platform optional
+// dependencies (their package.json `os` / `cpu` fields pick it); this shim
+// finds that package's binary and runs it with the same arguments and stdio,
+// then exits with its exit code, or re-raises the signal that killed it.
+// No postinstall step. This file is a template: scripts/npm-pack.ts fills the
+// PACKAGES block from NPM_SCOPE (unscoped tabcap-<os>-<cpu> or @<scope>/<os>-<cpu>).
 "use strict";
 
 const { spawnSync } = require("node:child_process");
 
-const PACKAGES = {
-  "darwin-arm64": "@tabcap/darwin-arm64",
-  "linux-x64": "@tabcap/linux-x64",
-  "linux-arm64": "@tabcap/linux-arm64",
-  "win32-x64": "@tabcap/win32-x64",
-};
+// BEGIN GENERATED: packages (scripts/npm-pack.ts)
+const PACKAGES = {};
+// END GENERATED: packages
 
 const key = `${process.platform}-${process.arch}`;
 const pkg = PACKAGES[key];
@@ -25,7 +24,7 @@ let bin;
 try {
   bin = require.resolve(`${pkg}/bin/${process.platform === "win32" ? "tabcap.exe" : "tabcap"}`);
 } catch {
-  process.stderr.write(`tabcap: ${pkg} is not installed (were optional dependencies skipped?); reinstall tabcap without --no-optional.\n`);
+  process.stderr.write(`tabcap: ${pkg} is not installed (were optional dependencies skipped?); reinstall tabcap without --omit=optional / --no-optional.\n`);
   process.exit(1);
 }
 

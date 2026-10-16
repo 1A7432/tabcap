@@ -87,7 +87,7 @@ export const NATIVE_BUILD_COMMAND = ["bun", join(ROOT, "scripts", "native.ts"), 
 /** Files every package carries besides the binary (paths inside the package). */
 export const PACKAGE_FILES = ["README.md", "README.zh-CN.md", "LICENSE", "NOTICE", `skills/${TOOL_NAME}/SKILL.md`] as const;
 
-function run(cmd: string[], o: { cwd?: string; env?: Record<string, string> } = {}): void {
+export function run(cmd: string[], o: { cwd?: string; env?: Record<string, string> } = {}): void {
   const p = Bun.spawnSync(cmd, { cwd: o.cwd ?? ROOT, stdout: "inherit", stderr: "inherit", env: { ...process.env, ...(o.env ?? {}) } });
   if (p.exitCode !== 0) throw new Error(`${cmd.join(" ")} failed (${p.exitCode})`);
 }
