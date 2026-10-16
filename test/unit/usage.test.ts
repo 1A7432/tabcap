@@ -48,6 +48,38 @@ describe("usageReport", () => {
     expect(a?.emptyBodies).toBe(1); // only app.js (no body, nothing said why); big.js was skipped
   });
 
+  test("0.6-U: intervals and burst leave CORS preflights out; the preflight is still counted and spans first / last", async () => {
+    const dir = tmp("tabcap-usage-pf-");
+    await buildBundle(dir, { name: "u3", created: T0, seed: 11 }, async (b) => {
+      const f = (id: string) => ({ fetchId: `c-1:${id}`, cmd: "c-1" });
+      const pf = { method: "OPTIONS", status: 204, bodyMissing: "no-content" as const, reqHeaders: { "access-control-request-method": "POST" } };
+      // fetch 1 starts at 5000; its preflight at 4999.8 (0.2 ms earlier); fetch 2 at 8000, its preflight at 7999.8
+      await b.request({ url: `${A}/api/x`, ...pf, ts: T0 + 3999, extra: { ...f("f-1"), initiator: { type: "preflight" }, timing: { start: 4999.8 } } });
+      await b.request({ url: `${A}/api/x`, method: "POST", ts: T0 + 4000, mime: "application/json", body: "{}", extra: { ...f("f-1"), timing: { start: 5000 } } });
+      await b.request({ url: `${A}/api/y`, ...pf, ts: T0 + 6999, extra: { ...f("f-2"), initiator: { type: "preflight" }, timing: { start: 7999.8 } } });
+      await b.request({ url: `${A}/api/y`, method: "POST", ts: T0 + 7000, mime: "application/json", body: "{}", extra: { ...f("f-2"), timing: { start: 8000 } } });
+    });
+    const row = usageReport(BundleReader.open(dir), dir, []).hosts.find((h) => h.host === "a.example:4310" && h.actor === "fetch");
+    expect(row?.requests).toBe(4);
+    expect(row?.preflights).toBe(2);
+    expect(row?.emptyBodies).toBe(0);
+    expect(row?.minIntervalMs).toBe(3000); // not 0.2: 5000 → 8000 only
+    expect(row?.meanIntervalMs).toBe(3000);
+    expect(row?.maxBurst1s).toBe(1); // a preflight and its request 0.2 ms apart are not a burst of 2
+    expect([row?.firstMono, row?.lastMono]).toEqual([4999.8, 8000]);
+  });
+
+  test("0.6-U: a row of preflights only has no interval statistics", async () => {
+    const dir = tmp("tabcap-usage-pf2-");
+    await buildBundle(dir, { name: "u4", created: T0, seed: 12 }, async (b) => {
+      const pf = { method: "OPTIONS", status: 204, bodyMissing: "no-content" as const, reqHeaders: { "access-control-request-method": "PUT" } };
+      await b.request({ url: `${A}/api/x`, ...pf, ts: T0 + 100 });
+      await b.request({ url: `${A}/api/x`, ...pf, ts: T0 + 101 });
+    });
+    const row = usageReport(BundleReader.open(dir), dir, []).hosts.find((h) => h.host === "a.example:4310");
+    expect(row).toMatchObject({ requests: 2, preflights: 2, minIntervalMs: null, meanIntervalMs: null, maxBurst1s: 0, firstMono: 1100, lastMono: 1101 });
+  });
+
   test("hosts: counts, intervals, burst, statuses, empty bodies, bytes", async () => {
     const dir = await fixture();
     const u = usageReport(BundleReader.open(dir), dir, []);

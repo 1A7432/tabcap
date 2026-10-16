@@ -266,7 +266,8 @@ describe("bundle info --usage by actor", () => {
     ]);
     expect(u.actors).toEqual({ page: 3, fetch: 3, evaluate: 1, other: 1 });
     const f = u.hosts.find((h) => h.actor === "fetch");
-    expect(f).toMatchObject({ preflights: 1, emptyBodies: 0, byMethod: { GET: 2, OPTIONS: 1 }, minIntervalMs: 10 });
+    // 0.6-U: intervals leave the preflight (3990, 10 ms before its fetch) out: 1000 → 4000
+    expect(f).toMatchObject({ preflights: 1, emptyBodies: 0, byMethod: { GET: 2, OPTIONS: 1 }, minIntervalMs: 3000, firstMono: 2000, lastMono: 5000 });
     expect(u.skipped).toEqual({ loopback: { hosts: ["127.0.0.1:9222", "[::1]:4501", "localhost:4500"], requests: 3 }, schemes: { data: 1 } });
     expect(u.windows.reduce((n, w) => n + w.requests, 0)).toBe(8);
     expect(u.filter).toEqual({ actor: null, allHosts: false });
