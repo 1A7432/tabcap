@@ -208,3 +208,48 @@ export async function buildSign(dir: string): Promise<string> {
     await b.request({ url: `${ORIGIN}/api/sign?q=${SIGN_ONE.q}&t=${SIGN_ONE.t}&sig=${SIGN_ONE_SIG}`, mime: JSON_MIME, body: JSON.stringify({ ok: true }), ts: SIGN_ONE.t + 5 });
   });
 }
+
+// 0.6-E TOKEN (docs/05 s53 shape): POST /api/token answers {access_token: ACCESS_TOKEN, token_type, ref: QUOTED};
+// GET /api/me sends `authorization: Bearer ACCESS_TOKEN` and `x-ref: "QUOTED"` (the leaf in double quotes).
+export const ACCESS_TOKEN = "at-3c1f9e7a5b2d4f60a8c1";
+export const QUOTED = "ref-77aa55cc33ee11";
+
+export async function buildToken(dir: string): Promise<string> {
+  return buildBundle(dir, { name: "token", created: C, seed: 16 }, async (b) => {
+    await b.request({
+      url: `${ORIGIN}/api/token`,
+      method: "POST",
+      type: "fetch",
+      mime: JSON_MIME,
+      body: JSON.stringify({ access_token: ACCESS_TOKEN, token_type: "Bearer", ref: QUOTED }),
+      postData: "client=web",
+      reqHeaders: { "content-type": FORM },
+      ts: C + 100,
+    });
+    await b.request({ url: `${ORIGIN}/api/me`, type: "fetch", mime: JSON_MIME, body: JSON.stringify({ name: "demo" }), reqHeaders: { authorization: `Bearer ${ACCESS_TOKEN}`, "x-ref": `"${QUOTED}"` }, ts: C + 200 });
+  });
+}
+
+// 0.6-E REPORT: two GET /api/report calls whose parameters the caller chooses (page, period, groupBy, cat),
+// a constant pageSize, a random nonce, a sensitive-named plain value (sessionKind); then two POST /api/stats
+// with JSON {year, groupBy}. None of the varying values has a source in the recording.
+export const REPORTS = [
+  { page: "1", period: "2026-09", groupBy: "day", cat: "books", nonce: "9a8b7c6d5e4f3a2b", sessionKind: "alpha" },
+  { page: "2", period: "2026-10", groupBy: "week", cat: "toys", nonce: "1f2e3d4c5b6a7980", sessionKind: "beta" },
+];
+export const STATS = [
+  { year: 2025, groupBy: "month" },
+  { year: 2026, groupBy: "quarter" },
+];
+
+export async function buildReport(dir: string): Promise<string> {
+  return buildBundle(dir, { name: "report", created: C, seed: 17 }, async (b) => {
+    for (const [i, q] of REPORTS.entries()) {
+      const qs = new URLSearchParams({ page: q.page, pageSize: "20", period: q.period, groupBy: q.groupBy, cat: q.cat, nonce: q.nonce, sessionKind: q.sessionKind }).toString();
+      await b.request({ url: `${ORIGIN}/api/report?${qs}`, type: "fetch", mime: JSON_MIME, body: JSON.stringify({ rows: [i] }), ts: C + 100 + i * 100 });
+    }
+    for (const [i, s] of STATS.entries()) {
+      await b.request({ url: `${ORIGIN}/api/stats`, method: "POST", type: "fetch", mime: JSON_MIME, body: JSON.stringify({ total: i }), postData: JSON.stringify(s), reqHeaders: { "content-type": JSON_MIME }, ts: C + 400 + i * 100 });
+    }
+  });
+}

@@ -233,9 +233,20 @@ type ArgSource = { kind: "param"; location: ParamLocation; name: string } | { ki
 
 /**
  * `sample`: the first recorded sample's value (passed by the generated test); `hasSample` false when absent there.
- * Chain mode: `todo` is the TODO mark of a parameter defaulting to TODO; `secret` withholds its recorded value.
+ * Chain mode: `todo` is the TODO mark of a parameter defaulting to TODO; `secret` withholds its recorded value;
+ * `default` is the Python literal of a caller-input's default (the recorded value, 0.6-E); `wrap` the scheme
+ * prefix / quote a header value carries around the argument (`Bearer ` + access_token).
  */
-type Arg = { py: string; type: string; optional: boolean; sample: unknown; hasSample: boolean; note: string; source: ArgSource; todo?: string; secret?: boolean };
+type Arg = { py: string; type: string; optional: boolean; sample: unknown; hasSample: boolean; note: string; source: ArgSource; todo?: string; secret?: boolean; default?: string; wrap?: { prefix: string; suffix: string } };
+
+/** The argument inside a recorded value that carries `wrap` around it (unchanged when it does not). */
+function unwrapValue(v: unknown, w: Arg["wrap"]): unknown {
+  if (w === undefined || typeof v !== "string" || !v.startsWith(w.prefix) || !v.endsWith(w.suffix) || v.length < w.prefix.length + w.suffix.length) return v;
+  return v.slice(w.prefix.length, v.length - w.suffix.length).trim();
+}
+
+/** The expression that sends an argument: with its scheme prefix / quotes when it has them. */
+const argExpr = (a: Arg): string => (a.wrap === undefined ? a.py : [pyStr(a.wrap.prefix), a.py, ...(a.wrap.suffix === "" ? [] : [pyStr(a.wrap.suffix)])].join(" + "));
 
 type ParamPlan = { location: ParamLocation; name: string; cls: DiffParam["class"]; hints: string[]; expr: string; arg: Arg | null; first: string | null; deps?: string };
 
@@ -317,13 +328,21 @@ function encryptedField(doc: unknown): string | null {
 
 const isSensitive = (loc: ParamLocation, name: string): boolean => isSensitiveName(name) || (loc === "header" && isSensitiveHeader(name));
 
+/** How a prefixed / quoted header value is described in docstrings (docSafe would turn a quote into `_`). */
+function wrapNote(prefix: string | undefined, suffix: string | undefined): string {
+  if (prefix === undefined) return "";
+  const q = suffix ?? "";
+  const scheme = q === "" ? prefix : prefix.slice(0, prefix.length - q.length);
+  return [scheme === "" ? "" : ` with prefix '${scheme}'`, q === "" ? "" : " in quotes"].join("");
+}
+
 function depsNote(i: ResolvedInput, fnOf: (request: string) => string | null): string {
   const extra = [...i.hints, ...(i.covaries.length > 0 ? [`varies with ${i.covaries.join(", ")}`] : [])].join("; ");
   const p = i.primary;
   if (p === null) return `${i.class}${extra === "" ? "" : ` (${extra})`}`;
   const fn = p.request === undefined ? null : fnOf(p.request);
   const who = p.request === undefined ? "" : ` of ${fn ?? "?"} (${p.request})`;
-  if (p.kind === "response") return `response${who} ${p.path ?? "(text)"}${(p.decode ?? []).length > 0 ? ` [${(p.decode ?? []).join(",")}]` : ""}`;
+  if (p.kind === "response") return `response${who} ${p.path ?? "(text)"}${(p.decode ?? []).length > 0 ? ` [${(p.decode ?? []).join(",")}]` : ""}${wrapNote(p.prefix, p.suffix)}`;
   if (p.kind === "set-cookie") return `set-cookie ${p.cookie ?? ""}${who}`;
   if (p.kind === "action") return `recorded user input (action @${p.action ?? ""})`;
   return `${p.kind}${extra === "" ? "" : ` (${extra})`}`;
@@ -390,6 +409,16 @@ function planFunction(
         todoArgs.push({ arg, why: `${p.location} ${p.name}${sig} ${note}` });
       } else if (di.class === "response" || di.class === "action") {
         arg = mkArg(p.name, p.location, p.location === "json" ? pyTypeOf(jsonSample) : "str", false, jsonSample, v0 !== null, note, src);
+        const pre = di.class === "response" && p.location === "header" ? di.primary?.prefix : undefined;
+        if (pre !== undefined) {
+          arg.wrap = { prefix: pre, suffix: di.primary?.suffix ?? "" };
+          arg.sample = unwrapValue(arg.sample, arg.wrap);
+        }
+      } else if (di.class === "caller-input") {
+        // a value the caller chooses (paging, period, search term …): a plain parameter, the recorded value its default
+        const t = p.location === "json" ? pyTypeOf(jsonSample) : "str";
+        arg = mkArg(p.name, p.location, v0 === null ? `${t} | None` : t, true, jsonSample, v0 !== null, `caller input; default: the recorded value`, src);
+        arg.default = v0 === null ? "None" : lit;
       } else if (di.class === "set-cookie" && di.primary?.cookie !== undefined) {
         expr = numeric ? lit : `session.cookie(${pyStr(di.primary.cookie)}, ${lit})`;
       } else if (sensitive) {
@@ -398,7 +427,7 @@ function planFunction(
       } else decided = false;
       if (decided) {
         if (arg !== null) {
-          expr = arg.py;
+          expr = argExpr(arg);
           if (sensitive) {
             arg.secret = true;
             if (arg.todo === undefined) {
@@ -553,7 +582,7 @@ function planFunction(
     "session: Session",
     ...(args.length > 0 ? ["*"] : []),
     ...args.filter((a) => !a.optional).map((a) => `${a.py}: ${a.type}`),
-    ...args.filter((a) => a.optional).map((a) => (a.todo !== undefined ? `${a.py}: Any = TODO` : `${a.py}: ${a.type} = None`)),
+    ...args.filter((a) => a.optional).map((a) => (a.todo !== undefined ? `${a.py}: Any = TODO` : `${a.py}: ${a.type} = ${a.default ?? "None"}`)),
   ];
   if (args.length === 0) sig.push("*");
   sig.push("base_url: str | None = None");
@@ -794,7 +823,7 @@ function verifyExpected(
       }
       const v = argValueIn(a, r, params, ctx);
       if (!v.has) continue;
-      args[a.py] = a.secret === true ? `<secret:${p.fn.name}.${a.py}>` : v.value;
+      args[a.py] = a.secret === true ? `<secret:${p.fn.name}.${a.py}>` : unwrapValue(v.value, a.wrap);
     }
     steps.push({ ...base, function: p.fn.name, skip: null, args, derived, notes, expect: expectOf(r, ctx) });
   }
@@ -820,7 +849,7 @@ function chainReadme(chain: ChainResult, redacted: boolean): string {
     "",
     "## The action chain, TODOs and `verify()`",
     "",
-    `This client follows the action chain (\`tabcap analyze deps\` / \`analyze chain\`): target \`${chain.target}\`, ${chain.steps.length} step(s) (${chain.steps.map((s) => `\`${s.request}\``).join(" → ")}). Inputs with no source in the recording (\`computed-in-page\`) are parameters defaulting to \`TODO\`; values from an earlier step's response are parameters the caller or \`verify()\` takes from that step's reply; cookies travel in the \`Session\` cookie jar.`,
+    `This client follows the action chain (\`tabcap analyze deps\` / \`analyze chain\`): target \`${chain.target}\`, ${chain.steps.length} step(s) (${chain.steps.map((s) => `\`${s.request}\``).join(" → ")}). Inputs with no source in the recording (\`computed-in-page\`) are parameters defaulting to \`TODO\`; values the caller chooses (\`caller-input\`: page, page size, period, search term …) are plain parameters whose default is the recorded value; values from an earlier step's response are parameters the caller or \`verify()\` takes from that step's reply; cookies travel in the \`Session\` cookie jar.`,
     "",
     "The caller's agent works in this order:",
     "",

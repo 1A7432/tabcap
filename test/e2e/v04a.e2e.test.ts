@@ -9,6 +9,9 @@
 //       `sids`) and {csrf}; the page sends x-csrf + the cookie to /api/data.
 //       docs/05 s07 P2: deps draws the csrf chain. The generated verify() then
 //       replays that chain against `replay serve` of the bundle and must pass.
+//   s53 (startTokenSite, 0.6-E): POST /api/s53/token answers {access_token};
+//       the page sends `Authorization: Bearer <it>`; the site's `tokens` /
+//       `meAuth` journal is the oracle.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -17,7 +20,7 @@ import { basename, join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { MUST_RUN, need, packageReason, pyCompile, runInPackageAsync, syncPackage } from "../unit/_python.ts";
-import { LOGIN_PASSWORD, LOGIN_USER, SEARCH_BUILD, startGuardSite, startSearchSite, type GuardSite, type SearchSite } from "./site.ts";
+import { LOGIN_PASSWORD, LOGIN_USER, SEARCH_BUILD, startGuardSite, startSearchSite, startTokenSite, type GuardSite, type SearchSite, type TokenSite } from "./site.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -30,6 +33,7 @@ const SPELLINGS = [...new Set([LOGIN_PASSWORD, JSON.stringify(LOGIN_PASSWORD).sl
 let home = "";
 let guard: GuardSite;
 let search: SearchSite;
+let tokenSite: TokenSite;
 
 type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown> | null; raw: string; exit: number };
 const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
@@ -135,6 +139,7 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     home = mkdtempSync(join(tmpdir(), "tabcap-e2e4a-"));
     guard = startGuardSite();
     search = startSearchSite({ sid: true });
+    tokenSite = startTokenSite();
     const add = await tabcap(["site", "add", SITE, "--url", `${guard.origin}/s07/login`, "--user", LOGIN_USER, "--password-stdin"], LOGIN_PASSWORD + "\n");
     if (!add.ok) throw new Error(`site add failed: ${add.raw}`);
     await ok("daemon", "start");
@@ -145,6 +150,7 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     await tabcap(["daemon", "stop"]).catch(() => null);
     guard.stop();
     search.stop();
+    tokenSite.stop();
     if (KEEP !== "") keepHome(home, join(KEEP, basename(home)));
     rmSync(home, { recursive: true, force: true });
   });
@@ -195,7 +201,66 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     expect(steps[0]).toBe(doc?.id);
     expect(steps[steps.length - 1]).toBe(target);
     expect(recs(chain["todo"]).filter((t) => t["request"] === target).map((t) => t["name"])).toEqual(expect.arrayContaining(["sig", "nonce"]));
+
+    // 0.6-E: q and page are what the caller chose (the navigation URL): no source in the recording, plain
+    // parameters → caller-input on the document, carried forward into the searches; chain `inputs`, not `todo`.
+    for (const r of searches) {
+      // each search carries the q / page of the page load that ran it (same query string)
+      const q = new URL(r.url).searchParams.get("q");
+      const load = reqs.find((x) => x.type === "document" && new URL(x.url).pathname === "/s06" && new URL(x.url).searchParams.get("q") === q);
+      for (const n of ["q", "page"]) {
+        const i = inputOf(deps, load?.id ?? "", "query", n);
+        expect([load?.id, n, i.class, i.primary]).toEqual([load?.id, n, "caller-input", null]);
+        expect(inputOf(deps, r.id, "query", n).primary).toEqual({ kind: "request", request: load?.id, path: `query:${n}` });
+      }
+    }
+    expect(recs(chain["todo"]).some((t) => t["name"] === "q" || t["name"] === "page")).toBe(false);
+    const ins = recs(chain["inputs"]).map((t) => `${s(t["request"])} ${s(t["name"])} ${s(t["class"])}`);
+    for (const id of [doc?.id, target]) for (const n of ["q", "page"]) expect(ins).toContain(`${id} ${n} caller-input`);
   }, 90_000);
+
+  test("s53: Authorization: Bearer <token> comes from the token endpoint's access_token; the generated client sends it back with the prefix (docs/05 s53)", async () => {
+    const S = ["--session", "s53"];
+    const bundle = s((await ok("net", "start", ...S))["bundle"]);
+    await ok("navigate", `${tokenSite.origin}/s53/`, ...S);
+    await ok("wait", "--text", "me demo-user", ...S);
+    await ok("net", "stop", ...S);
+
+    // the site's journal: one token handed out, sent back once as `Bearer <it>`
+    expect(tokenSite.tokens.length).toBe(1);
+    const tok = tokenSite.tokens[0] ?? "";
+    expect(tokenSite.meAuth).toEqual([`Bearer ${tok}`]);
+    const reqs = BundleReader.open(bundle).requests();
+    const tokenReq = reqs.find((r) => r.url.endsWith("/api/s53/token"));
+    const me = reqs.find((r) => r.url.endsWith("/api/s53/me"));
+    if (tokenReq === undefined || me === undefined) throw new Error("token / me not recorded");
+
+    const deps = await ok("analyze", "deps", bundle);
+    const auth = inputOf(deps, me.id, "header", "authorization");
+    expect(auth.class).toBe("response");
+    expect(auth.primary).toEqual({ kind: "response", request: tokenReq.id, path: "$.access_token", decode: [], match: "exact", prefix: "Bearer " });
+    const chain = await ok("analyze", "chain", bundle);
+    expect(recs(chain["steps"]).map((x) => x["request"])).toEqual([tokenReq.id, me.id]);
+
+    const out = join(home, "s53-client");
+    await ok("replay", "export-python", bundle, "-o", out);
+    expect(readFileSync(join(out, "client.py"), "utf8")).toContain('("authorization", "Bearer " + authorization),');
+    expect(pyCompile(["client.py"].map((f) => join(out, f)))).toBeNull();
+    const PY = packageReason();
+    if (PY !== null && !MUST_RUN) {
+      console.warn(`[v04a] s53 client run 待验: ${PY}`);
+      return;
+    }
+    need(PY);
+    need(syncPackage(out));
+    // against the range itself: a fresh token from the token call, sent by the generated me call
+    const code = `import client; s = client.Session(); t = client.post_api_s53_token(s, base_url=${JSON.stringify(tokenSite.origin)}).json()["access_token"]; print(client.get_api_s53_me(s, authorization=t, base_url=${JSON.stringify(tokenSite.origin)}).status)`;
+    const p = await runInPackageAsync(out, ["python", "-c", code]);
+    expect(p.err).toBe("");
+    expect(p.out.trim()).toBe("200");
+    expect(tokenSite.tokens.length).toBe(2);
+    expect(tokenSite.meAuth).toEqual([`Bearer ${tok}`, `Bearer ${tokenSite.tokens[1] ?? ""}`]);
+  }, 120_000);
 
   test("s07: x-csrf from the login body, sid from its set-cookie; verify() replays login → data against replay serve (docs/05 s07 P2)", async () => {
     const S = ["--session", "s07"];

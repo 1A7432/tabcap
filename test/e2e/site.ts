@@ -472,6 +472,55 @@ export function startGuardSite(): GuardSite {
   return { origin: `http://127.0.0.1:${server.port}`, served, hits, loginBodies, sids, csrfs, tokens, stop: () => server.stop(true) };
 }
 
+// ---------------------------------------------------------------- 0.6-E: s53 token endpoint + bearer header (docs/05 s53)
+// The page POSTs /api/s53/token (form client=web), the server answers
+// {access_token, token_type: "Bearer", expires_in}; the page then GETs
+// /api/s53/me with `Authorization: Bearer <access_token>`, which answers 200
+// only for a token it handed out. `tokens`: every token handed out, in order;
+// `meAuth`: the authorization header of every /api/s53/me call (the oracle).
+
+export type TokenSite = Site & { tokens: string[]; meAuth: (string | null)[] };
+
+const TOKEN_PAGE = `<!doctype html><meta charset=utf-8><title>s53 token</title><p id=out>…</p>
+<script>
+(async () => {
+  const r = await fetch("/api/s53/token", { method: "POST", body: new URLSearchParams({ client: "web" }) });
+  const { access_token } = await r.json();
+  const me = await fetch("/api/s53/me", { headers: { authorization: "Bearer " + access_token } });
+  document.getElementById("out").textContent = me.status === 200 ? "me " + (await me.json()).name : "me failed " + me.status;
+})();
+</script>`;
+
+export function startTokenSite(): TokenSite {
+  const served = new Map<string, string>();
+  const hits: string[] = [];
+  const tokens: string[] = [];
+  const meAuth: (string | null)[] = [];
+  const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const u = new URL(req.url);
+      hits.push(`${req.method} ${u.pathname}`);
+      if (u.pathname === "/s53/") return new Response(TOKEN_PAGE, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      if (u.pathname === "/api/s53/token" && req.method === "POST") {
+        if (new URLSearchParams(await req.text()).get("client") !== "web") return json({ error: "bad client" }, 400);
+        const t = crypto.randomUUID().replace(/-/g, "");
+        tokens.push(t);
+        return json({ access_token: t, token_type: "Bearer", expires_in: 3600 });
+      }
+      if (u.pathname === "/api/s53/me") {
+        const auth = req.headers.get("authorization");
+        meAuth.push(auth);
+        return tokens.some((t) => auth === `Bearer ${t}`) ? json({ name: "demo-user" }) : json({ error: "no token" }, 401);
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served, hits, tokens, meAuth, stop: () => server.stop(true) };
+}
+
 // ---------------------------------------------------------------- 0.3-B: s06-like search for replay
 // Equivalent of docs/05 s06: GET /api/search?q&page&client=web&v=3&t=<ms>&nonce&sig
 // with header x-client-build; sig = sha256 hex of q|page|t|nonce computed in

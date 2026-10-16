@@ -8,6 +8,11 @@
 
 - 只有文档和样本，行为不变：[docs/13](docs/13-interop-proxies.md) 写了在 `tabcap browser start --proxy <url>` 后面串联 mitmproxy / Burp（传给 Chrome 的参数；127.0.0.1、localhost 这类 loopback 目标绕过代理，已实测）、导入 mitmproxy `hardump` 的 HAR 及字段丢失表（导入后请求类型全是 `other`，`replay export-python` 因此没有可生成的请求）、mitmproxy 的 `response(flow)` 与 tabcap 的 Python `decode(flow)` 对照。新增样本 `test/fixtures/har/mitmproxy-range.har` 与导入测试。
 
+### 真实项目试用后的分析与输出脱敏（0.6-E）
+
+- **`analyze deps` 认出带前缀的头值**：头的值整体对不上响应叶子时，去掉开头的 `Bearer ` / `Basic ` / `Token ` / `JWT `（大小写不限）和首尾引号再比，于是 `Authorization: Bearer <token>` 追到 token 接口的 `$.access_token`；来源（以及 `analyze chain` 里提供它的那一步）带 `prefix`（结尾引号另有 `suffix`）。`--write-findings` 去掉前后缀后复读叶子（实测）。`replay export-python` 的参数是去掉前缀的值，发送时拼成 `"Bearer " + authorization`。
+- **新的 deps 类 `caller-input`**：没有来源、不是 cookie、不像签名（`looks-signature` / `looks-random`）、名字不敏感，且名字在固定表里（page、pageSize、limit、offset、from、to、period、year、month、groupBy、sort、q …，表见 docs/04 §15）或录到的值都是普通值（6 位以下的数字、true / false、日期、一个短单词）。它不算 `unresolved`；`analyze chain` 把它列在新的 `inputs` 里而不是 `todo`；`replay export-python`（链模式）把它生成为普通参数、默认值是录到的值，不带 TODO。其余照旧 `computed-in-page`。靶场 s06 的 `q` / `page` 现在是 `caller-input`；新靶场页 s53（token 接口，然后 `Authorization: Bearer`）覆盖前缀。
+
 ### 会话导出（0.6-F）
 
 - **`tabcap session export --for requests|httpx|playwright --out <文件> [--origin <url>] [--tab t2]`** 把已登录标签的会话交给脚本：cookie（该源的 `Network.getCookies`，池账号再加会话自己浏览器上下文里的）、页面为认证发出的头（取发往该源 host 的最近一条带这类头的录下请求：按 `bundle redact` 规则的敏感头，加 `x-csrf*`、`x-xsrf*`、`*-token`、`*-auth*`、`api-key`，以及页面自己设、不是浏览器默认的头；`cookie` 归入 cookies，`proxy-*` 永不导出）和 localStorage / sessionStorage（在 tabcap 隔离世界里读，超过 64 KB 的值跳过并列出）。没在录时 `headers` 为空、`source.headers` 为 `none`，提示先 `net start`。

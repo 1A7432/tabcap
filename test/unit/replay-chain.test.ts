@@ -13,9 +13,9 @@ import { exportPython, TODO_MARK, TODO_SECRET } from "../../src/replay/python.ts
 import { run } from "../../src/cli/main.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { tmp } from "./_analyze.ts";
-import { CSRF, PASSWORD, SIGN_ONE, SIGN_ONE_SIG, USER, buildLogin, buildSign } from "./_deps.ts";
+import { ACCESS_TOKEN, CSRF, PASSWORD, QUOTED, SIGN_ONE, SIGN_ONE_SIG, USER, buildLogin, buildReport, buildSign, buildToken } from "./_deps.ts";
 import { SLOW_IO_MS, expectMode } from "./_platform.ts";
-import { need, packageReason, pyCompile, runInPackage, skipWithout, syncPackage } from "./_python.ts";
+import { need, packageReason, pyCompile, runInPackage, runInPackageAsync, skipWithout, syncPackage } from "./_python.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const PY = packageReason();
@@ -25,11 +25,15 @@ const SPELLINGS = [PASSWORD, encodeURIComponent(PASSWORD), new URLSearchParams({
 let root = "";
 let login = "";
 let sign = "";
+let token = "";
+let report = "";
 
 beforeAll(async () => {
   root = tmp("tabcap-replay-chain-");
   login = await buildLogin(join(root, "login"));
   sign = await buildSign(join(root, "sign"));
+  token = await buildToken(join(root, "token"));
+  report = await buildReport(join(root, "report"));
 }, SLOW_IO_MS);
 afterAll(() => rmSync(root, { recursive: true, force: true }), SLOW_IO_MS);
 
@@ -187,6 +191,71 @@ describe("export-python, chain mode", () => {
       expect(bad.code).toBe(1);
       expect(bad.out).toMatch(/fail/);
       expect(SIGN_ONE_SIG).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      await s.stop();
+    }
+  }, 60_000);
+});
+
+// 0.6-E: a header that carries a response leaf behind a scheme prefix / in quotes, and caller-input parameters.
+describe("export-python, chain mode: prefixed header values and caller-input (0.6-E)", () => {
+  test("Authorization: the argument is the token, the header is 'Bearer ' + it; verify derives it from $.access_token", () => {
+    const out = join(root, "token-py");
+    const r = exportPython({ bundle: token, out });
+    expect(r.chain?.steps.length).toBe(2);
+    const client = readFileSync(join(out, "client.py"), "utf8");
+    expect(client).toContain('("authorization", "Bearer " + authorization),');
+    expect(client).toContain('("x-ref", "\\"" + x_ref + "\\""),');
+    expect(client).toMatch(/header authorization: response of post_api_token \(r-\d+\) \$\.access_token with prefix 'Bearer ' -> authorization/);
+    expect(client).toMatch(/header x-ref: response of post_api_token \(r-\d+\) \$\.ref in quotes -> x_ref/);
+    const v: unknown = JSON.parse(readFileSync(join(out, "verify_expected.json"), "utf8"));
+    const steps = isRecord(v) && Array.isArray(v["steps"]) ? v["steps"].filter(isRecord) : [];
+    expect(steps[1]?.["derived"]).toEqual({ authorization: { from: r.chain?.steps[0], path: "$.access_token", as: "text" }, x_ref: { from: r.chain?.steps[0], path: "$.ref", as: "text" } });
+    expect(steps[1]?.["args"]).toEqual({});
+    // the token is a sensitive input: in no generated file except the recorded answer of the token call
+    for (const f of walk(out).filter((x) => !x.endsWith("verify_expected.json") && !x.includes("fixtures"))) expect([f, readFileSync(f, "utf8").includes(ACCESS_TOKEN)]).toEqual([f, false]);
+    expect(pyCompile(["client.py", "conftest.py", "test_replay.py"].map((f) => join(out, f)))).toBeNull();
+  });
+
+  test("caller-input: plain parameters whose default is the recorded value (typed for JSON), no TODO for them", () => {
+    const out = join(root, "report-py");
+    const r = exportPython({ bundle: report, out, chain: true });
+    const client = readFileSync(join(out, "client.py"), "utf8");
+    expect(client).toContain('def get_api_report(session: Session, *, cat: str = "books", groupby: str = "day", nonce: Any = TODO, page: str = "1", period: str = "2026-09", sessionkind: Any = TODO, base_url: str | None = None)');
+    expect(client).toContain('def post_api_stats(session: Session, *, groupby: str = "month", year: int = 2025, base_url: str | None = None)');
+    expect(client).toContain("query page: caller-input (varies with period, groupBy, cat, nonce, sessionKind) -> page");
+    expect(client).toContain('_need("TODO: computed in the page; see docs/03 §6", nonce=nonce, sessionkind=sessionkind)');
+    expect(r.functions.find((f) => f.name === "post_api_stats")?.todo).toBeNull();
+    expect(pyCompile(["client.py", "conftest.py", "test_replay.py"].map((f) => join(out, f)))).toBeNull();
+  });
+
+  test.skipIf(SKIP_PY)("the generated call sends 'Bearer <token>' and the quoted value (a local echo server is the oracle); verify passes", async () => {
+    const out = join(root, "token-run");
+    exportPython({ bundle: token, out });
+    ready(out);
+    const seen: { auth: string | null; ref: string | null }[] = [];
+    const echo = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(req) {
+        seen.push({ auth: req.headers.get("authorization"), ref: req.headers.get("x-ref") });
+        return Response.json({ name: "demo" });
+      },
+    });
+    try {
+      const code = `import client; s = client.Session(); print(client.get_api_me(s, authorization=${JSON.stringify(ACCESS_TOKEN)}, x_ref=${JSON.stringify(QUOTED)}, base_url="http://127.0.0.1:${echo.port}").status)`;
+      const p = await runInPackageAsync(out, ["python", "-c", code]);
+      expect(p.err).toBe("");
+      expect(p.out.trim()).toBe("200");
+      expect(seen).toEqual([{ auth: `Bearer ${ACCESS_TOKEN}`, ref: `"${QUOTED}"` }]);
+    } finally {
+      echo.stop(true);
+    }
+    const s = await serve(token);
+    try {
+      const ok = py(["python", "client.py", "verify", "--base-url", s.url], out, {});
+      expect(ok.code).toBe(0);
+      expect(ok.out).toContain("verify: 2 step(s), 2 pass, 0 fail");
     } finally {
       await s.stop();
     }

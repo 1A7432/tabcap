@@ -1007,7 +1007,7 @@ Example: `tabcap analyze diff ./b1 ./b2`
 
 ### `tabcap analyze deps`
 
-value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else computed-in-page / unrecorded; exact matches only, never guessed
+value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else caller-input (paging, periods, search terms the caller picks) / computed-in-page / unrecorded; exact matches only (a header also without its Bearer / Basic / Token / JWT prefix or quotes), never guessed
 
 ```
 tabcap analyze deps <bundle> [--session name] [--request r-N] [--text] [--write-findings]
@@ -1024,7 +1024,7 @@ Example: `tabcap analyze deps ./b --request r-12`
 
 ### `tabcap analyze chain`
 
-the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input)
+the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input; caller-input values listed apart under inputs)
 
 ```
 tabcap analyze chain <bundle> [--request r-N] [--session name] [--text]
@@ -1101,7 +1101,7 @@ Example: `tabcap replay export-python ./b -o ./client`
 | `--out <dir>`, `-o <dir>` |  | directory for the generated package (required) |
 | `--include <glob,glob>` |  | only paths matching these globs (* within a segment, ** across) |
 | `--exclude <glob,glob>` |  | leave out paths matching these globs |
-| `--chain` |  | use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response) |
+| `--chain` |  | use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response) |
 | `--no-chain` |  | 0.3 behaviour: per-request heuristics only, no verify() |
 | `--proxy-env <file>` |  | also write TABCAP_PROXY_URL (the bundle account's proxy, with its credentials) to this file, mode 0600; never printed. The generated client reads TABCAP_PROXY_URL |
 

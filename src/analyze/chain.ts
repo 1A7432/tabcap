@@ -5,7 +5,8 @@
 // the `primary` source, followed through carried-forward inputs), de-duplicated,
 // in recording order. Each step lists what it provides to later steps and what
 // it still needs from the caller: `computed-in-page` and `unrecorded` inputs
-// (also listed in `todo`), and recorded user input (`action`).
+// (also listed in `todo`), `caller-input` values the caller chooses (listed in
+// `inputs`, not `todo`; 0.6-E), and recorded user input (`action`).
 // Default target: the last data-bearing xhr / fetch / document request (2xx
 // with a recorded body) of the bundle, or of `--session`.
 // Oracle: test/unit/deps.test.ts (chain cases on planted flows) and
@@ -31,13 +32,16 @@ export type ChainProvide = {
   path?: string;
   decode?: StepName[];
   match?: "exact" | "embedded";
+  /** response into a header: sent as prefix + value + suffix (`Bearer `). */
+  prefix?: string;
+  suffix?: string;
 };
 
 export type ChainNeed = {
   location: InputLocation;
   name: string;
   path?: string;
-  class: Extract<DepsClass, "computed-in-page" | "unrecorded" | "action">;
+  class: Extract<DepsClass, "computed-in-page" | "unrecorded" | "action" | "caller-input">;
   hints: string[];
   covaries: string[];
   /** The value was carried forward from this earlier request, where it has no source either. */
@@ -51,7 +55,10 @@ export type ChainStep = { request: string; method: string; url: string; provides
 
 export type ChainTodo = Omit<ChainNeed, "class" | "action" | "secret"> & { request: string; class: "computed-in-page" | "unrecorded" };
 
-export type ChainResult = { schema: typeof CHAIN_SCHEMA; bundle: string; target: string; steps: ChainStep[]; todo: ChainTodo[]; warnings: string[] };
+/** A caller-input of a step: a plain parameter with the recorded value as its default (0.6-E). */
+export type ChainInput = Omit<ChainNeed, "class" | "action" | "secret"> & { request: string; class: "caller-input" };
+
+export type ChainResult = { schema: typeof CHAIN_SCHEMA; bundle: string; target: string; steps: ChainStep[]; todo: ChainTodo[]; inputs: ChainInput[]; warnings: string[] };
 
 export type ChainOptions = { request?: string | undefined; session?: string | undefined };
 
@@ -92,6 +99,8 @@ export function chainOf(g: DepsGraph, bundle: string, opts: ChainOptions = {}): 
           ...(rp.path === undefined ? {} : { path: rp.path }),
           ...(rp.decode === undefined ? {} : { decode: rp.decode }),
           ...(rp.match === undefined ? {} : { match: rp.match }),
+          ...(rp.prefix === undefined ? {} : { prefix: rp.prefix }),
+          ...(rp.suffix === undefined ? {} : { suffix: rp.suffix }),
         });
         provides.set(rp.request, list);
         if (!inChain.has(rp.request)) {
@@ -101,7 +110,7 @@ export function chainOf(g: DepsGraph, bundle: string, opts: ChainOptions = {}): 
         continue;
       }
       const cls = root.input.class;
-      if (cls !== "computed-in-page" && cls !== "unrecorded" && cls !== "action") continue;
+      if (cls !== "computed-in-page" && cls !== "unrecorded" && cls !== "action" && cls !== "caller-input") continue;
       const list = needs.get(id) ?? [];
       list.push({
         location: input.location,
@@ -123,13 +132,16 @@ export function chainOf(g: DepsGraph, bundle: string, opts: ChainOptions = {}): 
     .sort((a, b) => a.seq - b.seq)
     .map((r) => ({ request: r.id, method: r.method, url: r.url, provides: provides.get(r.id) ?? [], needs: needs.get(r.id) ?? [] }));
   const todo: ChainTodo[] = [];
+  const inputs: ChainInput[] = [];
   for (const s of steps) {
     for (const n of s.needs) {
       if (n.class === "action") continue;
-      todo.push({ request: s.request, location: n.location, name: n.name, ...(n.path === undefined ? {} : { path: n.path }), class: n.class, hints: n.hints, covaries: n.covaries, ...(n.via === undefined ? {} : { via: n.via }) });
+      const base = { request: s.request, location: n.location, name: n.name, ...(n.path === undefined ? {} : { path: n.path }), hints: n.hints, covaries: n.covaries, ...(n.via === undefined ? {} : { via: n.via }) };
+      if (n.class === "caller-input") inputs.push({ ...base, class: n.class });
+      else todo.push({ ...base, class: n.class });
     }
   }
-  return { schema: CHAIN_SCHEMA, bundle, target: target.id, steps, todo, warnings: [...g.warnings] };
+  return { schema: CHAIN_SCHEMA, bundle, target: target.id, steps, todo, inputs, warnings: [...g.warnings] };
 }
 
 export function chain(bundleDir: string, opts: ChainOptions = {}): ChainResult {
@@ -141,10 +153,10 @@ export function chain(bundleDir: string, opts: ChainOptions = {}): ChainResult {
 const label = (t: { location: string; name: string; path?: string }) => `${t.location} ${t.path ?? t.name}`;
 
 export function renderChainText(r: ChainResult): string {
-  const lines = [`chain to ${r.target} in ${r.bundle}: ${r.steps.length} step(s), ${r.todo.length} TODO`];
+  const lines = [`chain to ${r.target} in ${r.bundle}: ${r.steps.length} step(s), ${r.todo.length} TODO, ${r.inputs.length} caller input(s)`];
   r.steps.forEach((s, i) => {
     lines.push("", `${i + 1}. ${s.request} ${s.method} ${s.url.length > 100 ? s.url.slice(0, 99) + "…" : s.url}`);
-    for (const p of s.provides) lines.push(`   provides ${p.kind === "set-cookie" ? `set-cookie ${p.cookie ?? ""}` : `response ${p.path ?? "(text)"}`} → ${p.to.request} ${label(p.to)}`);
+    for (const p of s.provides) lines.push(`   provides ${p.kind === "set-cookie" ? `set-cookie ${p.cookie ?? ""}` : `response ${p.path ?? "(text)"}`} → ${p.to.request} ${label(p.to)}${p.prefix === undefined ? "" : ` (prefix ${JSON.stringify(p.prefix)})`}`);
     for (const n of s.needs) {
       const extra = [n.hints.length > 0 ? `[${n.hints.join(",")}]` : "", n.covaries.length > 0 ? `varies with ${n.covaries.join(", ")}` : "", n.via === undefined ? "" : `via ${n.via}`].filter((x) => x !== "").join(" ");
       lines.push(`   needs    ${label(n)}: ${n.class}${n.secret === undefined ? "" : ` <secret:${n.secret}>`}${extra === "" ? "" : `  ${extra}`}`);

@@ -4,6 +4,11 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### Analysis and output scrubbing from a real-project test (0.6-E)
+
+- **`analyze deps` follows prefixed header values**: a header value that does not match a response leaf as a whole is compared again without a `Bearer ` / `Basic ` / `Token ` / `JWT ` prefix (any case) and without surrounding quotes, so `Authorization: Bearer <token>` is traced to the token endpoint's `$.access_token`; the source (and the `analyze chain` step that provides it) carries `prefix` (and `suffix` for a closing quote). `--write-findings` re-reads the leaf without them (实测). `replay export-python` takes the bare value as the argument and sends `"Bearer " + authorization`.
+- **New deps class `caller-input`**: an input without a source that is not a cookie, not signature-like (`looks-signature` / `looks-random`) and not sensitive, and either has a name from a fixed table (page, pageSize, limit, offset, from, to, period, year, month, groupBy, sort, q … listed in docs/04 §15) or only plain recorded values (numbers under 6 digits, true / false, dates, one short word). It is not `unresolved`; `analyze chain` lists it under a new `inputs` list instead of `todo`; `replay export-python` (chain mode) makes it a plain parameter whose default is the recorded value, without a TODO. `computed-in-page` stays for the rest. The range's s06 `q` / `page` are `caller-input` now; the new range page s53 (token endpoint, then `Authorization: Bearer`) covers the prefix.
+
 ### Interop with mitmproxy and Burp (0.6-M)
 
 - Docs and a fixture only, no behaviour change: [docs/13](docs/13-interop-proxies.md) covers chaining mitmproxy / Burp behind `tabcap browser start --proxy <url>` (the Chrome flags passed; loopback targets such as 127.0.0.1 and localhost bypass the proxy, tested), importing a mitmproxy `hardump` HAR with its field-loss table (imported requests all get type `other`, so `replay export-python` finds nothing to generate), and mitmproxy's `response(flow)` next to tabcap's Python `decode(flow)`. New fixture `test/fixtures/har/mitmproxy-range.har` with import tests.

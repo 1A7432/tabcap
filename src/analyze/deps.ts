@@ -20,10 +20,15 @@
 //   timestamp    analyze diff's timestamp class
 // Priority set-cookie > response > action > request > constant > timestamp;
 // the first source is `primary`. No source: `unrecorded` for cookies (the
-// browser held them before the recording), else `computed-in-page`, with the
-// diff hints and the co-varying inputs of the same request group.
+// browser held them before the recording); `caller-input` (0.6-E) for a value
+// the caller chooses (CALLER_NAMES / plain value shapes below, never
+// signature-like or sensitive); else `computed-in-page`, with the diff hints
+// and the co-varying inputs of the same request group.
 // Matching is exact on the normalised string form only: trimmed; query / form
-// values URL-decoded (URLSearchParams); JSON scalars stringified.
+// values URL-decoded (URLSearchParams); JSON scalars stringified. A header
+// value with a well-known scheme prefix (`Bearer `, `Basic `, `Token `,
+// `JWT `) or in quotes is also compared without them against response leaves
+// (0.6-E); such a source carries `prefix` (and `suffix` for a closing quote).
 // Echo rule: a producer (set-cookie, response, action) only counts when it
 // happened before the value was first sent by any request; a value the page
 // sent before any response carried it was not derived from that response.
@@ -64,7 +69,7 @@ const DEFERRED_PREFIX = "<deferred";
 
 export type InputLocation = "query" | "body" | "header" | "cookie";
 export type SourceKind = "set-cookie" | "response" | "action" | "request" | "constant" | "timestamp";
-export type DepsClass = SourceKind | "computed-in-page" | "unrecorded";
+export type DepsClass = SourceKind | "computed-in-page" | "unrecorded" | "caller-input";
 
 export type DepsSource = {
   kind: SourceKind;
@@ -84,6 +89,9 @@ export type DepsSource = {
   secret?: string;
   /** constant / timestamp: recorded occurrences compared. */
   samples?: number;
+  /** response, header inputs: the value is sent as prefix + leaf + suffix (`Bearer `, a quote). */
+  prefix?: string;
+  suffix?: string;
 };
 
 export type DepsInput = {
@@ -132,6 +140,55 @@ type SentRec = { request: string; location: InputLocation; label: string; when: 
 
 const BOOLISH = /^(true|false|null|undefined|none|nan)$/i;
 const NUMERIC = /^-?\d+(?:\.\d+)?$/;
+
+/** Well-known authorization schemes stripped before a header value is compared with response leaves. */
+const SCHEME_PREFIX = /^(Bearer|Basic|Token|JWT)[ \t]+/i;
+
+/** A header value without its scheme prefix and surrounding quotes; null when it has neither. */
+export function unwrapHeaderValue(v: string): { inner: string; prefix: string; suffix: string } | null {
+  let prefix = "";
+  let rest = v;
+  const m = SCHEME_PREFIX.exec(rest);
+  if (m !== null) {
+    prefix = m[0];
+    rest = rest.slice(m[0].length);
+  }
+  let suffix = "";
+  const q = rest[0];
+  if (rest.length >= 2 && (q === '"' || q === "'") && rest.endsWith(q)) {
+    prefix += q;
+    suffix = q;
+    rest = rest.slice(1, -1);
+  }
+  return prefix === "" || rest.trim() === "" ? null : { inner: rest, prefix, suffix };
+}
+
+/**
+ * caller-input (0.6-E): names of parameters a scraper chooses itself (paging,
+ * periods, grouping, sorting, search terms), compared lowercase without `_`,
+ * `-` and `.` (pageSize = page_size = page-size). Fixed; listed in docs/04 §15.
+ */
+export const CALLER_NAMES: readonly string[] = [
+  "page", "pageno", "pagenum", "pageindex", "pagesize", "perpage", "size", "limit", "offset", "count",
+  "from", "to", "since", "until", "startdate", "enddate", "date", "period", "interval", "year", "month", "week", "day",
+  "groupby", "sort", "sortby", "order", "orderby", "q", "query", "keyword", "search", "lang", "locale",
+];
+const CALLER_NAME_SET: ReadonlySet<string> = new Set(CALLER_NAMES);
+const normName = (n: string): string => n.replace(/\[\d+\]$/, "").replace(/[_.-]/g, "").toLowerCase();
+const DATE = /^\d{4}([-/])(0[1-9]|1[0-2])(?:\1(0[1-9]|[12]\d|3[01]))?(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/;
+const ENUM_WORD = /^[A-Za-z][A-Za-z_-]{0,23}$/;
+
+/** A plain parameter value: a short number (< 6 digits), true / false, a date (yyyy-mm[-dd], - or /), or one short word. */
+export function plainValue(v: string): boolean {
+  return (NUMERIC.test(v) && v.replace(/^-/, "").length < MIN_NUMBER_LENGTH) || /^(true|false)$/i.test(v) || DATE.test(v) || ENUM_WORD.test(v);
+}
+
+/** The caller-input rule: not a cookie, not sensitive or signature-like, and a CALLER_NAMES name or plain values only. */
+export function isCallerInput(location: InputLocation, name: string, hints: readonly string[], values: readonly string[]): boolean {
+  if (location === "cookie" || hints.includes("looks-signature") || hints.includes("looks-random")) return false;
+  if (isSensitiveName(name) || (location === "header" && isSensitiveHeader(name))) return false;
+  return CALLER_NAME_SET.has(normName(name)) || (values.length > 0 && values.every(plainValue));
+}
 
 /** Long and specific enough to be matched by value alone. */
 export function distinctive(v: string): boolean {
@@ -411,7 +468,13 @@ export class DepsGraph {
 
   private indexBodies(): void {
     const exact = new Set<string>();
-    for (const inputs of this.raw.values()) for (const i of inputs) if (distinctive(i.value)) exact.add(i.value);
+    for (const inputs of this.raw.values()) {
+      for (const i of inputs) {
+        if (distinctive(i.value)) exact.add(i.value);
+        const u = i.location === "header" ? unwrapHeaderValue(i.value) : null;
+        if (u !== null && distinctive(u.inner.trim())) exact.add(u.inner.trim());
+      }
+    }
     if (exact.size === 0) return;
     let budgetWarned = false;
     for (const r of this.requests) {
@@ -484,9 +547,18 @@ export class DepsGraph {
     for (const c of latestFirst(cookies.filter((c) => c.request !== r.id && before(c.when, isCookie ? fsCookie : fs)))) sources.push({ kind: "set-cookie", request: c.request, cookie: c.name });
 
     // response body
-    if (distinctive(v)) {
-      const hits = (this.bodies.get(v) ?? []).filter((b) => b.request !== r.id && before(b.when, fs));
-      for (const b of latestFirst(hits)) sources.push({ kind: "response", request: b.request, ...(b.path === null ? {} : { path: b.path }), decode: b.decode, match: b.match });
+    const direct = distinctive(v) ? (this.bodies.get(v) ?? []).filter((b) => b.request !== r.id && before(b.when, fs)) : [];
+    for (const b of latestFirst(direct)) sources.push({ kind: "response", request: b.request, ...(b.path === null ? {} : { path: b.path }), decode: b.decode, match: b.match });
+    // a header value without its scheme prefix / quotes (`Authorization: Bearer <access_token>`)
+    const u = i.location === "header" && direct.length === 0 ? unwrapHeaderValue(v) : null;
+    const inner = u?.inner.trim() ?? "";
+    if (u !== null && distinctive(inner)) {
+      const fi = this.firstSent.get(inner);
+      const fsInner = fi !== undefined && before(fi, fs) ? fi : fs;
+      const hits = (this.bodies.get(inner) ?? []).filter((b) => b.request !== r.id && before(b.when, fsInner));
+      for (const b of latestFirst(hits)) {
+        sources.push({ kind: "response", request: b.request, ...(b.path === null ? {} : { path: b.path }), decode: b.decode, match: b.match, prefix: u.prefix, ...(u.suffix === "" ? {} : { suffix: u.suffix }) });
+      }
     }
 
     // action
@@ -510,7 +582,8 @@ export class DepsGraph {
     if (dp?.class === "timestamp") sources.push({ kind: "timestamp", samples });
 
     const primary = sources[0] ?? null;
-    const cls: DepsClass = primary !== null ? primary.kind : isCookie ? "unrecorded" : "computed-in-page";
+    const values = [...(this.distinctValues.get(gk)?.get(i.key) ?? new Set([v]))];
+    const cls: DepsClass = primary !== null ? primary.kind : isCookie ? "unrecorded" : isCallerInput(i.location, i.name, [...hints], values) ? "caller-input" : "computed-in-page";
     if (isSensitiveName(i.name) || (i.location === "header" && isSensitiveHeader(i.name))) hints.add("sensitive-name");
     return {
       location: i.location,
@@ -611,7 +684,7 @@ function describeSource(s: DepsSource | null): string {
     case "set-cookie":
       return `${s.request ?? ""} set-cookie ${s.cookie ?? ""}`;
     case "response":
-      return `${s.request ?? ""} response ${s.path ?? "(text)"}${s.decode !== undefined && s.decode.length > 0 ? ` [${s.decode.join(",")}]` : ""}${s.match === "embedded" ? " (embedded)" : ""}`;
+      return `${s.request ?? ""} response ${s.path ?? "(text)"}${s.decode !== undefined && s.decode.length > 0 ? ` [${s.decode.join(",")}]` : ""}${s.match === "embedded" ? " (embedded)" : ""}${s.prefix === undefined ? "" : ` (prefix ${JSON.stringify(s.prefix)})`}`;
     case "action":
       return `action @${s.action ?? ""}${s.secret === undefined ? "" : ` <secret:${s.secret}>`}`;
     case "request":
@@ -686,7 +759,11 @@ function reread(reader: BundleReader, value: string, s: DepsSource): boolean {
     const doc = bytes === null ? null : parseJsonDoc(new TextDecoder().decode(bytes));
     if (doc === null) return false;
     const leaf = leafAt(doc.value, s.path);
-    return leaf !== undefined && (typeof leaf === "string" ? leaf : JSON.stringify(leaf)).trim() === value;
+    // a prefixed header value (`Bearer <leaf>`): the leaf is what is left without prefix and suffix
+    const pre = s.prefix ?? "";
+    const suf = s.suffix ?? "";
+    const want = pre === "" && suf === "" ? value : value.startsWith(pre) && value.endsWith(suf) && value.length >= pre.length + suf.length ? value.slice(pre.length, value.length - suf.length).trim() : null;
+    return leaf !== undefined && want !== null && (typeof leaf === "string" ? leaf : JSON.stringify(leaf)).trim() === want;
   }
   if (s.kind === "action") {
     const e = reader.events.find((x) => x.seq === s.action);

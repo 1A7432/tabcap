@@ -91,6 +91,7 @@
 | query | `q`, `page`, `nonce`, `sig` | 变化值 |
 
 - P2 扩展：`deps` 应指出 `sid` 来自 `set-cookie`，`sig` 与 `q/page/t/nonce` 同变。
+- 0.6-E（10-16 作者定）：`q`、`page` 是调用方自己选的（导航 URL 里来），`deps` 记为 `caller-input`（页面加载的文档请求上；搜索请求从它带过来，类为 `request`）；`analyze chain` 把它们列在 `inputs`，`todo` 里只剩 `sig`、`nonce` 这类。
 
 ### s07 token-chain（P1 录制；P2 deps）
 
@@ -271,3 +272,9 @@
 ### s56 click-landing（P1；0.6-J，点击落到真正监听的元素上）
 - 页面 `/s56`（`test/e2e/site.ts` 的 `startClickTargetSite`），三个控件照作者真实项目里的三种库写法：`#s56-lay`（layui：`role=button`、300 px 宽，自己没有监听器；处理程序按属性挂在内层 `span#s56-lay-span[lay-event]` 上，60 px，靠左）；`#s56-menu`（antd / Element UI：`role=menuitem`，处理程序委托在往上第四层的 `#s56-app`，只在事件目标落在 `cursor:pointer` 的子元素 `span#s56-menu-title.s56-title`（80 px，靠左）里时反应）；`#s56-trust`（`role=button`，处理程序在自己身上、只认 `isTrusted`）。每次处理程序真正跑了，页面往 `window.__s56` 记一条 `<控件>:<isTrusted>`。
 - expected：`snapshot --interactive` 里 `#s56-lay`、`#s56-menu` 两行带 `landing="child"`，`#s56-trust` 不带；默认快照里没有 `landing=`。DOM `click` `#s56-lay` → `effect:"dom"`、`target` 为 `{ref, landedOn:{tag:"span", text:"编辑", selector:"#s56-lay-span"}, reason:"descendant-listener"}`，`__s56` 为 `["lay:false"]`；`#s56-menu` 同理（`text:"菜单项"`、`selector:"#s56-menu-title"`），`__s56` 加一条 `menu:false`。DOM `click` `#s56-trust` → 退出码 0、`effect:"none"`、`note` 提 `--trusted`，没有 `target` / `candidates`，`__s56` 为空；`click --trusted` 之后为 `["trust:true"]`。`click --trusted` `#s56-lay` → 输出带同样的 `target`，`__s56` 为 `["lay:true"]`，`at` 落在页面自己量的 `#s56-lay-span` 的 `getBoundingClientRect` 里（按钮中心在 150 px 处，span 在 0–60 px）。
+
+## 9. 0.6-E 分析与输出脱敏（10-16 作者定；s53 编号由主循环定）
+
+### s53 token-bearer（P1；0.6-E，`analyze deps` 认出带 `Bearer ` 前缀的头）
+- 页面 `/s53/`（`test/e2e/site.ts` 的 `startTokenSite`）：加载时 `POST /api/s53/token`（表单 `client=web`），服务端回 `{access_token, token_type:"Bearer", expires_in:3600}`（`access_token` 是新的无横线 UUID，记进 `tokens`）；页面再 `GET /api/s53/me`，头 `Authorization: Bearer <access_token>`，服务端只对自己发过的 token 回 200 `{name:"demo-user"}`，每次收到的 Authorization 记进 `meAuth`（oracle）。
+- expected：录一次后 `tokens` 一个、`meAuth` 等于 `["Bearer " + 它]`；`analyze deps` 里 `/api/s53/me` 的 `header authorization` 类为 `response`，`primary` 是 `{kind:"response", request:<token 请求>, path:"$.access_token", decode:[], match:"exact", prefix:"Bearer "}`；`analyze chain` 两步（token → me）；`replay export-python` 生成的 `client.py` 发 `"Bearer " + authorization`，用它对靶场本身先调 token 再调 me 回 200，靶场第二次收到的 Authorization 是 `"Bearer " + 第二个 token`。

@@ -4468,7 +4468,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else computed-in-page / unrecorded; exact matches only, never guessed",
+      "summary": "value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else caller-input (paging, periods, search terms the caller picks) / computed-in-page / unrecorded; exact matches only (a header also without its Bearer / Basic / Token / JWT prefix or quotes), never guessed",
       "usage": "tabcap analyze deps <bundle> [--session name] [--request r-N] [--text] [--write-findings]",
     },
     {
@@ -4523,7 +4523,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input)",
+      "summary": "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input; caller-input values listed apart under inputs)",
       "usage": "tabcap analyze chain <bundle> [--request r-N] [--session name] [--text]",
     },
     {
@@ -4732,7 +4732,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": false,
           "flag": "--chain",
-          "help": "use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)",
+          "help": "use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)",
           "key": "chain",
           "repeatable": false,
           "required": false,

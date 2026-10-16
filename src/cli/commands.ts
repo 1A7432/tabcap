@@ -851,7 +851,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--write-findings", key: "writeFindings", kind: "bool", help: "append finding events (tool deps) to the bundle (finished bundles only); default: the bundle is only read" },
     ],
     summary:
-      "value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else computed-in-page / unrecorded; exact matches only, never guessed",
+      "value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else caller-input (paging, periods, search terms the caller picks) / computed-in-page / unrecorded; exact matches only (a header also without its Bearer / Basic / Token / JWT prefix or quotes), never guessed",
     example: "tabcap analyze deps ./b --request r-12",
   },
   {
@@ -862,7 +862,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--session", key: "bundleSession", kind: "string", help: "pick the default target among requests of this session name", metavar: "name" },
       { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON (the envelope's data is schema tabcap-chain/0)" },
     ],
-    summary: "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input)",
+    summary: "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input; caller-input values listed apart under inputs)",
     example: "tabcap analyze chain ./b --request r-12",
   },
   {
@@ -907,7 +907,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--out", alias: "-o", key: "out", kind: "string", help: "directory for the generated package", required: true, metavar: "dir" },
       { flag: "--include", key: "include", kind: "string", help: "only paths matching these globs (* within a segment, ** across)", metavar: "glob,glob" },
       { flag: "--exclude", key: "exclude", kind: "string", help: "leave out paths matching these globs", metavar: "glob,glob" },
-      { flag: "--chain", key: "chain", kind: "bool", help: "use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)" },
+      { flag: "--chain", key: "chain", kind: "bool", help: "use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)" },
       { flag: "--no-chain", key: "noChain", kind: "bool", help: "0.3 behaviour: per-request heuristics only, no verify()" },
       {
         flag: "--proxy-env",
