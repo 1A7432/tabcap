@@ -90,6 +90,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ### Fixed
 
+- `analyze deps` (and `analyze chain`, `replay export-python`) orders two requests on the monotonic clock (`timing.start`, `timing.responseStart`, the body at `mono`) and falls back to the wall clock only when one side has none. Each request's wall `ts` is anchored on its own CDP `wallTime`, and a response read ~2 ms before the next request could come out after it on the wall clock, so a token taken from that response (s07's `x-csrf` from the login body) lost its source and showed as `computed-in-page` (seen once on Windows CI).
 - `emulate --network-conditions` now throttles on a session that is not recording: Chrome applies throttling only while the Network domain is on, so an emulated preset keeps it on for the tab until a later `emulate` clears it, and neither `wait --idle` nor `net stop` turns it off underneath. Measured on the range site: a 300 KB fetch under "Slow 3G" took about 8 s (lower bound 6 s from the preset's 50000 B/s) where it used to take 1 ms without a recording, and it stays throttled after `wait --idle` and after `net stop`.
 
 ### Trace mode: which page scripts read which browser signals (0.4-F)

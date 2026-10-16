@@ -163,6 +163,46 @@ export async function buildLogin(dir: string): Promise<string> {
   });
 }
 
+/** s07's csrf as the range site makes it (a dash-less UUID). */
+export const CSRF_HEX = "5f0c3e9a7b2d4c18a6e0f1b2c3d4e5f6";
+
+/**
+ * CLOCK SKEW (the 10-16 Windows CI failure of v04a s07): POST /api/login answers
+ * {csrf: CSRF_HEX}, then POST /api/data sends x-csrf: CSRF_HEX. On the wall clock
+ * the data request starts 1.6 ms BEFORE the login body's `ts` (each request's wall
+ * time has its own CDP wallTime anchor). `reversed: false`: on the monotonic clock
+ * the data request starts 2.4 ms after the login ended (what really happened);
+ * `reversed: true`: it starts 1.6 ms before the login ended on that clock too.
+ */
+export async function buildClockSkew(dir: string, reversed: boolean): Promise<string> {
+  const M = 5000;
+  return buildBundle(dir, { name: "skew", created: C, seed: reversed ? 15 : 14 }, async (b) => {
+    await b.request({
+      url: `${ORIGIN}/api/login`,
+      method: "POST",
+      type: "fetch",
+      mime: JSON_MIME,
+      body: JSON.stringify({ csrf: CSRF_HEX }),
+      postData: `user=${USER}`,
+      reqHeaders: { "content-type": FORM },
+      ts: C + 400,
+      extra: { mono: M + 400, timing: { start: M + 390, responseStart: M + 395, end: M + 400, cdp: null } },
+    });
+    // wall start = ts - (mono - timing.start) = C + 398.4, 1.6 ms before the login's ts
+    const start = reversed ? M + 398.4 : M + 402.4;
+    await b.request({
+      url: `${ORIGIN}/api/data`,
+      method: "POST",
+      type: "fetch",
+      mime: JSON_MIME,
+      body: JSON.stringify({ data: "data-ok" }),
+      reqHeaders: { "x-csrf": CSRF_HEX },
+      ts: C + 401.4,
+      extra: { mono: start + 3, timing: { start, responseStart: start + 2, end: start + 3, cdp: null } },
+    });
+  });
+}
+
 export async function buildSign(dir: string): Promise<string> {
   return buildBundle(dir, { name: "sign", created: C, seed: 13 }, async (b) => {
     await b.request({ url: `${ORIGIN}/api/sign?q=${SIGN_ONE.q}&t=${SIGN_ONE.t}&sig=${SIGN_ONE_SIG}`, mime: JSON_MIME, body: JSON.stringify({ ok: true }), ts: SIGN_ONE.t + 5 });

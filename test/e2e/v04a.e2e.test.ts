@@ -223,8 +223,8 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
 
     const { data: deps, ms } = await timedDeps(bundle);
     console.log(`[v04a] analyze deps s07: ${reqs.length} requests, ${ms} ms`);
-    // Diagnostics for the 10-16 Windows flake (x-csrf primary null once): deps orders the login
-    // body (wall `ts` of its end) before the data request's wall start; print both clocks.
+    // Diagnostics for the 10-16 Windows flake (x-csrf primary null once: the two requests' wall
+    // clocks disagreed with their monotonic order; deps now orders them on mono). Both clocks.
     const wallStart = data.timing?.start == null || data.mono === null ? data.ts : data.ts - (data.mono - data.timing.start);
     const monoGap = login.mono === null || data.timing?.start == null ? null : Math.round((data.timing.start - login.mono) * 1000) / 1000;
     console.log(`[v04a] s07 login ${login.id} end ts ${login.ts} mono ${login.mono} unreadByPage ${login["unreadByPage"] === true}; data ${data.id} start ts ${wallStart}: wall gap ${Math.round((wallStart - login.ts) * 1000) / 1000} ms, mono gap ${monoGap} ms`);

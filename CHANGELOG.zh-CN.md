@@ -84,6 +84,7 @@
 
 ### 修复
 
+- `analyze deps`（以及 `analyze chain`、`replay export-python`）比两个请求的先后改用单调钟（`timing.start`、`timing.responseStart`、body 的 `mono`），只有一方没有单调钟时才退回墙钟。每个请求的墙钟 `ts` 各以自己的 CDP `wallTime` 为锚，下一个请求前约 2 ms 读完的响应在墙钟上可能排到它后面，于是从该响应取的令牌（s07 从登录 body 取的 `x-csrf`）丢了来源、显示成 `computed-in-page`（Windows CI 上出现过一次）。
 - `emulate --network-conditions` 在未录制的会话上也真正限速：Chrome 只在 Network 域开启时施加节流，所以模拟了网络预设的标签会保持 Network 开启，直到之后的 `emulate` 清除它；`wait --idle` 与 `net stop` 不再在底下把它关掉。靶场实测：「Slow 3G」下 300 KB 的 fetch 约 8 s（按预设 50000 B/s 算下界 6 s），修复前不录制时只要 1 ms；`wait --idle` 与 `net stop` 之后仍然限速。
 
 ### 原生线路层指纹组件（0.4-W1）

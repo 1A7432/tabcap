@@ -11,7 +11,7 @@ import { chain, chainOf, defaultTarget } from "../../src/analyze/chain.ts";
 import { run } from "../../src/cli/main.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { tmp } from "./_analyze.ts";
-import { APP_VERSION, C, HTML_TOKEN, PASSWORD, SECRET_REF, SIGNS, TYPED, buildFlows } from "./_deps.ts";
+import { APP_VERSION, C, CSRF_HEX, HTML_TOKEN, PASSWORD, SECRET_REF, SIGNS, TYPED, buildClockSkew, buildFlows } from "./_deps.ts";
 import { SLOW_IO_MS } from "./_platform.ts";
 
 const FIXTURE = join(import.meta.dir, "..", "..", "fixtures", "bundles", "sample-v0");
@@ -146,6 +146,23 @@ describe("deps: sources", () => {
     expect(c2.name).toBe("client");
     expect(c2.sources.map((s) => s.kind)).toEqual(["request", "constant"]);
     expect(c2.primary).toEqual({ kind: "request", request: id["search1"], path: "body:$.client" });
+  });
+
+  test("order between requests is the monotonic one: a wall-clock skew of 1.6 ms does not cut the csrf chain (10-16 Windows flake)", async () => {
+    const csrfOf = (res: DepsResult) => {
+      const [login, data] = res.requests;
+      const x = data?.inputs.find((i) => i.location === "header" && i.name === "x-csrf");
+      return { login: login?.id ?? "", x };
+    };
+    // wall: data starts before the login body's ts; mono: 2.4 ms after the login ended
+    const skew = csrfOf(deps(await buildClockSkew(join(root, "skew"), false)));
+    expect(skew.x?.class).toBe("response");
+    expect(skew.x?.primary).toEqual({ kind: "response", request: skew.login, path: "$.csrf", decode: [], match: "exact" });
+    // mono order really reversed: the value was sent before that body existed
+    const rev = csrfOf(deps(await buildClockSkew(join(root, "skew-reversed"), true)));
+    expect(rev.x?.class).toBe("computed-in-page");
+    expect(rev.x?.primary).toBeNull();
+    expect(CSRF_HEX.length).toBe(32);
   });
 
   test("--request / --session subsets keep sources from the whole bundle", () => {

@@ -27,6 +27,9 @@
 // Echo rule: a producer (set-cookie, response, action) only counts when it
 // happened before the value was first sent by any request; a value the page
 // sent before any response carried it was not derived from that response.
+// Order: two requests compare on the monotonic clock (start `timing.start`,
+// set-cookie `timing.responseStart`, body `mono`, the end), the wall clock
+// only when one side has none (actions, unread bodies; docs/04 §6).
 // Oracle: test/unit/deps.test.ts builds bundles with known value flows (each
 // case states the flow it plants); test/e2e/v04a.e2e.test.ts records docs/05
 // s06 and s07 on the range site, expected values from the site.
@@ -114,7 +117,8 @@ export type DepsOptions = { session?: string | undefined; request?: string | und
 /** An input with what the graph needs internally: the analyze diff key and the value. */
 export type ResolvedInput = DepsInput & { key: string; value: string };
 
-type When = { t: number; seq: number };
+/** A point in the recording: wall `t` (epoch ms), CDP monotonic `mono` (ms) when the browser gave one, `seq`. */
+type When = { t: number; mono: number | null; seq: number };
 type RawInput = { location: InputLocation; name: string; path?: string; key: string; value: string; diffLoc: ParamLocation; diffName: string };
 type SetCookieRec = { request: string; name: string; value: string; when: When };
 type BodyRec = { request: string; path: string | null; decode: StepName[]; match: "exact" | "embedded"; when: When };
@@ -130,7 +134,27 @@ export function distinctive(v: string): boolean {
   return !(NUMERIC.test(v) && v.length < MIN_NUMBER_LENGTH);
 }
 
-const before = (a: When, b: When): boolean => a.t < b.t || (a.t === b.t && a.seq < b.seq);
+/**
+ * `a` happened before `b`. Two browser times compare on the monotonic clock
+ * (docs/04 §6: durations only from `mono`): each request's wall `ts` is
+ * anchored on its own CDP `wallTime`, and two anchors can be milliseconds
+ * apart (10-16, Windows CI: a login body ~2 ms before the data request came
+ * out after it on the wall clock, so x-csrf lost its response source). The
+ * wall clock only when one side has no monotonic time (actions, an unread
+ * body, bundles without timing).
+ */
+const before = (a: When, b: When): boolean => {
+  if (a.mono !== null && b.mono !== null) return a.mono < b.mono || (a.mono === b.mono && a.seq < b.seq);
+  return a.t < b.t || (a.t === b.t && a.seq < b.seq);
+};
+
+const finiteOrNull = (v: number | null | undefined): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/** Request start on the monotonic clock (`timing.start`), null when not recorded. */
+const startMono = (r: RequestEvent): number | null => (r.mono === null ? null : finiteOrNull(r.timing?.start));
+
+/** Response headers on the monotonic clock (`timing.responseStart`, else the end), as `headersAt`. */
+const headersMono = (r: RequestEvent): number | null => (r.mono === null ? null : (finiteOrNull(r.timing?.responseStart) ?? finiteOrNull(r.mono)));
 
 /** Request start (wall ms): the event `ts` is the completion time (docs/04 §13 HAR rule 2). */
 export function startedAt(r: RequestEvent): number {
@@ -249,7 +273,7 @@ export class DepsGraph {
     this.requests = reader.requests();
     for (const r of this.requests) {
       this.byId.set(r.id, r);
-      this.when.set(r.id, { t: startedAt(r), seq: r.seq });
+      this.when.set(r.id, { t: startedAt(r), mono: startMono(r), seq: r.seq });
     }
     if (!reader.isComplete()) this.warnings.push("bundle is not finished: recording in progress or interrupted");
     if (reader.truncatedLastLine) this.warnings.push("events.jsonl ends with a truncated line; it was skipped");
@@ -319,7 +343,7 @@ export class DepsGraph {
 
   private indexSetCookies(): void {
     for (const r of this.requests) {
-      const when: When = { t: headersAt(r), seq: r.seq };
+      const when: When = { t: headersAt(r), mono: headersMono(r), seq: r.seq };
       for (const { name, value } of setCookiePairs(r)) {
         const rec: SetCookieRec = { request: r.id, name, value, when };
         const byName = this.cookiesByName.get(name) ?? [];
@@ -340,7 +364,7 @@ export class DepsGraph {
       if (value === "") return;
       const m = SECRET.exec(value);
       const list = this.actions.get(value) ?? [];
-      list.push({ seq, value, when: { t, seq }, secret: m?.[1] ?? null });
+      list.push({ seq, value, when: { t, mono: null, seq }, secret: m?.[1] ?? null });
       this.actions.set(value, list);
     };
     const starts = new Map<string, RawEvent>();
@@ -382,7 +406,7 @@ export class DepsGraph {
       if (isBinaryMime(mime) || (binaryByType && baseMime(mime) !== "image/svg+xml")) continue;
       const bytes = this.reader.readBlob(body.blob);
       if (bytes === null || bytes.length > STEP_CAP || binaryMagic(bytes) !== null) continue;
-      const when: When = { t: r.ts, seq: r.seq };
+      const when: When = { t: r.ts, mono: finiteOrNull(r.mono), seq: r.seq };
       const active = new Set(exact);
       for (let run = 0; run < MAX_BODY_RUNS && active.size > 0; run++) {
         const embedded = new Set([...active].filter((v) => v.length >= MIN_EMBEDDED_LENGTH));
@@ -409,7 +433,7 @@ export class DepsGraph {
   }
 
   whenOf(id: string): When {
-    return this.when.get(id) ?? { t: 0, seq: 0 };
+    return this.when.get(id) ?? { t: 0, mono: null, seq: 0 };
   }
 
   groupKeyOf(id: string): string | null {
