@@ -5,9 +5,10 @@
 //     Python zlib / struct) and audio-samples.json with audio-samples.f32le
 //     (Python struct.pack("<8f", …) of the same numbers); the expected digests
 //     are `shasum -a 256` of those two files, not computed by tabcap;
-//   - verdicts: the brief's definitions (same / differs / missing = the
-//     reference lacks it / extra = this browser lacks it; hashes as strings,
-//     arrays in order).
+//   - verdicts: the brief's definitions with the owner's 0.4-G2 direction
+//     (same / differs / missing = this browser lacks a field the reference
+//     has / extra = this browser has a field the reference lacks; hashes as
+//     strings, arrays in order).
 // The helpers under test are the probe page's own <script id="probe-lib">.
 // Real-browser coverage: test/e2e/v04g.e2e.test.ts.
 
@@ -197,7 +198,7 @@ describe("normalizeFields (untrusted page posts and reference files)", () => {
 
 describe("verdicts", () => {
   const n = "Screen.prototype.width";
-  test("same / differs / missing (reference lacks it) / extra (this browser lacks it)", () => {
+  test("same / differs / missing (this browser lacks it, the reference has it) / extra (this browser has it, the reference lacks it)", () => {
     expect(verdictOf({ name: n, value: 1 }, { name: n, value: 1 })).toBe("same");
     expect(verdictOf({ name: n, value: 1 }, { name: n, value: 2 })).toBe("differs");
     expect(verdictOf({ name: n, value: "1" }, { name: n, value: 1 })).toBe("differs");
@@ -206,9 +207,9 @@ describe("verdicts", () => {
     expect(verdictOf({ name: n, hash: "sha256:aa" }, { name: n, hash: "sha256:aa" })).toBe("same");
     expect(verdictOf({ name: n, hash: "sha256:aa" }, { name: n, hash: "sha256:bb" })).toBe("differs");
     expect(verdictOf({ name: n, hash: "sha256:aa" }, { name: n, value: "sha256:aa" })).toBe("differs");
-    expect(verdictOf({ name: n, value: 1 }, { name: n, error: "undefined" })).toBe("missing");
-    expect(verdictOf({ name: n, value: 1 }, undefined)).toBe("missing");
-    expect(verdictOf({ name: n, error: "undefined" }, { name: n, value: 1 })).toBe("extra");
+    expect(verdictOf({ name: n, value: 1 }, { name: n, error: "undefined" })).toBe("extra");
+    expect(verdictOf({ name: n, value: 1 }, undefined)).toBe("extra");
+    expect(verdictOf({ name: n, error: "undefined" }, { name: n, value: 1 })).toBe("missing");
     expect(verdictOf({ name: n, error: "undefined" }, { name: n, error: "not reported" })).toBe("same");
     expect(verdictOf({ name: n, value: null }, { name: n, value: null })).toBe("same");
   });
@@ -220,8 +221,8 @@ describe("verdicts", () => {
     expect(r.fields.length).toBe(49);
     expect(r.summary).toEqual({ same: 46, differs: 1, missing: 1, extra: 1 });
     expect(r.fields.find((x) => x.name === "Screen.prototype.width")).toEqual({ name: "Screen.prototype.width", value: 1512, ref: 1440, verdict: "differs" });
-    expect(r.fields.find((x) => x.name === "Navigator.prototype.deviceMemory")).toEqual({ name: "Navigator.prototype.deviceMemory", value: null, error: "undefined", ref: "Navigator.prototype.deviceMemory".length, verdict: "extra" });
-    expect(r.fields.find((x) => x.name === "Navigator.prototype.platform")).toEqual({ name: "Navigator.prototype.platform", value: "Navigator.prototype.platform".length, ref: null, refError: "not reported", verdict: "missing" });
+    expect(r.fields.find((x) => x.name === "Navigator.prototype.deviceMemory")).toEqual({ name: "Navigator.prototype.deviceMemory", value: null, error: "undefined", ref: "Navigator.prototype.deviceMemory".length, verdict: "missing" });
+    expect(r.fields.find((x) => x.name === "Navigator.prototype.platform")).toEqual({ name: "Navigator.prototype.platform", value: "Navigator.prototype.platform".length, ref: null, refError: "not reported", verdict: "extra" });
     const noRef = compareFields(cur, null);
     expect(noRef.summary).toEqual({ same: 0, differs: 0, missing: 0, extra: 0 });
     expect(noRef.fields.every((x) => !("verdict" in x) && !("ref" in x))).toBe(true);

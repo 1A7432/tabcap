@@ -3263,7 +3263,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": null,
           "flag": "--ref",
-          "help": "add this reference (saved with \`fingerprint serve\`) as a second column with a verdict per field: same / differs / missing (the reference lacks it) / extra (this browser lacks it)",
+          "help": "add this reference (saved with \`fingerprint serve\`) as a second column with a verdict per field: same / differs / missing (this browser lacks a field the reference has) / extra (this browser has a field the reference lacks)",
           "key": "ref",
           "repeatable": false,
           "required": false,
