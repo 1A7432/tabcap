@@ -265,3 +265,9 @@
 ### s52 frame-dates（P1；0.6-D，`where` 读帧里的页面文字）
 - 页面 `/s52`：根文档 `p#s52-date` 写 `03/04/2026`（日月顺序不定），iframe `/s52/frame` 写 `截止 25/04/2026`（日 > 12，只能是 DD/MM）。
 - expected：录制中 `where <#s52-date 的 ref>` 没有 `ambiguous`，`normalized` 含 `2026-04-03`、不含 `2026-03-04`。
+
+## 8. 0.6-J 点击落点（10-16，P1）
+
+### s56 click-landing（P1；0.6-J，点击落到真正监听的元素上）
+- 页面 `/s56`（`test/e2e/site.ts` 的 `startClickTargetSite`），三个控件照作者真实项目里的三种库写法：`#s56-lay`（layui：`role=button`、300 px 宽，自己没有监听器；处理程序按属性挂在内层 `span#s56-lay-span[lay-event]` 上，60 px，靠左）；`#s56-menu`（antd / Element UI：`role=menuitem`，处理程序委托在往上第四层的 `#s56-app`，只在事件目标落在 `cursor:pointer` 的子元素 `span#s56-menu-title.s56-title`（80 px，靠左）里时反应）；`#s56-trust`（`role=button`，处理程序在自己身上、只认 `isTrusted`）。每次处理程序真正跑了，页面往 `window.__s56` 记一条 `<控件>:<isTrusted>`。
+- expected：`snapshot --interactive` 里 `#s56-lay`、`#s56-menu` 两行带 `landing="child"`，`#s56-trust` 不带；默认快照里没有 `landing=`。DOM `click` `#s56-lay` → `effect:"dom"`、`target` 为 `{ref, landedOn:{tag:"span", text:"编辑", selector:"#s56-lay-span"}, reason:"descendant-listener"}`，`__s56` 为 `["lay:false"]`；`#s56-menu` 同理（`text:"菜单项"`、`selector:"#s56-menu-title"`），`__s56` 加一条 `menu:false`。DOM `click` `#s56-trust` → 退出码 0、`effect:"none"`、`note` 提 `--trusted`，没有 `target` / `candidates`，`__s56` 为空；`click --trusted` 之后为 `["trust:true"]`。`click --trusted` `#s56-lay` → 输出带同样的 `target`，`__s56` 为 `["lay:true"]`，`at` 落在页面自己量的 `#s56-lay-span` 的 `getBoundingClientRect` 里（按钮中心在 150 px 处，span 在 0–60 px）。

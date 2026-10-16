@@ -47,6 +47,12 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **`net body`**: shows a request's decoded view by default (`view: "decoded"`), `--raw` the original (`view: "raw"`), `--decoded` fails when there is none. `net show` lists each side's view; `net start` names the active decode plugins; `plugin list` shows `kind` and `match`.
 - **Python runner template** `templates/plugins/decode-python/` (`manifest.json`, `pyproject.toml`, `runner.py`, example `plugin.py`): copy it into `plugins/<name>/` and write `decode(flow)` with a mitmproxy-style `flow` (`flow.request.url / method / headers / content`, `flow.response.headers / content`); run with `uv run --project . runner.py` or `python3 runner.py`. The body of a mitmproxy addon's `response(flow)` can usually move over unchanged.
 
+### Click lands on the element that listens (0.6-J)
+
+- **Default `click` on a ref looks first, read only, at where the handler is**: click / mousedown / pointerdown / touchstart listeners (`DOMDebugger.getEventListeners`) on the target and up to 3 ancestor levels, and on its descendants (depth ≤ 4, at most 64, breadth first) together with framework markers on them (`lay-event`, `onclick`, `role=button`, `href`, a `data-*` click hook, a `cursor:pointer` the element sets itself); descendants without a box are skipped. The page script runs in tabcap's isolated world and changes nothing.
+- The decision: the target or an ancestor listens → the target is clicked as before; otherwise exactly one descendant listens or is marked → the click lands on it and the answer carries `target: {ref, landedOn: {tag, text, selector}, reason: "descendant-listener"}`; several → the target is clicked and the answer lists `candidates: [{ref, tag, text, selector, by}]` (DOM-backed refs, so the agent can click the right one); nothing anywhere (a framework delegating at the root, e.g. React / Vue) → unchanged. `--trusted` (and `--dbl-click`) use the same landing: the pointer ends on the descendant's centre.
+- **`snapshot --interactive`** adds `landing="child"` to a control whose click would land on a descendant (at most 300 controls per document; a document with more than 2000 listening elements is not marked).
+
 ## 0.5.0 (2026-10-16)
 
 ### Changed

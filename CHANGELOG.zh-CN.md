@@ -47,6 +47,12 @@
 
 - **`tabcap bundle info <bundle> --usage [--text] [--business-code <$.路径>=<ok 值>]...`** 离线数出一次录制做了什么（schema `tabcap-usage/0`）：`logins`（登录尝试次数、按账号分、`guard` 事件名单），按主机（`host:port`）的请求数、方法、状态码、首 / 末请求开始时刻、相邻请求开始的最短与平均间隔、任意 1 s 内最多请求数、空正文（有响应但没有正文、0 字节或只有空白，3xx 除外）、业务错误和已存正文字节数；`stops`（guard 熔断事件，如 `fetch-stop` 及其规则与请求）和 `windows`（按 UTC 10 分钟的请求数）。`--business-code` 可重复：JSON 正文里该路径的值不等于 ok 值（路径上没有值也算）记一次错误。只有计数与名字，没有任何值；`--text` 打一屏文本，可贴进运行记录。不带 `--usage` 的 `bundle info` 不变。
 
+### 点击落到真正监听的元素上（0.6-J）
+
+- **默认 `click` 一个 ref 之前先只读地看处理程序在哪**：目标与往上至多 3 层祖先上的 click / mousedown / pointerdown / touchstart 监听器（`DOMDebugger.getEventListeners`），以及它的后代（深度 ≤ 4、至多 64 个、广度优先）上的监听器与框架标记（`lay-event`、`onclick`、`role=button`、`href`、`data-*` 点击钩子、元素自己设的 `cursor:pointer`）；没有盒子的后代跳过。页面脚本在 tabcap 的隔离世界里跑，不改页面。
+- 判定：目标或祖先在监听 → 照旧点目标；否则恰好一个后代在监听或带标记 → 点它，回答带 `target: {ref, landedOn: {tag, text, selector}, reason: "descendant-listener"}`；有好几个 → 照旧点目标，回答列出 `candidates: [{ref, tag, text, selector, by}]`（DOM 支撑的 ref，模型自己挑）；哪儿都没有（框架在根上委托，如 React / Vue）→ 不变。`--trusted`（与 `--dbl-click`）用同一个落点：指针停在那个后代的中心。
+- **`snapshot --interactive`** 给点击会落到后代上的控件加 `landing="child"`（每个文档至多检查 300 个控件；监听元素超过 2000 个的文档不标）。
+
 ## 0.5.0（2026-10-16）
 
 ### 变更

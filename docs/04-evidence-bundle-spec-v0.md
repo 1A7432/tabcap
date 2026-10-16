@@ -516,7 +516,16 @@
 **Python runner 模板**（`templates/plugins/decode-python/`，用户整个目录拷到 `plugins/<name>/` 后改 `manifest.json` 的 `name` 与 `match`）：`manifest.json`（`command` 为 `["uv","run","--project",".","runner.py"]`；不用 uv 时改成 `["python3","runner.py"]`，两者都在插件目录里运行）、`pyproject.toml`（默认无依赖，`plugin.py` 要用的库写进 `dependencies`，`uv run` 首次启动时装进本目录的 `.venv`）、`runner.py`（读 JSON 行、解 base64、调用 `plugin.decode(flow)`）、示例 `plugin.py`（s42 的 XOR，密钥从同目录 `config.json` 读；`config.example.json` 是样板）。`flow` 仿 mitmproxy addon 的形状：`flow.request.url / method / headers / content`、`flow.response.status_code / headers / content`（content 是 bytes；问请求体时 `flow.response` 为 None，问响应体时 `flow.request.content` 为 None），`headers` 不分大小写、`get_all()` 取多值，`.text` 可读可写。`decode()` 返回 bytes / str 或 None；也可以像 mitmproxy 那样直接给 `flow.response.content`（或 `.text`）赋值，runner 认赋值后的内容。`plugin.MIME` 可选，没有就按内容猜 JSON / 文本。`plugin.py` 里的 `print()` 进 stderr（被丢弃），不会弄坏协议。
 
 **靶场**：s42（`docs/05`），插件 `test/e2e/plugins/xor-decode/`（Bun 脚本，密钥在它自己的 `config.json`）。【实测 10-16，本机 CfT 155：`test/e2e/v06b.e2e.test.ts` 5/5；`test/unit/decode-*.test.ts`，含 `uv run` 跑 Python runner】
-||||||| parent of fc1a356 (docs: bundle info --usage (spec 28, recording reference, changelog))
+
+## 29. 0.6-J 点击落点（10-16 作者定设计；字段按实现定案，待作者审）
+
+来自作者另一个项目的真实站点试用（10-16）：layui、antd、Element UI 上 DOM `click` 无障碍元素返回成功却什么都没发生，处理程序在子元素上（`lay-event` 的 span、内层按钮）或只认可信事件。0.6-D 的 `effect:"none"` 只能事后说没反应，这一格让点击落对地方。不加事件 kind，录制格式不变；只读，不改页面。
+
+- **看什么**：默认 `click <ref>` 在点之前看目标所在文档：目标自己与往上至多 3 层祖先的 click / mousedown / pointerdown / touchstart 监听器（`DOMDebugger.getEventListeners`；冒泡管得到祖先）；目标的后代（深度 ≤ 4、至多 64 个、广度优先）的同样四种监听器与框架标记：`lay-event`、`onclick`、`role=button`、`href`、名字含 click / action / event / toggle / handler / command / trigger 的 `data-*`、元素自己引入的 `cursor:pointer`（父元素的计算值不是 pointer；继承来的不算，否则 pointer 元素的每个子元素都会被标上）。没有盒子（`display:none`、`visibility:hidden`、宽或高为 0）的后代不算候选。标记、文字、选择器在 tabcap 的隔离世界里读；监听器只能经主世界对象读【实测 spike 10-16 CfT 155：隔离世界的 objectId 调 `getEventListeners` 对有主世界监听器的节点返回空表】，用 `DOM.resolveNode`（不带 context，不跑页面脚本）取主世界对象。
+- **判定表**：(a) 目标或祖先在监听 → 照旧点目标，输出不变；(b) 否则恰好一个后代在监听或带标记 → DOM 点击落到它上面（`el.click()` 没有坐标，「中心」只对 `--trusted` 有意义），输出加 `target: {ref, landedOn: {tag, text, selector}, reason: "descendant-listener"}`：`ref` 是给的那个 ref，`selector` 从最近的带 id 祖先（或 `body`）起写成 `tag.class:nth-of-type(k)` 链，至多 300 字符，`text` 是 `innerText` 的前 80 字符；(c) 好几个 → 照旧点目标，输出加 `candidates: [{ref, tag, text, selector, by}]`，`ref` 是铸给每个候选的 DOM 支撑 ref（0.6-D，同表同失效），`by` 是 `listener:<type>` 与标记名；(d) 哪儿都没有（框架在根上委托，React / Vue）→ 不变。`reason` 只有 `descendant-listener` 一个值，只靠标记选中的后代也用它。
+- **`--trusted`** 走自己的路径但用同一个落点：(b) 时滚动、绘制确认、遮挡检查、指针终点、投递探针都对那个后代，`at` 是它的内容盒中心。`--dbl-click` 同理。`effect` 观察仍挂在原目标的文档上。
+- **`snapshot --interactive`**：交互视图里每个带 DOM 节点的控件（无障碍交互角色）跑同一判定，(b) 的在行尾加 `landing="child"`；(c) 不标（点击不会落到子元素上）。每个文档一次 `getEventListeners {depth:-1}` 加一次页面调用；每文档至多检查 300 个控件，监听元素超过 2000 个的文档整份不标。默认（非 `--interactive`）快照不检查。
+- 检查本身出错（页面脚本异常、节点在中途被换掉等）只记日志，点击照旧点目标、快照照旧不标；不加新的错误码。
 
 ## 30. 0.6-H 账号使用证据 `bundle info --usage`（10-16 作者定设计；字段与下列细节按实现定案，待作者审）
 
