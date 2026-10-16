@@ -392,7 +392,7 @@ describe("tracer over a fake CDP: events, value once per document, windows", () 
     mkdirSync(dir, { recursive: true });
     const rec = await Recorder.start({ session: "tr", dir: join(dir, "x"), t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
     const list = parseSignalList(JSON.stringify(["Navigator.prototype.userAgent", "Nope.prototype.x"]), "test.json");
-    const tr = await Tracer.start({ session: "tr", t, tabs, list, limits: { stack: 8, firstN: 20, maxHits: 500 }, recorder: () => rec, scrub: (s) => s.replace("test-ua", "<secret:x>"), paused: false });
+    const tr = await Tracer.start({ session: "tr", t, tabs, list, limits: { stack: 8, firstN: 20, maxHits: 500 }, recorder: () => rec, scrub: (s) => s.replace("test-ua", "<secret:x>"), paused: false, decode: false });
     expect(sent.filter((x) => x.method === "EventBreakpoints.setInstrumentationBreakpoint").map((x) => x.params["eventName"])).toEqual(["scriptFirstStatement", ...INSTRUMENTATION_EVENTS]);
     expect(tr.status()).toMatchObject({ trace: "on", notice: TRACE_NOTICE, active: ["Navigator.prototype.userAgent"], skipped: [{ api: "Nope.prototype.x", reason: "not present in this browser" }] });
 
@@ -448,7 +448,7 @@ describe("tracer over a fake CDP: events, value once per document, windows", () 
     await tabs.createTab("tr");
     const dir = join(tmp("tabcap-tracer-"), "b");
     const rec = await Recorder.start({ session: "tr", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
-    const tr = await Tracer.start({ session: "tr", t, tabs, list: parseSignalList('["Navigator.prototype.userAgent"]', "t.json"), limits: { stack: 8, firstN: 20, maxHits: 500 }, recorder: () => rec, scrub: (s) => s, paused: false });
+    const tr = await Tracer.start({ session: "tr", t, tabs, list: parseSignalList('["Navigator.prototype.userAgent"]', "t.json"), limits: { stack: 8, firstN: 20, maxHits: 500 }, recorder: () => rec, scrub: (s) => s, paused: false, decode: false });
     emit("Debugger.scriptParsed", { scriptId: "11", url: "http://h/fp.js", executionContextId: 3, executionContextAuxData: { frameId: "T1", isDefault: true } });
     emit("Debugger.paused", { reason: "other", hitBreakpoints: ["bp-fn-ua"], callFrames: [frame("11", 1, 16)] });
     await rec.stop();
@@ -464,7 +464,7 @@ describe("tracer over a fake CDP: events, value once per document, windows", () 
     await tabs.createTab("tr");
     const dir = join(tmp("tabcap-tracer-"), "b");
     const rec = await Recorder.start({ session: "tr", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
-    const tr = await Tracer.start({ session: "tr", t, tabs, list: builtinSignalList(), limits: { stack: 8, firstN: 20, maxHits: 500 }, recorder: () => rec, scrub: (s) => s, paused: false });
+    const tr = await Tracer.start({ session: "tr", t, tabs, list: builtinSignalList(), limits: { stack: 8, firstN: 20, maxHits: 500 }, recorder: () => rec, scrub: (s) => s, paused: false, decode: false });
     await tr.setPaused(true);
     expect(tr.status()["trace"]).toBe("paused");
     await tr.setPaused(false);

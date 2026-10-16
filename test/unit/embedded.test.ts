@@ -25,8 +25,8 @@ const b64 = (b: Uint8Array): string => Buffer.from(b).toString("base64");
 const brief = (nodes: EmbeddedNode[]) => nodes.map(({ text: _t, span: _s, ...n }) => n);
 
 describe("step names", () => {
-  test("the three embedded steps are decode-chain steps (docs/05 s04)", () => {
-    expect(STEP_NAMES.slice(-3)).toEqual(["script-json", "inline-assign", "viewstate"]);
+  test("the three embedded steps are decode-chain steps, the page step last (docs/05 s04, docs/04 §33)", () => {
+    expect(STEP_NAMES.slice(-4)).toEqual(["script-json", "inline-assign", "viewstate", "page"]);
   });
 });
 

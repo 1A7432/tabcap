@@ -3833,7 +3833,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "example": "tabcap trace start",
+      "example": "tabcap trace start --decode",
       "flags": [
         {
           "alias": null,
@@ -3890,6 +3890,28 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "type": "number",
           "valueOptional": false,
         },
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--decode",
+          "help": "observe mode: a response that looks like ciphertext arms JSON.parse for 5 s and the plaintext the page itself parses is filed as a decoded view by "page" (config.json trace.decode sets the default; TextDecoder / SubtleCrypto pauses are evidence only)",
+          "key": "decode",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--no-decode",
+          "help": "start without the observe mode, whatever config.json says",
+          "key": "decode",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
       ],
       "internal": false,
       "name": "trace start",
@@ -3898,8 +3920,8 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         "start",
       ],
       "positionals": [],
-      "summary": "trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into \`signal\` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable",
-      "usage": "tabcap trace start [--session name] [--apis file] [--stack n] [--first-n n] [--max-hits n]",
+      "summary": "trace mode for the session (every tab, frame and worker, now and later): records which page scripts read which browser signals (navigator, screen, time zone, canvas, WebGL …) via debugger breakpoints into \`signal\` events; read-only, changes nothing in the page, but scripts run slower and the timing is observable; with --decode also in-page decoding: breakpoints pause JSON.parse, the plaintext is recovered from the pausing scope, never a CryptoKey",
+      "usage": "tabcap trace start [--session name] [--apis file] [--stack n] [--first-n n] [--max-hits n] [--decode] [--no-decode]",
     },
     {
       "daemon": true,
