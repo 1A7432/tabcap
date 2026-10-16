@@ -1,7 +1,7 @@
 // Tiny local site for L2 tests and for capturing fixtures/ax. Serves fixed
 // bytes and remembers them, so tests compare sha256 of what was really served.
 
-import { createHash } from "node:crypto";
+import { createCipheriv, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -1756,4 +1756,141 @@ document.getElementById("s55-load").addEventListener("click", () => {
     },
   });
   return { origin: `http://127.0.0.1:${server.port}`, served, api, stop: () => server.stop(true) };
+}
+
+// ---------------------------------------------------------------- 0.6-L: s59 in-page decoding (docs/05 s59)
+// /api/enc answers {"code":0,"data":"<base64>"}: the 12-row JSON below either
+// XORed with S59_XOR_KEY (default) or, with ?mode=webcrypto, AES-128-GCM
+// encrypted with S59_AES_KEY_HEX / S59_AES_IV_HEX (data = base64(iv ||
+// ciphertext || tag)). The page /s59 (and /s59?mode=webcrypto) fetches it,
+// decrypts in its own JS (a plain XOR loop, or crypto.subtle.decrypt +
+// TextDecoder.decode), JSON.parses the plaintext and renders the rows, then
+// fetches /api/plain (plain JSON, parsed via response.text() + JSON.parse) as
+// the control. Rows and keys are literals here; no plaintext value appears in
+// any raw /api/enc body.
+export const S59_XOR_KEY = "s59-page-key-31";
+export const S59_AES_KEY_HEX = "5a59a1c3d2e1f00f1e2d3c4b5a697887";
+export const S59_AES_IV_HEX = "0f1e2d3c4b5a69788796a5b4";
+export const S59_AES_IV2_HEX = "a1b2c3d4e5f60718293a4b5c";
+export const S59_ROWS = Array.from({ length: 12 }, (_, i) => ({ id: `S59-${String(i + 1).padStart(4, "0")}`, qty: ((i * 7) % 13) + 1, amount: `${(i + 1) * 101}.50` }));
+export const S59_ROWS2 = Array.from({ length: 12 }, (_, i) => ({ id: `S59-${String(101 + i).padStart(4, "0")}`, qty: ((i * 5) % 11) + 2, amount: `${(i + 2) * 202}.25` }));
+export const S59_PLAIN = JSON.stringify({ rows: S59_ROWS });
+export const S59_PLAIN2 = JSON.stringify({ rows: S59_ROWS2 });
+export const S59_CONTROL = JSON.stringify({ code: 0, control: "s59-plain-control", note: "plain JSON the page parses too" });
+
+export function s59Xor(plain: string): string {
+  const k = Buffer.from(S59_XOR_KEY, "latin1");
+  const b = Buffer.from(plain, "latin1");
+  return Buffer.from(b.map((x, i) => x ^ (k[i % k.length] ?? 0))).toString("base64");
+}
+
+export function s59Gcm(plain: string, ivHex: string = S59_AES_IV_HEX): string {
+  const c = createCipheriv("aes-128-gcm", Buffer.from(S59_AES_KEY_HEX, "hex"), Buffer.from(ivHex, "hex"));
+  const ct = Buffer.concat([c.update(plain, "utf8"), c.final()]);
+  return Buffer.concat([Buffer.from(ivHex, "hex"), ct, c.getAuthTag()]).toString("base64");
+}
+
+export const S59_ENC_XOR = JSON.stringify({ code: 0, data: s59Xor(S59_PLAIN) });
+export const S59_ENC_GCM = JSON.stringify({ code: 0, data: s59Gcm(S59_PLAIN) });
+export const S59_ENC_GCM2 = JSON.stringify({ code: 0, data: s59Gcm(S59_PLAIN2, S59_AES_IV2_HEX) });
+
+const S59_PAGE = `<!doctype html><meta charset=utf-8><title>s59 in-page decode</title>
+<h1>s59 in-page decode</h1>
+<table id=rows><thead><tr><th>id</th><th>qty</th><th>amount</th></tr></thead><tbody></tbody></table>
+<p id=status>loading</p>
+<script>
+const S59_KEY = ${JSON.stringify(S59_XOR_KEY)};
+const S59_AES = ${JSON.stringify(S59_AES_KEY_HEX)};
+function s59Bytes(b64) { const raw = atob(b64); const out = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out; }
+function s59Xor(data) {
+  const raw = atob(data);
+  let plain = "";
+  for (let i = 0; i < raw.length; i++) plain += String.fromCharCode(raw.charCodeAt(i) ^ S59_KEY.charCodeAt(i % S59_KEY.length));
+  return JSON.parse(plain);
+}
+async function s59Gcm(data) {
+  const buf = s59Bytes(data);
+  const keyBytes = new Uint8Array(S59_AES.match(/../g).map((h) => parseInt(h, 16)));
+  const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["decrypt"]);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf.slice(0, 12) }, key, buf.slice(12));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+function s59Render(rows) {
+  const tb = document.querySelector("#rows tbody");
+  for (const r of rows) { const tr = document.createElement("tr"); for (const k of ["id", "qty", "amount"]) { const td = document.createElement("td"); td.textContent = String(r[k]); tr.appendChild(td); } tb.appendChild(tr); }
+}
+function s59Worker(data) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker("/s59/worker.js");
+    w.onmessage = (e) => { w.terminate(); resolve(JSON.parse(e.data)); };
+    w.onerror = (e) => { w.terminate(); reject(e); };
+    w.postMessage({ key: S59_KEY, data });
+  });
+}
+async function s59Enc(mode) {
+  const two = mode === "webcrypto" && new URLSearchParams(location.search).get("two") === "1";
+  if (!two) {
+    const res = await fetch(mode === "webcrypto" ? "/api/enc?mode=webcrypto" : "/api/enc", { cache: "no-store" });
+    const text = await res.text();
+    const env = JSON.parse(text);
+    const plain = mode === "webcrypto" ? await s59Gcm(env.data) : mode === "worker" ? await s59Worker(env.data) : s59Xor(env.data);
+    s59Render(plain.rows);
+    return;
+  }
+  // ?mode=webcrypto&two=1: two concurrent encrypted responses, both suspects of
+  // the observe mode at once; each decrypted, each JSON.parsed, both rendered.
+  const pair = await Promise.all([fetch("/api/enc?mode=webcrypto&slot=1", { cache: "no-store" }), fetch("/api/enc?mode=webcrypto&slot=2", { cache: "no-store" })]);
+  for (const res of pair) {
+    const env = JSON.parse(await res.text());
+    s59Render((await s59Gcm(env.data)).rows);
+  }
+}
+async function s59Plain() {
+  const res = await fetch("/api/plain", { cache: "no-store" });
+  return JSON.parse(await res.text());
+}
+async function s59Main(mode) {
+  await s59Enc(mode);
+  const c = await s59Plain();
+  document.getElementById("status").textContent = "ready " + c.control;
+}
+const s59Mode = new URLSearchParams(location.search).get("mode");
+s59Main(s59Mode === "webcrypto" || s59Mode === "worker" ? s59Mode : "xor");
+</script>`;
+
+// ?mode=worker: the XOR runs in a dedicated worker, which posts the plaintext
+// string back; the main thread JSON.parses it.
+const S59_WORKER_JS = `onmessage = (e) => {
+  const raw = atob(e.data.data);
+  const key = e.data.key;
+  let plain = "";
+  for (let i = 0; i < raw.length; i++) plain += String.fromCharCode(raw.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  postMessage(plain);
+};`;
+
+export function startInPageDecodeSite(): Site {
+  const served = new Map<string, string>();
+  const hits: string[] = [];
+  const send = (key: string, body: string, type: string) => {
+    served.set(key, body);
+    return new Response(body, { headers: { "content-type": type, "cache-control": "no-store" } });
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      const key = u.pathname + u.search;
+      hits.push(`${req.method} ${key}`);
+      if (u.pathname === "/s59") return send(key, S59_PAGE, "text/html; charset=utf-8");
+      if (u.pathname === "/s59/worker.js") return send(key, S59_WORKER_JS, "text/javascript");
+      if (u.pathname === "/api/enc") {
+        const body = u.searchParams.get("mode") === "webcrypto" ? (u.searchParams.get("slot") === "2" ? S59_ENC_GCM2 : S59_ENC_GCM) : S59_ENC_XOR;
+        return send(key, body, "application/json");
+      }
+      if (u.pathname === "/api/plain") return send(key, S59_CONTROL, "application/json");
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served, hits, stop: () => server.stop(true) };
 }
