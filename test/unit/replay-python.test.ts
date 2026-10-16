@@ -30,6 +30,7 @@ describe("generated package", () => {
     const out = join(root, "py");
     const r = exportPython({ bundle, out, chain: false }); // 0.3 behaviour (--no-chain); chain mode: replay-chain.test.ts
     expect(r.files).toEqual([
+      ".gitignore",
       "README.md",
       "client.py",
       "conftest.py",
@@ -47,6 +48,21 @@ describe("generated package", () => {
     const client = readFileSync(join(out, "client.py"), "utf8");
     expect(client).toMatchSnapshot();
     expect(pyCompile(FILES.map((f) => join(out, f)))).toBeNull();
+  });
+
+  test("uv: pyproject.toml has httpx with HTTP/2 and pytest in the `test` dependency group; .gitignore for .venv/, a user's own is kept", () => {
+    const out = join(root, "py-uv");
+    exportPython({ bundle, out, chain: false });
+    const pyproject = readFileSync(join(out, "pyproject.toml"), "utf8");
+    expect(pyproject).toContain('dependencies = ["httpx[http2]>=0.27"]');
+    expect(pyproject).toContain('[dependency-groups]\ntest = ["pytest>=8"]');
+    expect(pyproject).not.toContain("optional-dependencies");
+    expect(readFileSync(join(out, ".gitignore"), "utf8")).toBe(".venv/\n__pycache__/\n");
+    expect(readFileSync(join(out, "client.py"), "utf8")).toMatch(/httpx\.Client\(timeout=timeout, follow_redirects=False, http2=True, /);
+    expect(readFileSync(join(out, "README.md"), "utf8")).toContain("TABCAP_REPLAY=http://127.0.0.1:4500 uv run --group test pytest -q");
+    writeFileSync(join(out, ".gitignore"), "mine\n");
+    expect(exportPython({ bundle, out, chain: false }).files).not.toContain(".gitignore");
+    expect(readFileSync(join(out, ".gitignore"), "utf8")).toBe("mine\n");
   });
 
   test("--no-chain: a login form field named `pass` is a secret input; its recorded value is written nowhere (default@2)", () => {

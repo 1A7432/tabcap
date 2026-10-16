@@ -22,7 +22,7 @@
 // same bundle (recorded bytes); test/unit/replay-python.test.ts snapshots
 // client.py for a synthetic bundle and py_compiles the output.
 
-import { mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { BundleReader } from "../bundle/reader.ts";
 import { isSensitiveHeader, isSensitiveName } from "../bundle/redact.ts";
@@ -822,7 +822,7 @@ function chainReadme(chain: ChainResult, redacted: boolean): string {
     "",
     "1. Read every `# TODO` comment in `client.py`: it names the hints (`looks-signature`, `looks-random` …) and the inputs that vary with it (`varies with …`).",
     "2. Create `todo_inputs.py` in this directory with `def fill(function: str, args: dict) -> dict`: compute the TODO parameters the way the page does and return `{parameter: value}`. Do not edit `client.py`; regenerating overwrites it.",
-    "3. Start the replay server `tabcap replay serve <bundle> --port 4500` and run `python client.py verify --base-url http://127.0.0.1:4500`: it replays the chain step by step, compares each answer with the recording the way `tabcap replay check` does (status, selected response headers, body path by path), prints pass / fail per step and exits non-zero on a failure. Without `todo_inputs.py` the recorded values are used; with it, the computed values must equal the recorded ones to pass, which is the check that the TODOs are filled correctly.",
+    "3. Start the replay server `tabcap replay serve <bundle> --port 4500` and run `uv run client.py verify --base-url http://127.0.0.1:4500`: it replays the chain step by step, compares each answer with the recording the way `tabcap replay check` does (status, selected response headers, body path by path), prints pass / fail per step and exits non-zero on a failure. Without `todo_inputs.py` the recorded values are used; with it, the computed values must equal the recorded ones to pass, which is the check that the TODOs are filled correctly.",
     "4. Only then run against the real site (`--base-url` set to its origin; think about the account risk first, docs/03 §4).",
     "",
     "Inputs whose names look like passwords or tokens (the same rule as `tabcap bundle redact`) are never written into a generated file: `verify_expected.json` holds `<secret:function.parameter>`, read at run time from the environment variable `TABCAP_SECRET_<FUNCTION_PARAMETER>`.",
@@ -947,7 +947,7 @@ export function exportPython(opts: ExportOptions): ExportResult {
       ? [
           `# Chain mode (tabcap analyze deps / chain): a parameter defaulting to TODO has no source in the recording;`,
           `# pass it (or fill it in todo_inputs.py for verify). verify() replays the chain to ${docSafe(chain?.target ?? "")}:`,
-          "#   python client.py verify --base-url http://127.0.0.1:4500",
+          "#   uv run client.py verify --base-url http://127.0.0.1:4500",
         ]
       : []),
     `"""Replay client for bundle ${docSafe(reader.manifest.id)}."""`,
@@ -982,6 +982,8 @@ export function exportPython(opts: ExportOptions): ExportResult {
   };
   write("pyproject.toml", fill(PYPROJECT, vars));
   write("README.md", fill(README, vars));
+  // uv (the documented way to run the package) creates .venv/ here; a .gitignore the user already has is kept.
+  if (!existsSync(join(opts.out, ".gitignore"))) write(".gitignore", ".venv/\n__pycache__/\n");
   if (planned.some((p) => p.fn.todo !== null)) warnings.push(`${planned.filter((p) => p.fn.todo !== null).length} function(s) raise NotImplementedError (TODO markers in client.py)`);
   return {
     out: opts.out,
