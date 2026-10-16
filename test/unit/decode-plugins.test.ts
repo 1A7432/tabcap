@@ -2,16 +2,18 @@
 // tabcap-decode/1 protocol against a fake plugin process (framing, timeouts,
 // crashes, oversized answers, disable after MAX_FAILURES), the recorder's
 // `decoded` field and blob (fake CDP transport, the range plugin), and
-// `bundle decode` on a bundle recorded without a plugin.
+// `bundle decode` on a bundle recorded without a plugin (views go to the
+// decoded.jsonl sidecar; events.jsonl never changes, owner ruling 10-16).
 // Oracles: docs/04 §26 (shapes, written before the code in the brief), the
 // fake plugin's documented behaviour (test/fixtures/plugins/fake-decode), and
 // the s42 plaintexts written by hand in test/e2e/site.ts.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { decodeBundle } from "../../src/bundle/decode.ts";
+import { SIDECAR_FILE } from "../../src/bundle/decoded.ts";
 import { Tabs } from "../../src/daemon/browser/targets.ts";
 import { Recorder } from "../../src/daemon/capture/recorder.ts";
 import { DecodeHost, DecodeSession, MAX_FAILURES, decodeMatches, parseDecodeReply, resolveDecodeCommand, type DecodeJob, type DecodePlugin } from "../../src/daemon/hooks/decode.ts";
@@ -337,28 +339,48 @@ describe("recorder: decoded views beside the original bodies", () => {
 
 // ------------------------------------------------------------ bundle decode
 
-describe("bundle decode: views for a bundle recorded before the plugin existed", () => {
-  test("adds request / response views in place; seq, ids and every other line unchanged; rerun is stable; unfinished bundles refused", async () => {
+describe("bundle decode: views for a bundle recorded before the plugin existed (decoded.jsonl sidecar)", () => {
+  const sidecarLines = (dir: string): Record<string, unknown>[] =>
+    existsSync(join(dir, SIDECAR_FILE))
+      ? readFileSync(join(dir, SIDECAR_FILE), "utf8")
+          .split("\n")
+          .filter((l) => l !== "")
+          .map((l) => {
+            const v: unknown = JSON.parse(l);
+            return typeof v === "object" && v !== null && !Array.isArray(v) ? Object.fromEntries(Object.entries(v)) : {};
+          })
+      : [];
+
+  test("appends request / response views to the sidecar; not one byte of events.jsonl or manifest.json changes; the reader overlays them; a re-run appends nothing", async () => {
     const root = tmp("tabcap-decbd-");
     const config = join(root, "config");
     installXor(config);
     const dir = await s42Bundle(join(root, "b"));
-    const before = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n");
+    const eventsBefore = readFileSync(join(dir, "events.jsonl"));
+    const manifestBefore = readFileSync(join(dir, "manifest.json"));
+    expect(BundleReader.open(dir).decodedSidecar).toBe(false);
     const host = new DecodeHost();
     try {
-      const res = await decodeBundle(dir, new DecodeSession(host, decodePlugins(config)));
-      expect([res.requests, res.decoded, res.failed, res.kept]).toEqual([4, 4, 0, 0]);
+      const res = await decodeBundle(dir, new DecodeSession(host, decodePlugins(config)), () => 1760700000000);
+      expect([res.requests, res.decoded, res.failed, res.kept, res.unchanged, res.appended]).toEqual([4, 4, 0, 0, 0, 4]);
       expect(res.rows.map((r) => [r.request, r.direction, r.ok])).toEqual([
         ["r-3", "response", true],
         ["r-4", "response", true],
         ["r-5", "request", true],
         ["r-5", "response", true],
       ]);
-      const after = readFileSync(join(dir, "events.jsonl"), "utf8").split("\n");
-      expect(after.length).toBe(before.length);
-      const changed = after.map((l, i) => (l === before[i] ? null : i)).filter((i) => i !== null);
-      expect(changed.map((i) => (JSON.parse(after[i ?? 0] ?? "{}") as Record<string, unknown>)["id"])).toEqual(["r-3", "r-4", "r-5"]);
+      expect(readFileSync(join(dir, "events.jsonl")).equals(eventsBefore)).toBe(true);
+      expect(readFileSync(join(dir, "manifest.json")).equals(manifestBefore)).toBe(true);
+      const lines = sidecarLines(dir);
+      expect(lines.map((l) => [l["seq"], l["request"], l["direction"], l["at"]])).toEqual([
+        [1, "r-3", "response", 1760700000000],
+        [2, "r-4", "response", 1760700000000],
+        [3, "r-5", "request", 1760700000000],
+        [4, "r-5", "response", 1760700000000],
+      ]);
+      expect(lines[0]?.["decoded"]).toEqual({ by: "xor-decode", version: "1", direction: "response", mime: "application/json", blob: expect.stringMatching(/^sha256:[0-9a-f]{64}$/), bytes: S42_TOKEN_JSON.length, ok: true });
       const reader = BundleReader.open(dir);
+      expect(reader.decodedSidecar).toBe(true);
       expect(reader.issues).toEqual([]);
       const view = (id: string, side: "request" | "response") => {
         const r = reader.requests().find((x) => x.id === id);
@@ -366,11 +388,14 @@ describe("bundle decode: views for a bundle recorded before the plugin existed",
         return d?.blob ? new TextDecoder().decode(reader.readBlob(d.blob) ?? new Uint8Array()) : null;
       };
       expect([view("r-3", "response"), view("r-4", "response"), view("r-5", "request"), view("r-5", "response")]).toEqual([S42_TOKEN_JSON, S42_ITEMS_JSON, S42_POST_JSON, S42_ORDER_JSON]);
-      expect(reader.manifest.counts.blobBytes).toBeGreaterThan(0);
-      // a second run produces the same file
+      // the raw events a reader hands out carry the overlay too (redaction, HAR export)
+      const raw = reader.events.find((e) => e["id"] === "r-3")?.["response"];
+      expect(typeof raw === "object" && raw !== null && "decoded" in raw).toBe(true);
+      // a re-run sees the same views and appends nothing
       const again = await decodeBundle(dir, new DecodeSession(host, decodePlugins(config)));
-      expect(again.decoded).toBe(4);
-      expect(readFileSync(join(dir, "events.jsonl"), "utf8")).toBe(after.join("\n"));
+      expect([again.decoded, again.failed, again.unchanged, again.appended]).toEqual([0, 0, 4, 0]);
+      expect(sidecarLines(dir).length).toBe(4);
+      expect(readFileSync(join(dir, "events.jsonl")).equals(eventsBefore)).toBe(true);
     } finally {
       host.close();
     }
@@ -384,7 +409,7 @@ describe("bundle decode: views for a bundle recorded before the plugin existed",
     rmSync(root, { recursive: true, force: true });
   }, 20_000);
 
-  test("a failure never replaces an ok view", async () => {
+  test("a changed view is appended and the last line per (request, direction) wins; a failure never replaces an ok view; a torn last line is skipped", async () => {
     const root = tmp("tabcap-deckeep-");
     const config = join(root, "config");
     installXor(config);
@@ -392,11 +417,24 @@ describe("bundle decode: views for a bundle recorded before the plugin existed",
     const host = new DecodeHost();
     try {
       await decodeBundle(dir, new DecodeSession(host, decodePlugins(config)));
+      // failures: the document (no view before) gets a failed one appended, the four ok views are kept
       const failing = { decode: async (j: DecodeJob) => ({ by: "xor-decode", version: "1", direction: j.direction, ok: false as const, error: "key rotated" }) };
       const res = await decodeBundle(dir, failing);
-      // the stub fails every body: the document (no view before) gets a failed one, the four ok views are kept
-      expect([res.decoded, res.failed, res.kept]).toEqual([0, 1, 4]);
+      expect([res.decoded, res.failed, res.kept, res.appended]).toEqual([0, 1, 4, 1]);
       expect(BundleReader.open(dir).requests().find((r) => r.id === "r-3")?.response?.decoded?.ok).toBe(true);
+      // version 2 of the plugin: every view differs, so each is appended and wins
+      const v2 = { decode: async (j: DecodeJob) => ({ by: "xor-decode", version: "2", direction: j.direction, ok: true as const, mime: "text/plain", body: new TextEncoder().encode(`v2 ${j.id ?? ""} ${j.direction}`) }) };
+      const res2 = await decodeBundle(dir, v2);
+      expect([res2.decoded, res2.appended]).toEqual([5, 5]);
+      const lines = sidecarLines(dir);
+      expect(lines.map((l) => l["seq"])).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      const r3 = BundleReader.open(dir).requests().find((r) => r.id === "r-3")?.response?.decoded;
+      expect([r3?.version, r3?.mime]).toEqual(["2", "text/plain"]);
+      // an interrupted append leaves half a line: skipped and reported, the rest still applies
+      writeFileSync(join(dir, SIDECAR_FILE), readFileSync(join(dir, SIDECAR_FILE), "utf8") + '{"seq":11,"request":"r-3","dire');
+      const torn = BundleReader.open(dir);
+      expect(torn.issues.map((i) => [i.kind, i.line])).toEqual([["bad-sidecar", 11]]);
+      expect(torn.requests().find((r) => r.id === "r-3")?.response?.decoded?.version).toBe("2");
     } finally {
       host.close();
       rmSync(root, { recursive: true, force: true });

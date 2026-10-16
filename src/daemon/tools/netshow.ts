@@ -11,7 +11,7 @@ import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
 import type { WsFrameEntry } from "../capture/recorder.ts";
 import { inlineBytes } from "../capture/ws.ts";
-import { parseDecoded } from "../../bundle/decoded.ts";
+import { latestViews, overlayEvent, parseDecoded, readSidecar } from "../../bundle/decoded.ts";
 
 export const SHOW_INLINE_MAX = 2048;
 
@@ -23,7 +23,7 @@ export function materialize(dir: string, sub: string, name: string, bytes: Uint8
   return path;
 }
 
-/** The `request` event with this id, from events.jsonl (untrusted lines: bad ones are skipped). */
+/** The `request` event with this id, from events.jsonl (untrusted lines: bad ones are skipped), with views from the decoded.jsonl sidecar overlaid. */
 export function findRequestEvent(dir: string, id: string): Record<string, unknown> | null {
   const file = join(dir, EVENTS_FILE);
   if (!existsSync(file)) return null;
@@ -32,7 +32,7 @@ export function findRequestEvent(dir: string, id: string): Record<string, unknow
     if (!line.includes(needle)) continue;
     try {
       const ev: unknown = JSON.parse(line);
-      if (isRecord(ev) && ev["kind"] === "request" && ev["id"] === id) return ev;
+      if (isRecord(ev) && ev["kind"] === "request" && ev["id"] === id) return overlayEvent(ev, latestViews(readSidecar(dir)));
     } catch {
       // a torn last line while recording; keep looking
     }

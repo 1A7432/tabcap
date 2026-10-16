@@ -2,7 +2,10 @@
 // - a truncated last line of events.jsonl is reported, never thrown (§1.1);
 // - unknown kinds and unknown fields are kept verbatim (§3);
 // - damaged middle lines are reported and skipped;
-// - a manifest with a different format major is refused (§10).
+// - a manifest with a different format major is refused (§10);
+// - decoded views added by `bundle decode` live in the decoded.jsonl sidecar
+//   (docs/04 §26); `events` and `requests()` carry them overlaid on their
+//   request events, the file itself is never changed.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,7 +13,7 @@ import { TabcapError } from "../shared/envelope.ts";
 import { isBlobRef } from "../shared/ids.ts";
 import { bool, isRecord, num, oneOf, rec, str } from "../shared/json.ts";
 import { BlobStore } from "./blobs.ts";
-import { decodedOf } from "./decoded.ts";
+import { decodedOf, latestViews, overlayEvent, readSidecar } from "./decoded.ts";
 import { EVENTS_FILE, readManifest } from "./manifest.ts";
 import type {
   Actor,
@@ -28,7 +31,7 @@ import type {
 
 export type ReadIssue = {
   line: number; // 1-based line number in events.jsonl (0 = not line specific)
-  kind: "truncated-last-line" | "bad-json" | "bad-envelope" | "seq-order" | "bad-request";
+  kind: "truncated-last-line" | "bad-json" | "bad-envelope" | "seq-order" | "bad-request" | "bad-sidecar";
   detail: string;
 };
 
@@ -238,13 +241,19 @@ export class BundleReader implements BundleView {
   readonly events: RawEvent[];
   readonly issues: ReadIssue[];
   readonly truncatedLastLine: boolean;
+  /** The bundle has a decoded.jsonl sidecar (views added by `bundle decode`). */
+  readonly decodedSidecar: boolean;
   private readonly blobs: BlobStore;
 
   private constructor(dir: string, manifest: Manifest, parsed: ParsedEvents) {
     this.dir = dir;
     this.manifest = manifest;
-    this.events = parsed.events;
-    this.issues = parsed.issues;
+    const sidecar = readSidecar(dir);
+    this.decodedSidecar = sidecar !== null;
+    const views = latestViews(sidecar);
+    this.events = views.size === 0 ? parsed.events : parsed.events.map((e) => overlayEvent(e, views));
+    // sidecar issues name lines of decoded.jsonl
+    this.issues = [...parsed.issues, ...(sidecar?.issues ?? []).map((i) => ({ line: i.line, kind: "bad-sidecar" as const, detail: `decoded.jsonl: ${i.detail}` }))];
     this.truncatedLastLine = parsed.truncatedLastLine;
     this.blobs = new BlobStore(dir);
   }

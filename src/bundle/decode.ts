@@ -1,25 +1,25 @@
 // `tabcap bundle decode <bundle> [--plugin name]` (0.6-B, docs/04 §26): run
 // decode plugins over a finished bundle, so a recording made before the
 // plugin existed gets decoded views too. For every request whose request /
-// response body a plugin takes, the plaintext goes to a new blob and the
-// event's side gets `decoded`, exactly as the recorder writes it live.
+// response body a plugin takes, the plaintext goes to a new blob and the view
+// is appended to the bundle's decoded.jsonl sidecar (bundle/decoded.ts); the
+// reader overlays it onto the request events, so every consumer sees it as
+// if the recorder had written it.
 //
-// This is the one command that rewrites events.jsonl: the file is replaced
-// atomically (temp + fsync + rename), only request lines that gain or change
-// a `decoded` field are re-serialised, every other line stays byte for byte,
-// `seq` and ids never change. Unfinished bundles are refused (a recording may
-// still be appending). Rules: a side no selected plugin takes keeps what it
-// has; a new `ok` view replaces the old one; a failure never replaces an
-// existing `ok` view (it is counted as `kept`).
+// events.jsonl and manifest.json are never touched (docs/04 §1: a recording
+// does not change after the fact; owner ruling 10-16). Unfinished bundles
+// are refused. Rules, against the view a reader sees now (inline or the
+// sidecar's last entry): a side no selected plugin takes is left alone; an
+// identical view is not appended again (`unchanged`), so a re-run appends
+// nothing; a new or different `ok` view is appended; a failure never
+// replaces an `ok` view (`kept`).
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { TabcapError } from "../shared/envelope.ts";
-import { isRecord, num, str } from "../shared/json.ts";
+import { str, num } from "../shared/json.ts";
 import { BlobStore } from "./blobs.ts";
-import { EVENTS_FILE, blobBytesOnDisk, readManifest, writeFileAtomic, writeManifest } from "./manifest.ts";
-import { parseRequest, toRawEvent } from "./reader.ts";
-import { parseDecoded } from "./decoded.ts";
+import { readManifest } from "./manifest.ts";
+import { BundleReader } from "./reader.ts";
+import { appendSidecar, parseDecoded, readSidecar, type DecodedView } from "./decoded.ts";
 import type { Headers, RequestEvent } from "./types.ts";
 import { decodedField, type DecodeDirection, type DecodeJob, type DecodeOutcome } from "../daemon/hooks/decode.ts";
 
@@ -31,9 +31,16 @@ export type DecodedRow = { request: string; direction: DecodeDirection; by: stri
 export type BundleDecodeResult = {
   bundle: string;
   requests: number;
+  /** ok views appended to decoded.jsonl */
   decoded: number;
+  /** failed views appended (sides with no ok view before) */
   failed: number;
+  /** failures not appended because the side already has an ok view */
   kept: number;
+  /** views identical to what the bundle already has, not appended */
+  unchanged: number;
+  /** sidecar lines appended by this run */
+  appended: number;
   rows: DecodedRow[];
   /** Rows listed (the counts cover all). */
   truncated: boolean;
@@ -63,72 +70,54 @@ function jobsOf(r: RequestEvent, store: BlobStore): DecodeJob[] {
   return jobs;
 }
 
-export async function decodeBundle(dir: string, dec: BundleDecoder): Promise<BundleDecodeResult> {
+const same = (a: DecodedView | undefined, b: DecodedView | undefined): boolean =>
+  a !== undefined && b !== undefined && a.by === b.by && a.version === b.version && a.ok === b.ok && a.blob === b.blob && a.mime === b.mime && (a.error ?? null) === (b.error ?? null);
+
+export async function decodeBundle(dir: string, dec: BundleDecoder, now: () => number = Date.now): Promise<BundleDecodeResult> {
   const manifest = readManifest(dir);
   if (manifest.finished === undefined) {
-    throw new TabcapError("conflict", `bundle ${dir} is not finished (still recording, or interrupted)`, "Stop the recording first (`tabcap net stop`); bundle decode rewrites events.jsonl and only works on finished bundles.");
+    throw new TabcapError("conflict", `bundle ${dir} is not finished (still recording, or interrupted)`, "Stop the recording first (`tabcap net stop`); bundle decode only works on finished bundles.");
   }
-  const eventsPath = join(dir, EVENTS_FILE);
-  const text = readFileSync(eventsPath, "utf8");
+  const reader = BundleReader.open(dir);
   const store = new BlobStore(dir);
-  const lines = text.split("\n");
-  const result: BundleDecodeResult = { bundle: dir, requests: 0, decoded: 0, failed: 0, kept: 0, rows: [], truncated: false };
+  let seq = readSidecar(dir)?.lastSeq ?? 0;
+  const result: BundleDecodeResult = { bundle: dir, requests: 0, decoded: 0, failed: 0, kept: 0, unchanged: 0, appended: 0, rows: [], truncated: false };
   const addRow = (row: DecodedRow) => {
     if (result.rows.length < MAX_ROWS) result.rows.push(row);
     else result.truncated = true;
   };
-  let changed = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? "";
-    if (!line.includes('"request"')) continue;
-    let obj: unknown;
-    try {
-      obj = JSON.parse(line) as unknown;
-    } catch {
-      continue; // a damaged line stays as it is
-    }
-    const ev = toRawEvent(obj);
-    if (typeof ev === "string" || ev.kind !== "request") continue;
-    const r = parseRequest(ev);
-    if (typeof r === "string") continue;
+  for (const r of reader.requests()) {
     result.requests++;
-    let lineChanged = false;
     for (const job of jobsOf(r, store)) {
       const out = await dec.decode(job);
       if (out === null) continue;
-      const sideKey = job.direction === "request" ? "request" : "response";
-      const side = ev[sideKey];
-      if (!isRecord(side)) continue;
-      const old = parseDecoded(side["decoded"]);
+      const old = job.direction === "request" ? r.request.decoded : r.response?.decoded;
       if (!out.ok && old !== undefined && old.ok) {
         result.kept++;
         addRow({ request: r.id, direction: job.direction, by: out.by, ok: false, mime: null, bytes: null, error: out.error, kept: true });
         continue;
       }
       const field = await decodedField(out, (b) => store.put(b));
-      side["decoded"] = field;
-      lineChanged = true;
+      if (same(parseDecoded(field), old)) {
+        result.unchanged++;
+        continue;
+      }
+      seq++;
+      appendSidecar(dir, { seq, request: r.id, direction: job.direction, decoded: field, at: now() });
+      result.appended++;
       const ok = field["ok"] === true;
       if (ok) result.decoded++;
       else result.failed++;
       const error = str(field, "error");
       addRow({ request: r.id, direction: job.direction, by: out.by, ok, mime: str(field, "mime"), bytes: num(field, "bytes"), ...(error === null ? {} : { error }) });
     }
-    if (lineChanged) {
-      lines[i] = JSON.stringify(ev);
-      changed = true;
-    }
-  }
-  if (changed) {
-    writeFileAtomic(eventsPath, lines.join("\n"), 0o600);
-    writeManifest(dir, { ...manifest, counts: { ...manifest.counts, blobBytes: blobBytesOnDisk(dir) } });
   }
   return result;
 }
 
 /** Compact human rendering (`--text`). */
 export function renderBundleDecodeText(r: BundleDecodeResult & { plugins?: unknown }): string {
-  const out = [`bundle decode ${r.bundle}: ${r.decoded} view(s) stored, ${r.failed} failed, ${r.kept} kept, over ${r.requests} request(s)`];
+  const out = [`bundle decode ${r.bundle}: ${r.decoded} view(s) added, ${r.failed} failed, ${r.kept} kept, ${r.unchanged} unchanged, over ${r.requests} request(s)`];
   for (const row of r.rows) out.push(`  ${row.request} ${row.direction} ${row.by} ${row.ok ? `ok ${row.mime ?? "?"} ${row.bytes ?? 0} B` : `${row.kept === true ? "kept old view; " : ""}failed: ${row.error ?? ""}`}`);
   if (r.truncated) out.push(`  … first ${MAX_ROWS} rows listed`);
   return out.join("\n");

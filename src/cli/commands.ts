@@ -804,7 +804,7 @@ export const COMMANDS: CommandSpec[] = [
     pos: ["bundle"],
     flags: [{ flag: "--plugin", key: "plugin", kind: "string", help: "only this decode plugin (installed; naming it is the opt-in, it need not be enabled); default: every enabled decode plugin", metavar: "name" }],
     summary:
-      "run decode plugins over a finished bundle: plaintext views of matching request / response bodies are stored beside the originals (request.decoded / response.decoded), so find / where / deps / recon / replay check read them; rewrites events.jsonl atomically, ids unchanged",
+      "run decode plugins over a finished bundle: plaintext views of matching request / response bodies are appended to the bundle's decoded.jsonl sidecar (events.jsonl never changes) and read as request.decoded / response.decoded by net body / find / where / deps / recon / replay check; a re-run appends only new or changed views",
     example: "tabcap bundle decode ./b --plugin xor-decode",
   },
   {

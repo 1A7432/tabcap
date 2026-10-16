@@ -4251,7 +4251,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "run decode plugins over a finished bundle: plaintext views of matching request / response bodies are stored beside the originals (request.decoded / response.decoded), so find / where / deps / recon / replay check read them; rewrites events.jsonl atomically, ids unchanged",
+      "summary": "run decode plugins over a finished bundle: plaintext views of matching request / response bodies are appended to the bundle's decoded.jsonl sidecar (events.jsonl never changes) and read as request.decoded / response.decoded by net body / find / where / deps / recon / replay check; a re-run appends only new or changed views",
       "usage": "tabcap bundle decode <bundle> [--plugin name]",
     },
     {

@@ -4,12 +4,13 @@
 // items: encoded responses) → `where <name cell>` → click order (encoded POST
 // body) → net stop → request events carry `decoded` → find / deps / net body
 // read the plaintext → a second recording with the plugin disabled has no
-// views until `bundle decode`.
+// views until `bundle decode`, which appends them to the decoded.jsonl
+// sidecar and leaves events.jsonl byte for byte as recorded.
 // Oracle: the range site (test/e2e/site.ts S42_*, plaintexts written by hand)
 // and the docs/04 §26 shapes.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
@@ -168,8 +169,14 @@ describe.skipIf(!enabled)("tabcap 0.6-B L2 (decode plugins on docs/05 s42)", () 
     const token2 = s(before.find((r) => r.url.endsWith("/s42/api/token"))?.id);
     const items2 = s(before.find((r) => r.url.endsWith("/s42/api/items"))?.id);
 
+    const eventsBefore = readFileSync(join(b2, "events.jsonl"));
     const res = await ok("bundle", "decode", b2, "--plugin", "xor-decode");
-    expect([res["requests"], res["decoded"], res["failed"], res["kept"]]).toEqual([before.length, 2, 0, 0]);
+    expect([res["requests"], res["decoded"], res["failed"], res["kept"], res["appended"]]).toEqual([before.length, 2, 0, 0, 2]);
+    expect(readFileSync(join(b2, "events.jsonl")).equals(eventsBefore)).toBe(true);
+    expect(readFileSync(join(b2, "decoded.jsonl"), "utf8").trim().split("\n").length).toBe(2);
+    expect((await ok("bundle", "info", b2))["decodedSidecar"]).toBe(true);
+    const again = await ok("bundle", "decode", b2, "--plugin", "xor-decode");
+    expect([again["appended"], again["unchanged"]]).toEqual([0, 2]);
     expect(recs(res["rows"]).map((r) => [r["request"], r["direction"], r["by"], r["ok"]])).toEqual([
       [token2, "response", "xor-decode", true],
       [items2, "response", "xor-decode", true],

@@ -235,6 +235,7 @@ function cmdInfo(p: Parsed): unknown {
     imported: r.manifest.imported,
     redaction: r.manifest.redaction,
     truncatedLastLine: r.truncatedLastLine,
+    decodedSidecar: r.decodedSidecar,
     issues: r.issues,
     warnings,
   };

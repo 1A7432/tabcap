@@ -956,7 +956,7 @@ Example: `tabcap bundle info ./b`
 
 ### `tabcap bundle decode`
 
-run decode plugins over a finished bundle: plaintext views of matching request / response bodies are stored beside the originals (request.decoded / response.decoded), so find / where / deps / recon / replay check read them; rewrites events.jsonl atomically, ids unchanged
+run decode plugins over a finished bundle: plaintext views of matching request / response bodies are appended to the bundle's decoded.jsonl sidecar (events.jsonl never changes) and read as request.decoded / response.decoded by net body / find / where / deps / recon / replay check; a re-run appends only new or changed views
 
 ```
 tabcap bundle decode <bundle> [--plugin name]

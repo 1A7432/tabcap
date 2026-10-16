@@ -26,6 +26,7 @@
   events.jsonl                    事件流，append-only，seq 单调递增
   blobs/sha256/<xx>/<64 位十六进制>  正文、截图、cookie 快照等所有大块内容；无扩展名；xx = 哈希前两位
   raw/cdp.jsonl                   可选：原始 CDP 事件（Network / Page 域原样）；用于复核录制器本身
+  decoded.jsonl                   可选：`bundle decode` 追加的解码视图旁路文件（只追加，§26）；读者叠加到请求事件上
   exports/                        导出产物（HAR、脱敏副本、侦查档案 dossier.json / dossier.md、超出输出预算的回答 <command>-<seq>.json，§24）；不参与分析
 ```
 
@@ -498,7 +499,7 @@
 
 没有插件匹配的一侧没有 `decoded` 字段。`net list` 的索引项带响应视图的 `decoded:{by, version, mime, blob, bytes}`；`net show` 两侧各列 `decoded`（by、version、ok、mime、bytes、path / blob 或 error）。
 
-**离线补视图** `tabcap bundle decode <bundle> [--plugin <name>]`：不带 `--plugin` 用所有已启用的解码插件；带 `--plugin` 只用它（必须装着且清单有效；点名即同意，可以没启用）。只处理已 `finished` 的包（录制中或中断的拒绝，`conflict`）。这是唯一改写 `events.jsonl` 的命令：临时文件 + fsync + rename 原子替换，只重写得到或改变 `decoded` 的 request 行，其余行逐字节不变，`seq` 与 id 不变；manifest 只更新 `counts.blobBytes`。规则：没有被选中插件匹配的一侧保留原样；新的 `ok` 视图替换旧的；失败从不覆盖已有的 `ok` 视图（计为 `kept`）。回答：`{bundle, requests, decoded, failed, kept, rows:[{request, direction, by, ok, mime, bytes, error?, kept?}], truncated, plugins:[{name, version}], disabled:[{plugin, reason}]}`（`rows` 最多 200 行）。离线没有会话，停用的插件列在 `disabled`，不写 `note`。
+**离线补视图** `tabcap bundle decode <bundle> [--plugin <name>]`：不带 `--plugin` 用所有已启用的解码插件；带 `--plugin` 只用它（必须装着且清单有效；点名即同意，可以没启用）。只处理已 `finished` 的包（录制中或中断的拒绝，`conflict`）。**不改 `events.jsonl`，也不改 `manifest.json`**（§1 只追加是证据原则：录完的包事后不变，哪怕只是加字段；作者裁决 10-16）：视图追加到包根目录的旁路文件 `decoded.jsonl`，一行一个 `{seq, request:"r-N", direction, decoded:{…与内联相同的形状…}, at}`（`seq` 是旁路文件自己的行号序，从 1 起；`at` 为 epoch 毫秒），只追加，每行一次 `O_APPEND` 写入并 fsync（逐行原子；中断留下的半行读者跳过并报 `bad-sidecar`）。读者（`BundleReader`，以及 `net show` / `net body` 读单条事件时）把旁路文件叠加到请求事件上：同一 (request, direction) 以文件里最后一行为准，且盖过录制时写在事件里的视图；所以 `net body`、`find`、`where`、`deps`、`recon`、`replay check` 看到的与录制时写入的完全一样。`bundle info` 报 `decodedSidecar:true|false`（manifest 在结束后不可变，由读者看文件判定）。规则（以读者当前看到的视图为准）：没有被选中插件匹配的一侧不动；与当前视图相同（by、version、ok、blob、mime、error）不再追加（`unchanged`），所以重跑不追加任何行；新的或不同的 `ok` 视图追加；失败从不覆盖已有的 `ok` 视图（`kept`，不追加）。新视图的明文 blob 照常进 `blobs/`（按内容寻址，只增不改）。回答：`{bundle, requests, decoded, failed, kept, unchanged, appended, rows:[{request, direction, by, ok, mime, bytes, error?, kept?}], truncated, plugins:[{name, version}], disabled:[{plugin, reason}]}`（`rows` 最多 200 行，列追加的与 kept 的）。离线没有会话，停用的插件列在 `disabled`，不写 `note`。HAR 导出与 `bundle redact` 读的是叠加后的事件：脱敏副本里视图内联在事件中（副本是新写的包）。
 
 **读视图的命令**（`src/analyze/views.ts`）：视图 `ok` 且 blob 在，就以明文代替原正文，决定链第一步是 `plugin:<name>`（与 HAR 导入的线上解压步骤一样是前缀），后面照常走内置步骤。
 
