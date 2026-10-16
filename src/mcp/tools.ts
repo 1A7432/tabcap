@@ -38,8 +38,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   "replay serve": "a foreground server until Ctrl-C that prints to stdout",
 };
 
-/** `--text` / `--json` only change what the CLI prints; a tool always returns the envelope. */
-const renderOnly = (f: FlagSpec): boolean => f.kind === "bool" && (f.flag === "--text" || f.flag === "--json");
+/** `--text` / `--json` only change what the CLI prints; a tool always returns the envelope. (`html --text` is data: its key is textContent.) */
+const renderOnly = (f: FlagSpec): boolean => f.kind === "bool" && ((f.flag === "--text" && f.key === "text") || (f.flag === "--json" && f.key === "json"));
 
 export type JsonSchema = {
   type: "string" | "number" | "boolean" | "array";

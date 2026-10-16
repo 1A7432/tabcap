@@ -311,6 +311,22 @@ export const COMMANDS: CommandSpec[] = [
   },
   { path: ["find"], pos: ["text..."], flags: TT, summary: "search the accessibility tree (name, value, description); up to 20 hits with refs, clickable ones first", example: "tabcap find Add to cart", action: "find" },
   {
+    path: ["html"],
+    pos: ["ref"],
+    optional: 1,
+    flags: [
+      ...TT,
+      { flag: "--css", key: "css", kind: "string", help: "the first element this CSS selector matches in the root document, instead of a ref (`matched` counts all)", metavar: "selector" },
+      { flag: "--inner", key: "inner", kind: "bool", help: "innerHTML instead of outerHTML" },
+      { flag: "--text", key: "textContent", kind: "bool", help: "textContent instead of markup" },
+      { flag: "--attrs", key: "attrs", kind: "bool", help: "only the element's attributes, as an object" },
+      { flag: "--max-chars", key: "maxChars", kind: "number", help: "cut the markup / text (each attribute value with --attrs); `truncated` and `chars` (the whole length) say so", default: 4000, metavar: "n" },
+    ],
+    summary: "one element's markup: outerHTML (default), --inner, --text or --attrs, by ref (frame refs too) or --css; read in an isolated world, read-only, secret-scrubbed",
+    example: "tabcap html e12 --inner",
+    action: "html",
+  },
+  {
     path: ["click"],
     pos: ["ref"],
     flags: [
