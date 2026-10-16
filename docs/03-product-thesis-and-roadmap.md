@@ -58,13 +58,13 @@
 | `bundle` | 证据包格式：一个目录 + manifest，可导出为标准 HAR；导出时自动打码 cookie、token、证件号 | — |
 | `store` | 站点与账号库：站点名、入口网址、域名列表、账号与密码、登录配方、最近会话 cookie、guard 计数、证据包索引；0.4 起加代理池 `proxies`（名字、scheme、host、port、用户名、密码、bypass、健康状态、连续失败数、上次检查 / 成功时间、延迟、重查时间）与账号池列（`accounts` 加 `proxy`、`state`、`cool_until`、`last_used_at`、`fail_streak`；`guard_counters` 加账号维度：站点、账号、小时窗口、请求数、登录数）。`bun:sqlite` 单文件 `~/.config/<名>/state.db`，0600，零安装【实测】。推荐人手动录入（CLI 交互或扩展表单），也可以由人把值交给 AI 一次、经 `--password-stdin` 存入（`04` §8.1，10-16 作者定），不在人登录时自动抓密码。AI 只见站点名、入口网址、账号名和 `<secret:站点.password>` 引用；守护进程把所有输出里出现的已知秘密值替换成引用 | DrissionPage 的 d/s 模式、私有笔记 |
 | `sample` | 挑战样本包。把一次保护挑战**黑盒**录成可离线分析的样本：页面加载的脚本原样（含内联、顺序、响应头）、环境快照（navigator/screen/时区/语言/UA 等可读属性）、挑战请求/响应全文、观察到的输入→输出、时序与复现元数据。交给用户或作者自己的离线分析项目；**工具只录不析**（见 §6、§10.8） | — |
-| `analyze` | `find`（用页面文字反查接口，自动解压、解码）、`diff`（多次录制对比，给参数分类）、`deps`（值依赖链）、`trace`（从调用栈定位 JS 函数） | Integuru 的依赖图思路 |
+| `analyze` | `find`（用页面文字反查接口，自动解压、解码）、`diff`（多次录制对比，给参数分类）、`deps`（值依赖链）、`trace`（从调用栈定位 JS 函数）、`shape`（0.6-G：按端点推断响应 / 请求形状，类型树 + 格式 + 出现次数，不含值）、`schema-diff`（0.6-G：两次录制按端点比字段增删与类型变化，漂移时退出码 1） | Integuru 的依赖图思路、`04` §32 |
 | `recon` | 站点侦查档案（`09` §1）。v0（0.4）只答四问：技术栈、数据通道清单与覆盖率、cookie 分类、防护识别（只识别）；只读已录证据和当前页面，不发请求，写进证据包 `exports/dossier.json` + `.md`；`--probe` 主动探测推 0.5 | — |
 | `handoff` | 人在回路：AI 卡住或拿不准时暂停，同时在浏览器（标签横条、扩展角标）和终端提示，不发系统通知；人处理完继续；确认题的答案写进证据，记为【人确认】 | 私有笔记 |
 | `fetch` | 爬虫的请求由已登录的标签发出并录下（0.6-A）：`tabcap fetch <url>` / `--batch`（agent）与守护进程 `POST /fetch`（脚本，附 Python 助手）；请求在 tabcap 隔离世界里用页面自己的 `fetch()` 发，带页面的 cookie、受页面的 CORS 规则；同源请求靠标记头确定地归到命令（上线前剥掉），跨源靠发起栈；按主机限速（默认请求间隔 3 s，命令行不能绕过）；停手规则命中即停该站点，等人或 agent 决定 `guard resume` | `04` §26、`07` §8 |
 | `guard` | 账号保护：按站点 / 账号配预算（登录次数、请求间隔、每小时上限）；探测模式只发单次请求；响应突然变空、状态码模式突变、出现验证页 → 熔断并交给人 | — |
 | `replay` | 从证据生成客户端（Python httpx / curl_cffi 优先），重放并逐项比对；离线回放服务器（按请求匹配吐出录到的响应），给爬虫做离线测试；多样本回归 | derive-client、私有笔记 |
-| `watch` | 定时重放，字段结构或签名方式变了就告警 | — |
+| `watch` | 定时重放，字段结构或签名方式变了就告警；字段结构这一半今天可以用 cron 跑 `analyze schema-diff <昨天的包> <今天的包>`（0.6-G，有漂移退出码 1） | `04` §32 |
 | `wire` | 线路层诊断（0.4-W2）：本机 127.0.0.1 上的 TLS echo（Bun 终结 TLS，原始 ClientHello 与解密后的请求交给原生组件 `native/wireprint/` 出报告）；浏览器基准 = tabcap 集成的 Chrome for Testing 按 tabcap 自己的启动参数采的画像；`wire probe` 拿生成的 Python 客户端对比基准，按 tls / h2 / headers 三层说哪层不同、哪些字段不同。只诊断，不说原因、不给改值建议；作者个人浏览器的画像不进仓库 | `11`、`07` §6 |
 | 接口 | 命令行统一 JSON 信封；同时提供 MCP 和 skill；报错写成「下一步该做什么」 | 私有笔记 |
 | `mcp` | `tabcap mcp`（0.5-A）：stdio 上的 MCP 服务，手写 JSON-RPC 2.0（零依赖，MCP 2025-11-25 的 initialize 生命周期）；工具由命令注册表生成：默认 24 个核心工具（一行说明、裸 schema，约 8.5 KB）+ `tabcap_run` / `tabcap_help`，`--all-tools` 每条命令一个（约 58 KB）；`tools/call` 在进程内走 CLI 同一条 `run()`，返回同一个信封；`waiting` 不阻塞，另给 `tabcap_handoff_wait`；`--print-config <宿主>` 给六个宿主的配置 | `07` §7 |

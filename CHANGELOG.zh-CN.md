@@ -73,6 +73,12 @@
 - **站点停手规则**：`config.json` `sites.<名>.guard: {stopOn: [<规则>…], consecutiveNon200: N}`（规则语法同 `fetch --stop-on`）。guard 对会话里该站点每一条最终录下的 document / XHR / fetch 响应求值（页面自己的请求、`tabcap fetch`、导航；正文类规则只在正文确知时求值）；`consecutiveNon200` 按响应到达时间（`timing.end`）而不是写出顺序计连续，任何 2xx 打断。命中写 `guard {event: "breaker", reason: "stop-rule", rule, request}`，会话进 `waiting`（截图与 `next`），该会话的页面操作命令和发往该站点的所有 `fetch` 以 `guard.stopped` 拒绝（触发它的那条 fetch 回 `fetch.stopped`、`reason: "stop-rule"`）。`handoff continue` 恢复会话并解除站点停止；`guard resume --site` 也一并结束它引起的 `waiting`（回 `handoffResumed`）。`fetch --stop-on` 是每次调用的覆盖：给了它，这次响应不跑站点的 `stopOn`（仍计数）。config.json 里有坏规则时 `net start` 回 `bad-input`。登录次数限制不变。
 - `net start` 的答案带 `bodies`；`guard.stopped` 与 `guard` 事件带 `reason`（`fetch-stop` 或 `stop-rule`）。`bundle info --usage` 不把跳过的正文算作空正文，站点规则的命中在 `stops` 里记为 `stop-rule`。
 
+### 响应形状与 schema 漂移（0.6-G）
+
+- **`tabcap analyze shape <bundle> [--request r-N | --template 'GET /path'] [--text] [--write]`**：按端点（方法 + `recon` 的路径模板，合并它录到的全部交换）推断 JSON 响应的形状和请求的形状（query 名、请求体字段），schema `tabcap-shape/0`：类型树 `{kind, fields: {名字: {type, optional, samples}}, items, enum, format, variants}`，kind 有 object / array / string / number / boolean / null / union，format 有 date / datetime / int / float / id / url / email，枚举最多 8 个（会重复出现的短词；`bundle redact` 名字规则判为敏感的字段不给）。有解码插件视图时读视图，否则沿 gzip / deflate / base64 / jsonp / ndjson / sse 找到 JSON。输出里从不出现值。上限：每个端点 2000 个字段、深度 32、每个数组取前 200 个元素。什么都推不出的端点只在 `unshaped` 里列名。`--write` 把结果存进包的 `exports/shape.json`（0600）。
+- **`tabcap analyze schema-diff <旧包> <新包> [--template …] [--text] [--write]`**：两份形状按端点配对，schema `tabcap-schema-diff/0`：`added` / `removed`（`路径:类型`，如 `$.items[].name:string`、`query:v:string(int)`）、`changed`（`{path, from, to}`）、`optionalityChanged`、`enumChanged`，判定 `same | drift | new | gone`；`--text` 一行一个变化。**有端点漂移时退出码 1**（信封仍是 `ok`），可放 cron。JSON 接口在新录制里回了 HTML，算漂移（全部 removed）；一边的数组一个元素都没有时，数组下面的位置不比较。
+- 靶场：s06 加 `GET /api/list` 与变体 `?v=2`（改名一个字段、改一个类型、加一个字段）；e2e `v06g`。规范：[docs/04 §32](docs/04-evidence-bundle-spec-v0.md)。
+
 ## 0.5.0（2026-10-16）
 
 ### 变更

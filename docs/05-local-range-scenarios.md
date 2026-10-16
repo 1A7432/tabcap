@@ -92,6 +92,7 @@
 
 - P2 扩展：`deps` 应指出 `sid` 来自 `set-cookie`，`sig` 与 `q/page/t/nonce` 同变。
 - 0.6-E（10-16 作者定）：`q`、`page` 是调用方自己选的（导航 URL 里来），`deps` 记为 `caller-input`（页面加载的文档请求上；搜索请求从它带过来，类为 `request`）；`analyze chain` 把它们列在 `inputs`，`todo` 里只剩 `sig`、`nonce` 这类。
+- 0.6-G 加的列表接口（`analyze shape` / `schema-diff`，`04` §32）：`GET /api/list` 回 `{code, total, items:[{id, title, price:"12.50", status, created}]}`（4 条，`status` 三条 `active`、一条 `sold`）；变体 `GET /api/list?v=2` 把 `title` 改名 `name`、`price` 改成 JSON 数字、每条加 `currency`，其余不变。走法：两个会话各录一次「打开 `/s06`（页面自己的 `/api/search`）→ `tabcap fetch /api/list`」，第二次换成 `?v=2`，再离线比较。expected（`test/e2e/site.ts` 的 `LIST_DRIFT`）：`GET /api/list` 为 `drift`，added `$.items[].name:string`、`$.items[].currency:string`、`query:v:string(int)`（变体靠 query 选），removed `$.items[].title:string`，changed `$.items[].price` `string(float)` → `number(float)`；`GET /api/search` 为 `same`；退出码 1；输出里没有任何正文值。
 
 ### s07 token-chain（P1 录制；P2 deps）
 

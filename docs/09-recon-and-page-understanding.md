@@ -364,7 +364,7 @@ t1 XX 管理系统  /main.jsp  GBK   frameset 3 帧
 | `frames` | 帧树（名字、src、是否同源、深度、文档字符集） |
 | `where <ref>\|<text>` | 值溯源（§3.1） |
 | `align <table-ref>` | 表格与响应对齐，输出「列 → 字段」 |
-| `shape <request-pattern>`（不在 0.4） | 根据多次响应推断 schema，导出类型定义 |
+| `shape <request-pattern>`（不在 0.4） | 根据多次响应推断 schema，导出类型定义。**0.6-G 已实现**为 `analyze shape <bundle> [--request r-N \| --template "GET /path"]`（按端点的类型树与出现次数，`exports/shape.json`）与 `analyze schema-diff <旧包> <新包>`（字段增删、类型 / 可选性 / 枚举变化，漂移时退出码 1）；离线读证据包，不导出类型定义文件（`04` §32） |
 | `extract table\|list <ref> [--format json\|csv]` | 走控件适配器抽取（§5） |
 | `select <ref> <option>` / `set-date <ref> <value>` / `upload <ref> <file>` | 高层动作，事后回读 |
 | `find … --row <text>` / `--css` / `--xpath` | 定位增强（§4） |
