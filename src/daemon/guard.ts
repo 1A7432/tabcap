@@ -114,8 +114,9 @@ export type GuardDeps = {
 };
 
 /** Commands refused while the session waits for the human. */
-// hover and upload (0.3-F) act on the page like click, so they wait for the human too.
-export const BLOCKED_WHILE_WAITING: ReadonlySet<string> = new Set(["navigate", "click", "fill", "type", "press", "go", "reload", "evaluate", "dialog", "hover", "upload"]);
+// hover and upload (0.3-F) act on the page like click, so they wait for the human too;
+// resize and emulate (0.4) change what the page sees (its size, device, network), so they wait as well.
+export const BLOCKED_WHILE_WAITING: ReadonlySet<string> = new Set(["navigate", "click", "fill", "type", "press", "go", "reload", "evaluate", "dialog", "hover", "upload", "resize", "emulate"]);
 
 export class Guard {
   private handoffs = new Map<string, Handoff>();
