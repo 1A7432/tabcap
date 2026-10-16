@@ -29,6 +29,10 @@ export type Overlay = {
   evidence: string[];
   /** Ref of the overlay element itself. */
   ref: string | null;
+  /** Frame path of the document the overlay is in (`f2`); absent: the root document (0.4-I). */
+  frame?: string;
+  /** Overlays with an iframe: frame path of that iframe; its close buttons are in `close` with frame-path refs. */
+  layerFrame?: string;
 };
 
 const MAX_OVERLAYS = 12;
@@ -38,7 +42,8 @@ const int = (v: unknown, lo: number, hi: number): number => (typeof v === "numbe
 /** `n` (index into the nodes the script returned) → ref, or null when the node could not be resolved. */
 export type NodeRef = (n: unknown) => string | null;
 
-function buttons(v: unknown, refOf: NodeRef): Button[] {
+/** Buttons `[{n, label}]` of the page script's data → refs and labels (at most 8). */
+export function parseButtons(v: unknown, refOf: NodeRef): Button[] {
   if (!Array.isArray(v)) return [];
   return v
     .slice(0, 8)
@@ -46,15 +51,20 @@ function buttons(v: unknown, refOf: NodeRef): Button[] {
     .map((b) => ({ ref: refOf(b["n"]), label: s(b["label"], 40) }));
 }
 
-/** Overlays from the page script's describe / act data; malformed entries are dropped. */
-export function parseOverlays(v: unknown, refOf: NodeRef): Overlay[] {
+/** Overlays from the page script's describe data, each with the node index `n` of its element; malformed entries are dropped. */
+export function parseOverlayNodes(v: unknown, refOf: NodeRef): Array<{ overlay: Overlay; n: unknown }> {
   const list = isRecord(v) && Array.isArray(v["overlays"]) ? v["overlays"] : [];
-  const out: Overlay[] = [];
+  const out: Array<{ overlay: Overlay; n: unknown }> = [];
   for (const o of list.slice(0, MAX_OVERLAYS)) {
     const ov = parseOverlay(o, refOf, `o${out.length + 1}`);
-    if (ov !== null) out.push(ov);
+    if (ov !== null && isRecord(o)) out.push({ overlay: ov, n: o["n"] });
   }
   return out;
+}
+
+/** Overlays from the page script's describe / act data; malformed entries are dropped. */
+export function parseOverlays(v: unknown, refOf: NodeRef): Overlay[] {
+  return parseOverlayNodes(v, refOf).map((x) => x.overlay);
 }
 
 export function parseOverlay(o: unknown, refOf: NodeRef, id: string): Overlay | null {
@@ -69,8 +79,8 @@ export function parseOverlay(o: unknown, refOf: NodeRef, id: string): Overlay | 
     modal: o["modal"] === true,
     coverage: int(o["coverage"], 0, 100),
     covers: Array.isArray(o["covers"]) ? o["covers"].slice(0, 6).map((x) => s(x, 60)).filter((x) => x !== "") : [],
-    close: buttons(o["close"], refOf),
-    choices: buttons(o["choices"], refOf),
+    close: parseButtons(o["close"], refOf),
+    choices: parseButtons(o["choices"], refOf),
     iframe: typeof o["iframe"] === "string" ? s(o["iframe"], 200) : null,
     evidence: Array.isArray(o["evidence"]) ? o["evidence"].slice(0, 8).map((x) => s(x, 60)).filter((x) => x !== "") : [],
     ref: refOf(o["n"]),
@@ -85,7 +95,8 @@ export function overlayLine(o: Overlay): string {
   if (o.coverage >= 90) line += o.covers.length > 0 ? ` covers the whole page (${o.covers.join(", ")})` : " covers the whole page";
   else if (o.covers.length > 0) line += ` covers ${o.covers.join(", ")}`;
   else line += ` ${o.coverage}% of the viewport`;
-  if (o.iframe !== null) line += ` · iframe ${o.iframe === "" ? "(no src)" : o.iframe}`;
+  if (o.frame !== undefined) line += ` · in ${o.frame}`;
+  if (o.iframe !== null) line += ` · iframe ${o.layerFrame === undefined ? "" : `${o.layerFrame} `}${o.iframe === "" ? "(no src)" : o.iframe}`;
   if (o.kind === "consent") line += o.choices.length > 0 ? ` · the human decides: ${o.choices.map(btn).join(" / ")}` : " · the human decides";
   else if (o.kind === "timeout-prompt") {
     line += " · tell the human";

@@ -16,6 +16,6 @@
   ],
   "hooks": {
     "describe": { "when": "always" },
-    "act": { "ops": ["covered"] }
+    "act": { "ops": ["covered", "buttons"] }
   }
 }

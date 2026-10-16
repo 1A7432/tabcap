@@ -262,10 +262,10 @@ Example: `tabcap reload --ignore-cache`
 
 ### `tabcap snapshot`
 
-accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected, counts toward --max-chars)
+accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected / frames, counts toward --max-chars); child frames are header lines until --frames / --frame
 
 ```
-tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path]
+tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path] [--frames] [--frame f2/f1]
 ```
 
 Example: `tabcap snapshot --interactive`
@@ -277,10 +277,12 @@ Example: `tabcap snapshot --interactive`
 | `--verbose` |  | the full tree: keep unnamed wrappers and text that repeats its parent's name, add descriptions and capability flags (focusable, expandable …) |
 | `--max-chars <n>` | `60000` | truncate the tree text |
 | `--file-path <path>` |  | write the tree text to this file and return its path instead of the tree |
+| `--frames` |  | also expand every child frame (iframes, frameset frames, cross-origin too); their refs carry the frame path, e.g. f2/f1/e7; --max-chars applies per frame |
+| `--frame <f2/f1>` |  | expand only this frame and the frames inside it (the root document is listed in the header only) |
 
 ### `tabcap outline`
 
-page map head: tab line, overlays (dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs), detected (adapters, with confidence), popups; read-only, never closes anything
+page map head: tab line, overlays (dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs; also inside frames), detected (adapters, with confidence), frames (path, url, same-origin / cross-origin, depth, title), popups; read-only, never closes anything
 
 ```
 tabcap outline [--session name] [--timeout ms] [--tab t2] [--max-chars n]
@@ -656,7 +658,7 @@ Example: `tabcap where e12`
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--as <ref\|text>` |  | what the input is: ref (a snapshot ref; its visible text is looked up) or text (the value as typed). Default: e<n> is a ref while the session's tab has a current snapshot, anything else text |
+| `--as <ref\|text>` |  | what the input is: ref (a snapshot ref; its visible text is looked up) or text (the value as typed). Default: e<n> (or a frame ref f<n>/e<m>) is a ref while the session's tab has a current snapshot, anything else text |
 | `--top <n>` | `5` | candidates to return (1-100) |
 | `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-where/0) |
 | `--write-findings` |  | append finding events (tool where; 实测 for exact matches, 推断 for normalized ones) to the session's bundle; default: the bundle is only read |
