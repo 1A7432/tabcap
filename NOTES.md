@@ -239,3 +239,8 @@
 - 做了什么：新增 `src/analyze/embedded.ts`（纯函数、有上限、不执行页面脚本），三个解码链步骤 `script-json`（`script[<n>].$…`，n 为 JSON 类 script 的文档序号，坏的也占号，> 4 MiB 记 `truncated`）、`inline-assign`（顶层 `window.X =` / `var|let|const X =` 后的对象 / 数组字面量，JSON 或宽松超集，`assign[X]…`，每文档 ≤ 64、每个 ≤ 1 MiB，坏的记 `unparsed` 引前 80 字符）、`viewstate`（hidden 的四种字段，`viewstate[<name>]` 为原值，base64 解后 `{bytes:{length,sha256},strings}`，每字段 ≤ 2 MiB、strings ≤ 10000），接进 `Explorer`，`find` / `where` / `deps` 共用；解开的节点认领原文，文档其余部分照常字面量匹配（单元格仍单独报）；`find` 命中加 `node`、`searched.embedded` 列未解节点；docs/05 s04 加步骤表、§5 加 s41；site.ts `startEmbeddedSite`。【实测】单测 598 pass、tsc 无错、skill 过、gen:docs 无差异、v04h 6/6、本机全量 e2e 115/115（一次过）；PR CI run 38850086188 全绿。
 - 卡在哪（均按最字面读法定，待作者确认）：brief 说表格「exactly like s40 (plain en-US strings)」又要求 `find "1234.56"` 命中单元格，两者矛盾，取纯字符串 `1234.56`；UTF-16LE 串要 ≥ 4 码元，`条目甲` 只有 3 个，blob 里写成 `user:条目甲`；ld+json 路径按既有 JSON 路径语法写 `script[1].$["@graph"][0].sku`（brief 写 `.@graph`）；`find "VIEWSTATE-TOKEN-7f3a9c"` 另命中 POST 请求正文原文（brief 未列，已写进 s41 expected）；UTF-16LE「可打印」的字符范围、「超过一半码元不能是两个可打印 ASCII 字节」与 10000 串上限是我加的去噪规则；同名赋值地址相同；docs/04 不列步骤名，未改。
 - 下一格从哪开始：作者审 PR #13 与上面几点（尤其 s41 表格显示方式与 `searched.embedded` / `node` 两个新增输出字段）；之后 0.4 其余格（帧路径 ref、`recon` v0）。
+
+## 2026-10-16 · 0.4-G2 · missing / extra 方向按常规改正
+- 做了什么：作者裁定 brief 里方向写反了，改为 `missing` = 本浏览器缺、参照里有，`extra` = 本浏览器有、参照里缺（`fields.ts` 判定与注释、`--ref` 帮助文字与 schema 快照、生成的 commands.md、SKILL、docs/04 §4.3、docs/07 §5、两份 CHANGELOG 各加一行）；单测与 v04g 只对调期望标签，断言强度不变（参照里删掉的 vendor 现在是 `extra`，summary `{same 46, differs 2, missing 0, extra 1}`）。【实测】单测 589 pass、tsc 无错、skill valid、gen:docs 无差异、v04g 单独跑 6/6。
+- 卡在哪：`--text` 输出本来没有图例，只有末行计数 `same N, differs N, missing N, extra N`，方向说明在 `--ref` 的帮助里，已改那里；没另加图例行（会改变文本输出的行数）。
+- 下一格从哪开始：作者审 0.4-G2 草稿 PR，合入时主循环重生 schema 快照。
