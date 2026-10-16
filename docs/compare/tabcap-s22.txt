@@ -1,0 +1,116 @@
+# --- tabcap 0.5.0 on s22 — walkthrough + offline (range run 2026-10-16, macOS arm64, Chrome for Testing 155.0.8059.79; origins: s21 http://127.0.0.1:47621, s22 A http://127.0.0.1:52885, B http://localhost:52884 (ports vary per run))
+
+$ tabcap daemon start
+{"ok":true,"data":{"started":true,"alreadyRunning":false,"running":true,"pid":80699,"version":"0.5.0","listener":"unix","socket":"$TMPDIR/…","socketFallback":true,"startedAt":1792141036545,"store":"$K/s22/home/config/state.db","handoffs":[],"browser":{"running":false},"recordings":[],"log":"$K/s22/home/config/daemon.log"}}
+[exit 0]
+
+$ tabcap browser start --proxy none --executable-path $TABCAP_CHROME
+{"ok":true,"data":{"transport":"direct","channel":"pipe","pid":80773,"version":"Chrome/155.0.8059.79","userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36","executable":"$TABCAP_CHROME","executableSource":"flag","profile":"$K/s22/home/config/profiles/default","proxy":"none","foreground":false,"front":{"before":"ghostty","afterLaunch":"ghostty","restored":null,"after":"ghostty","noStartupWindow":true},"startedAt":1792141049740,"alreadyRunning":false,"extension":null}}
+[exit 0]
+
+$ tabcap net start --session k22
+{"ok":true,"data":{"session":"k22","bundle":"$K/s22/home/data/bundles/k22-20261016-165729","alreadyRecording":false,"instrumentation":"Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied"}}
+[exit 0]
+
+$ tabcap navigate http://127.0.0.1:52885/s22 --session k22
+{"ok":true,"data":{"tab":"t1","url":"http://127.0.0.1:52885/s22","title":"s22 frames","readyState":"complete","nav":"n-6","wait":{"navigated":true,"domQuiet":true,"dialog":false,"timedOut":[],"ms":164},"cmd":"c-4"}}
+[exit 0]
+
+$ tabcap wait --text S22-0002 --session k22
+{"ok":true,"data":{"tab":"t1","matched":"text","text":"S22-0002","context":"S22-0001\t甲方案\nS22-0002\t乙方案","frame":"http://localhost:52884/s22/table","polls":1,"url":"http://127.0.0.1:52885/s22","waitedMs":5,"timeoutMs":10000}}
+[exit 0]
+
+$ tabcap snapshot --text --session k22
+{"ok":false,"error":{"code":"usage","message":"unknown option --text","next":"Usage: tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path] [--frames] [--frame f2/f1] [--grep regex] [--css selector] [--xpath expr] [--ref e12] [--depth n] [--context n] [--max-matches n]"}}
+[exit 2]
+
+$ tabcap snapshot --session k22
+{"ok":true,"data":{"tab":"t1","url":"http://127.0.0.1:52885/s22","title":"s22 frames","nav":"n-6","interactive":false,"verbose":false,"refs":2,"overlays":[{"id":"o1","kind":"iframe-layer","role":"","name":"消息提示","modal":false,"coverage":8,"covers":[],"close":[{"ref":"f2/f2/e4","label":"×"}],"choices":[],"iframe":"http://localhost:52884/s22/modal","evidence":["iframe in a fixed layer"],"ref":"f2/e3","frame":"f2","layerFrame":"f2/f2"}],"detected":[],"frames":[{"path":"f1","url":"http://127.0.0.1:52885/s22/menu","origin":"same-origin","depth":1,"title":"s22 menu"},{"path":"f2","url":"http://127.0.0.1:52885/s22/main","origin":"same-origin","depth":1,"title":"s22 main"},{"path":"f2/f1","url":"http://localhost:52884/s22/form","origin":"cross-origin","depth":2,"title":"s22 search"},{"path":"f2/f1/f1","url":"http://localhost:52884/s22/table","origin":"same-origin","depth":3,"title":"s22 table"},{"path":"f2/f2","url":"http://localhost:52884/s22/modal","origin":"cross-origin","depth":2,"title":"s22 modal"}],"chars":630,"truncated":false,"tree":"overlays  o1 iframe-layer \"消息提示\" 8% of the viewport · in f2 · iframe f2/f2 http://localhost:52884/s22/modal · close f2/f2/e4 \"×\"\ndetected  none\nframes    f1  http://127.0.0.1:52885/s22/menu  same-origin  depth 1  \"s22 menu\"\n          f2  http://127.0.0.1:52885/s22/main  same-origin  depth 1  \"s22 main\"\n            f2/f1  http://localhost:52884/s22/form  cross-origin  depth 2  \"s22 search\"\n              f2/f1/f1  http://localhost:52884/s22/table  same-origin  depth 3  \"s22 table\"\n            f2/f2  http://localhost:52884/s22/modal  cross-origin  depth 2  \"s22 modal\"\n- RootWebArea \"s22 frames\"\n  - Iframe [e1]\n  - Iframe [e2]"}}
+[exit 0]
+
+$ tabcap snapshot --frames --session k22
+{"ok":true,"data":{"tab":"t1","url":"http://127.0.0.1:52885/s22","title":"s22 frames","nav":"n-6","interactive":false,"verbose":false,"refs":21,"overlays":[{"id":"o1","kind":"iframe-layer","role":"","name":"消息提示","modal":false,"coverage":8,"covers":[],"close":[{"ref":"f2/f2/e4","label":"×"}],"choices":[],"iframe":"http://localhost:52884/s22/modal","evidence":["iframe in a fixed layer"],"ref":"f2/e3","frame":"f2","layerFrame":"f2/f2"}],"detected":[],"frames":[{"path":"f1","url":"http://127.0.0.1:52885/s22/menu","origin":"same-origin","depth":1,"title":"s22 menu"},{"path":"f2","url":"http://127.0.0.1:52885/s22/main","origin":"same-origin","depth":1,"title":"s22 main"},{"path":"f2/f1","url":"http://localhost:52884/s22/form","origin":"cross-origin","depth":2,"title":"s22 search"},{"path":"f2/f1/f1","url":"http://localhost:52884/s22/table","origin":"same-origin","depth":3,"title":"s22 table"},{"path":"f2/f2","url":"http://localhost:52884/s22/modal","origin":"cross-origin","depth":2,"title":"s22 modal"}],"chars":1824,"truncated":false,"tree":"overlays  o1 iframe-layer \"消息提示\" 8% of the viewport · in f2 · iframe f2/f2 http://localhost:52884/s22/modal · close f2/f2/e4 \"×\"\ndetected  none\nframes    f1  http://127.0.0.1:52885/s22/menu  same-origin  depth 1  \"s22 menu\"\n          f2  http://127.0.0.1:52885/s22/main  same-origin  depth 1  \"s22 main\"\n            f2/f1  http://localhost:52884/s22/form  cross-origin  depth 2  \"s22 search\"\n              f2/f1/f1  http://localhost:52884/s22/table  same-origin  depth 3  \"s22 table\"\n            f2/f2  http://localhost:52884/s22/modal  cross-origin  depth 2  \"s22 modal\"\n- RootWebArea \"s22 frames\"\n  - Iframe [e1]\n  - Iframe [e2]\nframe f1  http://127.0.0.1:52885/s22/menu  same-origin  depth 1  \"s22 menu\"\n- RootWebArea \"s22 menu\"\n  - list [f1/e5]\n    - link \"栏目一\" [f1/e6]\n    - link \"栏目二\" [f1/e7]\n    - link \"栏目三\" [f1/e8]\nframe f2  http://127.0.0.1:52885/s22/main  same-origin  depth 1  \"s22 main\"\n- RootWebArea \"s22 main\"\n  - heading \"主区域\" [f2/e9] level=\"1\"\n  - Iframe [f2/e10]\n  - text \"消息提示\"\n  - Iframe [f2/e11]\nframe f2/f1  http://localhost:52884/s22/form  cross-origin  depth 2  \"s22 search\"\n- RootWebArea \"s22 search\"\n  - form [f2/f1/e12]\n    - text \"关键词 \"\n    - textbox \"关键词\" [f2/f1/e13]\n    - button \"查询\" [f2/f1/e14]\n  - Iframe [f2/f1/e15]\nframe f2/f1/f1  http://localhost:52884/s22/table  same-origin  depth 3  \"s22 table\"\n- RootWebArea \"s22 table\"\n  - LayoutTable [f2/f1/f1/e16]\n    - LayoutTableRow [f2/f1/f1/e17]\n      - LayoutTableCell \"S22-0001\" [f2/f1/f1/e18]\n      - LayoutTableCell \"甲方案\" [f2/f1/f1/e19]\n    - LayoutTableRow [f2/f1/f1/e20]\n      - LayoutTableCell \"S22-0002\" [f2/f1/f1/e21]\n      - LayoutTableCell \"乙方案\" [f2/f1/f1/e22]\nframe f2/f2  http://localhost:52884/s22/modal  cross-origin  depth 2  \"s22 modal\"\n- RootWebArea \"s22 modal\"\n  - text \"新消息：系统维护通知\"\n  - button \"关闭\" [f2/f2/e4]\n    - text \"×\""}}
+[exit 0]
+
+$ tabcap fill f2/f1/e13 abc --session k22
+{"ok":true,"data":{"tab":"t1","ref":"f2/f1/e13","frame":"f2/f1","level":1,"trusted":false,"kind":"input","inputType":"text","masked":false,"length":3,"overlayCheck":"clear","wait":{"navigated":false,"domQuiet":true,"dialog":false,"timedOut":[],"ms":211},"cmd":"c-25"}}
+[exit 0]
+
+$ tabcap click f2/f1/e14 --session k22
+{"ok":true,"data":{"tab":"t1","ref":"f2/f1/e14","frame":"f2/f1","level":1,"trusted":false,"eventShape":"incomplete","warning":"incomplete event sequence: DOM el.click(), a click event only, isTrusted=false, no pointer / mouse sequence","tag":"button","overlayCheck":"clear","url":"http://127.0.0.1:52885/s22","nav":"n-6","wait":{"navigated":false,"domQuiet":true,"dialog":false,"timedOut":[],"ms":209},"cmd":"c-27"}}
+[exit 0]
+
+$ tabcap net wait --url /s22/search --session k22
+{"ok":true,"data":{"id":"r-28","tab":"t1","method":"GET","url":"http://localhost:52884/s22/search?q=abc","status":200,"mime":"application/json","size":41,"blob":"sha256:bad03cd8b9dc39491801878b4b45ed36ef24912872bc4165ffc0e9c3e4770bd1","path":"$K/s22/home/data/bundles/k22-20261016-165729/blobs/sha256/ba/bad03cd8b9dc39491801878b4b45ed36ef24912872bc4165ffc0e9c3e4770bd1","outcome":"finished","alreadyFinished":true,"lookBack":{"from":"action","cmd":"c-27","action":"click"},"waitedMs":0,"timeoutMs":10000}}
+[exit 0]
+
+$ tabcap where f2/f1/f1/e21 --session k22
+{"ok":true,"data":{"schema":"tabcap-where/0","query":{"input":"f2/f1/f1/e21","kind":"ref","ref":"f2/f1/f1/e21","text":"S22-0002"},"normalized":[{"value":"S22-0002","rules":[]}],"candidates":[{"request":"r-13","selector":"table > tr:nth-of-type(2) > td:nth-of-type(1)","chain":[],"match":"exact","score":1}]}}
+[exit 0]
+
+$ tabcap click f2/f2/e4 --session k22
+{"ok":true,"data":{"tab":"t1","ref":"f2/f2/e4","frame":"f2/f2","level":1,"trusted":false,"eventShape":"incomplete","warning":"incomplete event sequence: DOM el.click(), a click event only, isTrusted=false, no pointer / mouse sequence","tag":"button","overlayCheck":"clear","url":"http://127.0.0.1:52885/s22","nav":"n-6","wait":{"navigated":false,"domQuiet":true,"dialog":false,"timedOut":[],"ms":208},"cmd":"c-34"}}
+[exit 0]
+
+$ tabcap snapshot --session k22
+{"ok":true,"data":{"tab":"t1","url":"http://127.0.0.1:52885/s22","title":"s22 frames","nav":"n-6","interactive":false,"verbose":false,"refs":2,"overlays":[],"detected":[],"frames":[{"path":"f1","url":"http://127.0.0.1:52885/s22/menu","origin":"same-origin","depth":1,"title":"s22 menu"},{"path":"f2","url":"http://127.0.0.1:52885/s22/main","origin":"same-origin","depth":1,"title":"s22 main"},{"path":"f2/f1","url":"http://localhost:52884/s22/form","origin":"cross-origin","depth":2,"title":"s22 search"},{"path":"f2/f1/f1","url":"http://localhost:52884/s22/table","origin":"same-origin","depth":3,"title":"s22 table"}],"chars":428,"truncated":false,"tree":"overlays  none\ndetected  none\nframes    f1  http://127.0.0.1:52885/s22/menu  same-origin  depth 1  \"s22 menu\"\n          f2  http://127.0.0.1:52885/s22/main  same-origin  depth 1  \"s22 main\"\n            f2/f1  http://localhost:52884/s22/form  cross-origin  depth 2  \"s22 search\"\n              f2/f1/f1  http://localhost:52884/s22/table  same-origin  depth 3  \"s22 table\"\n- RootWebArea \"s22 frames\"\n  - Iframe [e1]\n  - Iframe [e2]"}}
+[exit 0]
+
+$ tabcap net list --session k22
+{"ok":true,"data":{"session":"k22","bundle":"$K/s22/home/data/bundles/k22-20261016-165729","recording":true,"total":8,"matched":8,"shown":8,"hidden":{"failed":0,"data":0},"pageSize":30,"pageIdx":0,"totalPages":1,"nextPageIdx":null,"pagination":["Showing 1-8 of 8 (Page 1 of 1)."],"requests":[{"id":"r-8","tab":"t1","type":"document","method":"GET","status":200,"mime":"text/html","size":163,"outcome":"finished","bodyMissing":null,"cmd":"c-4","url":"http://127.0.0.1:52885/s22"},{"id":"r-9","tab":"t1","type":"document","method":"GET","status":200,"mime":"text/html","size":242,"outcome":"finished","bodyMissing":null,"cmd":"c-4","url":"http://127.0.0.1:52885/s22/menu"},{"id":"r-11","tab":"t1","type":"document","method":"GET","status":200,"mime":"text/html","size":852,"outcome":"finished","bodyMissing":null,"cmd":"c-4","url":"http://127.0.0.1:52885/s22/main"},{"id":"r-13","tab":"t1","type":"document","method":"GET","status":200,"mime":"text/html","size":168,"outcome":"finished","bodyMissing":null,"cmd":"c-4","url":"http://localhost:52884/s22/table"},{"id":"r-15","tab":"t1","type":"other","method":"GET","status":404,"mime":"text/plain","size":2,"outcome":"finished","bodyMissing":null,"cmd":"c-4","url":"http://127.0.0.1:52885/favicon.ico"},{"id":"r-19","tab":"t1","type":"document","method":"GET","status":200,"mime":"text/html","size":567,"outcome":"finished","bodyMissing":null,"cmd":null,"unreadByPage":true,"url":"http://localhost:52884/s22/form"},{"id":"r-20","tab":"t1","type":"document","method":"GET","status":200,"mime":"text/html","size":288,"outcome":"finished","bodyMissing":null,"cmd":null,"unreadByPage":true,"url":"http://localhost:52884/s22/modal"},{"id":"r-28","tab":"t1","type":"fetch","method":"GET","status":200,"mime":"application/json","size":41,"outcome":"finished","bodyMissing":null,"cmd":"c-27","url":"http://localhost:52884/s22/search?q=abc"}]}}
+[exit 0]
+
+$ tabcap net stop --session k22
+{"ok":true,"data":{"session":"k22","bundle":"$K/s22/home/data/bundles/k22-20261016-165729","requests":8,"counts":{"events":43,"requests":8,"bodies":8,"blobBytes":2325,"bodyMissing":{}}}}
+[exit 0]
+
+$ tabcap analyze find $K/s22/home/data/bundles/k22-20261016-165729 S22-0002 --text
+find "S22-0002" in $K/s22/home/data/bundles/k22-20261016-165729
+1 hit(s)
+  r-13  GET http://localhost:52884/s22/table 200
+    decode [] exact
+    tle>s22 table</title> <table id=t><tr><td>S22-0001</td><td>甲方案</td></tr><tr><td>S22-0002</td><td>乙方案</td></tr></table>
+searched: 8 bodies, 0 ws frames, 1 console lines (8 requests)
+skipped: none; no body: none
+decoders: none
+[exit 0]
+
+$ tabcap analyze deps $K/s22/home/data/bundles/k22-20261016-165729 --text
+deps of $K/s22/home/data/bundles/k22-20261016-165729: 8 request(s), 0 edge(s), 0 unresolved
+
+r-28 GET http://localhost:52884/s22/search?q=abc
+  query  q                        constant         1 sample(s)  [single-sample]
+[exit 0]
+
+$ tabcap replay check $K/s22/home/data/bundles/k22-20261016-165729 --against http://localhost:52884 --filter /s22/form,/s22/table,/s22/modal,/s22/search
+replay check $K/s22/home/data/bundles/k22-20261016-165729 against http://localhost:52884/
+
+id    method  path               status   result
+r-13  GET     /s22/table         200→200  same
+r-19  GET     /s22/form          200→200  same
+r-20  GET     /s22/modal         200→200  same
+r-28  GET     /s22/search?q=abc  200→200  same
+
+totals: 4 request(s), 4 same, 0 different, 0 error(s), 0 unverified, 0 skipped (not replayable)
+[exit 0]
+
+$ tabcap replay check $K/s22/home/data/bundles/k22-20261016-165729 --against http://127.0.0.1:52885 --filter /s22,/s22/menu,/s22/main,/favicon.ico
+replay check $K/s22/home/data/bundles/k22-20261016-165729 against http://127.0.0.1:52885/
+
+id    method  path          status   result
+r-8   GET     /s22          200→200  same
+r-9   GET     /s22/menu     200→200  same
+r-11  GET     /s22/main     200→200  same
+r-15  GET     /favicon.ico  404→404  same
+
+totals: 4 request(s), 4 same, 0 different, 0 error(s), 0 unverified, 0 skipped (not replayable)
+[exit 0]
+
+$ tabcap bundle info $K/s22/home/data/bundles/k22-20261016-165729
+{"ok":true,"data":{"dir":"$K/s22/home/data/bundles/k22-20261016-165729","format":"evidence-bundle/0","id":"01M51YWFXVPFAYJX3E78Y8PAFG","session":"k22","complete":true,"created":1792141049787,"finished":1792141078926,"counts":{"events":43,"requests":8,"bodies":8,"blobBytes":2325,"bodyMissing":{}},"events":43,"kinds":{"session":2,"cmd":26,"tab":3,"nav":1,"state":2,"request":8,"console":1},"imported":null,"redaction":null,"truncatedLastLine":false,"issues":[],"warnings":[]}}
+[exit 0]
+
+$ tabcap daemon stop
+{"ok":true,"data":{"stopped":true,"pid":80699}}
+[exit 0]
+

@@ -1,0 +1,226 @@
+# --- agent-browser 0.39.0 on s22, default settings (range run 2026-10-16, macOS arm64, Chrome for Testing 155.0.8059.79; origins: s21 http://127.0.0.1:47621, s22 A http://127.0.0.1:52885, B http://localhost:52884 (ports vary per run))
+
+$ agent-browser network har start
+✓ HAR recording started
+[exit 0]
+
+$ agent-browser open http://127.0.0.1:52885/s22
+✓ s22 frames
+  http://127.0.0.1:52885/s22
+[exit 0]
+
+$ agent-browser wait --text S22-0002
+✗ Wait timed out after 25000ms
+[exit 1]
+
+$ agent-browser snapshot
+- Iframe [ref=e1]
+  - list
+    - listitem [level=1]
+      - ListMarker "• "
+      - link "栏目一" [ref=e3]
+    - listitem [level=1]
+      - ListMarker "• "
+      - link "栏目二" [ref=e4]
+    - listitem [level=1]
+      - ListMarker "• "
+      - link "栏目三" [ref=e5]
+- Iframe [ref=e2]
+  - heading "主区域" [level=1, ref=e6]
+  - Iframe [ref=e7]
+  - generic
+    - StaticText "消息提示"
+    - Iframe [ref=e8]
+[exit 0]
+
+$ agent-browser frame @e7
+✓ Done
+[exit 0]
+
+$ agent-browser snapshot
+- form
+  - LabelText
+    - StaticText "关键词 "
+    - textbox "关键词" [ref=e11]
+  - button "查询" [ref=e10]
+- paragraph
+- Iframe [ref=e9]
+[exit 0]
+
+$ agent-browser fill @e11 abc
+✓ Done
+[exit 0]
+
+$ agent-browser click @e10
+✓ Done
+[exit 0]
+
+$ agent-browser wait 1000
+✓ Done
+[exit 0]
+
+$ agent-browser frame @e9
+✗ Ref does not point to an iframe element
+[exit 1]
+
+$ agent-browser snapshot
+- form
+  - LabelText
+    - StaticText "关键词 "
+    - textbox "关键词" [ref=e11]: abc
+      - StaticText "abc"
+  - button "查询" [ref=e10]
+- paragraph
+  - StaticText "找到 1 条：abc"
+- Iframe [ref=e9]
+[exit 0]
+
+$ agent-browser frame #table
+✗ Could not find frame for selector
+[exit 1]
+
+$ agent-browser snapshot
+- form
+  - LabelText
+    - StaticText "关键词 "
+    - textbox "关键词" [ref=e11]: abc
+      - StaticText "abc"
+  - button "查询" [ref=e10]
+- paragraph
+  - StaticText "找到 1 条：abc"
+- Iframe [ref=e9]
+[exit 0]
+
+$ agent-browser frame main
+✓ Done
+[exit 0]
+
+$ agent-browser network har stop $K/ab-s22.har
+✓ HAR saved to $K/ab-s22.har (7 requests)
+[exit 0]
+
+$ agent-browser close
+✓ Browser closed
+[exit 0]
+
+# --- derive-client SKILL.md steps 2-3 (verbatim jq) on the HAR
+
+$ jq -r '<derive-client §2 query>' ab-s22.har
+GET 200 http://localhost:52884/s22/search?q=abc
+
+$ jq '<derive-client §3 query, test("s22/search")>' ab-s22.har
+{
+  "request": {
+    "method": "GET",
+    "headers": [
+      {
+        "name": "Accept-Language",
+        "value": "zh-CN,zh;q=0.9"
+      },
+      {
+        "name": "Referer",
+        "value": "http://localhost:52884/s22/form"
+      },
+      {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+      },
+      {
+        "name": "sec-ch-ua",
+        "value": "\"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\""
+      },
+      {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+      },
+      {
+        "name": "sec-ch-ua-platform",
+        "value": "\"macOS\""
+      }
+    ],
+    "postData": null
+  },
+  "response": "{\"q\":\"abc\",\"result\":\"找到 1 条：abc\"}"
+}
+
+$ jq -r '.log.entries[] | <method status mimeType url, frame/initiator fields>' ab-s22.har
+GET 200 text/html http://127.0.0.1:52885/s22 pageref=- initiator=-
+GET 200 text/html http://127.0.0.1:52885/s22/menu pageref=- initiator=-
+GET 200 text/html http://127.0.0.1:52885/s22/main pageref=- initiator=-
+GET 200 text/html http://localhost:52884/s22/form pageref=- initiator=-
+GET 200 text/html http://localhost:52884/s22/modal pageref=- initiator=-
+GET 404 text/plain http://127.0.0.1:52885/favicon.ico pageref=- initiator=-
+GET 200 application/json http://localhost:52884/s22/search?q=abc pageref=- initiator=-
+
+$ grep -c 'S22-0002' ab-s22.har
+0
+
+$ jq '.log.creator, .log.pages' ab-s22.har
+{"name":"agent-browser","version":"0.39.0"}
+null
+
+# --- probe: read the depth-3 table frame from the form frame
+
+$ agent-browser snapshot
+- Iframe [ref=e1]
+  - list
+    - listitem [level=1]
+      - ListMarker "• "
+      - link "栏目一" [ref=e3]
+    - listitem [level=1]
+      - ListMarker "• "
+      - link "栏目二" [ref=e4]
+    - listitem [level=1]
+      - ListMarker "• "
+      - link "栏目三" [ref=e5]
+- Iframe [ref=e2]
+  - heading "主区域" [level=1, ref=e6]
+  - Iframe [ref=e7]
+  - generic
+    - StaticText "消息提示"
+    - Iframe [ref=e8]
+[exit 0]
+
+$ agent-browser frame @e7
+✓ Done
+[exit 0]
+
+$ agent-browser eval location.href + " | " + document.getElementById("table").contentDocument.body.innerText
+✗ Evaluation error: TypeError: Cannot read properties of null (reading 'contentDocument')
+    at <anonymous>:1:57
+[exit 1]
+
+$ agent-browser frame main
+✓ Done
+[exit 0]
+
+# --- first attempt with allowedDomains [127.0.0.1, localhost] in the config
+
+$ agent-browser network har start
+✓ HAR recording started
+[exit 0]
+
+$ agent-browser open http://127.0.0.1:52885/s22
+✗ Failed to install browser network controls: CDP error (Runtime.evaluate): Cannot find default execution context
+[exit 1]
+
+$ agent-browser wait 1500
+✓ Done
+[exit 0]
+
+$ agent-browser snapshot
+(empty page)
+[exit 0]
+
+$ agent-browser get url
+about:blank
+[exit 0]
+
+$ agent-browser network har stop $K/ab-s22-allowlist.har
+✓ HAR saved to $K/ab-s22-allowlist.har (5 requests)
+[exit 0]
+
+$ agent-browser close
+✓ Browser closed
+[exit 0]
+

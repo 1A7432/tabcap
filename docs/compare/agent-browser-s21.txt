@@ -1,0 +1,104 @@
+# --- agent-browser 0.39.0 on s21, default settings (range run 2026-10-16, macOS arm64, Chrome for Testing 155.0.8059.79; origins: s21 http://127.0.0.1:47621, s22 A http://127.0.0.1:52885, B http://localhost:52884 (ports vary per run))
+
+$ agent-browser network har start
+✓ HAR recording started
+[exit 0]
+
+$ agent-browser open http://127.0.0.1:47621/s21
+✓ s21 aes-json
+  http://127.0.0.1:47621/s21
+[exit 0]
+
+$ agent-browser wait --text S21-0012
+S21-0012
+[exit 0]
+
+$ agent-browser network har stop $K/ab-s21.har
+✓ HAR saved to $K/ab-s21.har (4 requests)
+[exit 0]
+
+$ agent-browser close
+✓ Browser closed
+[exit 0]
+
+# --- derive-client SKILL.md steps 2-3 (verbatim jq) on the HAR
+
+$ jq -r '<derive-client §2 query>' ab-s21.har
+GET 200 http://127.0.0.1:47621/api/key
+GET 200 http://127.0.0.1:47621/api/secret
+
+$ jq '<derive-client §3 query, test("api/secret")>' ab-s21.har
+{
+  "request": {
+    "method": "GET",
+    "headers": [
+      {
+        "name": "Accept-Language",
+        "value": "zh-CN,zh;q=0.9"
+      },
+      {
+        "name": "Referer",
+        "value": "http://127.0.0.1:47621/s21"
+      },
+      {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+      },
+      {
+        "name": "sec-ch-ua",
+        "value": "\"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\""
+      },
+      {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+      },
+      {
+        "name": "sec-ch-ua-platform",
+        "value": "\"macOS\""
+      },
+      {
+        "name": "x-sign",
+        "value": "16ff48364100b37bd7b4b76b4c533ad0fa690f1f65aba85b9ba8b6da96f9301b"
+      },
+      {
+        "name": "x-ts",
+        "value": "1792141343857"
+      }
+    ],
+    "postData": null
+  },
+  "response": "{\"code\":0,\"data\":\"iYK8jl8bsOZuBPmkuVooadsqOGms20HlGrGngz111H4eJYjkjzHSnqcaVaI9GdA1AIIAk3ofi88IfzygUzHVS1w05ZhixhRNAQ/BoMZGa7Q+O69P6/9Y9mAT/2+68W0yaLU6kJZax4WqXyO/2SBsF+kiwGE7XXjVmBtsvkI6vE0dHNLp5R5wlcsNnKsfJBzVmB33C2MRLJxwYxChRUhbcY0DAaYtLCvFMzQzsBR7v9iOG+7K6VOXzBqcrNMnDzGOuRWDNdcNje4stF6apyUqNjDhiJZZQP7c1PWYtvEZpPuZ30wZaECCvhaICTMPrmV7Zv+AYsBW9ThEAjuHmxBMh/I6+izUAUGhQaAGaOl2IUZbZ1aUsbEnLgc9f9AemWsKlw2w8l1s+zkf5PQk3UyXrP9V9LmUfj60kmg9ex7NKhaEV1+Aj/obqwvfQBmZHj8FEglgLhdwlJAcorPGdOlE8y7PbS3/FyDTJqQHWIRf0hOMXeCPxvTw0W+35Yfv2h0Xj9qL1pxH+2JfHQe4B5kn5ACnzczCkjLHLs8KiYVndnbMnWrw8L0DD4r1hyrIZQdeBMLrCBRijSJye7jeG36YKXSLF20zAybAZAcxPMnWpsWpl0SgqfCcWA2p\"}"
+}
+
+$ jq -r '.log.entries[] | <method status mimeType url, frame/initiator fields>' ab-s21.har
+GET 200 text/html http://127.0.0.1:47621/s21 pageref=- initiator=-
+GET 200 application/json http://127.0.0.1:47621/api/key pageref=- initiator=-
+GET 404 text/plain http://127.0.0.1:47621/favicon.ico pageref=- initiator=-
+GET 200 application/json http://127.0.0.1:47621/api/secret pageref=- initiator=-
+
+$ grep -c 'S21-0001' ab-s21.har
+0
+
+$ jq '.log.creator, .log.pages' ab-s21.har
+{"name":"agent-browser","version":"0.39.0"}
+null
+
+# --- first attempt with allowedDomains [127.0.0.1, localhost] in the config
+
+$ agent-browser network har start
+✓ HAR recording started
+[exit 0]
+
+$ agent-browser open http://127.0.0.1:47621/s21
+✓ s21 aes-json
+  http://127.0.0.1:47621/s21
+[exit 0]
+
+$ agent-browser wait --text S21-0012
+S21-0012
+[exit 0]
+
+$ agent-browser network har stop $K/ab-s21.har
+✓ HAR saved to $K/ab-s21.har (4 requests)
+[exit 0]
+
