@@ -30,6 +30,10 @@ export type ErrorCode =
 export interface OkEnvelope<T> {
   ok: true;
   data: T;
+  /** `--select` path (0.5-C output filters). */
+  selected?: string;
+  /** What the output filters did (`--select` / `--grep` / `--fields`). */
+  filter?: Record<string, unknown>;
 }
 
 export interface ErrorBody {

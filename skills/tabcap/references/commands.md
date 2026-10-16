@@ -4,6 +4,19 @@
 
 Every command prints one JSON envelope on stdout: `{"ok":true,"data":…}` or `{"ok":false,"error":{"code","message","next"}}`. Browser commands also take `--session <name>` (else `$TABCAP_SESSION`, else `default`) and most take `--timeout <ms>` (default 30000; `wait` / `net wait` 10000); they are left out below. `tabcap <command> --help` prints the same as one section here; `tabcap schema --json` is the machine-readable form.
 
+## Output flags (every command)
+
+The CLI applies these to the envelope's `data` after the command ran, in this order: select, grep, fields, then the output budget. The envelope then also carries `filter: {select, grep, fields, matches, total, capped}` (and `selected` with `--select`). Above `TABCAP_OUTPUT_LIMIT` bytes (default 16384; `0` turns it off) `data` becomes `{summary, file, bytes, truncated: true}`: the whole `data` is in `file` (the recording's `exports/<command>-<seq>.json`, else `<cache>/outputs/<stamp>-<command>.json`). `net list`, `console list` and `snapshot` page or cut on their own and are exempt.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--select <path>` |  | keep only this part of data: dotted keys, [n], [*] (e.g. requests[*].url) |
+| `--grep <regex>` |  | keep array elements whose JSON matches this regex (u flag, ≤ 256 chars); long text fields: matching lines with line numbers |
+| `--context <n>` | `0` | with --grep on text: lines around each match (max 20) |
+| `--max-matches <n>` | `50` | with --grep: keep at most this many matches (max 1000) |
+| `--fields <a,b,c>` |  | project each array element to these keys |
+| `--full` |  | print data whole even above TABCAP_OUTPUT_LIMIT (default 16384 bytes; above it data becomes {summary, file, bytes, truncated}) (not on screenshot) |
+
 ## Setup and lifecycle
 
 ### `tabcap setup`
@@ -290,7 +303,7 @@ Example: `tabcap snapshot --interactive`
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--interactive` |  | only controls (buttons, links, inputs …) and their ancestors |
 | `--verbose` |  | the full tree: keep unnamed wrappers and text that repeats its parent's name, add descriptions and capability flags (focusable, expandable …) |
-| `--max-chars <n>` | `60000` | truncate the tree text |
+| `--max-chars <n>` | `12000` | truncate the tree text (the note says so and how to get more) |
 | `--file-path <path>` |  | write the tree text to this file and return its path instead of the tree |
 | `--frames` |  | also expand every child frame (iframes, frameset frames, cross-origin too); their refs carry the frame path, e.g. f2/f1/e7; --max-chars applies per frame |
 | `--frame <f2/f1>` |  | expand only this frame and the frames inside it (the root document is listed in the header only) |
@@ -551,7 +564,7 @@ Example: `tabcap console list --types error,warn`
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--types <error,warn>` |  | comma list of message types: log, debug, info, error, warn, dir, table, trace, assert, count, timeEnd, verbose … |
 | `--level <level>` |  | debug \| log \| info \| warn \| error: that level and more severe (log = info) |
-| `--page-size <n>` | `100` | messages per page (max 1000); 0 returns every buffered message |
+| `--page-size <n>` | `30` | messages per page (max 1000); 0 returns every buffered message |
 | `--page-idx <n>` | `0` | page to return, 0-based; nextPageIdx names the next one |
 | `--limit <n>` |  | only the last N messages (instead of paging) |
 | `--include-stack-traces` |  | include each message's stack trace when there is one |
@@ -595,7 +608,7 @@ Example: `tabcap net stop`
 
 ### `tabcap net list`
 
-recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 100 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)
+recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)
 
 ```
 tabcap net list [--session name] [--filter s] [--host s] [--status code] [--method M] [--resource-types xhr,fetch] [--tab t2] [--since c-12] [--failed] [--no-failed] [--all] [--page-size n] [--page-idx n] [--kind http|ws]
@@ -615,7 +628,7 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 | `--failed` |  | only failed requests (hidden by default) |
 | `--no-failed` |  | hide failed requests (the default) |
 | `--all` |  | also failed requests and data: URLs |
-| `--page-size <n>` | `100` | requests per page (max 1000); 0 returns every match |
+| `--page-size <n>` | `30` | requests per page (max 1000); 0 returns every match |
 | `--page-idx <n>` | `0` | page to return, 0-based; nextPageIdx names the next one |
 | `--kind <http\|ws>` | `http` | http (requests) \| ws (WebSocket frames: id, direction, opcode, size, ts) |
 

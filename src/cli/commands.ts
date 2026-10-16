@@ -69,6 +69,24 @@ export const COMMON_FLAGS: readonly string[] = ["--session", "--timeout"];
 const COMMON_KEYS: ReadonlySet<string> = new Set(["session", "timeoutMs"]);
 /** A shared --session / --timeout (not an offline command's own flag that happens to share the spelling, e.g. analyze deps --session). */
 export const isCommonFlag = (f: FlagSpec, skip: readonly string[] = COMMON_FLAGS): boolean => skip.includes(f.flag) && COMMON_KEYS.has(f.key);
+/**
+ * Output flags every command takes (0.5-C, owner 10-16): the generic
+ * post-filters on the envelope's `data` and the output-budget bypass. The CLI
+ * takes them out of argv before the command's own parser runs
+ * (src/cli/main.ts), so they are listed once (`sharedFlags` in the schema, the
+ * help index footer) rather than per command.
+ */
+export const OUTPUT_FLAGS: readonly FlagSpec[] = [
+  { flag: "--select", key: "select", kind: "string", help: "keep only this part of data: dotted keys, [n], [*] (e.g. requests[*].url)", metavar: "path" },
+  { flag: "--grep", key: "grep", kind: "string", help: "keep array elements whose JSON matches this regex (u flag, ≤ 256 chars); long text fields: matching lines with line numbers", metavar: "regex" },
+  { flag: "--context", key: "context", kind: "number", help: "with --grep on text: lines around each match (max 20)", default: 0, metavar: "n" },
+  { flag: "--max-matches", key: "maxMatches", kind: "number", help: "with --grep: keep at most this many matches (max 1000)", default: 50, metavar: "n" },
+  { flag: "--fields", key: "fields", kind: "string", help: "project each array element to these keys", metavar: "a,b,c" },
+  { flag: "--full", key: "full", kind: "bool", help: "print data whole even above TABCAP_OUTPUT_LIMIT (default 16384 bytes; above it data becomes {summary, file, bytes, truncated})" },
+];
+/** Commands that do not take an output flag: `screenshot --full` was renamed `--full-page` in 0.4 and stays an unknown option. */
+export const OUTPUT_FLAGS_NOT_ON: Readonly<Record<string, readonly string[]>> = { "--full": ["screenshot"] };
+
 const NO_WAIT: FlagSpec = {
   flag: "--no-wait",
   key: "noWait",
@@ -917,7 +935,7 @@ export function usageOf(c: CommandSpec, skip: readonly string[] = []): string {
  * (scripts/gen-docs.ts): id (for `tabcap help <id>`), title, members.
  */
 export const COMMAND_GROUPS: ReadonlyArray<{ id: string; title: string; test: (c: CommandSpec) => boolean }> = [
-  { id: "lifecycle", title: "Setup and lifecycle", test: (c) => ["setup", "daemon", "browser"].includes(c.path[0] ?? "") },
+  { id: "lifecycle", title: "Setup and lifecycle", test: (c) => ["setup", "daemon", "browser", "mcp"].includes(c.path[0] ?? "") },
   { id: "sessions", title: "Sites, sessions and tabs", test: (c) => ["site", "session", "tab"].includes(c.path[0] ?? "") },
   { id: "page", title: "Navigation and page reading", test: (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "") },
   { id: "input", title: "Input", test: (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "") },
@@ -1051,6 +1069,8 @@ export type Schema = {
   tool: string;
   version: string;
   envelope: { ok: string; error: string };
+  /** Output flags every command takes (OUTPUT_FLAGS), except the commands in `notOn`. */
+  sharedFlags: (SchemaFlag & { notOn: string[] })[];
   commands: SchemaCommand[];
 };
 
@@ -1076,6 +1096,7 @@ export function schema(): Schema {
     tool: TOOL_NAME,
     version: TOOL_VERSION,
     envelope: { ok: "{ok:true,data}", error: "{ok:false,error:{code,message,next}}" },
+    sharedFlags: OUTPUT_FLAGS.map((f) => ({ ...schemaFlag(f), notOn: [...(OUTPUT_FLAGS_NOT_ON[f.flag] ?? [])] })),
     commands: COMMANDS.map((c) => {
       const required = c.pos.length - (c.optional ?? 0);
       return {

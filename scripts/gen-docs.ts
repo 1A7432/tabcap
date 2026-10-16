@@ -7,7 +7,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { COMMON_FLAGS, currentCommands, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
+import { COMMON_FLAGS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, currentCommands, groupedCommands, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export const SKILL_DIR = "skills/tabcap";
@@ -57,32 +57,21 @@ function commandSection(c: CommandSpec): string {
 
 /** The whole reference file for the skill (references/commands.md). */
 export function referenceDoc(): string {
-  const groups: Array<[string, (c: CommandSpec) => boolean]> = [
-    ["Setup and lifecycle", (c) => ["setup", "daemon", "browser", "mcp"].includes(c.path[0] ?? "")],
-    ["Sites, sessions and tabs", (c) => ["site", "session", "tab"].includes(c.path[0] ?? "")],
-    ["Navigation and page reading", (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "")],
-    ["Input", (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "")],
-    ["Page tools", (c) => ["evaluate", "screenshot", "resize", "emulate", "console"].includes(c.path[0] ?? "")],
-    ["Network recording", (c) => c.path[0] === "net" || c.path[0] === "where" || c.path[0] === "recon"],
-    ["Trace mode (signal reads)", (c) => c.path[0] === "trace"],
-    ["Handoff and challenge handlers", (c) => ["handoff", "plugin"].includes(c.path[0] ?? "")],
-    ["Offline: bundles, analysis, replay", (c) => ["bundle", "analyze", "replay", "schema"].includes(c.path[0] ?? "")],
-  ];
-  const cmds = currentCommands();
-  const used = new Set<CommandSpec>();
-  const sections = groups.map(([title, test]) => {
-    const mine = cmds.filter((c) => test(c) && !used.has(c));
-    for (const c of mine) used.add(c);
-    return [`## ${title}`, "", ...mine.map((c) => `${commandSection(c)}\n`)].join("\n");
-  });
-  const rest = cmds.filter((c) => !used.has(c));
-  if (rest.length > 0) sections.push(["## Other", "", ...rest.map((c) => `${commandSection(c)}\n`)].join("\n"));
+  const sections = groupedCommands().map((g) => [`## ${g.title}`, "", ...g.commands.map((c) => `${commandSection(c)}\n`)].join("\n"));
   return [
     "<!-- GENERATED from src/cli/commands.ts by `bun run gen:docs`; do not edit by hand. -->",
     "",
     "# tabcap command reference",
     "",
     "Every command prints one JSON envelope on stdout: `{\"ok\":true,\"data\":…}` or `{\"ok\":false,\"error\":{\"code\",\"message\",\"next\"}}`. Browser commands also take `--session <name>` (else `$TABCAP_SESSION`, else `default`) and most take `--timeout <ms>` (default 30000; `wait` / `net wait` 10000); they are left out below. `tabcap <command> --help` prints the same as one section here; `tabcap schema --json` is the machine-readable form.",
+    "",
+    "## Output flags (every command)",
+    "",
+    "The CLI applies these to the envelope's `data` after the command ran, in this order: select, grep, fields, then the output budget. The envelope then also carries `filter: {select, grep, fields, matches, total, capped}` (and `selected` with `--select`). Above `TABCAP_OUTPUT_LIMIT` bytes (default 16384; `0` turns it off) `data` becomes `{summary, file, bytes, truncated: true}`: the whole `data` is in `file` (the recording's `exports/<command>-<seq>.json`, else `<cache>/outputs/<stamp>-<command>.json`). `net list`, `console list` and `snapshot` page or cut on their own and are exempt.",
+    "",
+    "| Option | Default | Meaning |",
+    "|---|---|---|",
+    ...OUTPUT_FLAGS.map((f) => flagRow(f).replace(/ \|$/, (OUTPUT_FLAGS_NOT_ON[f.flag] ?? []).length > 0 ? ` (not on ${(OUTPUT_FLAGS_NOT_ON[f.flag] ?? []).join(", ")}) |` : " |")),
     "",
     ...sections,
   ]

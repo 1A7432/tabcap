@@ -17,7 +17,7 @@ import { paths } from "../shared/paths.ts";
 import { runDaemon } from "../daemon/main.ts";
 import { binaryVersion, downloadCft } from "../daemon/transport/direct/cft.ts";
 import { hostPlatform, type CftPlatform } from "../daemon/transport/direct/launcher.ts";
-import { daemonStatus, send, startDaemon, stopDaemon } from "./client.ts";
+import { daemonStatus, send, startDaemon, status as daemonPing, stopDaemon } from "./client.ts";
 import { runAnalyze } from "./analyze.ts";
 import { renderWhereText, whereResultOf } from "../analyze/where.ts";
 import { runReplay } from "./replay.ts";
@@ -25,7 +25,9 @@ import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts"
 import { accountAdd, accountBind, accountList, accountRemove, accountSetState, proxyAdd, proxyCheck, proxyList, proxyRemove, proxySetState } from "./pool.ts";
 import { Store, storePath } from "../daemon/store/db.ts";
 import { variantsOf } from "../daemon/secrets.ts";
-import { BUNDLE_USAGE, COMMANDS, flagNames, helpAll, helpFor, helpTopic, matchCommand, parseCommand, schema, specOf, usageOf, type CommandSpec } from "./commands.ts";
+import { BUNDLE_USAGE, COMMANDS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, flagNames, helpAll, helpFor, helpTopic, matchCommand, parseCommand, schema, specOf, spellingsOf, usageOf, type CommandSpec } from "./commands.ts";
+import { applyFilters, filterOptions, hasFilters, type FilterOptions } from "../shared/filter.ts";
+import { applyBudget, outputLimit } from "../shared/budget.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
 import { renderTraceText } from "../daemon/trace/table.ts";
 import { renderFingerprintText } from "../fingerprint/fields.ts";
@@ -396,7 +398,114 @@ export function helpRequest(argv: readonly string[]): { code: number; text: stri
   return null;
 }
 
-export async function run(argv: readonly string[], opts: RunOptions = {}): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {
+type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
+type OutputOptions = { filters: FilterOptions; full: boolean; given: string[] };
+
+/**
+ * Take the output flags (OUTPUT_FLAGS) out of argv, up to `--`: they act on
+ * the envelope after the command ran, so no command parser sees them.
+ * `--full` stays in place for the commands in OUTPUT_FLAGS_NOT_ON.
+ */
+export function takeOutputFlags(argv: readonly string[]): { rest: string[]; out: OutputOptions } {
+  const end = argv.indexOf("--");
+  const head = end < 0 ? [...argv] : argv.slice(0, end);
+  const tail = end < 0 ? [] : argv.slice(end);
+  const values: Record<string, string> = {};
+  const given: string[] = [];
+  let full = false;
+  const rest: string[] = [];
+  const words = head.filter((a) => !a.startsWith("-"));
+  const command = matchCommand(words)?.path.join(" ") ?? "";
+  for (let i = 0; i < head.length; i++) {
+    const a = head[i] ?? "";
+    const eq = a.indexOf("=");
+    const name = a.startsWith("--") && eq > 0 ? a.slice(0, eq) : a;
+    const spec = OUTPUT_FLAGS.find((f) => spellingsOf(f).includes(name));
+    if (spec === undefined || (OUTPUT_FLAGS_NOT_ON[spec.flag] ?? []).includes(command)) {
+      rest.push(a);
+      continue;
+    }
+    if (spec.kind === "bool") {
+      if (eq > 0) throw new TabcapError("usage", `${name} takes no value`, "e.g. tabcap analyze deps <bundle> --full");
+      full = true;
+      given.push(spec.flag);
+      continue;
+    }
+    const v = eq > 0 ? a.slice(eq + 1) : head[++i];
+    if (v === undefined) throw new TabcapError("usage", `${name} needs a value`, `${spec.flag} <${spec.metavar ?? "v"}>: ${spec.help}`);
+    if (Object.hasOwn(values, spec.key)) throw new TabcapError("usage", `${name} given twice`, `Give ${spec.flag} once.`);
+    values[spec.key] = v;
+    given.push(spec.flag);
+  }
+  const pick = (k: string): string | undefined => (Object.hasOwn(values, k) ? values[k] : undefined);
+  const filters = filterOptions({ select: pick("select"), grep: pick("grep"), context: pick("context"), maxMatches: pick("maxMatches"), fields: pick("fields") });
+  return { rest: [...rest, ...tail], out: { filters, full, given } };
+}
+
+/** `--session <name>` / `--session=<name>` of a daemon command, else $TABCAP_SESSION, else `default`. */
+function sessionOf(argv: readonly string[]): string {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] ?? "";
+    if (a === "--") break;
+    const next = argv[i + 1];
+    if (a === "--session" && next !== undefined) return next;
+    if (a.startsWith("--session=")) return a.slice("--session=".length);
+  }
+  return envVar("SESSION") ?? "default";
+}
+
+/** Where an over-budget answer goes: the session's open recording (asked from the daemon), else the cache. */
+async function budgetTarget(c: CommandSpec | null, argv: readonly string[]): Promise<{ bundle: string } | { cache: string }> {
+  const p = paths();
+  if (c?.action !== undefined) {
+    const session = sessionOf(argv);
+    const st = await daemonPing(p);
+    const recs = st.ok && isRecord(st.data) && Array.isArray(st.data["recordings"]) ? st.data["recordings"].filter(isRecord) : [];
+    const open = recs.find((r) => r["session"] === session && r["recording"] === true && typeof r["bundle"] === "string");
+    if (open !== undefined && typeof open["bundle"] === "string") return { bundle: open["bundle"] };
+  }
+  return { cache: p.cache };
+}
+
+/** The output layer: filters, then the budget, on an ok envelope that is printed as JSON. */
+async function shapeOutput(r: Outcome, argv: readonly string[], out: OutputOptions): Promise<Outcome> {
+  if (!r.envelope.ok || r.code === -1 || argv.length === 0 || helpRequest(argv) !== null) return r;
+  if (r.text !== undefined) {
+    if (!hasFilters(out.filters)) return r;
+    return { code: 2, envelope: fail("usage", `${out.given.join(" / ")} filter the JSON envelope, but this command printed text`, "Leave out --text (or --json for schema) to filter the JSON answer, or leave out the filter flags.") };
+  }
+  const c = matchCommand(argv.filter((a) => !a.startsWith("-")));
+  const command = c?.path.join(" ") ?? "";
+  let data: unknown = r.envelope.data;
+  let filter: Record<string, unknown> | null = null;
+  if (hasFilters(out.filters)) {
+    const f = applyFilters(data, out.filters);
+    data = f.data;
+    filter = f.filter;
+  }
+  data = await applyBudget(command, data, { limit: outputLimit(), full: out.full, target: () => budgetTarget(c, argv) });
+  const envelope: Envelope<unknown> = { ok: true, data, ...(filter === null ? {} : { ...(out.filters.select === null ? {} : { selected: out.filters.select }), filter }) };
+  return { ...r, envelope };
+}
+
+export async function run(argv: readonly string[], opts: RunOptions = {}): Promise<Outcome> {
+  let taken: { rest: string[]; out: OutputOptions };
+  try {
+    taken = takeOutputFlags(argv);
+  } catch (e) {
+    const env = toFail(e);
+    return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
+  }
+  const r = await runCommand(taken.rest, opts);
+  try {
+    return await shapeOutput(r, taken.rest, taken.out);
+  } catch (e) {
+    const env = toFail(e);
+    return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
+  }
+}
+
+async function runCommand(argv: readonly string[], opts: RunOptions = {}): Promise<Outcome> {
   try {
     const words = argv.filter((a) => !a.startsWith("-"));
     if (argv.length === 0) {
