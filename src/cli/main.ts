@@ -28,6 +28,7 @@ import { variantsOf } from "../daemon/secrets.ts";
 import { BUNDLE_USAGE, COMMANDS, flagNames, helpAll, helpFor, helpGroup, matchCommand, parseCommand, schema, specOf, usageOf, type CommandSpec } from "./commands.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
 import { renderTraceText } from "../daemon/trace/table.ts";
+import { fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -276,6 +277,17 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       break;
     case "plugin disable":
       data = pluginSet(p, parsed.args, false);
+      break;
+    case "fingerprint serve":
+      return await fingerprintServe(p, parsed.args);
+    case "fingerprint ref list":
+      data = fingerprintRefList(p);
+      break;
+    case "fingerprint ref show":
+      data = fingerprintRefShow(p, parsed.args);
+      break;
+    case "fingerprint ref remove":
+      data = fingerprintRefRemove(p, parsed.args);
       break;
     case "daemon stop":
       data = await stopDaemon(p);
