@@ -11,6 +11,9 @@ import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, WALL_CODE, WALL_MARKER, startGuardSite, type GuardSite } from "./site.ts";
 
+// POSIX file modes do not exist on Windows (files get the profile's default ACL, docs/08): mode checks skip there.
+const POSIX_MODES = process.platform !== "win32";
+
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
@@ -114,8 +117,10 @@ describe.skipIf(!enabled)("tabcap 0.3-A L2 (store, secret fill, guard, handoff, 
   });
 
   test("store file 0600 in 0700; site list shows names, urls, usernames and refs, never the password", async () => {
-    expect(statSync(join(home, "config", "state.db")).mode & 0o777).toBe(0o600);
-    expect(statSync(join(home, "config")).mode & 0o777).toBe(0o700);
+    if (POSIX_MODES) {
+      expect(statSync(join(home, "config", "state.db")).mode & 0o777).toBe(0o600);
+      expect(statSync(join(home, "config")).mode & 0o777).toBe(0o700);
+    }
     const l = await ok("site", "list");
     expect(recs(l["sites"])).toEqual([expect.objectContaining({ name: SITE, entryUrl: `${site.origin}/s07/login`, usernames: [LOGIN_USER], secrets: [`${SITE}.username`, `${SITE}.password`] })]);
   });

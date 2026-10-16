@@ -13,6 +13,9 @@ import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, startGuardSite, type GuardSite } from "./site.ts";
 
+// POSIX file modes do not exist on Windows (files get the profile's default ACL, docs/08): mode checks skip there.
+const POSIX_MODES = process.platform !== "win32";
+
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
@@ -124,7 +127,7 @@ describe.skipIf(!enabled)("tabcap 0.3-C L2 (state snapshots, saved sessions, §1
     const out = join(home, "out", "state.json");
     const d = await ok("replay", "session", bundle, "-o", out);
     expect(d).toMatchObject({ out, cookies: 1, sensitive: true, mode: "0600", source: { kind: "bundle" } });
-    expect(statSync(out).mode & 0o777).toBe(0o600);
+    if (POSIX_MODES) expect(statSync(out).mode & 0o777).toBe(0o600);
     const st: unknown = JSON.parse(readFileSync(out, "utf8"));
     expect(rec(st)["cookies"]).toEqual([{ name: "sid", value: site.sids[0], domain: "127.0.0.1", path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" }]);
   }, 30_000);
@@ -135,7 +138,7 @@ describe.skipIf(!enabled)("tabcap 0.3-C L2 (state snapshots, saved sessions, §1
     const out = join(home, "out", "from-store.json");
     const d = await ok("replay", "session", "--site", SITE, "-o", out);
     expect(d).toMatchObject({ source: { kind: "store", site: SITE, account: LOGIN_USER }, cookies: 1 });
-    expect(statSync(out).mode & 0o777).toBe(0o600);
+    if (POSIX_MODES) expect(statSync(out).mode & 0o777).toBe(0o600);
     expect(rec(JSON.parse(readFileSync(out, "utf8")))["cookies"]).toEqual([{ name: "sid", value: site.sids[0], domain: "127.0.0.1", path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" }]);
     // the saved cookie is a secret now: a page that prints it shows the reference
     await ok("navigate", `${site.origin}/s07/login`, "--session", "echo");
@@ -149,7 +152,7 @@ describe.skipIf(!enabled)("tabcap 0.3-C L2 (state snapshots, saved sessions, §1
 
   test("§17: HAR export is 0600; type on a removed focused field is stale-ref, on a live one it types", async () => {
     const har = await ok("bundle", "export", "har", bundle);
-    expect(statSync(s(har["out"])).mode & 0o777).toBe(0o600);
+    if (POSIX_MODES) expect(statSync(s(har["out"])).mode & 0o777).toBe(0o600);
     const S = ["--session", "typing"];
     await ok("navigate", `${site.origin}/s07/login`, ...S);
     const tree = s((await ok("snapshot", "--interactive", ...S))["tree"]);
