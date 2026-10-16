@@ -16,11 +16,11 @@ afterAll(() => {
 }, SLOW_IO_MS);
 
 describe("help", () => {
-  test("tabcap --help lists every command with an example", () => {
+  test("tabcap --help is the index (0.5-C): every user command on one line; examples are in `tabcap help <command>`", () => {
     const text = helpAll();
-    for (const c of COMMANDS) {
-      expect(text).toContain(c.path.join(" "));
-      expect(text).toContain(`e.g. ${c.example}`);
+    for (const c of COMMANDS.filter((x) => x.internal !== true)) {
+      expect(text).toContain(`\n  ${c.path.join(" ")}  `);
+      expect(helpFor(c)).toContain(`Example: ${c.example}`);
     }
     expect(text).not.toContain("Deprecated");
     expect(text).toContain("bundle");

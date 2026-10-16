@@ -18,18 +18,18 @@ describe("tabcap schema", () => {
     expect(doc).toMatchObject({ schema: SCHEMA_ID, tool: "tabcap", version: pkgVersion });
   });
 
-  test("without --json it is an ordinary envelope", async () => {
+  test("without --json it is an ordinary envelope (exempt from the output budget)", async () => {
     const r = await run(["schema"]);
     expect(r.text).toBeUndefined();
     expect(r.envelope).toMatchObject({ ok: true, data: { schema: SCHEMA_ID } });
   });
 
-  test("one entry per registry command, same names as --help", () => {
+  test("one entry per registry command, same names as --help (the index lists the non-internal ones)", () => {
     const s = schema();
     expect(s.commands.map((c) => c.name)).toEqual(COMMANDS.map((c) => c.path.join(" ")));
     const help = helpAll();
     for (const c of s.commands) {
-      expect(help).toContain(c.name);
+      if (!c.internal) expect(help).toContain(c.name);
       expect(c.example.startsWith(`tabcap ${c.name}`)).toBe(true);
       expect(c.summary.length).toBeGreaterThan(0);
     }

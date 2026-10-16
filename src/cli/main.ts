@@ -25,7 +25,7 @@ import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts"
 import { accountAdd, accountBind, accountList, accountRemove, accountSetState, proxyAdd, proxyCheck, proxyList, proxyRemove, proxySetState } from "./pool.ts";
 import { Store, storePath } from "../daemon/store/db.ts";
 import { variantsOf } from "../daemon/secrets.ts";
-import { BUNDLE_USAGE, COMMANDS, flagNames, helpAll, helpFor, helpGroup, matchCommand, parseCommand, schema, specOf, usageOf, type CommandSpec } from "./commands.ts";
+import { BUNDLE_USAGE, COMMANDS, flagNames, helpAll, helpFor, helpTopic, matchCommand, parseCommand, schema, specOf, usageOf, type CommandSpec } from "./commands.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
 import { renderTraceText } from "../daemon/trace/table.ts";
 import { renderFingerprintText } from "../fingerprint/fields.ts";
@@ -391,7 +391,7 @@ export function helpRequest(argv: readonly string[]): { code: number; text: stri
   if (words.length === 0) return { code: 0, text: helpAll() };
   const c = matchCommand(words);
   if (c !== null) return { code: 0, text: helpFor(c) };
-  const group = words[0] === undefined ? null : helpGroup(words[0]);
+  const group = words[0] === undefined ? null : helpTopic(words[0]);
   if (group !== null) return { code: 0, text: group };
   return null;
 }

@@ -912,24 +912,80 @@ export function usageOf(c: CommandSpec, skip: readonly string[] = []): string {
   return [TOOL_NAME, ...c.path, ...pos, ...flags].join(" ");
 }
 
+/**
+ * Command groups of the help index and the generated reference
+ * (scripts/gen-docs.ts): id (for `tabcap help <id>`), title, members.
+ */
+export const COMMAND_GROUPS: ReadonlyArray<{ id: string; title: string; test: (c: CommandSpec) => boolean }> = [
+  { id: "lifecycle", title: "Setup and lifecycle", test: (c) => ["setup", "daemon", "browser"].includes(c.path[0] ?? "") },
+  { id: "sessions", title: "Sites, sessions and tabs", test: (c) => ["site", "session", "tab"].includes(c.path[0] ?? "") },
+  { id: "page", title: "Navigation and page reading", test: (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "") },
+  { id: "input", title: "Input", test: (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "") },
+  { id: "tools", title: "Page tools", test: (c) => ["evaluate", "screenshot", "resize", "emulate", "console"].includes(c.path[0] ?? "") },
+  { id: "network", title: "Network recording", test: (c) => c.path[0] === "net" || c.path[0] === "where" || c.path[0] === "recon" },
+  { id: "trace", title: "Trace mode (signal reads)", test: (c) => c.path[0] === "trace" },
+  { id: "handoff", title: "Handoff and challenge handlers", test: (c) => ["handoff", "plugin"].includes(c.path[0] ?? "") },
+  { id: "offline", title: "Offline: bundles, analysis, replay", test: (c) => ["bundle", "analyze", "replay", "schema"].includes(c.path[0] ?? "") },
+];
+
+/** Current commands by group, in registry order; leftovers go to a last "Other" group. */
+export function groupedCommands(): { id: string; title: string; commands: CommandSpec[] }[] {
+  const cmds = currentCommands();
+  const used = new Set<CommandSpec>();
+  const out = COMMAND_GROUPS.map((g) => {
+    const mine = cmds.filter((c) => g.test(c) && !used.has(c));
+    for (const c of mine) used.add(c);
+    return { id: g.id, title: g.title, commands: mine };
+  });
+  const rest = cmds.filter((c) => !used.has(c));
+  if (rest.length > 0) out.push({ id: "other", title: "Other", commands: rest });
+  return out;
+}
+
+export const INDEX_SUMMARY_CHARS = 60;
+
+/** A summary for the index: without parentheses, its first clause (before `;`, `: ` or `. `), cut at 60 characters on a word boundary. */
+export function indexSummary(summary: string): string {
+  const plain = summary.replace(/\s*\([^()]*\)/g, "").replace(/\s*\([^()]*\)/g, "");
+  const clause = (plain.split(/;|: |\. /)[0] ?? plain).trim();
+  if (clause.length <= INDEX_SUMMARY_CHARS) return clause;
+  const cut = clause.slice(0, INDEX_SUMMARY_CHARS - 1);
+  const sp = cut.lastIndexOf(" ");
+  return `${(sp > 20 ? cut.slice(0, sp) : cut).replace(/[\s,.;:→/|-]+$/, "")}…`;
+}
+
+/** `tabcap --help`: the index, one line per command (≤ 6 KB; test/unit/help-index.test.ts). */
 export function helpAll(): string {
-  const shown = COMMANDS;
-  const w = Math.max(...shown.map((c) => c.path.join(" ").length));
   const lines = [
     "tabcap — a dedicated browser for AI agents: background tabs, refs, network capture.",
     "Every command prints one JSON envelope: {ok:true,data} or {ok:false,error:{code,message,next}}.",
-    "",
-    "Commands:",
-    ...shown.map((c) => `  ${c.path.join(" ").padEnd(w)}  ${c.summary}\n  ${"".padEnd(w)}  e.g. ${c.example}`),
-    "",
-    "Start: tabcap setup && tabcap daemon start && tabcap browser start",
-    "Then:  tabcap navigate <url> → tabcap snapshot --interactive → tabcap click <ref> / tabcap fill <ref> <text>",
-    "More:  tabcap <command> --help (or tabcap <group> --help, e.g. tabcap net --help); tabcap schema --json for tools; tabcap --version",
   ];
+  const groups = groupedCommands();
+  for (const g of groups) {
+    lines.push("", `${g.title} [${g.id}]:`);
+    for (const c of g.commands) lines.push(`  ${c.path.join(" ")}  ${indexSummary(c.summary)}`);
+  }
+  lines.push(
+    "",
+    "Output flags (every command): --select <path> --grep <regex> [--context n] [--max-matches n] --fields a,b --full",
+    "  data over TABCAP_OUTPUT_LIMIT (16384 bytes) becomes {summary, file, bytes, truncated}: read `file`, or filter.",
+    "",
+    "Start: tabcap setup && tabcap daemon start && tabcap browser start, then navigate → snapshot --interactive → click / fill",
+    "More:  tabcap help <command> (= tabcap <command> --help) · tabcap help <group>, e.g. tabcap help network · tabcap schema --json",
+  );
   return lines.join("\n");
 }
 
-/** Help for a command group (`tabcap net --help`): its subcommands, or null when `group` is no group. */
+/** `tabcap help <group>`: the full help of every command in an index group or a command-word group, or null. */
+export function helpTopic(word: string): string | null {
+  const g = groupedCommands().find((x) => x.id === word);
+  const cmds = g?.commands ?? COMMANDS.filter((c) => c.path[0] === word && c.path.length > 1 && c.internal !== true);
+  if (cmds.length === 0) return null;
+  const title = g === undefined ? `${TOOL_NAME} ${word} — subcommands` : `${g.title} — ${cmds.length} command(s)`;
+  return [title, "", ...cmds.map((c) => helpFor(c)).join("\n\n---\n\n").split("\n")].join("\n");
+}
+
+/** Short list of a command group (`tabcap replay --help`): its subcommands, or null when `group` is no group. */
 export function helpGroup(group: string): string | null {
   const subs = COMMANDS.filter((c) => c.path[0] === group && c.path.length > 1 && c.internal !== true);
   if (subs.length === 0) return null;
