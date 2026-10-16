@@ -214,7 +214,9 @@ describe.skipIf(!enabled)("tabcap 0.6-F L2 (session export --for requests / http
     await ok("navigate", `${guard.origin}/s07/login`, ...S);
     const out = join(home, "out", "bare.json");
     const e = await ok("session", "export", "--for", "requests", "--out", out, ...S);
-    expect(e).toMatchObject({ headers: [], source: { headers: "none" }, storage: { localStorage: 1, sessionStorage: 0 } });
+    // 0.6-D (owner 10-16): s07f's account session has its own browser context, so this session without an
+    // account (default context) does not see the token s07f's login put into localStorage.
+    expect(e).toMatchObject({ headers: [], source: { headers: "none" }, storage: { localStorage: 0, sessionStorage: 0 } });
     expect(s(e["note"])).toContain("net start");
     expect(rec(JSON.parse(readFileSync(out, "utf8")))["headers"]).toEqual({});
     const bad = await tabcap(["session", "export", "--for", "csv", "--out", out, ...S]);

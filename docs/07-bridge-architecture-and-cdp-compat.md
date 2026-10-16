@@ -158,7 +158,7 @@ Playwright `connectOverCDP`、puppeteer `connect`、agent-browser `--cdp` 也是
 3. `Storage.getCookies` 只回会话涉及的域。
 4. `Browser.setDownloadBehavior` 回成功但不生效，记警告。
 5. `ws /devtools/page/<id>` 先不做。
-6. 生产模式默认跟随系统代理，`tabcap browser start --proxy system|none|<url>` 和配置项可切换（10-15 作者定）；0.4-D 起账号绑了代理池里的代理时，`direct` 模式给它单独一个 browser context（`Target.createBrowserContext {proxyServer:"host:port", proxyBypassList, disposeOnDetach:false}`），Chrome 只拿到 `host:port`，代理认证由守护进程经 `Fetch.authRequired` 应答；绑 `system` / `none` 的账号仍用浏览器自己的 context 与上面的启动参数【实测 spike 10-16：context 级代理生效；本机代理要在 bypass 里写 `<-loopback>`，否则 loopback 静默直连】；Chrome 自身的后台外连（GCM、组件更新等）用 Playwright 的默认启动参数表压到最少（Apache-2.0，抄并保留 NOTICE）；端到端测试再叠加黑洞代理。
+6. 生产模式默认跟随系统代理，`tabcap browser start --proxy system|none|<url>` 和配置项可切换（10-15 作者定）；0.4-D 起账号绑了代理池里的代理时，`direct` 模式给它单独一个 browser context（`Target.createBrowserContext {proxyServer:"host:port", proxyBypassList, disposeOnDetach:false}`），Chrome 只拿到 `host:port`，代理认证由守护进程经 `Fetch.authRequired` 应答【实测 spike 10-16：context 级代理生效；本机代理要在 bypass 里写 `<-loopback>`，否则 loopback 静默直连】；0.6-D 起（作者 10-16 定）每个绑了账号的会话都有自己的 browser context，绑 `system` / `none`（或没绑）的账号的 context 不带 `proxyServer`，【推断】走浏览器启动参数里的代理设置（只有非 loopback 地址才看得出差别，本仓库只发 127.0.0.1，【待验】），cookie 照池账号的办法恢复与回写；只有不带账号的会话用默认 context；Chrome 自身的后台外连（GCM、组件更新等）用 Playwright 的默认启动参数表压到最少（Apache-2.0，抄并保留 NOTICE）；端到端测试再叠加黑洞代理。
 
 ## 5. 信号探针页（0.4-G）
 

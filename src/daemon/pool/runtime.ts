@@ -1,10 +1,13 @@
 // Account / proxy pool in the daemon (0.4-D, docs/08 §3 0.4, owner design
 // 10-16; docs/07 §1.1 and §4 item 6 for the spike facts).
 //
-// - One browser context per pool account (an account bound to a proxy name):
-//   `Target.createBrowserContext {proxyServer: "host:port", proxyBypassList,
-//   disposeOnDetach: false}`; the session's tabs are created in it. Chrome
-//   only ever gets host:port.
+// - One browser context per account session (0.6-D: every account, not only
+//   pool accounts; owner 10-16, after a second account skipped its login on
+//   the shared profile): `Target.createBrowserContext {disposeOnDetach: false}`,
+//   plus `proxyServer: "host:port", proxyBypassList` for an account bound to a
+//   pool proxy; the session's tabs are created in it. Chrome only ever gets
+//   host:port. Accounts bound to system / none (or unbound) get a context
+//   without proxyServer, which goes out like the browser's own network.
 // - Proxy authentication is answered here, on the browser session:
 //   `Fetch.enable {handleAuthRequests: true}` → `Fetch.authRequired`
 //   (source "Proxy": credentials picked by `authChallenge.origin`) →
@@ -45,11 +48,11 @@ export type PoolContext = {
   session: string;
   site: string;
   account: string;
-  /** Proxy name the context goes out through. */
-  proxy: string;
+  /** Proxy name the context goes out through; null: no pool proxy (the browser's own network). */
+  proxy: string | null;
   browserContextId: string;
-  /** `authChallenge.origin` of this proxy (lowercase). */
-  origin: string;
+  /** `authChallenge.origin` of this proxy (lowercase); null without a pool proxy. */
+  origin: string | null;
   creds: { username: string; password: string } | null;
 };
 
@@ -191,20 +194,22 @@ export class Pool {
 
   // ---------------------------------------------------------- contexts
 
-  /** Create the account's browser context through `proxy`. */
-  async open(t: Transport, o: { session: string; site: string; account: string; proxy: ProxyRow }): Promise<PoolContext> {
-    const origin = proxyOrigin(o.proxy);
-    const creds = o.proxy.password === null ? null : { username: o.proxy.username ?? "", password: o.proxy.password };
+  /** Create the account's browser context, through `proxy` when it has a pool proxy (null: no proxyServer). */
+  async open(t: Transport, o: { session: string; site: string; account: string; proxy: ProxyRow | null }): Promise<PoolContext> {
+    const px = o.proxy;
+    const origin = px === null ? null : proxyOrigin(px);
+    const creds = px === null || px.password === null ? null : { username: px.username ?? "", password: px.password };
     for (const c of this.contexts.values()) {
       // Fetch.authRequired names the proxy origin only, not the context: one origin, one set of credentials.
-      if (c.origin === origin && (c.creds?.username !== creds?.username || c.creds?.password !== creds?.password)) {
-        throw new TabcapError("conflict", `proxy "${o.proxy.name}" has the same address as proxy "${c.proxy}" (in use by session "${c.session}") but other credentials`, `Stop session "${c.session}" first; Chrome's auth challenge names only the proxy address.`);
+      if (px !== null && c.origin === origin && (c.creds?.username !== creds?.username || c.creds?.password !== creds?.password)) {
+        throw new TabcapError("conflict", `proxy "${px.name}" has the same address as proxy "${c.proxy ?? ""}" (in use by session "${c.session}") but other credentials`, `Stop session "${c.session}" first; Chrome's auth challenge names only the proxy address.`);
       }
     }
-    const r = await t.send("Target.createBrowserContext", { proxyServer: chromeProxyServer(o.proxy), ...(o.proxy.bypass === null ? {} : { proxyBypassList: o.proxy.bypass }), disposeOnDetach: false }, null, 10_000);
+    const params = px === null ? { disposeOnDetach: false } : { proxyServer: chromeProxyServer(px), ...(px.bypass === null ? {} : { proxyBypassList: px.bypass }), disposeOnDetach: false };
+    const r = await t.send("Target.createBrowserContext", params, null, 10_000);
     const id = str(r, "browserContextId");
     if (id === null) throw new TabcapError("cdp", "Target.createBrowserContext returned no browserContextId", "Retry; if it persists restart the browser.");
-    const ctx: PoolContext = { session: o.session, site: o.site, account: o.account, proxy: o.proxy.name, browserContextId: id, origin, creds };
+    const ctx: PoolContext = { session: o.session, site: o.site, account: o.account, proxy: px === null ? null : px.name, browserContextId: id, origin, creds };
     this.contexts.set(o.session, ctx);
     try {
       await this.syncFetchAuth(t);

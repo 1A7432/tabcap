@@ -290,4 +290,42 @@ describe.skipIf(!enabled)("tabcap 0.6-D L2 (docs/05 s22, s47–s52: DOM-backed r
     expect(guard.length).toBe(1);
     expect(rec(guard[0]?.["detail"])).toMatchObject({ kind: "image-captcha", advisory: true, image: img, input, url: `${site.origin}/s50` });
   }, 120_000);
+
+  test("D6: every account session gets its own browser context (cookies restored and written back); a session without an account uses the default one", async () => {
+    const SITE = "example";
+    const add = await tabcap(["site", "add", SITE, "--url", `${pool.origin}/pool/me`, "--user", "alice", "--password-stdin"], "Site-pass-e2e-6d01\n");
+    if (!add.ok) throw new Error(`site add failed: ${add.raw}`);
+    const bob = await tabcap(["account", "add", SITE, "--user", "bob", "--password-stdin"], "Site-pass-e2e-6d02\n");
+    if (!bob.ok) throw new Error(`account add failed: ${bob.raw}`);
+    const cookieAt = (path: string) => pool.hits.filter((h) => h.path === path).map((h) => h.cookie);
+
+    const sa = await ok("session", "start", "d6a", "--site", SITE, "--account", "alice");
+    expect(sa).toMatchObject({ account: "alice", proxy: null, browserContext: "own", cookiesRestored: 0 });
+    expect(sa["fetchAuth"]).toBeUndefined();
+    await ok("navigate", `${pool.origin}/pool/set?v=alice-d6-0001`, "--session", "d6a");
+    await ok("navigate", `${pool.origin}/pool/me?who=a`, "--session", "d6a");
+    expect(cookieAt("/pool/me?who=a")).toEqual(["pool_sid=alice-d6-0001"]);
+
+    const sb = await ok("session", "start", "d6b", "--site", SITE, "--account", "bob");
+    expect(sb).toMatchObject({ account: "bob", browserContext: "own" });
+    await ok("navigate", `${pool.origin}/pool/me?who=b`, "--session", "d6b");
+    expect(cookieAt("/pool/me?who=b")).toEqual([null]);
+
+    const plain = await ok("session", "start", "d6c");
+    expect(plain["browserContext"]).toBeUndefined();
+    await ok("navigate", `${pool.origin}/pool/me?who=c`, "--session", "d6c");
+    expect(cookieAt("/pool/me?who=c")).toEqual([null]);
+
+    const stop = await ok("session", "stop", "d6a");
+    expect(stop).toMatchObject({ browserContext: "disposed", storeSession: { site: SITE, account: "alice" } });
+    const again = await ok("session", "start", "d6a2", "--site", SITE, "--account", "alice");
+    expect(again).toMatchObject({ account: "alice", browserContext: "own" });
+    expect(Number(again["cookiesRestored"])).toBeGreaterThanOrEqual(1);
+    await ok("navigate", `${pool.origin}/pool/me?who=a2`, "--session", "d6a2");
+    expect(cookieAt("/pool/me?who=a2")).toEqual(["pool_sid=alice-d6-0001"]);
+
+    const auto = await ok("session", "start", "d6d", "--site", SITE, "--account", "auto");
+    expect(auto).toMatchObject({ browserContext: "own" });
+    for (const n of ["d6a2", "d6b", "d6c", "d6d"]) await ok("session", "stop", n);
+  }, 120_000);
 });

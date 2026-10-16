@@ -252,6 +252,10 @@
 - 页面 `/s50`：登录表单（用户名、密码、`input#s50-code name=verifyCode`、`img#s50-img.captcha-img alt=验证码`，100×40、登录按钮）；`/s50/plain` 是去掉验证码的同一表单。
 - expected：`snapshot` 与 `outline` 头有 `challenge  image-captcha img [e<i>] → input [e<j>]; read the image (screenshot --ref e<i>) or hand over …`，`e<i>` 是 `#s50-img`、`e<j>` 是 `#s50-code`（`html --attrs` 对得上），`screenshot --ref e<i>` 可用；对该表单的 `fill`（用户名、验证码）与 `click`（登录）输出带 `challenge: {kind:"image-captcha", image:e<i>, input:e<j>}`；`handoff status` 不是 `waiting`；`/s50/plain` 头里没有 `challenge` 行、`fill` 不带 `challenge`；录制里 `/s50` 只有一条 `guard` `{event:"challenge"}`，`detail` 为 `{kind:"image-captcha", advisory:true, image, input, url}`。
 
+### s51 account-contexts（P1；0.6-D，一账号一浏览器上下文；用 0.4-D 的 `startPoolSite`）
+- 站点 `example`（入口 `/pool/me`）有 alice、bob 两个账号，都不绑代理。`/pool/set?v=` 种 cookie `pool_sid`，`/pool/me` 回显收到的 Cookie 头；服务端 `hits` 记每个请求的 Cookie 头（oracle）。
+- expected：`session start d6a --account alice` 回 `browserContext:"own"`、`cookiesRestored:0`，没有 `fetchAuth`；alice 种的 cookie 只出现在 alice 的请求里，bob 的会话（`own`）与不带账号的会话（无 `browserContext`）请求 `/pool/me` 时 Cookie 头为空；`session stop d6a` 回 `browserContext:"disposed"` 并存下 cookie，新会话 `--account alice` 的 `cookiesRestored ≥ 1`，请求带回 `pool_sid=alice-d6-0001`；`--account auto` 也是 `own`。
+
 ### s52 frame-dates（P1；0.6-D，`where` 读帧里的页面文字）
 - 页面 `/s52`：根文档 `p#s52-date` 写 `03/04/2026`（日月顺序不定），iframe `/s52/frame` 写 `截止 25/04/2026`（日 > 12，只能是 DD/MM）。
 - expected：录制中 `where <#s52-date 的 ref>` 没有 `ambiguous`，`normalized` 含 `2026-04-03`、不含 `2026-03-04`。

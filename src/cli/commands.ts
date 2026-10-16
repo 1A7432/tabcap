@@ -194,7 +194,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["account", "bind"],
     pos: ["account"],
-    flags: [{ flag: "--proxy", key: "proxy", kind: "string", help: "a proxy name: the account gets its own browser context through it; system / none: the browser's own context and proxy flags", required: true, metavar: "name|system|none" }],
+    flags: [{ flag: "--proxy", key: "proxy", kind: "string", help: "a proxy name: the account's browser context goes out through it; system / none: its context has no proxy of its own (the browser's network and proxy flags)", required: true, metavar: "name|system|none" }],
     summary: "bind a stored account (<site>.<user>) to a proxy, or to the browser's own network (system / none)",
     example: "tabcap account bind example.alice --proxy p1",
   },
@@ -222,7 +222,7 @@ export const COMMANDS: CommandSpec[] = [
         flag: "--account",
         key: "account",
         kind: "string",
-        help: "which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); an account bound to a proxy gets its own browser context through it",
+        help: "which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); every account session gets its own browser context (through the account's proxy when it is bound to one)",
         metavar: "user|auto",
       },
     ],

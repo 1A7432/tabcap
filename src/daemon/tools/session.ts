@@ -16,10 +16,11 @@ const START_USAGE = "tabcap session start <name> [--site <site>] [--account <use
 
 /**
  * `session start <name> [--site <s>] [--account <user>|auto]` (0.4-D): the
- * account is the given one, the strategy's pick (`auto`), or the site's first;
- * one bound to a pool proxy gets its own browser context through it, with its
- * saved cookies restored. The output and the manifest carry account and proxy
- * names only.
+ * account is the given one, the strategy's pick (`auto`), or the site's first.
+ * 0.6-D: every account session gets its own browser context (through the
+ * account's pool proxy when it has one), with its saved cookies restored; only
+ * sessions without an account use the default context. The output and the
+ * manifest carry account and proxy names only.
  */
 export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
   const name = checkSessionName(reqStr(a, "name", START_USAGE));
@@ -64,7 +65,11 @@ export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
   };
 }
 
-/** Pick the account, check it may be used, open its context when it goes out through a pool proxy. */
+/**
+ * Pick the account, check it may be used, open its own browser context (0.6-D:
+ * every account in the direct mode; through its pool proxy when it has one).
+ * `ext` mode has one cookie jar and no contexts (extContextError).
+ */
 async function bindAccount(d: Daemon, t: Transport, tabs: Tabs, session: string, site: string, accountArg: string | null): Promise<{ binding: SiteBinding; restored: number | null }> {
   const store = d.needStore();
   const acc = d.pool.pick(store, site, accountArg);
@@ -76,13 +81,13 @@ async function bindAccount(d: Daemon, t: Transport, tabs: Tabs, session: string,
   }
   const egress = d.pool.egress(store, acc);
   let restored: number | null = null;
-  if (egress.proxy !== null) {
-    const row = store.proxy(egress.proxy);
-    if (row === null) throw new TabcapError("not-found", `no proxy named "${egress.proxy}"`, "Run `tabcap proxy list`; rebind the account with `tabcap account bind`.");
+  if (kind !== "ext") {
+    const row = egress.proxy === null ? null : store.proxy(egress.proxy);
+    if (egress.proxy !== null && row === null) throw new TabcapError("not-found", `no proxy named "${egress.proxy}"`, "Run `tabcap proxy list`; rebind the account with `tabcap account bind`.");
     if (tabs.sessionTabs(session).length > 0) {
       throw new TabcapError("conflict", `session "${session}" already has tabs outside account ${site}.${acc.username}'s browser context`, "Start a new session name for this account (its tabs must open in its own context).");
     }
-    const ctx = await d.pool.open(t, { session, site, account: acc.username, proxy: row });
+    const ctx = await d.pool.open(t, { session, site, account: acc.username, proxy: row ?? null });
     try {
       restored = await d.pool.restoreCookies(store, t, ctx);
     } catch (e) {

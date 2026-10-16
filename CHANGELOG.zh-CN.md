@@ -31,6 +31,7 @@
 - **`find` 搜子帧**：根文档与帧树里的每个帧；帧里的命中带 `frame` 与帧路径 ref，回答带 `frames`（搜了几个帧）。`where` 判日期顺序时也读全部帧的页面文字。
 - **被重定向回答的 POST 保留请求体**：录制器写被重定向的那一跳时没带请求体（`postData: null`）；现在按常规规则存（≤ 64 KiB 内联，否则 blob），下一跳的 `redirect.from` 仍指向它。
 - **图片验证码提示**：登录表单旁的图片验证码（图片的 src / id / class / alt / 标签含 captcha / verify / 验证码 / 校验码，或输入框名字像 captcha / vcode / verifyCode）让 `snapshot` / `outline` 头多一行 `challenge  image-captcha img [e12] → input [e13]; …`、JSON 多 `challenge`，对该表单的 `fill` / `click` 带 `challenge: {kind, image, input}`，每个页面写一条 `guard` 事件 `{event: "challenge", detail: {kind: "image-captcha", advisory: true, …}}`。不等待、不拒绝：模型自己读图（`screenshot --ref`）或叫人。其他挑战照旧转交。
+- **一账号一浏览器上下文**：每个绑了账号的 `session start --site <s>`（含 `--account auto`，也含没绑池代理的账号）都有自己的 browser context，开始时恢复该账号的 cookie，并像池账号一样回写，第二个账号不会再撞见第一个账号已登录。不带账号的会话用默认 context。
 
 ## 0.5.0（2026-10-16）
 

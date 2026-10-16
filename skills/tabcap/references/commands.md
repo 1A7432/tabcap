@@ -168,7 +168,7 @@ Example: `tabcap session start example --site example`
 | Option | Default | Meaning |
 |---|---|---|
 | `--site <site>` |  | bind a stored site: its account is used by fill --secret and recorded in the bundle manifest |
-| `--account <user\|auto>` |  | which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); an account bound to a proxy gets its own browser context through it |
+| `--account <user\|auto>` |  | which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); every account session gets its own browser context (through the account's proxy when it is bound to one) |
 
 ### `tabcap session stop`
 
@@ -1219,7 +1219,7 @@ Example: `tabcap account bind example.alice --proxy p1`
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--proxy <name\|system\|none>` |  | a proxy name: the account gets its own browser context through it; system / none: the browser's own context and proxy flags (required) |
+| `--proxy <name\|system\|none>` |  | a proxy name: the account's browser context goes out through it; system / none: its context has no proxy of its own (the browser's network and proxy flags) (required) |
 
 ### `tabcap account list`
 
