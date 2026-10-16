@@ -36,7 +36,7 @@
 
 ## native/ 代码规则
 
-`native/`（目前是 `native/wireprint/`，Zig）：Zig 版本以 `build.zig.zon` 的 `minimum_zig_version` 为准，不升级；解析器零拷贝、slice 指向输入，越界返回 `error.Truncated`、自相矛盾返回 `error.Malformed`，解析路径上禁止 `unreachable` / `@panic` / `catch unreachable`；提交前 `zig fmt`（`bun run fmt:native`）；测试离线、确定性，输入用 `@embedFile`，`bun run test:native` 一条命令；expected 只来自 oracle（Wireshark、FoxIO 参考向量、RFC 附录、`spec/test-vectors.json`），不来自推理；十六进制小写无前缀（u16 为 4 位）；每个指纹算法文件顶部注释写规范链接、oracle 是什么、怎么复现。tabcap 只构建 `-Dopenssl=false`。
+`native/`（目前是 `native/wireprint/`，Zig）：Zig 版本以 `build.zig.zon` 的 `minimum_zig_version` 为准，不升级；解析器零拷贝、slice 指向输入，越界返回 `error.Truncated`、自相矛盾返回 `error.Malformed`，解析路径上禁止 `unreachable` / `@panic` / `catch unreachable`；提交前 `zig fmt`（`bun run fmt:native`）；测试离线、确定性，输入用 `@embedFile`，`bun run test:native` 一条命令；expected 只来自 oracle（Wireshark、FoxIO 参考向量、RFC 附录、`spec/test-vectors.json`），不来自推理；十六进制小写无前缀（u16 为 4 位）；每个指纹算法文件顶部注释写规范链接、oracle 是什么、怎么复现。组件不链接 OpenSSL，TLS 终结由 Bun 侧完成。
 
 ## 当作者卡住
 
