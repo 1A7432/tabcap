@@ -293,6 +293,8 @@
 
 默认丢弃并在命令输出里列出：`action`、`screenshot`、`state`、`finding`、`note`、`cmd`（除非 `--embed-events`）。
 
+`--rules <file>`（0.6-C，§31）只把回放键规则的 `ignoreQuery` 参数从 `request.url` 与 `queryString` 去掉，别的不变。另见 §31 的 `bundle export fixtures`（按同一份规则出夹具）。
+
 ### 9.2 导入 `tabcap bundle import har <file> -o <bundle>`
 
 - `entries` 按 `startedDateTime` 排序后分配 `seq`；`pages` → `nav`；`_webSocketMessages` → `ws`；有 `log._events` 就整体恢复。
@@ -538,7 +540,7 @@
 - `where`：有视图的响应只读视图，候选的 `chain` 以 `plugin:<name>` 开头。
 - `deps`：有视图的请求体从明文取输入（JSON 叶子 / 表单字段），有视图的响应从明文找来源（`decode` 以 `plugin:<name>` 开头，`--write-findings` 的分级仍为【推断】，因为不是原字节上的 JSON 叶子）。旧包里「`Authorization` 追到更早请求的同名头」的环，在 token 响应可解码时消失（s42：`x-auth` 的主来源是 token 响应的 `$.token`）。
 - `recon`：通道的 `decode` 列出插件步骤（排在内置步骤前）；通道的 `body` 分类仍按原正文。
-- `replay check`：录到的响应有视图、且该插件在本机已启用时，用同一个插件解码收到的回答，比较两份明文（行的 `notes` 写 `body compared as decoded by <name> (plugin:<name>)`）；回答解不了或插件不可用时比较原字节，并在 `notes` 说明原因。`replay serve` 的匹配仍按原字节，按明文匹配留给 0.6-C（扩展点：`src/replay/match.ts` 读 `r.request.decoded`）。
+- `replay check`：录到的响应有视图、且该插件在本机已启用时，用同一个插件解码收到的回答，比较两份明文（行的 `notes` 写 `body compared as decoded by <name> (plugin:<name>)`）；回答解不了或插件不可用时比较原字节，并在 `notes` 说明原因。`replay serve` 默认仍按原字节匹配；按明文匹配与按明文比较由回放键规则的 `body:"decoded"` / `compare:"status+decoded-body"` 打开（0.6-C，§31）。
 - `net body r-N`：有视图时默认给视图（信封 `view:"decoded"`、`decoded:{by, version, mime}`，`mime` 是视图的），`--raw` 给原正文（`view:"raw"`），`--decoded` 在没有视图时报 `not-found`，两个一起报 `usage`；没有视图的请求输出不变。视图按 UTF-8 解码、照常过秘密值替换。
 
 **脱敏**：`bundle redact` / HAR 导出把视图 blob 当作该 `mime` 的正文同样脱敏，`error` / `note` 过文本替换。HAR 1.2 没有放视图的位置，HAR 里只有原正文。
@@ -582,6 +584,112 @@
 - **窗口**：每个请求的墙钟开始时刻（`ts − (mono − timing.start)`，缺失时取 `ts`）落入对齐到 UTC 整 10 分钟（600000 ms 的倍数）的窗口；只列有请求的窗口，按时间升序。
 - **`--text`**：一屏文本表（每主机一行：请求数、最短 / 平均间隔、1 s 突发、空正文、业务错误、字节），随后是各主机的方法与状态码分布、停手、窗口和 note，可直接贴进运行记录。
 - 退出：包缺失 `not-found`；包没收尾（录制中或中断）照常读，不报错（与 `bundle info` 一致）。
+
+## 31. 0.6-C 回放键规则与夹具导出（10-16 作者定设计；字段按实现定案，待作者审）
+
+作者定（来自真实项目试用：离线回放三个站点要手写三种匹配规则，一个要分开表单体和 JSON 体，一个要忽略易变的 `_t` 参数、先解密请求体再比；`replay serve` 只认 method + path + 排序 query + 正文 sha256，加密正文的站点一条都配不上）：一份规则文件，`replay serve`、`replay check` 与新命令 `bundle export fixtures` 共用；夹具的输出格式可插拔，项目里手写的离线回放脚本可以删掉。
+
+**规则文件** `replay-rules.json`，schema `tabcap-replay-rules/0`，按不可信输入校验（不认识的键一律拒绝；文件 ≤ 1 MiB，≤ 256 条规则，每个列表 ≤ 64 项、每项 ≤ 200 字符）：
+
+```jsonc
+{
+  "schema": "tabcap-replay-rules/0",          // 文件里必填；config.json 里可省
+  "rules": [
+    {
+      "match": {                               // 都可省；省了就不按它筛
+        "host": "127.0.0.1",                   // hostname 的 glob（* 任意字符，含 .）；带 : 时比 host:port；不分大小写
+        "path": "/api/**",                     // pathname 的 glob：* 不跨 /，** 跨，? 一个字符；不含 query
+        "method": "POST"                       // 不分大小写
+      },
+      "key": {
+        "ignoreQuery": ["t", "nonce", "_*"],   // query 名或 glob（* 任意字符）；从键里去掉
+        "caseInsensitiveQuery": true,          // query 的名和值都转小写再比（默认 false）
+        "body": "json",                        // raw（默认）| form | json | decoded | none
+        "ignoreBodyFields": ["$.ts", "$.items[*].at", "_t"],  // JSON 路径或名字（表单字段 / JSON 顶层键）
+        "decodeWith": "xor-decode"             // 只配 body "decoded"：用哪个解码插件
+      },
+      "response": {
+        "compare": "status+decoded-body",      // status | status+body（默认）| status+decoded-body
+        "ignorePaths": ["$.serverTime"],       // 比较前从两边的 JSON 里去掉
+        "decodeWith": "xor-decode"             // 只配 status+decoded-body
+      }
+    }
+  ]
+}
+```
+
+- **选规则**：按顺序，第一条 `match` 全部符合（按录到的请求的 URL 与方法）的生效；都不符合用默认规则 `default`，等于 0.3-B 的行为（method + path + 排序 query + 正文字节的 sha256；比较 status + body，包括 0.6-B 的已启用插件自动解码）。没有任何规则时，`replay serve` / `check` 的匹配与比较与 0.6-B 完全一样，输出只多一个 `rules:{source:"none", rules:0}`（行与路由不多 `rule`，`x-tabcap-replay` 不变）。
+- **规则的 id**：在输出里点名用，`rules[0]`（文件）、`sites.example.replay.rules[0]`、`replay.rules[1]`（config.json），都不符合时 `default`。
+- **来源**：`--rules <file>` 给了就只用它；没给就读 `config.json` 的 `sites.<包的站点>.replay`（manifest `session.site`）再接 `replay`，两处都是 `{rules:[…]}`，站点的排在前面，所以站点规则优先、和站点放在一起。`bundle export har --rules` 只认 `--rules`，不读 config.json。
+- **矛盾即报错**：`decodeWith` 不配 `body:"decoded"` / `compare:"status+decoded-body"`、`ignoreBodyFields` 配 `body:"raw"|"none"`、`ignorePaths` 配 `compare:"status"`、JSON 路径写错（`$` 后只认 `.名`、`.*`、`[n]`、`[*]`、`["带空格的名"]`；单写 `$` 表示整个正文，要整个不比用 `body:"none"`），都在开服务前报 `bad-input` 并指到 `rules[i].key.…`。
+
+**规范化表**（键的两边、`check` 的两边都按同一条规则走）：
+
+| `key.body` | 键里放什么 | 读不了时 |
+|---|---|---|
+| `raw` | 正文字节的 sha256（0.3-B） | — |
+| `form` | 按 `application/x-www-form-urlencoded` 拆成对，去掉 `ignoreBodyFields` 里的名字，按名、值排序后重新编码（`password=…&user=…`）；字段顺序、`+` 与 `%20` 等写法不影响 | 不是 UTF-8：退回 raw，`fallback:"not-utf8"` |
+| `json` | 规范 JSON：对象键排序、无空白，去掉命中的路径（连同其下全部）；裸名字只命中顶层键 | 不是 JSON：退回 raw，`fallback:"not-json"` |
+| `decoded` | 解码视图的明文：视图 `mime` 是表单就按 form，否则能解析就按 json，再不然是明文字节的 sha256 | 没有明文：原正文 raw，`fallback:"not-decoded: …"` |
+| `none` | 不放正文 | — |
+
+query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名（`caseInsensitiveQuery` 时先转小写、glob 不分大小写），按名、值排序。录到的请求体没取到（`postDataMissing`）的仍匹配任意正文（0.3-B）。
+
+**明文从哪来**（`body:"decoded"`、`compare:"status+decoded-body"`）：插件是规则的 `decodeWith`，没写就用录到的视图的 `decoded.by`。录的一侧：视图是这个插件的就用视图（录制时写的，或 `bundle decode` 旁路文件里的），否则用插件现场解录到的字节；对面（`serve` 收到的请求、`check` 收到的回答）用同一个插件现场解。规则点名即同意：插件只要装着、清单有效，**不必** `plugin enable`（和 `bundle decode --plugin` 一样）；插件自己的 `match`（host / path / content type）照样决定它收不收这个正文（`serve` 用录到的源拼 URL 去比 host）。插件进程每次运行一个，`replay serve` 退出时杀掉。
+
+**`replay serve --rules <file>`**：键 = method + path + 规范 query + 规范正文（+ 规则 id；多主机包仍带 host，`--strict` / `--match-cookies` 照旧）。收到的请求按它可能指的每个录到的主机（Host 头是录到的就只它，否则全部）各取一条规则去读，`decoded` 规则先把正文交给可能的插件解开。启动输出多 `rules:{source:"file"|"config"|"none", file?, site?, rules:n}`，`routes[]` 多 `rule`；写明哪些规则点名的插件没装、哪些录到的请求没有视图而按原字节作键。
+
+- 命中：`x-tabcap-replay: r-N;n=k;rule=<id>`（没有规则时仍是 `r-N;n=k`）；被忽略但与这条录音不同的部分写在 `x-tabcap-replay-ignored: query=nonce,t;body=$.ts`（没有不同就没有这个头；名字里不可见的字符和 `%` `,` `;` 按百分号编码）。`replay check` 认带 `;rule=` 的头。
+- 404：`request.rule` 是这条请求按哪条规则读的；每个候选多 `rule`，`differs.query` / `differs.body`（`fields` 是规范化后不同的表单名 / JSON 路径，`as` 是 form / json / raw，退回时带 `fallback`）按候选自己的规则比，`differs.ignored:{query?, body?}` 列出被忽略但不同的部分。没有规则（或候选用默认规则）时 404 与 0.3-B 完全一样。
+
+**`replay check --rules <file>`**：每行按录到的请求选规则（行多 `rule`）。`compare:"status"`：只比 status 和 `--headers` 选的头，正文不比（行 `notes` 写明，结果可为 `same`）；`status+body`：如前，`ignorePaths` 从两边 JSON 去掉后再逐路径比；`status+decoded-body`：两边都按上面的明文来源解开再比（`notes`：`body compared as decoded by <name> (plugin:<name>; rule <id>)`），哪一边解不开就不比正文，行为 `unverified`，`notes` 写原因（不退回比原字节）。`--headers` 仍按原样比。结果多 `rules:{source, file?, site?, rules}`。
+
+**`tabcap bundle export fixtures <bundle> --out <dir> [--rules <file>] [--format json|<plugin>] [--no-redact]`**：可回放的每一条录到的交换（同 `replay serve`：有响应、状态 200–599、不是 WebSocket；其余列在 `skipped`）出一个夹具。`--out` 必须不存在或为空（不覆盖旧文件，`conflict`）；文件 0600，目录 0700。
+
+```jsonc
+// fixtures/<n>-<METHOD>-<path slug>.json   （n 从 1 起；slug 只留字母数字 . _ -，其余变 -，≤ 80 字符，空则 root）
+{
+  "schema": "tabcap-fixture/0",
+  "key": {"method": "GET", "path": "/api/search", "query": "client=web&page=1&q=apple&sig=…&v=3",
+          "body": "sha256:e3b0…"},            // form / json / decoded 时是规范文本（超过 64 KiB 写 sha256:<规范文本的哈希>），none 时 null
+  "request": {"url": "…", "headers": {…}, "body": "…" | null, "bodyEncoding": "utf8" | "base64", "bodyMissing"?: "…"},
+  "response": {"status": 200, "headers": {…},
+               "body": "…", "bodyEncoding": "utf8"          // ≤ 64 KiB 的文本
+               | "bodyFile": "bodies/<sha256>.bin"           // 二进制或更大
+               | "body": null, "bodyMissing": "…",
+               "decoded"?: {"by", "version", "mime", "body" | "bodyFile"}},   // 响应有 ok 的解码视图时
+  "meta": {"request": "r-12", "rule": "rules[0]", "recordedAt": "2026-10-16T…Z", "keyBody": "raw" | "form" | "json" | "none", "keyFallback"?: "…"}
+}
+```
+
+另写 `index.json`：`{schema:"tabcap-fixtures/0", bundle:<manifest id>, exported, redacted, rules:{…}, count, fixtures:[{file, request, method, path, query, status, rule}], skipped}`。回答：`{out, format, fixtures, files:[相对路径，最多 500], filesCount, index, rules, redacted, saltFile, skipped, failed:[{request, error}], plugin?, complete, warnings}`。
+
+- **脱敏**：默认先按 HAR 导出的规则（§8）脱敏整个包再读，**键也从脱敏后的包算**（否则登录体的密码会出现在 `key.body` 里），盐写 `<bundle>/exports/fixtures-<时间>.salt`；解码视图同样脱敏（视图里 `token` 等字段名命中就打码）。`--no-redact` 保留录到的值，和 HAR 导出一样，登录体连密码原样进夹具，用的人自己负责。
+
+**夹具插件**（`kind:"fixture"`，`src/daemon/hooks/fixture.ts`）：团队自己的测试框架格式是插件的事，不是 tabcap 的事。同一插件目录（§18、§28）；`--format <name>` 点名即同意，不必启用；`tabcap plugin list` 的 `kind` 为 `fixture`。清单按不可信输入严格校验：
+
+```jsonc
+{"name": "fixture-harness", "kind": "fixture", "version": "1", "description": "…",
+ "command": ["bun", "./fixture.ts"],   // 规则同解码插件
+ "timeoutMs": 5000,                    // 每个夹具的硬超时，100..60000
+ "maxBytes": 1048576}                  // 一个回答里文件解码后的总字节上限，1..32 MiB，默认 8 MiB
+```
+
+协议 `tabcap-fixture/1`，与解码插件同样的 JSON 行（一行一个请求、一行一个回答、按顺序；每次运行一个长驻进程；环境同解码插件，协议变量为 `TABCAP_FIXTURE_PROTOCOL`）：
+
+```jsonc
+// tabcap → 插件
+{"id":1,"op":"fixture","fixture":{…上面 json 格式的一个夹具…}}
+// 插件 → tabcap
+{"id":1,"files":[{"path":"tests/test_search.py","encoding":"utf8","data":"…"}]}
+{"id":1,"ok":false,"error":"…"}
+```
+
+`path` 相对 `--out`：不许绝对路径、`..`、`.`、空段、反斜杠、换行，≤ 255 字符；一个回答 ≤ 64 个文件；本次运行已写过的路径再写记为该夹具失败。超时、退出、非 JSON 行、id 不对、文件不合规算一次失败并重启进程；3 次失败后插件在这次运行里停用，余下的夹具都进 `failed`。插件格式时只写插件给的文件（和二进制正文的 `bodies/`），不写 `fixtures/` 与 `index.json`。
+
+**`bundle export har --rules <file>`**：只把每条请求所符合规则的 `ignoreQuery` 参数从 `request.url` 与 `queryString` 里去掉，让按 HAR 回放的工具键对得上；HAR 别的一个字节都不变。回答多 `rules`。
+
+**靶场**：不加新页，复用 s06（t / nonce / sig）、s07（表单登录）、s42（加密正文，`xor-decode`）；夹具插件 `test/e2e/plugins/fixture-harness/`（Bun 脚本，每个夹具出一个 `cases/<r-N>.json`）。【实测 10-16，本机 CfT：`test/e2e/v06c.e2e.test.ts` 7/7；`test/unit/replay-rules.test.ts`、`test/unit/fixtures-export.test.ts`】
 
 ## 32. 0.6-G 响应形状与 schema 漂移（10-16 作者定设计；字段与下列细节按实现定案，待作者审）
 

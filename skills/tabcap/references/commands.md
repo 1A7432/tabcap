@@ -864,7 +864,7 @@ Example: `tabcap plugin disable my-handler`
 export a bundle as HAR 1.2 (redacted by default)
 
 ```
-tabcap bundle export har <bundle> [--out file] [--tab t1] [--types xhr,fetch] [--embed-events] [--no-redact]
+tabcap bundle export har <bundle> [--out file] [--tab t1] [--types xhr,fetch] [--embed-events] [--no-redact] [--rules file]
 ```
 
 Example: `tabcap bundle export har ~/.local/share/tabcap/bundles/default-… --types xhr,fetch`
@@ -876,6 +876,7 @@ Example: `tabcap bundle export har ~/.local/share/tabcap/bundles/default-… --t
 | `--types <xhr,fetch>` |  | only these resource types |
 | `--embed-events` |  | also embed every event as log._events (lossless round trip) |
 | `--no-redact` |  | skip redaction (default: redacted with a per-export salt) |
+| `--rules <file>` |  | replay rules file: drop each rule's ignoreQuery parameters from the entry URLs (nothing else changes) |
 
 ### `tabcap bundle import har`
 
@@ -930,6 +931,23 @@ Example: `tabcap bundle decode ./b --plugin xor-decode`
 | Option | Default | Meaning |
 |---|---|---|
 | `--plugin <name>` |  | only this decode plugin (installed; naming it is the opt-in, it need not be enabled); default: every enabled decode plugin |
+
+### `tabcap bundle export fixtures`
+
+one fixture per recorded exchange: {key {method, path, query, body} as the replay rules read it, request {headers, body}, response {status, headers, body | bodyFile, decoded?}, meta {request, rule, recordedAt}}; --format <plugin> hands each fixture to a fixture plugin (tabcap-fixture/1) that returns the files to write
+
+```
+tabcap bundle export fixtures <bundle> --out <dir> [--rules file] [--format json|plugin] [--no-redact]
+```
+
+Example: `tabcap bundle export fixtures ./b --rules replay-rules.json --out ./fixtures`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--out <dir>` |  | output directory (must be missing or empty) (required) |
+| `--rules <file>` |  | replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay |
+| `--format <json\|plugin>` | `json` | json (fixtures/<n>-<method>-<path>.json + index.json), or the name of a fixture plugin that writes its own files |
+| `--no-redact` |  | skip redaction (default: redacted like HAR export, with a per-export salt) |
 
 ### `tabcap analyze find`
 
@@ -1044,10 +1062,10 @@ Example: `tabcap analyze schema-diff ./yesterday ./today --text`
 
 ### `tabcap replay serve`
 
-serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256; repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k); no match → 404 with the nearest recordings and what differs
+serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order (header x-tabcap-replay: r-N;n=k[;rule=id]); no match → 404 with the nearest recordings and what differs
 
 ```
-tabcap replay serve <bundle> [--port port] [--host host] [--strict h1,h2] [--match-cookies] [--json] [--once seconds]
+tabcap replay serve <bundle> [--port port] [--host host] [--strict h1,h2] [--match-cookies] [--rules file] [--json] [--once seconds]
 ```
 
 Example: `tabcap replay serve ./b --port 4500`
@@ -1058,6 +1076,7 @@ Example: `tabcap replay serve ./b --port 4500`
 | `--host <host>` | `127.0.0.1` | loopback address only: 127.0.0.1, ::1 or localhost |
 | `--strict <h1,h2>` |  | also match these request headers |
 | `--match-cookies` |  | also match the cookie header |
+| `--rules <file>` |  | replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay |
 | `--json` |  | print {port, bundle, routes} as one JSON envelope (else text, one log line per request on stderr) |
 | `--once <seconds>` |  | stop after this many seconds (tests) |
 
@@ -1101,7 +1120,7 @@ Example: `tabcap replay export-python ./b -o ./client`
 send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference
 
 ```
-tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--json]
+tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--rules file] [--json]
 ```
 
 Example: `tabcap replay check ./b --against http://127.0.0.1:4500`
@@ -1115,6 +1134,7 @@ Example: `tabcap replay check ./b --against http://127.0.0.1:4500`
 | `--filter <glob,glob>` |  | only paths matching these globs |
 | `--headers <h1,h2>` | `content-type,location` | response headers to compare when recorded |
 | `--with-cookies` |  | also send the recorded cookie header |
+| `--rules <file>` |  | replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay |
 | `--json` |  | print one JSON envelope instead of the table |
 
 ### `tabcap schema`

@@ -10,6 +10,15 @@
 - **HAR 导入在没有 `_resourceType` 时推 `type`**（mitmproxy、Charles）：先看 `sec-fetch-dest`，再看响应 `content-type`，是 docs/04 §9.2 里的固定表。推出来的事件带 `typeInferred: "sec-fetch" | "content-type"`，`bundle info` 计数（`typeInferred`）。`replay export-python` 与 `analyze` 现在能处理 mitmproxy 的导入包。
 - **HAR 导入保留 `time` 与 `timings`**，写进 `timing`（start、responseStart、end 和重建的 `cdp` 偏移）；`bundle export har` 读得回来。除非某条一个数都没有，`timing` 不再列在 `lossy` 里。
 
+### 回放键规则与夹具导出（0.6-C）
+
+- **回放规则文件** `replay-rules.json`（schema `tabcap-replay-rules/0`；不给 `--rules` 时读 `config.json` 的 `sites.<包的站点>.replay`，再接 `replay`，两处都是 `{rules:[…]}`）：`{rules:[{match:{host?, path?（glob）, method?}, key:{ignoreQuery, ignoreBodyFields, body: raw|form|json|decoded|none, decodeWith?, caseInsensitiveQuery?}, response:{compare: status|status+body|status+decoded-body, ignorePaths, decodeWith?}}]}`；第一条 match 符合录到的请求的规则生效，默认规则就是原来的行为。按不可信输入校验（不认识的键、自相矛盾一律拒绝，大小有上限）。`form` 按排序后的字段对作键，`json` 按规范 JSON，`decoded` 按解码插件的明文（录到的视图，或 `decodeWith` 现场解录到的字节；规则点名的插件不必启用），先去掉忽略的名字 / JSON 路径（`$.a[*].b`）。
+- **`replay serve --rules`**：只在被忽略的部分、表单字段顺序、JSON 写法或密文上不同的请求现在能配上；`x-tabcap-replay: r-N;n=k;rule=<id>` 写明用了哪条规则，`x-tabcap-replay-ignored: query=…;body=…` 列出被忽略但不同的部分；404 给 `request.rule`，每个候选给 `rule` 以及按该规则比出的 `differs.query` / `body` / `ignored`。启动回答多 `rules:{source, file?, site?, rules}` 与 `routes[].rule`。
+- **`replay check --rules`**：每行多 `rule`；`compare: "status"` 不比正文，`ignorePaths` 从两边 JSON 去掉，`status+decoded-body` 用同一个插件解开两边再比（哪边解不开，该行 `unverified` 并写明原因）。结果多 `rules`。
+- **`tabcap bundle export fixtures <包> --out <目录> [--rules f] [--format json|<插件>] [--no-redact]`**：每条可回放的交换一个夹具 `fixtures/<n>-<METHOD>-<路径 slug>.json`（`{schema: "tabcap-fixture/0", key:{method, path, query, body}, request:{url, headers, body}, response:{status, headers, body | bodyFile, decoded?}, meta:{request, rule, recordedAt, keyBody}}`，大的或二进制正文放 `bodies/`），另写 `index.json`；默认像 HAR 导出一样脱敏，键也从脱敏后的包算（`--no-redact` 保留登录体连同密码）；`--out` 必须是新的或空目录；文件 0600。
+- **夹具插件**：插件清单写 `"kind": "fixture"`（同一插件目录，用 `--format` 点名，不必启用）；协议 `tabcap-fixture/1`，与解码插件同样的 JSON 行：`{"id","op":"fixture","fixture"}` → `{"id","files":[{"path","encoding","data"}]}`，写到 `--out` 下（只许相对路径，一个回答最多 64 个文件，有 `maxBytes` 上限）。`plugin list` 显示 `kind: "fixture"` 与 `fixtureProtocol`。
+- **`bundle export har --rules <file>`** 只把各规则忽略的 query 参数从条目的 URL 与 `queryString` 去掉，别的不变。
+
 ### 与 mitmproxy / Burp 互通（0.6-M）
 
 - 只有文档和样本，行为不变：[docs/13](docs/13-interop-proxies.md) 写了在 `tabcap browser start --proxy <url>` 后面串联 mitmproxy / Burp（传给 Chrome 的参数）、导入 mitmproxy `hardump` 的 HAR 及字段丢失表、mitmproxy 的 `response(flow)` 与 tabcap 的 Python `decode(flow)` 对照。新增样本 `test/fixtures/har/mitmproxy-range.har` 与导入测试。

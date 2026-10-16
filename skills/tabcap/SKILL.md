@@ -9,7 +9,7 @@ license: Apache-2.0
 
 `tabcap` runs a background daemon that owns its own Chrome for Testing (own profile). Every command prints exactly **one JSON envelope** on stdout: `{"ok":true,"data":{…}}` or `{"ok":false,"error":{"code","message","next"}}`. When `ok` is false, **do what `error.next` says**; do not guess around it.
 
-Read more only when the task needs it: [recording](references/recording.md), [search](references/search.md) (snapshot grep / css / subtree, `html`, body lines, `net grep`) (tabs, page reading, acting, waiting, `net`), [analysis](references/analysis.md) (`where`, `recon`, `analyze`), [replay](references/replay.md), [pools](references/pools.md) (sites, accounts, proxies, plugins), [trace and probes](references/trace-and-probes.md), [MCP](references/mcp.md). Every option: [references/commands.md](references/commands.md), `tabcap help <command>`, `tabcap schema --json`.
+Read more only when the task needs it: [recording](references/recording.md), [search](references/search.md) (snapshot grep / css / subtree, `html`, body lines, `net grep`) (tabs, page reading, acting, waiting, `net`), [analysis](references/analysis.md) (`where`, `recon`, `analyze`), [replay](references/replay.md), [pools](references/pools.md) (sites, accounts, proxies, plugins), [trace and probes](references/trace-and-probes.md), [MCP](references/mcp.md). Every option: [references/commands.md](references/commands.md), `tabcap help <command>`.
 
 Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--proxy none` blocks everything but 127.0.0.1 / localhost). On `not-running`, run the two start commands.
 
@@ -33,8 +33,8 @@ Large things come back as **file paths** (screenshots, bodies, `snapshot --file-
 1. Record: `net start`, use the site (`navigate`, `snapshot --interactive`, `click` / `fill`, `wait --text …`, `net wait --url …`), `net stop`. Action commands return a `cmd` id; `net list --since c-41` is what that action caused.
    Scrape with `net start --bodies api+script` + `tabcap fetch <url> …` (by the logged-in tab; `--batch`, `--stop-on`, ≥ 3 s/host; on `guard.stopped` decide with the user). See [recording](references/recording.md).
 2. Analyse: `where <ref|value>` (which response carries a shown value), `recon` (stack, data channels, cookies, protection), `analyze deps <bundle>` / `analyze chain <bundle> --request r-N` (where every input comes from). Encoded bodies: decode plugin views are read (chain `plugin:<name>`; `bundle decode` adds them later). Field drift: `analyze schema-diff <old> <new>` ([analysis](references/analysis.md)).
-3. Replay: `replay serve <bundle>`, `replay export-python <bundle> -o ./client`, then `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.**
-4. Hand the live session to the user's script: while recording, `session export --for httpx --out ./example_session.py` (or `--for requests` / `--for playwright`) writes cookies, the auth headers the page sent and storage tokens to a 0600 file and answers counts only. Never print, commit or share that file. Details: [replay](references/replay.md).
+3. Replay: `replay serve <bundle>` (`--rules`: volatile params, encoded bodies), `replay export-python <bundle> -o ./client`, then `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.**
+4. Hand the live session to the user's script: while recording, `session export --for httpx --out ./example_session.py` (or `requests` / `playwright`) writes cookies, the page's auth headers and storage tokens to a 0600 file, answering counts only. Never print, commit or share that file. Details: [replay](references/replay.md).
 
 ## Credentials
 
