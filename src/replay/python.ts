@@ -13,7 +13,11 @@
 // auth / api key anywhere in the name, pass / pwd as a name segment, and
 // sensitive headers) are never written into any generated file,
 // in any mode: they become parameters defaulting to TODO (TODO_SECRET) and
-// their recorded values stay out of fixtures. Response JSON → TypedDict per group,
+// their recorded values stay out of fixtures. Request headers (0.6-E): only those
+// a browser does not add itself (keptHeader: content-type, authorization, a
+// non-default accept, a cross-origin referer, every header outside the
+// browser-default table such as custom x-*); --browser-headers keeps all of
+// them as recorded. Response JSON → TypedDict per group,
 // types inferred from every recorded sample (analyze decoders parse).
 // Everything read from the bundle is untrusted: names become identifiers by
 // a whitelist, values become literals through escaping functions, never by
@@ -32,7 +36,7 @@ import { sha256Hex } from "../shared/ids.ts";
 import { classifyGroup, groupRequests, pkey, singleSampleParams, type DiffParam, type GroupAcc, type ParamLocation } from "../analyze/diff.ts";
 import { decodeBase64Strict, isBinaryMime, jsonPathIndex, jsonPathKey, parseJsonDoc, shannonEntropy, utf8 } from "../analyze/decoders.ts";
 import { looksEncrypted } from "../analyze/find.ts";
-import { flattenJson, globMatcher, headerJoined, HOP_BY_HOP, replayableRequests, requestBodyBytes } from "./common.ts";
+import { flattenJson, globMatcher, headerJoined, HOP_BY_HOP, isBrowserHeader, replayableRequests, requestBodyBytes } from "./common.ts";
 import { DEFAULT_HEADERS, normHeader } from "./check.ts";
 import { DepsGraph, type ResolvedInput } from "../analyze/deps.ts";
 import { chainOf, dataBearing, type ChainResult } from "../analyze/chain.ts";
@@ -59,6 +63,28 @@ const MAX_JSON_DEPTH = 32;
 const MAX_TYPED_KEYS = 200;
 const MAX_CONSTANTS = 200;
 const NOT_SENT = new Set([...HOP_BY_HOP, "host", "content-length", "cookie", "accept-encoding"]);
+
+/** Accept values Chrome sends by itself (fetch / XHR / script, navigation, image, style). */
+const DEFAULT_ACCEPT = /^(?:\*\/\*|text\/html,application\/xhtml\+xml,.*|image\/avif,.*|text\/css,\*\/\*;q=0\.1)$/;
+
+/**
+ * Whether the generated client sends a recorded request header (0.6-E default; --browser-headers sends all):
+ * content-type and authorization always; accept when it is not one Chrome sends by itself; referer when its
+ * origin differs from the request's; everything else unless the browser adds it (BROWSER_HEADERS, sec-*).
+ */
+export function keptHeader(name: string, value: string, requestUrl: string): boolean {
+  const n = name.toLowerCase();
+  if (n === "content-type" || n === "authorization") return true;
+  if (n === "accept") return !DEFAULT_ACCEPT.test(value.replace(/\s+/g, ""));
+  if (n === "referer") {
+    try {
+      return new URL(value).origin !== new URL(requestUrl).origin;
+    } catch {
+      return true;
+    }
+  }
+  return !isBrowserHeader(n);
+}
 
 // ------------------------------------------------------------ Python literals
 
@@ -281,7 +307,8 @@ export type ExportResult = {
   warnings: string[];
 };
 
-type Ctx = { reader: BundleReader; cookieNames: Map<string, string>; warnings: string[] };
+/** `browserHeaders`: send every recorded request header (--browser-headers), else only keptHeader ones. */
+type Ctx = { reader: BundleReader; cookieNames: Map<string, string>; warnings: string[]; browserHeaders: boolean };
 
 function firstSampleValue(g: GroupAcc, loc: ParamLocation, name: string): string | null {
   return g.samples[0]?.params.get(pkey(loc, name)) ?? null;
@@ -383,8 +410,11 @@ function planFunction(
   const bodyDoc = bodyText !== null && (ctype.includes("json") || /^\s*[[{]/.test(bodyText)) ? parseJsonDoc(bodyText) : null;
   const leaves = bodyDoc === null ? new Map<string, unknown>() : jsonLeaves(bodyDoc.value);
 
+  // 0.6-E: headers the browser adds itself are not sent (nor parameters) unless --browser-headers
+  const sends = (h: string, v: string) => ctx.browserHeaders || keptHeader(h, v, first.url);
   for (const p of params) {
     const v0 = firstSampleValue(g, p.location, p.name);
+    if (p.location === "header" && !sends(p.name, v0 ?? "")) continue;
     const jsonSample = p.location === "json" ? (leaves.has(p.name) ? leaves.get(p.name) : null) : v0;
     const numeric = p.location === "json" && typeof jsonSample === "number";
     const lit = p.location === "json" ? pyJson(jsonSample ?? null, "$", new Map(), "") : v0 === null ? "None" : pyStr(v0);
@@ -509,7 +539,7 @@ function planFunction(
   const query = qNames.map((n) => `(${pyStr(n.replace(/\[\d+\]$/, ""))}, ${exprOf("query", n) ?? "None"})`);
 
   // headers: what the client sends (cookies come from the session's jar)
-  const hNames = Object.keys(first.request.headers).filter((h) => !h.startsWith(":") && !NOT_SENT.has(h.toLowerCase()));
+  const hNames = Object.keys(first.request.headers).filter((h) => !h.startsWith(":") && !NOT_SENT.has(h.toLowerCase()) && sends(h, headerJoined(first.request.headers, h) ?? ""));
   for (const p of plans) if (p.location === "header" && !hNames.includes(p.name) && !NOT_SENT.has(p.name)) hNames.push(p.name);
   const headers = hNames.map((h) => `(${pyStr(h)}, ${exprOf("header", h) ?? pyStr(headerJoined(first.request.headers, h) ?? "")})`);
 
@@ -871,7 +901,7 @@ function chainReadme(chain: ChainResult, redacted: boolean): string {
 }
 
 /** `chain`: true / false forces chain mode on / off; undefined = on when the deps graph links a request to an earlier response. */
-export type ExportOptions = { bundle: string; out: string; include?: string | undefined; exclude?: string | undefined; chain?: boolean | undefined };
+export type ExportOptions = { bundle: string; out: string; include?: string | undefined; exclude?: string | undefined; chain?: boolean | undefined; browserHeaders?: boolean | undefined };
 
 /** `todoRuntime`: the TODO sentinel and `_need` (chain mode, or any secret TODO parameter); `chainMode` adds verify(). */
 export function generateClientSource(fns: { code: string; types: string[] }[], header: string[], chainMode = false, todoRuntime = chainMode): string {
@@ -931,7 +961,7 @@ export function exportPython(opts: ExportOptions): ExportResult {
       }
     }
   }
-  const ctx: Ctx = { reader, cookieNames, warnings };
+  const ctx: Ctx = { reader, cookieNames, warnings, browserHeaders: opts.browserHeaders === true };
 
   const ordered = [...groups.entries()].sort((a, b) => {
     const sa = byRef.get(a[1].samples[0]?.ref ?? "")?.seq ?? 0;
@@ -981,6 +1011,9 @@ export function exportPython(opts: ExportOptions): ExportResult {
     `# Functions marked "${TODO_MARK}" raise NotImplementedError:`,
     "# signature-like parameters and encrypted bodies are not reproduced.",
     `# "${TODO_UNRECORDED}": the recording lacks what the call needs.`,
+    ctx.browserHeaders
+      ? "# Request headers: every one as recorded (--browser-headers)."
+      : "# Request headers: those the browser adds itself (user-agent, accept-language, sec-*, ...) are left out; --browser-headers keeps them.",
     ...(chainMode
       ? [
           `# Chain mode (tabcap analyze deps / chain): a parameter defaulting to TODO has no source in the recording;`,

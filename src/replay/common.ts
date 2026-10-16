@@ -21,6 +21,53 @@ export const HOP_BY_HOP: ReadonlySet<string> = new Set([
   "upgrade",
 ]);
 
+/**
+ * Request headers the browser itself adds or manages (Fetch Standard
+ * forbidden request-header names, the CORS preflight / cache / range / client
+ * hints Chrome sends, and the body framing headers): never what a page or its
+ * scripts set to authenticate. content-type describes one request's body.
+ * Used by `session export` (0.6-F) and `replay export-python` (0.6-E).
+ */
+export const BROWSER_HEADERS: ReadonlySet<string> = new Set([
+  ...HOP_BY_HOP,
+  "accept",
+  "accept-charset",
+  "accept-encoding",
+  "accept-language",
+  "access-control-request-headers",
+  "access-control-request-method",
+  "cache-control",
+  "content-length",
+  "content-type",
+  "cookie2",
+  "date",
+  "dnt",
+  "expect",
+  "host",
+  "if-match",
+  "if-modified-since",
+  "if-none-match",
+  "if-range",
+  "if-unmodified-since",
+  "origin",
+  "pragma",
+  "priority",
+  "purpose",
+  "range",
+  "referer",
+  "upgrade-insecure-requests",
+  "user-agent",
+  "via",
+  "x-client-data",
+]);
+export const BROWSER_PREFIXES = ["sec-", ":"];
+
+/** A header the browser adds or manages itself (BROWSER_HEADERS, `sec-*`, pseudo-headers). */
+export const isBrowserHeader = (name: string): boolean => {
+  const n = name.toLowerCase();
+  return BROWSER_PREFIXES.some((p) => n.startsWith(p)) || BROWSER_HEADERS.has(n);
+};
+
 /** sha256 of zero bytes: the body hash of every request without a body. */
 export const EMPTY_SHA256 = sha256Hex(new Uint8Array(0));
 

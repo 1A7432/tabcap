@@ -923,6 +923,12 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--chain", key: "chain", kind: "bool", help: "use the deps graph and the chain to the last data-bearing request: computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)" },
       { flag: "--no-chain", key: "noChain", kind: "bool", help: "0.3 behaviour: per-request heuristics only, no verify()" },
       {
+        flag: "--browser-headers",
+        key: "browserHeaders",
+        kind: "bool",
+        help: "send every recorded request header (user-agent, accept-language, sec-ch-ua*, sec-fetch-* …); default: only content-type, authorization, a non-default accept, a cross-origin referer and headers the browser does not add itself (custom x-* …)",
+      },
+      {
         flag: "--proxy-env",
         key: "proxyEnv",
         kind: "string",

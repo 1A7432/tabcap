@@ -6,6 +6,7 @@ exports[`generated package client.py snapshot; files; every Python file compiles
 # Functions marked "TODO: computed in the page; see docs/03 §6" raise NotImplementedError:
 # signature-like parameters and encrypted bodies are not reproduced.
 # "TODO: not in the recording": the recording lacks what the call needs.
+# Request headers: those the browser adds itself (user-agent, accept-language, sec-*, ...) are left out; --browser-headers keeps them.
 """Replay client for bundle 01K7NZ01G00W3GE1R70W3GE1R7."""
 from __future__ import annotations
 
@@ -211,7 +212,6 @@ def post_api_login(session: Session, *, pass_: Any = TODO, base_url: str | None 
     params: list[tuple[str, str | None]] = []
     headers: list[tuple[str, str | None]] = [
         ("content-type", "application/x-www-form-urlencoded"),
-        ("origin", "http://127.0.0.1:4310"),
     ]
     return Reply(_send(session, "POST", url, params, headers, _form_bytes([("user", "demo"), ("pass", pass_)])))
 

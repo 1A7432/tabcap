@@ -4818,6 +4818,17 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         },
         {
           "alias": null,
+          "default": false,
+          "flag": "--browser-headers",
+          "help": "send every recorded request header (user-agent, accept-language, sec-ch-ua*, sec-fetch-* …); default: only content-type, authorization, a non-default accept, a cross-origin referer and headers the browser does not add itself (custom x-* …)",
+          "key": "browserHeaders",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
           "default": null,
           "flag": "--proxy-env",
           "help": "also write TABCAP_PROXY_URL (the bundle account's proxy, with its credentials) to this file, mode 0600; never printed. The generated client reads TABCAP_PROXY_URL",
@@ -4843,7 +4854,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         },
       ],
       "summary": "generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs",
-      "usage": "tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--proxy-env file]",
+      "usage": "tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--browser-headers] [--proxy-env file]",
     },
     {
       "daemon": false,

@@ -30,7 +30,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { EVENTS_FILE, writeFileAtomic } from "../../bundle/manifest.ts";
 import { isSensitiveHeader } from "../../bundle/redact.ts";
 import type { Headers } from "../../bundle/types.ts";
-import { headerJoined, HOP_BY_HOP } from "../../replay/common.ts";
+import { BROWSER_HEADERS, BROWSER_PREFIXES, headerJoined } from "../../replay/common.ts";
 import { pyStr } from "../../replay/python.ts";
 import { toStorageCookie, type StorageCookie, type StorageState } from "../../replay/session.ts";
 import { TabcapError } from "../../shared/envelope.ts";
@@ -54,45 +54,6 @@ const LIVE_NOTE = "live session credentials: keep this file out of the repositor
 
 // ------------------------------------------------------------ headers
 
-/**
- * Request headers the browser itself adds or manages (Fetch Standard
- * forbidden request-header names, the CORS preflight / cache / range / client
- * hints Chrome sends, and the body framing headers): never what a page or its
- * scripts set to authenticate. content-type describes one request's body.
- */
-const BROWSER_HEADERS: ReadonlySet<string> = new Set([
-  ...HOP_BY_HOP,
-  "accept",
-  "accept-charset",
-  "accept-encoding",
-  "accept-language",
-  "access-control-request-headers",
-  "access-control-request-method",
-  "cache-control",
-  "content-length",
-  "content-type",
-  "cookie2",
-  "date",
-  "dnt",
-  "expect",
-  "host",
-  "if-match",
-  "if-modified-since",
-  "if-none-match",
-  "if-range",
-  "if-unmodified-since",
-  "origin",
-  "pragma",
-  "priority",
-  "purpose",
-  "range",
-  "referer",
-  "upgrade-insecure-requests",
-  "user-agent",
-  "via",
-  "x-client-data",
-]);
-const BROWSER_PREFIXES = ["sec-", ":"];
 const SENSITIVE_EXTRA = /^(x-csrf|x-xsrf)|-token$|-auth|(^|-)api-key$/;
 
 export type HeaderClass = "cookie" | "proxy" | "browser" | "sensitive" | "page";

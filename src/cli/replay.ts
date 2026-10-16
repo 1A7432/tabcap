@@ -112,7 +112,7 @@ export async function runReplay(argv: readonly string[]): Promise<Outcome> {
         const proxyEnv = str(a["proxyEnv"]);
         // 0.4-D: resolve the account's proxy first, so a bundle without one fails before anything is written.
         const ap = proxyEnv === undefined ? null : bundleAccountProxy(bundle);
-        const result = exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]), chain });
+        const result = exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]), chain, browserHeaders: a["browserHeaders"] === true });
         return { code: 0, envelope: ok(proxyEnv === undefined || ap === null ? result : { ...result, proxyEnv: writeProxyEnv(proxyEnv, ap) }) };
       }
       case "check": {

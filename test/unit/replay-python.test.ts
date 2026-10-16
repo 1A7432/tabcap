@@ -131,6 +131,56 @@ describe("generated package", () => {
     expect(r.functions[0]?.args.every((a) => /^[a-z_][a-z0-9_]*$/.test(a))).toBe(true);
   });
 
+  // 0.6-E. Oracle: the request headers Chrome for Testing 155 sends on a page fetch() / XHR (DevTools →
+  // Network → Request Headers), plus what the page set itself; keptHeader's table states which are the browser's.
+  test("request headers: browser-added ones are left out by default, --browser-headers keeps every one", async () => {
+    const CHROME = {
+      accept: "*/*",
+      "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "cache-control": "no-cache",
+      origin: "http://127.0.0.1:4310",
+      pragma: "no-cache",
+      priority: "u=1, i",
+      referer: "http://127.0.0.1:4310/list",
+      "sec-ch-ua": '"Chromium";v="155", "Not.A/Brand";v="8"',
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": '"macOS"',
+      "sec-fetch-dest": "empty",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-site": "same-origin",
+      "user-agent": "Mozilla/5.0 (Macintosh) Chrome/155.0.0.0 Safari/537.36",
+    };
+    const b = await buildBundle(join(root, "hdrs"), { name: "hdrs", created: 1760600000000, seed: 21 }, async (bb) => {
+      await bb.request({
+        url: "http://127.0.0.1:4310/api/rows",
+        method: "POST",
+        mime: "application/json",
+        body: JSON.stringify({ rows: [] }),
+        postData: JSON.stringify({ n: 1 }),
+        reqHeaders: { ...CHROME, "content-type": "application/json", "x-requested-with": "XMLHttpRequest", "x-app-build": "7.1" },
+        ts: 1760600000100,
+      });
+      await bb.request({ url: "http://127.0.0.1:4310/api/meta", mime: "application/json", body: "{}", reqHeaders: { ...CHROME, accept: "application/vnd.api+json", referer: "https://partner.example/embed" }, ts: 1760600000200 });
+    });
+    const names = (client: string, fn: string) => {
+      const body = client.slice(client.indexOf(`def ${fn}(`));
+      const block = body.slice(body.indexOf("headers: list[tuple[str, str | None]] = ["), body.indexOf("    ]\n"));
+      return [...block.matchAll(/^ {8}\("([^"]+)", /gm)].map((m) => m[1]);
+    };
+    exportPython({ bundle: b, out: join(root, "hdrs-py"), chain: false });
+    const slim = readFileSync(join(root, "hdrs-py", "client.py"), "utf8");
+    expect(names(slim, "post_api_rows")).toEqual(["content-type", "x-requested-with", "x-app-build"]);
+    // a non-default accept and a cross-origin referer are kept
+    expect(names(slim, "get_api_meta")).toEqual(["accept", "referer"]);
+    expect(slim).not.toContain("sec-ch-ua");
+    expect(slim).toContain("--browser-headers keeps them");
+    const r = await run(["replay", "export-python", b, "-o", join(root, "hdrs-all"), "--no-chain", "--browser-headers"]);
+    expect(r.code).toBe(0);
+    const all = readFileSync(join(root, "hdrs-all", "client.py"), "utf8");
+    expect(names(all, "post_api_rows")).toEqual([...Object.keys(CHROME), "content-type", "x-requested-with", "x-app-build"]);
+    expect(pyCompile(["client.py"].map((f) => join(root, "hdrs-py", f)))).toBeNull();
+  });
+
   test("CLI: -o required; envelope lists functions", async () => {
     expect((await run(["replay", "export-python", bundle])).code).toBe(2);
     const r = await run(["replay", "export-python", bundle, "-o", join(root, "cli-py"), "--include", "/api/items"]);
