@@ -52,11 +52,11 @@ class FakeRec implements GuardRecorder {
 
 function guard(text = "page text"): { g: Guard; secrets: Secrets } {
   const secrets = new Secrets();
-  secrets.setStored([{ ref: "shop.password", value: PW }]);
+  secrets.setStored([{ ref: "example.password", value: PW }]);
   const g = new Guard({
     configDir: config,
     secrets,
-    siteOf: () => ({ site: "shop", account: "alice" }),
+    siteOf: () => ({ site: "example", account: "alice" }),
     screenshot: () => Promise.resolve("/tmp/shot.png"),
     pageInfo: () => Promise.resolve({ url: "http://127.0.0.1:9/s15", title: "verify", text }),
     settleMs: 0,
@@ -96,7 +96,7 @@ describe("guard: waiting state", () => {
       ["guard", "breaker"],
       ["handoff", "waiting"],
     ]);
-    expect(rec.events[0]).toMatchObject({ site: "shop", account: "alice", detail: { reason: "verify-page", request: "r-12", status: 403 } });
+    expect(rec.events[0]).toMatchObject({ site: "example", account: "alice", detail: { reason: "verify-page", request: "r-12", status: 403 } });
     expect(rec.events[1]).toMatchObject({ reason: "verify-page", question: expect.any(String), timeoutMs: null, answerRef: null, screenshot: "/tmp/shot.png" });
     expect(CONTINUE_NEXT).toContain("tabcap handoff continue");
     expect(g.resume("s", "human").state).toBe("resumed");

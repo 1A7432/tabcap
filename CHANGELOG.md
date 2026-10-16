@@ -28,6 +28,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 - While a session waits for the human (hand-off), `resize` and `emulate` are refused with the `waiting` error like the other commands that act on the page.
 - Output is English throughout: the `waiting` error's `next` ("complete the verification in the browser, then run `tabcap handoff continue`"), the `incomplete event sequence: …` warnings of the DOM click and of `type --insert`, `bundle is not finished: …` warnings and the `(unfinished)` mark of `analyze find` / `diff` text reports, the snapshot / outline header (`overlays` / `detected` / `popups` with English overlay lines, ASCII quotes around names), the `covered` error, and the README of the `replay export-python` package (template and action-chain section). Only the evidence grades (`实测` / `推断` / `待验` / `人确认`, a bundle format value) stay as they are.
 - Redaction rules `default@2` (`bundle redact`, HAR export, and the sensitive-name rule of `replay export-python` and `analyze deps`): `pass` and `pwd` are sensitive as a name segment (`pass`, `user_pass`, `userPass`, `login-pwd`, `Pwd2`; not `bypass`, `passport`, `compass`, `passenger`); the earlier substrings (`passw`, `token`, …) match as before. Redacted copies record `"rules": "default@2"`. Fixes `replay export-python --no-chain` writing the recorded value of a login field named `pass` into `client.py`.
+- The example site name in `--help`, the generated command reference, SKILL.md and the README is `example` (was `shop`).
 
 ## 0.3.0 (2026-10-16)
 

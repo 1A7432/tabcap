@@ -97,7 +97,7 @@ add a site and its account to the local store (state.db, 0600); for the human, n
 tabcap site add <name> --url <entry> --user <username> [--domains a,b] [--notes text] [--password-stdin]
 ```
 
-Example: `tabcap site add shop --url https://shop.example/login --user alice`
+Example: `tabcap site add example --url https://example.com/login --user alice`
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -125,7 +125,7 @@ delete a site with its accounts and guard counters from the store
 tabcap site remove <name>
 ```
 
-Example: `tabcap site remove shop`
+Example: `tabcap site remove example`
 
 ### `tabcap session start`
 
@@ -135,7 +135,7 @@ create a session (navigate also creates it); --site binds a stored site → entr
 tabcap session start <name> [--site site]
 ```
 
-Example: `tabcap session start shop --site shop`
+Example: `tabcap session start example --site example`
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -149,7 +149,7 @@ close the session's own tabs (never tabs it did not open) and finish its recordi
 tabcap session stop <name>
 ```
 
-Example: `tabcap session stop shop`
+Example: `tabcap session stop example`
 
 ### `tabcap session list`
 
@@ -220,7 +220,7 @@ load a URL in the session's tab (opens a background tab if needed), wait until r
 tabcap navigate <url> [--session name] [--timeout ms] [--tab t2] [--new-tab] [--no-wait]
 ```
 
-Example: `tabcap navigate http://127.0.0.1:8080/ --session shop`
+Example: `tabcap navigate http://127.0.0.1:8080/ --session example`
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -369,7 +369,7 @@ set a text field's value, React-safe (password values are masked everywhere); --
 tabcap fill <ref> [<text>] [--session name] [--timeout ms] [--tab t2] [--trusted] [--secret site.field] [--confirm] [--no-wait] [--snapshot]
 ```
 
-Example: `tabcap fill e7 --secret shop.password`
+Example: `tabcap fill e7 --secret example.password`
 
 | Option | Default | Meaning |
 |---|---|---|

@@ -26,6 +26,7 @@
 - 会话等待人接手（hand-off）期间，`resize` 和 `emulate` 与其它作用于页面的命令一样返回 `waiting` 错误。
 - 输出全部改为英文：`waiting` 错误的 `next`（"complete the verification in the browser, then run `tabcap handoff continue`"）、DOM 点击与 `type --insert` 的 `incomplete event sequence: …` 警告、`bundle is not finished: …` 警告与 `analyze find` / `diff` 文本报告里的 `(unfinished)`、snapshot / outline 头部（`overlays` / `detected` / `popups`，遮挡行改英文，名字用 ASCII 引号）、`covered` 错误、`replay export-python` 生成包的 README（模板与动作链一节）。只有证据等级（`实测` / `推断` / `待验` / `人确认`，证据包格式里的值）保持不变。
 - 脱敏规则 `default@2`（`bundle redact`、HAR 导出，以及 `replay export-python`、`analyze deps` 共用的敏感名规则）：`pass`、`pwd` 作为名字的一段时算敏感（`pass`、`user_pass`、`userPass`、`login-pwd`、`Pwd2`；`bypass`、`passport`、`compass`、`passenger` 不算）；原有子串（`passw`、`token` …）照旧。脱敏副本记 `"rules": "default@2"`。修复 `replay export-python --no-chain` 把名为 `pass` 的登录字段的录制值写进 `client.py`。
+- `--help`、生成的命令参考、SKILL.md 与 README 里的示例站点名改为 `example`（原为 `shop`）。
 
 ## 0.3.0（2026-10-16）
 

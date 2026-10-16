@@ -34,7 +34,7 @@ describe("cookie snapshot helpers (pure)", () => {
 
   test("state.origin is the http(s) origin of the tab, else null", () => {
     expect(stateOrigin("http://127.0.0.1:4310/s07/login?x=1#h")).toBe("http://127.0.0.1:4310");
-    expect(stateOrigin("https://shop.test/")).toBe("https://shop.test");
+    expect(stateOrigin("https://example.test/")).toBe("https://example.test");
     for (const u of ["about:blank", "data:text/html,x", "chrome://version", "not a url"]) expect(stateOrigin(u)).toBeNull();
   });
 
@@ -45,12 +45,12 @@ describe("cookie snapshot helpers (pure)", () => {
   });
 
   test("site cookie URLs: entry URL, stored domains over http and https, tabs on those hosts only", () => {
-    expect(siteCookieUrls("http://127.0.0.1:4310/s07/login", ["127.0.0.1", ".api.shop.test", "bad host/"], ["http://127.0.0.1:4310/s07/data", "https://www.api.shop.test/x", "https://other.test/", "about:blank"])).toEqual([
+    expect(siteCookieUrls("http://127.0.0.1:4310/s07/login", ["127.0.0.1", ".api.example.test", "bad host/"], ["http://127.0.0.1:4310/s07/data", "https://www.api.example.test/x", "https://other.test/", "about:blank"])).toEqual([
       "http://127.0.0.1:4310/s07/login",
-      "https://api.shop.test/",
-      "http://api.shop.test/",
+      "https://api.example.test/",
+      "http://api.example.test/",
       "http://127.0.0.1:4310/s07/data",
-      "https://www.api.shop.test/x",
+      "https://www.api.example.test/x",
     ]);
   });
 });
