@@ -135,6 +135,7 @@
 
 - **名字**：`tabcap`（10-15 作者定，抓包工具命名传统：tab + capture）。守护进程 `tabcapd`，环境变量 `TABCAP_HOME`，目录 `~/.config/tabcap`。0.2 起用新名，`bbl` 只在 0.1.0 里出现过。仓库随改名独立建仓。
 - **命令壳不换语言**（10-15 作者定，推翻同日早些的「换 Zig」）：壳保持 TypeScript。理由：Bun 编译的壳启动 13.5 ms【实测】，省不出可感知的延迟；守护进程仍是 Bun，包体不变；学习这条理由在改由 Opus 写之后不成立。只做最小的 schema 契约：`tabcap schema --json` 从命令注册表导出，SKILL.md 与 README 的命令表由它生成并在测试里断言一致；socket 上的 `GET /schema` 等阶段 3 做 MCP 时再开，MCP 工具表直接由 schema 转换。
+- **浏览器过关、脚本跑量**（10-16 作者定，0.6-F）：登录、验证、需要人点的那一步留在浏览器里（人在回路，§3）；过了之后 `tabcap session export --for requests|httpx` 把标签的 cookie、页面真正发的认证头（`Authorization`、`access-token`、`x-csrf` …）和 localStorage / sessionStorage 里的 token 交给脚本（0600 文件，值不打印，`04` §8.2），批量请求由脚本自己发；少量、必须带浏览器上下文的请求仍走浏览器（0.6-A `fetch`）。全程 `net start` 录着，脚本拿到的头来自哪条录下的请求在输出里写明（`source.headers`）。会话过期就回浏览器重新过关、再导一次。
 - **原生化的第一个组件是 `analyze`**，不是壳：Zig 导出 C ABI，经 `bun:ffi` 接入；触发条件是实测 `find` 或 `diff` 在真实包上超过 2 s，或 `deps` 落地时。触发前先把 TS 版和夹具做扎实，TS 版加夹具就是原生版的 oracle。
 
 待定：

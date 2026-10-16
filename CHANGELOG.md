@@ -2,6 +2,15 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### Session export (0.6-F)
+
+- **`tabcap session export --for requests|httpx|playwright --out <file> [--origin <url>] [--tab t2]`** hands the logged-in tab's session to a script: its cookies (`Network.getCookies` for the origin, plus the session's own browser context for a pool account), the headers its page sent to authenticate (from the latest recorded request to the origin's host that carries one: sensitive headers by the `bundle redact` rule plus `x-csrf*`, `x-xsrf*`, `*-token`, `*-auth*`, `api-key`, and any header the page set that is not a browser default; `cookie` goes with the cookies, `proxy-*` never) and its localStorage / sessionStorage, read in tabcap's isolated world (values over 64 KB skipped and listed). Without a recording `headers` is empty and `source.headers` is `none`, with a hint to run `net start` first.
+- Formats: `requests` is JSON (schema `tabcap-session-export/0`: origin, capturedAt, cookies, headers, storage, note); `httpx` is an importable Python module (`.py` added when missing) with `cookies`, `COOKIE_RECORDS`, `headers`, `storage` and `client(base_url)`; `playwright` is the `replay session` storageState, with headers and sessionStorage reported as `omitted`.
+- The file is mode 0600 (new directories 0700) and holds live credentials; the answer carries the path, counts and header names only (`{file, for, origin, mode, cookies, headers, storage, source, note}`), and the bundle gets the usual `cmd` events with counts.
+- `replay export-python` packages now ship `_tabcap_session.py` (load the JSON export, build an httpx client; no tabcap at runtime), and their README says how to use it.
+
 ## 0.5.0 (2026-10-16)
 
 ### Changed

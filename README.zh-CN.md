@@ -168,6 +168,10 @@ tabcap daemon stop                          # 关浏览器、收尾录制、退�
 - **从源码**：Bun 1.4 或更新，`bun install` 后 `bun run build`（本机）或 `bun run build:<平台>`（`darwin-arm64`、`linux-x64`、`linux-arm64`、`windows-x64`）；`bun run release` 一次构建并打包四个平台；`bun test test/unit` 跑离线测试。
 - **文件**：`~/.config/tabcap/`（socket、日志、profile、配置、`state.db`、`plugins/`、`fingerprint/refs/`）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）。Linux 认 `XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_DATA_HOME`。Windows 上三者是 `%LOCALAPPDATA%\tabcap\config`、`\cache`、`\data`，文件沿用用户目录的默认 ACL（tabcap 不另设 ACL；没有 socket，`config\daemon.json` 里是端口和令牌）。设 `TABCAP_HOME` 可整体搬到一个目录。
 
+## 把会话交给脚本
+
+在浏览器里登录、过检查，量交给你自己的脚本：`tabcap session export --for requests --out session.json`（或 `--for httpx --out example_session.py`，可直接 import、带 `client()` 的模块；`--for playwright` 出 storageState）把会话当前标签的 cookie、页面真正发出的认证头（`Authorization`、`x-csrf`、`*-token` …，取自发往该源的最近一条录下的请求，所以页面发请求前先 `tabcap net start`）和 localStorage / sessionStorage 写进权限 0600 的文件。输出只有路径、计数和头名，不出任何值。文件里是活的凭据：别进仓库；会话过期它也跟着失效。`replay export-python` 生成的包里附 `_tabcap_session.py`，不依赖 tabcap 就能把这个 JSON 变成 httpx 客户端。
+
 ## 凭据库
 
 `tabcap site add <名> --url <入口> --user <账号>` 在提示符下要密码（或用 `--password-stdin` 从管道读），存进 `~/.config/tabcap/state.db`。文件或目录权限比 0600 / 0700 宽时守护进程拒绝启动（macOS 与 Linux；Windows 上文件沿用 `%LOCALAPPDATA%` 的用户默认 ACL）。agent 只看得到站点名、入口网址和账号名，除非你把密码交给它存：`site add` 和 `account add` 不需要终端也能跑，agent 用 `--password-stdin` 存一次，此后只用引用。只有登录请求本身在证据包里保留真实值，导出 HAR 时会被打码。

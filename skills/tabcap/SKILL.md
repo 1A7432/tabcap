@@ -33,6 +33,7 @@ Large things come back as **file paths** (screenshots, bodies, `snapshot --file-
 1. Record: `net start`, use the site (`navigate`, `snapshot --interactive`, `click` / `fill`, `wait --text …`, `net wait --url …`), `net stop`. Action commands return a `cmd` id; `net list --since c-41` is what that action caused.
 2. Analyse: `where <ref|value>` (which response carries a shown value), `recon` (stack, data channels, cookies, protection), `analyze deps <bundle>` / `analyze chain <bundle> --request r-N` (where every input comes from).
 3. Replay: `replay serve <bundle>`, `replay export-python <bundle> -o ./client`, then `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.**
+4. Hand the live session to the user's script: while recording, `session export --for httpx --out ./example_session.py` (or `--for requests` JSON, `--for playwright`) writes the tab's cookies, the auth headers the page sent and its storage tokens to a 0600 file and answers counts and header names only. Live credentials: never print, commit or share the file.
 
 ## Credentials
 

@@ -2,6 +2,15 @@
 
 [English](CHANGELOG.md) | 中文
 
+## Unreleased
+
+### 会话导出（0.6-F）
+
+- **`tabcap session export --for requests|httpx|playwright --out <文件> [--origin <url>] [--tab t2]`** 把已登录标签的会话交给脚本：cookie（该源的 `Network.getCookies`，池账号再加会话自己浏览器上下文里的）、页面为认证发出的头（取发往该源 host 的最近一条带这类头的录下请求：按 `bundle redact` 规则的敏感头，加 `x-csrf*`、`x-xsrf*`、`*-token`、`*-auth*`、`api-key`，以及页面自己设、不是浏览器默认的头；`cookie` 归入 cookies，`proxy-*` 永不导出）和 localStorage / sessionStorage（在 tabcap 隔离世界里读，超过 64 KB 的值跳过并列出）。没在录时 `headers` 为空、`source.headers` 为 `none`，提示先 `net start`。
+- 格式：`requests` 是 JSON（schema `tabcap-session-export/0`：origin、capturedAt、cookies、headers、storage、note）；`httpx` 是可直接 import 的 Python 模块（缺 `.py` 自动补），含 `cookies`、`COOKIE_RECORDS`、`headers`、`storage` 和 `client(base_url)`；`playwright` 是 `replay session` 的 storageState，放不下的头和 sessionStorage 在 `omitted` 里报。
+- 文件权限 0600（新建目录 0700），里面是活的凭据；输出只有路径、计数和头名（`{file, for, origin, mode, cookies, headers, storage, source, note}`），录制包里照常只记带计数的 `cmd` 事件。
+- `replay export-python` 生成的包附带 `_tabcap_session.py`（读 JSON 导出、建 httpx 客户端，运行时不依赖 tabcap），包里的 README 写了用法。
+
 ## 0.5.0（2026-10-16）
 
 ### 变更

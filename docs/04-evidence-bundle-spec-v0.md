@@ -238,6 +238,19 @@
 - manifest 记 `session.site`、`session.account`、`session.proxy`（0.4-D，名字），证据包与库之间只靠站点名关联。
 - 验证：`06` §2 的「凭据不泄漏」检查、A2.9。
 
+### 8.2 会话导出 `session export`（0.6-F，10-16 作者定设计；细节按实现定案，待作者审）
+
+`tabcap session export --for requests|httpx|playwright --out <file> [--origin <url>] [--tab t2]`：把会话当前标签（或 `--tab`）已登录的会话交给脚本。和 `replay session` 一样，**文件里就是活的凭据**，这是设计本身，不打码。
+
+- **写到哪**：`--out` 给的路径（CLI 按自己的工作目录解析）；`--for httpx` 没写 `.py` 时补上。文件 0600，新建的目录 0700（已有目录不改权限）；路径是目录则拒绝。不写进证据包，不进仓库（使用者自己负责）。
+- **装什么**：
+  - cookies：导出源的根 URL 和标签当前 URL（同源时）的 `Network.getCookies`；会话有自己的浏览器上下文（池账号，0.4-D）时再并上 `Storage.getCookies {browserContextId}`，名字 + 域 + 路径相同的后者覆盖。字段同 Playwright storageState 的 cookie。
+  - 头：本会话正在录或最近录完的包里，**发往导出源 host（含端口）的最近一条带选中头的请求**（都不带就取最近一条、头为空）；选中 = 敏感头（§8 的头规则，另加 `x-csrf*`、`x-xsrf*`、`*-token`、`*-auth*`、`api-key`）或页面自己设的头（不在浏览器默认头表里：Fetch 规范的禁止请求头、`sec-*`、客户端提示、缓存与条件请求头、`content-type` / `content-length` 等）。`cookie` 单独走 cookies；`proxy-*`（池代理凭据）和伪头永不导出。没有录制：`headers:{}`、`source.headers:"none"`，提示先 `net start`。
+  - storage：在导出源那个 frame 的 tabcap 隔离世界里读 localStorage / sessionStorage（与页面共享存储，不碰页面 JS）；UTF-8 超过 64 KB 的值跳过并在输出里列键名和大小。`--origin` 选标签里另一个能到的源（页面或其某个 frame 必须在那个源上，否则 `not-found`）。
+- **格式**：`requests` = JSON，schema `tabcap-session-export/0`：`{schema, origin, capturedAt (ms), cookies:[{name, value, domain, path, expires, httpOnly, secure, sameSite}], headers:{名:值}, storage:{localStorage:{}, sessionStorage:{}}, note}`；`httpx` = 可直接 import 的 Python 模块（`cookies` 名→值、`COOKIE_RECORDS` 带域和路径、`headers`、`storage`、`client(base_url)` 返回 `httpx.Client(cookies=…, headers=…)`，运行时只依赖 httpx）；`playwright` = `replay session` 的 storageState，不加字段，放不下的头和 sessionStorage 在输出 `omitted` 里报名字与数目。`replay export-python` 生成的包里附 `_tabcap_session.py`（读 `requests` 格式、建 httpx 客户端，不依赖 tabcap）。
+- **输出**：`{file, for, origin, mode:"0600", cookies:n, headers:[名字], storage:{localStorage:n, sessionStorage:n}, source:{headers:"r-N"|"none"}, skipped?, omitted?, note}`，只有路径、计数和头名，不出任何值；守护进程的已知秘密替换照常作用于输出。录制中照常写 `cmd` 事件（`outputSummary` 是计数），包里不写别的。
+- 验证：`test/unit/session-export.test.ts`（头选择表、64 KB 上限、文件权限、三种格式、生成的 httpx 客户端对本地服务器实际发出的 cookie 与头）、`test/e2e/v06f.e2e.test.ts`（s07 带 token 变体，对照靶场日志）。
+
 ## 9. 与 HAR 互转
 
 ### 9.1 导出 `tabcap bundle export har <bundle> [--tab t1] [--types xhr,fetch,document] [--embed-events]`
