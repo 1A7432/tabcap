@@ -121,7 +121,7 @@ export function parseInlineOrBlob(v: unknown): InlineOrBlob | null {
   return null;
 }
 
-const RESOURCE_TYPES: readonly ResourceType[] = [
+export const RESOURCE_TYPES: readonly ResourceType[] = [
   "document", "xhr", "fetch", "script", "stylesheet", "image", "font", "media", "websocket", "eventsource", "manifest", "other",
 ];
 

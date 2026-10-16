@@ -12,7 +12,7 @@ import { gzipSync } from "node:zlib";
 import { decodeBundle } from "../../src/bundle/decode.ts";
 import { DecodeHost, DecodeSession } from "../../src/daemon/hooks/decode.ts";
 import { decodePlugins } from "../../src/daemon/hooks/plugins.ts";
-import { MAX_ARRAY_ITEMS, MAX_FIELDS, MAX_SHAPE_DEPTH, diffEndpoint, flatOf, inferShape, schemaDiff, shape, stringFormat, typeText, type EndpointShape, type Shape } from "../../src/analyze/shape.ts";
+import { MAX_ARRAY_ITEMS, MAX_FIELDS, MAX_SHAPE_DEPTH, diffEndpoint, flatOf, inferShape, parseShapeTypes, schemaDiff, shape, stringFormat, typeText, type EndpointShape, type Shape } from "../../src/analyze/shape.ts";
 import { runAnalyze } from "../../src/cli/analyze.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { LIST_DRIFT, LIST_V1, LIST_V2, S42_ITEMS_JSON } from "../e2e/site.ts";
@@ -124,7 +124,11 @@ describe("analyze shape over a bundle", () => {
     const r = shape(b);
     expect(r.schema).toBe("tabcap-shape/0");
     expect(r.endpoints.map((e) => e.key)).toEqual(["GET /api/item/{id}", "POST /api/login", "POST /api/save"]);
-    expect(r.unshaped).toEqual(["GET /", "GET /app.js"]);
+    // 0.6-S: the script is not an API-like exchange (default types xhr, fetch, document + JSON responses)
+    expect(r.unshaped).toEqual(["GET /"]);
+    expect(r.excluded).toBe(1);
+    expect(r.filter).toMatchObject({ types: ["xhr", "fetch", "document"], json: true });
+    expect(shape(b, { types: parseShapeTypes("all") }).unshaped).toEqual(["GET /", "GET /app.js"]);
     const item = r.endpoints[0];
     expect(item?.exchanges).toBe(3);
     expect(item?.requests).toEqual(["r-4", "r-5", "r-8"]);
@@ -161,7 +165,9 @@ describe("analyze shape over a bundle", () => {
       await x.request({ url: `${O}/jsonp`, mime: "application/javascript", type: "script", body: `cb(${doc});`, ts: C + 3 });
       await x.request({ url: `${O}/nd`, mime: "application/x-ndjson", body: `${doc}\n{"a":2}\n`, ts: C + 4 });
     });
-    const r = shape(b);
+    // the jsonp answer is a script: shaped with --types all (0.6-S)
+    expect(shape(b).endpoints.map((e) => e.key)).toEqual(["GET /gz", "GET /b64", "GET /nd"]);
+    const r = shape(b, { types: parseShapeTypes("all") });
     expect(r.endpoints.map((e) => [e.key, e.decode, typeText(e.response ?? { kind: "null" })])).toEqual([
       ["GET /gz", ["gzip"], "object"],
       ["GET /b64", ["base64"], "object"],

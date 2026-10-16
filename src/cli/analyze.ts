@@ -8,7 +8,7 @@ import { diff, renderDiffText, type DiffResult } from "../analyze/diff.ts";
 import { DepsGraph, depsFindings, depsOf, renderDepsText } from "../analyze/deps.ts";
 import { chainOf, renderChainText } from "../analyze/chain.ts";
 import { buildDossier, reconOutput, recordedPage, renderDossierMd, writeDossier } from "../analyze/recon.ts";
-import { renderSchemaDiffText, renderShapeText, schemaDiff, shape, writeShape } from "../analyze/shape.ts";
+import { parseShapeTypes, renderSchemaDiffText, renderShapeText, schemaDiff, shape, writeShape } from "../analyze/shape.ts";
 import { BundleReader } from "../bundle/reader.ts";
 import { flagNames, helpFor, parseCommand, specOf, usageOf } from "./commands.ts";
 
@@ -178,7 +178,7 @@ function cmdShape(argv: readonly string[]): Outcome {
   }
   const a = parsed.args;
   const bundle = optStr(a["bundle"]) ?? "";
-  const result = shape(bundle, { request: optStr(a["request"]), template: optStr(a["template"]) });
+  const result = shape(bundle, { request: optStr(a["request"]), template: optStr(a["template"]), types: parseShapeTypes(optStr(a["types"])) });
   if (a["write"] === true) result.written = writeShape(bundle, result);
   if (a["text"] !== true) return { code: 0, envelope: ok(result) };
   return { code: 0, envelope: ok(result), text: renderShapeText(result) };
@@ -192,7 +192,7 @@ function cmdSchemaDiff(argv: readonly string[]): Outcome {
     return { code: 0, envelope: ok({ help: text }), text };
   }
   const a = parsed.args;
-  const result = schemaDiff(optStr(a["old"]) ?? "", optStr(a["new"]) ?? "", { template: optStr(a["template"]), write: a["write"] === true });
+  const result = schemaDiff(optStr(a["old"]) ?? "", optStr(a["new"]) ?? "", { template: optStr(a["template"]), write: a["write"] === true, types: parseShapeTypes(optStr(a["types"])) });
   const code = result.drift ? 1 : 0;
   if (a["text"] !== true) return { code, envelope: ok(result) };
   return { code, envelope: ok(result), text: renderSchemaDiffText(result) };

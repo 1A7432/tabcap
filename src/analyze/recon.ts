@@ -250,6 +250,8 @@ export function channelTemplate(url: string): string {
 }
 
 const JSON_MIME = /^(?:application|text)\/(?:[a-z0-9.+-]*\+)?json$|^application\/(?:x-)?ndjson$|^application\/jsonl$/;
+/** A JSON content type (`application/json`, `+json`, ndjson / jsonl), parameters ignored. */
+export const isJsonMime = (mime: string | null | undefined): boolean => JSON_MIME.test(baseMime(mime));
 const FULL_HTML = /^\s*(?:<!--[\s\S]*?-->\s*)*(?:<!doctype\s+html|<html[\s>])/i;
 
 /** Body class from resource type, mime and the start of the body text (null: no text available). */

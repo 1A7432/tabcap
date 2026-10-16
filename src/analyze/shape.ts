@@ -14,6 +14,12 @@
 //   format?}; several kinds at one place make a `union` with `variants`;
 // - bounds: <= MAX_FIELDS fields per endpoint, depth <= MAX_SHAPE_DEPTH,
 //   arrays sampled on their first MAX_ARRAY_ITEMS items.
+// Types (0.6-S, owner brief 2026-10-17: one real bundle listed 116 endpoints,
+// most of them css / png / js with a cache-busting query): by default only
+// API-like exchanges are shaped, resource types xhr / fetch / document plus
+// any exchange whose response has a JSON content type; `--types a,b` shapes
+// exactly those types (no JSON rule), `--types all` every exchange (0.6-G).
+// `--request r-N` is never filtered. Left-out exchanges are counted in `excluded`.
 // Oracle: test/unit/shape.test.ts (inference, union, format and diff tables
 // over synthetic bundles), test/e2e/v06g.e2e.test.ts (range s06 /api/list and
 // its ?v=2 variant, LIST_V1 / LIST_V2 in test/e2e/site.ts).
@@ -24,7 +30,8 @@ import { join } from "node:path";
 import { writeFileAtomic } from "../bundle/manifest.ts";
 import { BundleReader } from "../bundle/reader.ts";
 import { isSensitiveName } from "../bundle/redact.ts";
-import type { RequestEvent } from "../bundle/types.ts";
+import type { RequestEvent, ResourceType } from "../bundle/types.ts";
+import { RESOURCE_TYPES } from "../bundle/reader.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import {
   STEP_CAP,
@@ -50,7 +57,7 @@ import {
 } from "./decoders.ts";
 import { headerValues } from "./diff.ts";
 import { wirePrefix } from "./find.ts";
-import { channelTemplate } from "./recon.ts";
+import { channelTemplate, isJsonMime } from "./recon.ts";
 import { decodedPayload } from "./views.ts";
 
 export const SHAPE_SCHEMA = "tabcap-shape/0";
@@ -63,6 +70,34 @@ export const MAX_SHAPE_DEPTH = 32;
 export const MAX_ARRAY_ITEMS = 200;
 export const MAX_ENUM = 8;
 export const MAX_REFS = 10;
+/** Resource types shaped by default (0.6-S), besides any response with a JSON content type. */
+export const DEFAULT_SHAPE_TYPES: readonly ResourceType[] = ["xhr", "fetch", "document"];
+
+/** Which exchanges are shaped: these types (or all), plus JSON responses of any type when `json`. */
+export type ShapeTypes = { types: ResourceType[] | "all"; json: boolean };
+export const DEFAULT_TYPES: ShapeTypes = { types: [...DEFAULT_SHAPE_TYPES], json: true };
+
+/** `--types`: absent = the default, `all`, or a comma list of resource types (exactly those). */
+export function parseShapeTypes(v: string | undefined): ShapeTypes {
+  if (v === undefined) return DEFAULT_TYPES;
+  const list = v.split(",").map((x) => x.trim().toLowerCase()).filter((x) => x !== "");
+  if (list.length === 1 && list[0] === "all") return { types: "all", json: false };
+  const out: ResourceType[] = [];
+  for (const x of list) {
+    const t = RESOURCE_TYPES.find((r) => r === x);
+    if (t === undefined) throw new TabcapError("usage", `bad --types entry ${JSON.stringify(x.slice(0, 40))}`, `Use all, or resource types from: ${RESOURCE_TYPES.join(", ")}.`);
+    if (!out.includes(t)) out.push(t);
+  }
+  if (out.length === 0) throw new TabcapError("usage", "--types needs at least one resource type", "e.g. --types xhr,fetch (or all)");
+  return { types: out, json: false };
+}
+
+/** Is this exchange shaped under `t`? */
+export function typeSelected(r: RequestEvent, t: ShapeTypes): boolean {
+  if (t.types === "all" || t.types.includes(r.type)) return true;
+  if (!t.json || r.response === null) return false;
+  return isJsonMime(r.response.mimeType ?? headerString(r.response.headers, "content-type"));
+}
 const MAX_ENUM_LITERAL = 64;
 
 export type ShapeKind = "object" | "array" | "string" | "number" | "boolean" | "null" | "union";
@@ -103,8 +138,11 @@ export type ShapeResult = {
   bundle: string;
   session: string;
   generatedAt: number;
-  filter: { request: string | null; template: string | null };
+  /** `types`: the resource types shaped ("all", or the list); `json`: JSON responses of any type too (0.6-S). */
+  filter: { request: string | null; template: string | null; types: ResourceType[] | "all"; json: boolean };
   limits: { fields: number; depth: number; arrayItems: number; enum: number };
+  /** Exchanges left out by the type filter (0.6-S). */
+  excluded: number;
   endpoints: EndpointShape[];
   /** Endpoints recorded with nothing to shape (no JSON body, no query, no request body): scripts, images, HTML pages. */
   unshaped: string[];
@@ -419,6 +457,8 @@ export type ShapeOptions = {
   now?: number;
   /** schema-diff: a --template the bundle does not have gives no endpoint instead of not-found. */
   allowMissing?: boolean;
+  /** Which exchanges are shaped (0.6-S); default DEFAULT_TYPES. Not applied with `request`. */
+  types?: ShapeTypes;
 };
 
 export function shapeOf(reader: BundleReader, opts: ShapeOptions = {}): ShapeResult {
@@ -434,8 +474,14 @@ export function shapeOf(reader: BundleReader, opts: ShapeOptions = {}): ShapeRes
     requests = [one];
   }
   const want = opts.template === undefined ? null : parseTemplate(opts.template);
+  const types = opts.types ?? DEFAULT_TYPES;
+  let excluded = 0;
   const byKey = new Map<string, EndpointAcc>();
   for (const r of requests) {
+    if (opts.request === undefined && !typeSelected(r, types)) {
+      excluded++;
+      continue;
+    }
     const template = channelTemplate(r.url);
     if (want !== null && (r.method.toUpperCase() !== want.method || template !== want.template)) continue;
     const key = endpointKey(r.method, template);
@@ -494,8 +540,9 @@ export function shapeOf(reader: BundleReader, opts: ShapeOptions = {}): ShapeRes
     bundle: reader.dir,
     session: m.session.name !== "" ? m.session.name : m.id,
     generatedAt: opts.now ?? Date.now(),
-    filter: { request: opts.request ?? null, template: want === null ? null : endpointKey(want.method, want.template) },
+    filter: { request: opts.request ?? null, template: want === null ? null : endpointKey(want.method, want.template), types: types.types, json: types.json },
     limits: { fields: MAX_FIELDS, depth: MAX_SHAPE_DEPTH, arrayItems: MAX_ARRAY_ITEMS, enum: MAX_ENUM },
+    excluded,
     endpoints,
     unshaped,
     warnings,
@@ -576,7 +623,7 @@ export type SchemaDiffResult = {
   schema: typeof SCHEMA_DIFF_SCHEMA;
   old: SchemaDiffSide;
   new: SchemaDiffSide;
-  filter: { template: string | null };
+  filter: { template: string | null; types: ResourceType[] | "all"; json: boolean };
   /** Some endpoint's verdict is drift (the CLI then exits 1). */
   drift: boolean;
   summary: Record<Verdict, number>;
@@ -635,7 +682,7 @@ const emptyLike = (e: EndpointShape): EndpointShape => ({
   capped: { fields: false, depth: false, items: false },
 });
 
-export type SchemaDiffOptions = { template?: string | undefined; now?: number; write?: boolean };
+export type SchemaDiffOptions = { template?: string | undefined; now?: number; write?: boolean; types?: ShapeTypes };
 
 export function schemaDiff(oldDir: string, newDir: string, opts: SchemaDiffOptions = {}): SchemaDiffResult {
   const ra = BundleReader.open(oldDir);
@@ -643,7 +690,8 @@ export function schemaDiff(oldDir: string, newDir: string, opts: SchemaDiffOptio
   const want = opts.template === undefined ? null : parseTemplate(opts.template);
   const filterKey = want === null ? null : endpointKey(want.method, want.template);
   // A --template absent from one bundle is an empty side there (the endpoint is new or gone).
-  const shapeOr = (r: BundleReader): ShapeResult => shapeOf(r, { template: opts.template, allowMissing: true, ...(opts.now === undefined ? {} : { now: opts.now }) });
+  const types = opts.types ?? DEFAULT_TYPES;
+  const shapeOr = (r: BundleReader): ShapeResult => shapeOf(r, { template: opts.template, allowMissing: true, types, ...(opts.now === undefined ? {} : { now: opts.now }) });
   const sa = shapeOr(ra);
   const sb = shapeOr(rb);
   if (want !== null && sa.endpoints.length === 0 && sb.endpoints.length === 0) throw new TabcapError("not-found", `no endpoint ${filterKey ?? ""} in either bundle`, "Run `tabcap analyze shape <bundle>` to list the endpoints (key = method + path template).");
@@ -662,7 +710,7 @@ export function schemaDiff(oldDir: string, newDir: string, opts: SchemaDiffOptio
   const summary: Record<Verdict, number> = { same: 0, drift: 0, new: 0, gone: 0 };
   for (const e of endpoints) summary[e.verdict]++;
   const side = (r: BundleReader, s: ShapeResult): SchemaDiffSide => ({ dir: r.dir, id: r.manifest.id, session: s.session, endpoints: s.endpoints.length });
-  const result: SchemaDiffResult = { schema: SCHEMA_DIFF_SCHEMA, old: side(ra, sa), new: side(rb, sb), filter: { template: filterKey }, drift: summary.drift > 0, summary, endpoints, warnings };
+  const result: SchemaDiffResult = { schema: SCHEMA_DIFF_SCHEMA, old: side(ra, sa), new: side(rb, sb), filter: { template: filterKey, types: types.types, json: types.json }, drift: summary.drift > 0, summary, endpoints, warnings };
   if (opts.write === true) result.written = { old: writeShape(oldDir, sa), new: writeShape(newDir, sb) };
   return result;
 }
@@ -676,7 +724,8 @@ function shapeLines(label: string, f: Flat): string[] {
 }
 
 export function renderShapeText(r: ShapeResult): string {
-  const L: string[] = [`shape of ${r.bundle} (session ${r.session}): ${r.endpoints.length} endpoint(s)`];
+  const kinds = r.filter.types === "all" ? "all types" : `types ${r.filter.types.join(",")}${r.filter.json ? " + JSON responses" : ""}`;
+  const L: string[] = [`shape of ${r.bundle} (session ${r.session}): ${r.endpoints.length} endpoint(s), ${kinds}${r.excluded > 0 ? `, ${r.excluded} exchange(s) of other types left out` : ""}`];
   for (const e of r.endpoints) {
     L.push("", `${e.key}  exchanges ${e.exchanges} (${e.requests.join(", ")}${e.exchanges > e.requests.length ? ", …" : ""}), status ${e.status.map((s) => s ?? "-").join(",")}, json ${e.samples.response}${e.notJson > 0 ? `, not json ${e.notJson}` : ""}${e.decode.length > 0 ? `, decode ${e.decode.join(",")}` : ""}`);
     L.push(...shapeLines("", flatOf(e)));
