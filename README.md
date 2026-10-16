@@ -4,7 +4,7 @@ English | [中文](README.zh-CN.md)
 
 A browser for AI agents that works next to you instead of taking over your screen: background tabs in a dedicated Chrome, pages read as accessibility trees with refs, every request recorded with its body, and a hand-off to the human whenever a login, a captcha or a judgement call needs one. Built for capturing and analysing web traffic, not for unattended automation.
 
-Status: 0.5.0 (alpha). Used and fully tested on macOS arm64; Linux x64 and Windows x64 run in CI with known gaps (see [Install](#install)); Linux arm64 is built but untested. Apache-2.0.
+Status: 0.6.0 (alpha). Used and fully tested on macOS arm64; Linux x64 and Windows x64 run in CI with known gaps (see [Install](#install)); Linux arm64 is built but untested. Apache-2.0.
 
 ## Quick start
 

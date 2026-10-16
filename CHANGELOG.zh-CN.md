@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## 未发布
+## 0.6.0（2026-10-16）
 
 ### 代理也看得到 loopback；mitmproxy 导入有类型和耗时（0.6-N）
 

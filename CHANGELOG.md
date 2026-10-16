@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.6.0 (2026-10-16)
 
 ### Analysis and output scrubbing from a real-project test (0.6-E)
 
