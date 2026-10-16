@@ -7,8 +7,12 @@
 // it still needs from the caller: `computed-in-page` and `unrecorded` inputs
 // (also listed in `todo`), `caller-input` values the caller chooses (listed in
 // `inputs`, not `todo`; 0.6-E), and recorded user input (`action`).
-// Default target: the last data-bearing xhr / fetch / document request (2xx
-// with a recorded body) of the bundle, or of `--session`.
+// Default target: the data-bearing xhr / fetch / document request (2xx with a
+// recorded body) of the bundle, or of `--session`, that STARTED last
+// (`timing.start`, else `mono`; recording order only breaks ties). Request ids
+// are given when the response is written, so a login POST whose 302 body is
+// still being fetched can come after the data request in the event stream
+// (0.6-E, seen on v04a s07 under parallel load).
 // Oracle: test/unit/deps.test.ts (chain cases on planted flows) and
 // test/e2e/v04a.e2e.test.ts (docs/05 s07: login → data).
 // Reproduce: bun test test/unit/deps.test.ts
@@ -68,10 +72,27 @@ export const dataBearing = (r: RequestEvent): boolean => {
   return DATA_TYPES.has(r.type) && st !== null && st >= 200 && st < 300 && (r.response?.body?.size ?? 0) > 0;
 };
 
-/** The default target: last data-bearing xhr / fetch / document request (else the last of those types with a response). */
+/** When a request started on the monotonic clock: `timing.start`, else `mono`; null when the bundle has neither. */
+const startKey = (r: RequestEvent): number | null => {
+  const t = r.timing?.start;
+  if (typeof t === "number" && Number.isFinite(t)) return t;
+  return typeof r.mono === "number" && Number.isFinite(r.mono) ? r.mono : null;
+};
+
+/** Requests latest start first; recording order (seq) when the start times tie or one is missing. */
+export function latestStartFirst(list: readonly RequestEvent[]): RequestEvent[] {
+  return [...list].sort((a, b) => {
+    const ka = startKey(a);
+    const kb = startKey(b);
+    if (ka !== null && kb !== null && ka !== kb) return kb - ka;
+    return b.seq - a.seq;
+  });
+}
+
+/** The default target: the data-bearing xhr / fetch / document request that started last (else the latest-started of those types with a response). */
 export function defaultTarget(g: DepsGraph, session?: string): RequestEvent {
   const list = g.select({ session });
-  const last = [...list].reverse();
+  const last = latestStartFirst(list);
   const hit = last.find(dataBearing) ?? last.find((r) => DATA_TYPES.has(r.type) && r.response !== null);
   if (hit === undefined) throw new TabcapError("not-found", "no xhr / fetch / document request with a response to build a chain for", "Pass the target explicitly: --request r-N.");
   return hit;

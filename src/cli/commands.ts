@@ -871,7 +871,7 @@ export const COMMANDS: CommandSpec[] = [
     path: ["analyze", "chain"],
     pos: ["bundle"],
     flags: [
-      { flag: "--request", key: "request", kind: "string", help: "target request (default: the last data-bearing xhr / fetch / document request)", metavar: "r-N" },
+      { flag: "--request", key: "request", kind: "string", help: "target request (default: the data-bearing xhr / fetch / document request that started last)", metavar: "r-N" },
       { flag: "--session", key: "bundleSession", kind: "string", help: "pick the default target among requests of this session name", metavar: "name" },
       { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON (the envelope's data is schema tabcap-chain/0)" },
     ],

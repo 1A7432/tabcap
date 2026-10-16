@@ -987,7 +987,7 @@ Example: `tabcap analyze chain ./b --request r-12`
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--request <r-N>` |  | target request (default: the last data-bearing xhr / fetch / document request) |
+| `--request <r-N>` |  | target request (default: the data-bearing xhr / fetch / document request that started last) |
 | `--session <name>` |  | pick the default target among requests of this session name |
 | `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-chain/0) |
 

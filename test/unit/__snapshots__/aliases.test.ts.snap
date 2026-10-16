@@ -4545,7 +4545,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": null,
           "flag": "--request",
-          "help": "target request (default: the last data-bearing xhr / fetch / document request)",
+          "help": "target request (default: the data-bearing xhr / fetch / document request that started last)",
           "key": "request",
           "repeatable": false,
           "required": false,

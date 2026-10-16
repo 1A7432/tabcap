@@ -10,7 +10,7 @@ import { CALLER_NAMES, DepsGraph, deps, depsFindings, depsOf, distinctive, isCal
 import { chain, chainOf, defaultTarget } from "../../src/analyze/chain.ts";
 import { run } from "../../src/cli/main.ts";
 import { isRecord } from "../../src/shared/json.ts";
-import { tmp } from "./_analyze.ts";
+import { buildBundle, tmp } from "./_analyze.ts";
 import { ACCESS_TOKEN, APP_VERSION, C, CSRF_HEX, HTML_TOKEN, PASSWORD, QUOTED, REPORTS, SECRET_REF, SIGNS, TYPED, buildClockSkew, buildFlows, buildReport, buildToken } from "./_deps.ts";
 import { SLOW_IO_MS } from "./_platform.ts";
 
@@ -232,6 +232,22 @@ describe("chain", () => {
     expect(c.steps.find((s) => s.request === id["items2"])?.needs.find((n) => n.name === "q")?.class).toBe("caller-input");
     expect(c.inputs.map((t) => [t.request, t.name])).toEqual([[id["items2"], "q"]]);
     expect(c.todo.some((t) => t.name === "q")).toBe(false);
+  });
+
+  test("default target: the one that started last, when the event order is the other way round (0.6-E)", async () => {
+    // planted: the login POST starts first (mono 5100) but its event is written last (its 302 body took
+    // longer); the data request starts later (mono 5300) and its event comes first
+    const M = 5000;
+    const dir = await buildBundle(join(root, "start-order"), { name: "start-order", created: C, seed: 18 }, async (b) => {
+      await b.request({ url: "http://127.0.0.1:4310/api/data", type: "fetch", mime: "application/json", body: '{"data":"ok"}', ts: C + 400, extra: { mono: M + 350, timing: { start: M + 300, responseStart: M + 340, end: M + 350, cdp: null } } });
+      await b.request({ url: "http://127.0.0.1:4310/api/login", method: "POST", type: "fetch", mime: "application/json", body: '{"ok":1}', postData: "user=u", ts: C + 500, extra: { mono: M + 450, timing: { start: M + 100, responseStart: M + 440, end: M + 450, cdp: null } } });
+    });
+    const g = DepsGraph.open(dir);
+    const [data, login] = g.requests;
+    expect([data?.url, login?.url]).toEqual(["http://127.0.0.1:4310/api/data", "http://127.0.0.1:4310/api/login"]);
+    expect((data?.seq ?? 0) < (login?.seq ?? 0)).toBe(true);
+    expect(defaultTarget(g).id).toBe(data?.id ?? "");
+    expect(chainOf(g, dir).target).toBe(data?.id ?? "");
   });
 
   test("default target: the last data-bearing xhr / fetch / document request", () => {
