@@ -21,7 +21,11 @@ import { browserStatus, browserStop } from "./tools/browser.ts";
 import { TOOLS } from "./tools/index.ts";
 import { scrubValue } from "./secrets.ts";
 import { listen, newToken, type Listening } from "./listener.ts";
+import { budgetBlock } from "./tools/pool.ts";
 import { CdpClosedError, CdpError, CdpTimeoutError } from "./transport/direct/cdp.ts";
+
+/** How often the daemon looks for proxies whose health check is due (pool.health.intervalS, down back-off). */
+const HEALTH_TICK_MS = 15_000;
 
 function toEnvelope(e: unknown): FailEnvelope {
   if (e instanceof CdpTimeoutError) return fail("timeout", e.message, "The browser did not answer in time; check the tab with `tabcap screenshot`, or retry.");
@@ -56,14 +60,16 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     setTimeout(shutdown, 50);
     return ok({ stopping: true, pid: process.pid });
   }
-  if (action === "daemon.status") return ok(statusData(d));
+  if (action === "daemon.status") return markFetchAuth(d, ok(statusData(d)));
   const known = TOOLS[action];
   if (known === undefined) return fail("usage", `unknown action: ${action}`, "Run `tabcap --help`.");
   // Sites may have been added by `tabcap site add` (another process) since the last command.
   d.refreshSecrets();
   // docs/05 s15: while the session waits for the human, nothing acts on the page.
   const blockedBy = d.guard.blocking(session, action, typeof args["url"] === "string" ? args["url"] : null);
-  const tool: typeof known = blockedBy === null ? known : () => Promise.reject(waitingError(blockedBy));
+  // 0.4-D: an account over its configured hourly budget does not act on pages either.
+  const overBudget = blockedBy === null ? budgetBlock(d, session, action) : null;
+  const tool: typeof known = blockedBy !== null ? () => Promise.reject(waitingError(blockedBy)) : overBudget !== null ? () => Promise.reject(overBudget) : known;
   const started = Date.now();
   // docs/04 §14: a `cmd` start event before the tool runs, an end event after;
   // everything the recorder writes in between carries cmd: "c-<start seq>".
@@ -97,6 +103,7 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   } catch (e) {
     env = toEnvelope(e);
   }
+  env = markFetchAuth(d, env);
   const durationMs = Date.now() - started;
   // Which app the human is in, for handing the foreground back when a page opens a window.
   d.browser?.t.noteFront();
@@ -117,6 +124,17 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     }
   }
   return env;
+}
+
+/**
+ * AGENTS.md: instrumentation is marked in the output. While the proxy auth
+ * handler (browser-level Fetch, 0.4-D) is on, every command output says
+ * `fetchAuth: "on"`.
+ */
+export function markFetchAuth(d: Daemon, env: Envelope<unknown>): Envelope<unknown> {
+  if (!d.pool.fetchAuth) return env;
+  if (!env.ok) return { ok: false, error: { ...env.error, fetchAuth: "on" } };
+  return isRecord(env.data) ? ok({ ...env.data, fetchAuth: "on" }) : env;
 }
 
 /** The wire form of every daemon answer: known secret values replaced (docs/04 §8.1). */
@@ -214,6 +232,11 @@ export async function runDaemon(paths: Paths): Promise<void> {
   // config/, see paths.ts; on Windows the port and the token).
   const info = unix ? { pid: process.pid, socket, startedAt: d.startedAt } : { pid: process.pid, ...bound.record, startedAt: d.startedAt };
   writeFileSync(paths.daemonInfo, JSON.stringify(info) + "\n", { mode: 0o600 });
+  // 0.4-D: periodic proxy health checks, only when config.json pool.health.url is set (owner rule 10-16).
+  const health = setInterval(() => {
+    void d.pool.healthTick(store).catch((e: unknown) => log.warn("pool: health check failed", { error: String(e) }));
+  }, HEALTH_TICK_MS);
+  health.unref();
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
   log.info("daemon listening", { ...bound.describe, pid: process.pid });

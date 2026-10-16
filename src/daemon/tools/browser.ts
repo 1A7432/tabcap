@@ -83,9 +83,13 @@ export async function browserStop(d: Daemon): Promise<unknown> {
     bundles.push(res.dir);
   }
   d.recorders.clear();
+  // 0.4-D: pool accounts' cookies go back to the store while the pipe is up
+  // (Chrome closes every tab within ~500 ms of the pipe dropping, spike 10-16).
+  if (d.store !== null) await d.pool.saveAll(d.store, b.t).catch((e: unknown) => log.warn("pool: saving cookies before shutdown failed", { error: String(e) }));
   d.browser = null;
   b.tabs.dispose();
   b.console.dispose();
+  d.pool.reset();
   await b.t.shutdown();
   return { stopped: true, pid: b.info.pid, bundles };
 }

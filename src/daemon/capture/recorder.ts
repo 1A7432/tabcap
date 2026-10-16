@@ -135,8 +135,16 @@ export type RecorderOptions = {
   console?: ConsoleLog | null;
   /** Known-secret replacement for page-provided text (console). */
   scrub?: (s: string) => string;
-  /** Store site and account bound to the session (`session start --site`), for the manifest. */
-  site?: { site: string; account: string | null } | null;
+  /** Store site, account and proxy bound to the session (`session start --site`), for the manifest. */
+  site?: { site: string; account: string | null; proxy: string | null } | null;
+  /**
+   * Applied to every line written to raw/cdp.jsonl and events.jsonl (known
+   * proxy credentials, 0.4-D: Chrome reports `Proxy-Authorization: Basic …`
+   * in Network.requestWillBeSentExtraInfo). Must keep the line valid JSON.
+   */
+  scrubOut?: (line: string) => string;
+  /** Called after every cookie `state` snapshot (the pool writes the account's cookies back). */
+  onCookieState?: () => void;
   /** Called once when the bundle is finished (store bundle index). */
   onFinished?: (dir: string) => void;
   /** docs/04 §5.2 rule 9 delay (tests shorten it); default UNREAD_AFTER_MS. */
@@ -195,9 +203,10 @@ export class Recorder {
           browser: { name: "Chrome for Testing", version: o.browser.version.replace(/^[^/]*\//, ""), userAgent: o.browser.userAgent },
           platform: `${process.platform}-${process.arch}`,
         },
-        session: { name: o.session, site: o.site?.site ?? null, account: o.site?.account ?? null },
+        session: { name: o.session, site: o.site?.site ?? null, account: o.site?.account ?? null, proxy: o.site?.proxy ?? null },
         mode: { capture: "mixed", trace: false, raw: true, humanRecorder: false },
       },
+      ...(o.scrubOut === undefined ? {} : { scrubLine: o.scrubOut }),
     });
     const raw = createWriteStream(join(o.dir, "raw", "cdp.jsonl"), { flags: "a", mode: 0o600 });
     const r = new Recorder(writer, raw, o);
@@ -244,6 +253,11 @@ export class Recorder {
     if (put.outcome !== "stored" || this.writerClosed) return;
     this.writer.append({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: bt, cmd: this.cmdRef(), ...cookieStateFields(stateOrigin(url), put.ref, cookies.length, reason) });
     this.stateCount++;
+    try {
+      this.opts.onCookieState?.();
+    } catch (e) {
+      log.warn("recorder: onCookieState failed", { error: String(e) });
+    }
   }
 
   /**
@@ -368,7 +382,8 @@ export class Recorder {
 
   private raw_(e: CdpEvent): void {
     if (!/^(Network|Fetch)\.|^Page\.(frameNavigated|navigatedWithinDocument)$/.test(e.method)) return;
-    this.raw.write(JSON.stringify({ t: nowMs(), sessionId: e.sessionId, method: e.method, params: e.params }) + "\n");
+    const line = JSON.stringify({ t: nowMs(), sessionId: e.sessionId, method: e.method, params: e.params });
+    this.raw.write((this.opts.scrubOut === undefined ? line : this.opts.scrubOut(line)) + "\n");
   }
 
   private onEvent(e: CdpEvent): void {
@@ -1025,12 +1040,13 @@ export class Recorder {
     return this.navOf.get(tabId) ?? null;
   }
 
-  /** Record the store site / account of the session in the manifest (docs/04 §7, §8.1). */
-  setSite(site: string | null, account: string | null): void {
+  /** Record the store site / account / proxy (names only) of the session in the manifest (docs/04 §7, §8.1). */
+  setSite(site: string | null, account: string | null, proxy: string | null = null): void {
     if (this.writerClosed) return;
     this.writer.updateManifest((m) => {
       m.session.site = site;
       m.session.account = account;
+      m.session.proxy = proxy;
     });
   }
 

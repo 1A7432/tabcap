@@ -53,6 +53,8 @@ export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 export class Tabs {
   readonly sessions = new Map<string, Session>();
   readonly tabs = new Map<string, Tab>();
+  /** Browser context of a session whose account goes out through a pool proxy (0.4-D); absent: the default context. */
+  readonly contexts = new Map<string, string>();
   private tabSeq = 0;
   private addedListeners = new Set<(tab: Tab) => Promise<void>>();
   private navListeners = new Set<(tab: Tab, e: CdpEvent) => void>();
@@ -170,7 +172,8 @@ export class Tabs {
   /** Open a new background tab for the session (about:blank, attached, domains enabled). */
   async createTab(sessionName: string, opts: { background?: boolean } = {}): Promise<Tab> {
     const { session } = this.ensureSession(sessionName);
-    const r = await this.t.send("Target.createTarget", { url: "about:blank", background: opts.background === true || !this.foreground });
+    const browserContextId = this.contexts.get(session.name);
+    const r = await this.t.send("Target.createTarget", { url: "about:blank", background: opts.background === true || !this.foreground, ...(browserContextId === undefined ? {} : { browserContextId }) });
     const targetId = str(r, "targetId");
     if (targetId === null) throw new TabcapError("cdp", "Target.createTarget returned no targetId", "Retry; if it persists restart the browser with `tabcap browser stop && tabcap browser start`.");
     const attached = await this.t.waitAttached(targetId, 10_000);

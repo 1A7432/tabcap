@@ -10,6 +10,7 @@ import type { DirectTransport } from "./transport/direct/index.ts";
 import { Guard } from "./guard.ts";
 import { Secrets } from "./secrets.ts";
 import type { Store } from "./store/db.ts";
+import { Pool } from "./pool/runtime.ts";
 
 export type BrowserInfo = {
   transport: "direct";
@@ -38,10 +39,18 @@ export type LastAction = { action: string; at: number; cmd: string | null };
 
 export type Running = { t: DirectTransport; tabs: Tabs; console: ConsoleLog; info: BrowserInfo };
 
-export type SiteBinding = { site: string; account: string | null };
+/** `proxy`: the pool proxy name the session goes out through (its own browser context), `system` / `none`, or null (unbound account). */
+export type SiteBinding = { site: string; account: string | null; proxy: string | null };
 
 export class Daemon {
   readonly secrets = new Secrets();
+  /**
+   * Proxy credentials only (0.4-D): replaced in everything the recorder
+   * writes (raw/cdp.jsonl, events.jsonl). Site passwords are not: the login
+   * POST body stays in the bundle as it was sent (docs/04 §8.1).
+   */
+  readonly proxySecrets = new Secrets();
+  readonly pool = new Pool();
   /** Credential store (docs/04 §8.1); null only in unit tests that do not need it. */
   store: Store | null = null;
   /** Store site bound to each session by `session start --site`. */
@@ -65,13 +74,18 @@ export class Daemon {
       siteOf: (s) => this.sites.get(s) ?? null,
       screenshot: (s, tab) => deps.screenshot?.(this, s, tab) ?? Promise.resolve(null),
       pageInfo: (s, tab) => deps.pageInfo?.(this, s, tab) ?? Promise.resolve({ url: null, title: null, text: null }),
+      onBreaker: (s) => this.coolAccount(s),
     });
     this.guard.recorder = (s) => this.recorders.get(s);
   }
 
   /** Re-read the store's secrets so replacement covers sites added since (`tabcap site add` runs in the CLI). */
   refreshSecrets(): void {
-    if (this.store !== null) this.secrets.setStored(this.store.knownSecrets());
+    if (this.store === null) return;
+    const all = this.store.knownSecrets();
+    this.secrets.setStored(all);
+    this.proxySecrets.setStored(all.filter((x) => x.ref.startsWith("proxy.")));
+    this.pool.reloadConfig(this.paths.configFile);
   }
 
   needStore(): Store {
@@ -99,6 +113,13 @@ export class Daemon {
     return this.actions.get(session) ?? null;
   }
 
+  /** docs/08 §3 0.4: a guard breaker in an account's session starts its 30-min cooling; returns coolUntil. */
+  coolAccount(session: string): number | null {
+    const b = this.sites.get(session);
+    if (b === undefined || b.account === null || this.store === null) return null;
+    return this.pool.startCooling(this.store, b.site, b.account);
+  }
+
   /** Called when the browser connection goes away for any reason. */
   async browserGone(): Promise<void> {
     for (const [name, r] of this.recorders) {
@@ -110,5 +131,6 @@ export class Daemon {
     this.browser?.tabs.dispose();
     this.browser?.console.dispose();
     this.browser = null;
+    this.pool.reset();
   }
 }
