@@ -786,6 +786,24 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap wire profile --samples 3",
     action: "wire.profile",
   },
+  {
+    path: ["wire", "probe"],
+    pos: [],
+    flags: [
+      SESSION,
+      { flag: "--timeout", key: "timeoutMs", kind: "number", help: "command timeout in ms (the first run of the client installs its packages with uv)", default: 300000, metavar: "ms" },
+      { flag: "--client", key: "client", kind: "string", help: "directory of a client from `tabcap replay export-python`", required: true, metavar: "dir" },
+      { flag: "--port", key: "port", kind: "number", help: "echo port on 127.0.0.1 (0: any free port)", default: 0, metavar: "port" },
+      { flag: "--samples", key: "samples", kind: "number", help: "samples when the baseline has to be captured", default: 3, metavar: "n" },
+      { flag: "--text", key: "text", kind: "bool", help: "print a table instead of JSON (the envelope's data is schema tabcap-wire/0)" },
+    ],
+    summary:
+      "compare the generated Python client with the browser baseline on the local echo: `uv run client.py wire-report` sends one GET to 127.0.0.1, then per layer (tls, h2, headers) same / differs / missing with the differing fields, and the checks against the profile; diagnostic only (says which layer differs, not why a site refused anything); with a recording open, one finding per differing layer",
+    example: "tabcap wire probe --client ./client --text",
+    action: "wire.probe",
+    localPaths: ["client"],
+  },
+  {
     path: ["fingerprint", "serve"],
     pos: [],
     flags: [

@@ -31,6 +31,7 @@ import { renderTraceText } from "../daemon/trace/table.ts";
 import { renderFingerprintText } from "../fingerprint/fields.ts";
 import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
 import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
+import { renderWireText, wireResultOf } from "../wire/probe.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -337,6 +338,11 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       if (key === "trace list" && parsed.args["text"] === true && env.ok) return { code, envelope: env, text: renderTraceText(env.data) };
       // `fingerprint probe --text`: the table is rendered here from the daemon's JSON.
       if (key === "fingerprint probe" && parsed.args["text"] === true && env.ok) return { code, envelope: env, text: renderFingerprintText(env.data) };
+      // `wire probe --text`: the tabcap-wire/0 result as a table.
+      if (key === "wire probe" && parsed.args["text"] === true && env.ok) {
+        const r = wireResultOf(env.data);
+        if (r !== null) return { code, envelope: env, text: renderWireText(r) };
+      }
       return { code, envelope: env };
     }
   }
