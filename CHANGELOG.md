@@ -23,6 +23,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 - Redaction rules `default@2` (`bundle redact`, HAR export, and the sensitive-name rule of `replay export-python` and `analyze deps`): `pass` and `pwd` are sensitive as a name segment (`pass`, `user_pass`, `userPass`, `login-pwd`, `Pwd2`; not `bypass`, `passport`, `compass`, `passenger`); the earlier substrings (`passw`, `token`, …) match as before. Redacted copies record `"rules": "default@2"`. Fixes `replay export-python --no-chain` writing the recorded value of a login field named `pass` into `client.py`.
 - The example site name in `--help`, the generated command reference, SKILL.md and the README is `example` (was `shop`).
 
+### Fixed
+
+- `emulate --network-conditions` now throttles on a session that is not recording: Chrome applies throttling only while the Network domain is on, so an emulated preset keeps it on for the tab until a later `emulate` clears it, and neither `wait --idle` nor `net stop` turns it off underneath. Measured on the range site: a 300 KB fetch under "Slow 3G" took about 8 s (lower bound 6 s from the preset's 50000 B/s) where it used to take 1 ms without a recording, and it stays throttled after `wait --idle` and after `net stop`.
+
 ## 0.3.0 (2026-10-16)
 
 ### Names aligned with Chrome DevTools MCP
