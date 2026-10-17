@@ -316,7 +316,13 @@ export function parsePackJson(text: string): PackEntry {
   } catch {
     throw new Error(`npm pack --json printed no JSON: ${text.slice(0, 200)}`);
   }
-  const e: unknown = Array.isArray(v) && v.length === 1 ? v[0] : null;
+  // npm 10 prints an array with one entry; npm 12 an object keyed by the package name.
+  let e: unknown = null;
+  if (Array.isArray(v) && v.length === 1) e = v[0];
+  else if (isRecord(v) && !Array.isArray(v)) {
+    const vals = Object.values(v);
+    if (vals.length === 1) e = vals[0];
+  }
   if (!isRecord(e)) throw new Error("npm pack --json: expected one package");
   const { name, version, filename, size, unpackedSize, files } = e;
   if (typeof name !== "string" || typeof version !== "string" || typeof filename !== "string" || typeof size !== "number" || typeof unpackedSize !== "number" || !Array.isArray(files)) {

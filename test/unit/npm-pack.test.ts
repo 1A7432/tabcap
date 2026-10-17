@@ -269,6 +269,11 @@ describe("npm pack --json output", () => {
   });
   test("anything else is refused, not trusted", () => {
     expect(() => parsePackJson("npm notice\n")).toThrow(/printed no JSON/);
+    // npm 12 prints an object keyed by the package name instead of a one-entry array
+    const arr = JSON.parse(entry([{ path: "package.json", mode: 0o644 }, { path: "bin/tabcap", mode: 0o755 }])) as unknown[];
+    const keyed = JSON.stringify({ [(arr[0] as { name: string }).name]: arr[0] });
+    expect(parsePackJson(keyed).files.map((f) => f.path)).toEqual(["package.json", "bin/tabcap"]);
+    expect(() => parsePackJson(JSON.stringify({ a: arr[0], b: arr[0] }))).toThrow(/expected one package/);
     expect(() => parsePackJson("[]")).toThrow(/expected one package/);
     expect(() => parsePackJson('[{"name":"x"}]')).toThrow(/missing name/);
     expect(() => parsePackJson(JSON.stringify([{ name: "x", version: "1", filename: "../x.tgz", size: 1, unpackedSize: 1, files: [] }]))).toThrow(/odd filename/);

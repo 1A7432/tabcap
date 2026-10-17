@@ -176,7 +176,8 @@ jobs:
         with:
           node-version: "22"
           registry-url: ${{ env.NPM_REGISTRY }}
-      - run: npm install -g npm@latest && npm --version && node --version
+      # npm 11 (trusted publishing needs 11.5.1+); npm 12 wants Node 22.22+ and changes `pack --json`.
+      - run: npm install -g npm@11 && npm --version && node --version
       - uses: actions/download-artifact@v4
         with:
           pattern: binary-*
