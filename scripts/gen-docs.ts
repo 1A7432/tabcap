@@ -1,17 +1,21 @@
 // `bun run gen:docs`: regenerate skills/tabcap/references/commands.md (the
 // full command reference) from the command registry (src/cli/commands.ts),
-// the same source as `--help` and `tabcap schema --json`. The READMEs are
-// written by hand and carry no generated table (they link to the reference).
-// test/unit/schema.test.ts fails when the committed file is out of date.
+// the same source as `--help` and `tabcap schema --json`, and (0.7-A)
+// skills/tabcap/references/guides.md from the task guides (src/cli/guides.ts),
+// the same source as `tabcap guide`. The READMEs are written by hand and carry
+// no generated table (they link to the reference).
+// test/unit/schema.test.ts fails when a committed file is out of date.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, groupedCommands, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
+import { GUIDES, type Guide } from "../src/cli/guides.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export const SKILL_DIR = "skills/tabcap";
 export const SKILL_FILE = `${SKILL_DIR}/SKILL.md`;
 export const REFERENCE_FILE = `${SKILL_DIR}/references/commands.md`;
+export const GUIDES_FILE = `${SKILL_DIR}/references/guides.md`;
 
 const cell = (s: string) => s.replace(/\|/g, "\\|");
 
@@ -71,16 +75,64 @@ export function referenceDoc(): string {
     .concat("\n");
 }
 
-/** The generated files as they should be (today only the skill reference). */
-export function generatedDocs(root: string = ROOT): { file: string; current: string; wanted: string }[] {
-  const ref = join(root, REFERENCE_FILE);
-  let current = "";
+/** A reference path of a guide (relative to the skill directory) as a link from inside references/. */
+function readLink(path: string): string {
+  const rel = path.replace(/^references\//, "");
+  return `[${rel}](${rel})`;
+}
+
+function guideSection(g: Guide): string {
+  return [
+    `## \`${g.id}\`: ${g.title}`,
+    "",
+    `When: ${g.when}`,
+    "",
+    "```sh",
+    ...g.steps.flatMap((st, i) => [...(i === 0 ? [] : [""]), `# ${i + 1}. ${st.why}`, st.cmd]),
+    "```",
+    "",
+    "Watch:",
+    "",
+    ...g.watch.map((w) => `- ${w}`),
+    "",
+    `Read: ${g.read.map(readLink).join(", ")}`,
+  ].join("\n");
+}
+
+/** The task guides for the skill (references/guides.md), from src/cli/guides.ts. */
+export function guidesDoc(): string {
+  return [
+    "<!-- GENERATED from src/cli/guides.ts by `bun run gen:docs`; do not edit by hand. -->",
+    "",
+    "# tabcap task guides",
+    "",
+    "Task-first entry points: which commands a task needs, in what order, and the pitfalls that are easy to miss. The same text is in the binary: `tabcap guide` lists the guides, `tabcap guide <id>` gives one as JSON, `--text` as a numbered shell block; over MCP `tabcap_help {guide: \"<id>\"}` (`\"\"` lists them). Example values (`example`, `e5`, `r-12`, `./b`) stand for yours.",
+    "",
+    "| Guide | When to use it |",
+    "|---|---|",
+    ...GUIDES.map((g) => `| \`${g.id}\`: ${cell(g.title)} | ${cell(g.when)} |`),
+    "",
+    ...GUIDES.map((g) => `${guideSection(g)}\n`),
+  ]
+    .join("\n")
+    .trimEnd()
+    .concat("\n");
+}
+
+function readOr(file: string): string {
   try {
-    current = readFileSync(ref, "utf8");
+    return readFileSync(file, "utf8");
   } catch {
-    current = "";
+    return "";
   }
-  return [{ file: REFERENCE_FILE, current, wanted: referenceDoc() }];
+}
+
+/** The generated files as they should be: the command reference and the task guides. */
+export function generatedDocs(root: string = ROOT): { file: string; current: string; wanted: string }[] {
+  return [
+    { file: REFERENCE_FILE, current: readOr(join(root, REFERENCE_FILE)), wanted: referenceDoc() },
+    { file: GUIDES_FILE, current: readOr(join(root, GUIDES_FILE)), wanted: guidesDoc() },
+  ];
 }
 
 if (import.meta.main) {

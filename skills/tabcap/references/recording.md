@@ -107,7 +107,7 @@ tabcap net stop
 
 ## Names from Chrome DevTools MCP
 
-The command and option names follow the Chrome DevTools MCP tools, so most map one to one: `navigate_page` → `navigate` / `go` / `reload`, `new_page` → `tab new`, `list_pages` / `select_page` → `tab list` / `tab select`, `take_snapshot` → `snapshot`, `click` / `hover` / `fill` / `type_text` / `press_key` / `upload_file` → `click` / `hover` / `fill` / `type` / `press-key` / `upload`, `wait_for` → `wait --text`, `evaluate_script` → `evaluate`, `take_screenshot` → `screenshot`, `list_console_messages` / `get_console_message` → `console list` / `console show`, `list_network_requests` / `get_network_request` → `net list` / `net show`, `emulate`, `resize_page` → `resize`, `handle_dialog` → `dialog`. The three differences (refs are not uids, `net list` hides failed and `data:` requests, `--snapshot` is optional) are in SKILL.md.
+The command and option names follow the Chrome DevTools MCP tools, so most map one to one: `navigate_page` → `navigate` / `go` / `reload`, `new_page` → `tab new`, `list_pages` / `select_page` → `tab list` / `tab select`, `take_snapshot` → `snapshot`, `click` / `hover` / `fill` / `type_text` / `press_key` / `upload_file` → `click` / `hover` / `fill` / `type` / `press-key` / `upload`, `wait_for` → `wait --text`, `evaluate_script` → `evaluate`, `take_screenshot` → `screenshot`, `list_console_messages` / `get_console_message` → `console list` / `console show`, `list_network_requests` / `get_network_request` → `net list` / `net show`, `emulate`, `resize_page` → `resize`, `handle_dialog` → `dialog`. The three differences (refs are not uids, `net list` hides failed and `data:` requests, `--snapshot` is optional) are in [devtools-mcp.md](devtools-mcp.md).
 
 ## Error codes
 

@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COMMANDS, SCHEMA_ID, helpAll, schema } from "../../src/cli/commands.ts";
 import { run } from "../../src/cli/main.ts";
-import { REFERENCE_FILE, ROOT, generatedDocs } from "../../scripts/gen-docs.ts";
+import { GUIDES_FILE, REFERENCE_FILE, ROOT, generatedDocs } from "../../scripts/gen-docs.ts";
+import { GUIDES } from "../../src/cli/guides.ts";
 
 const pkg: unknown = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const pkgVersion = typeof pkg === "object" && pkg !== null && "version" in pkg ? pkg.version : null;
@@ -60,7 +61,8 @@ describe("tabcap schema", () => {
 });
 
 describe("generated docs (bun run gen:docs)", () => {
-  test("the skill's references/commands.md is up to date with the registry", () => {
+  test("the skill's references/commands.md and references/guides.md are up to date with their registries", () => {
+    expect(generatedDocs().map((d) => d.file)).toEqual([REFERENCE_FILE, GUIDES_FILE]);
     for (const d of generatedDocs()) {
       if (d.current !== d.wanted) throw new Error(`${d.file} is out of date: run \`bun run gen:docs\` and commit the result`);
     }
@@ -77,5 +79,14 @@ describe("generated docs (bun run gen:docs)", () => {
       expect(readme).toContain("skills/tabcap/references/commands.md");
     }
     for (const doc of [ref]) expect(doc).not.toMatch(/[Dd]eprecated/);
+  });
+
+  test("references/guides.md has every guide with every step command (0.7-A)", () => {
+    const doc = readFileSync(join(ROOT, GUIDES_FILE), "utf8");
+    expect(doc.startsWith("<!-- GENERATED from src/cli/guides.ts")).toBe(true);
+    for (const g of GUIDES) {
+      expect(doc).toContain(`## \`${g.id}\`: ${g.title}`);
+      for (const s of g.steps) expect(doc).toContain(`\n${s.cmd}\n`);
+    }
   });
 });

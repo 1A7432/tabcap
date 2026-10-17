@@ -49,13 +49,14 @@ describe("skills/tabcap", () => {
   test("SKILL.md is at most 8 KB and links every topic file under references/ (0.5-C)", () => {
     const text = readFileSync(join(ROOT, SKILL_DIR, "SKILL.md"), "utf8");
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(8192);
-    for (const topic of ["recording", "analysis", "pools", "trace-and-probes", "replay", "mcp", "commands"]) expect(text).toContain(`(references/${topic}.md)`);
+    for (const topic of ["guides", "recording", "analysis", "pools", "trace-and-probes", "replay", "mcp", "devtools-mcp", "commands"]) expect(text).toContain(`(references/${topic}.md)`);
     expect(text).toContain("Read `file` when you need the rest");
     expect(text.split("\n## Cheat-sheet")[1]?.split("```sh\n")[1]?.split("```")[0]?.trim().split("\n").length).toBe(10);
   });
 
-  test("SKILL.md states the three differences from Chrome DevTools MCP (docs/08 §5)", () => {
-    const text = readFileSync(join(ROOT, SKILL_DIR, "SKILL.md"), "utf8");
+  test("the three differences from Chrome DevTools MCP (docs/08 §5): named in SKILL.md, explained in references/devtools-mcp.md (0.7-A)", () => {
+    expect(readFileSync(join(ROOT, SKILL_DIR, "SKILL.md"), "utf8")).toContain("[Coming from Chrome DevTools MCP](references/devtools-mcp.md): refs are not uids, `net list` hides failed and `data:` requests, `--snapshot` is optional.");
+    const text = readFileSync(join(ROOT, SKILL_DIR, "references", "devtools-mcp.md"), "utf8");
     expect(text).toContain("**Refs are not uids.**");
     expect(text).toContain("**`net list` hides failed requests and `data:` URLs by default**");
     expect(text).toContain("**`--snapshot` is optional.**");

@@ -9,9 +9,9 @@ license: Apache-2.0
 
 `tabcap` runs a background daemon that owns its own Chrome for Testing (own profile). Every command prints exactly **one JSON envelope** on stdout: `{"ok":true,"data":{…}}` or `{"ok":false,"error":{"code","message","next"}}`. When `ok` is false, **do what `error.next` says**; do not guess around it.
 
-Read more only when the task needs it: [recording](references/recording.md), [search](references/search.md) (snapshot grep / css / subtree, `html`, body lines, `net grep`) (tabs, page reading, acting, waiting, `net`), [analysis](references/analysis.md) (`where`, `recon`, `analyze`), [replay](references/replay.md), [pools](references/pools.md) (sites, accounts, proxies, plugins), [trace and probes](references/trace-and-probes.md), [MCP](references/mcp.md). Every option: [references/commands.md](references/commands.md), `tabcap help <command>`.
+Read more only when the task needs it: [task guides](references/guides.md), [recording](references/recording.md) (tabs, page reading, acting, waiting, `net`), [search](references/search.md) (snapshot grep / css / subtree, `html`, body lines, `net grep`), [analysis](references/analysis.md) (`where`, `recon`, `analyze`), [replay](references/replay.md), [pools](references/pools.md) (sites, accounts, proxies, plugins), [trace and probes](references/trace-and-probes.md), [MCP](references/mcp.md). Every option: [references/commands.md](references/commands.md), `tabcap help <command>`. [Coming from Chrome DevTools MCP](references/devtools-mcp.md): refs are not uids, `net list` hides failed and `data:` requests, `--snapshot` is optional.
 
-Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--proxy none` blocks everything but 127.0.0.1 / localhost). On `not-running`, run the two start commands.
+Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--proxy none` blocks everything but 127.0.0.1 / localhost). On `not-running`, run the two start commands. Then **`tabcap guide`** lists task recipes; `tabcap guide <id> --text` prints one: the commands in order, why, the pitfalls.
 
 ## Rules
 
@@ -26,15 +26,19 @@ Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--p
 
 ## Output budget
 
-Large things come back as **file paths** (screenshots, bodies, `snapshot --file-path`). Any answer whose `data` is over `TABCAP_OUTPUT_LIMIT` (16384 bytes) comes back as `{summary, file, bytes, truncated: true}`: the summary keeps the counts, `file` holds the whole `data` as JSON. **Read `file` when you need the rest**, or ask for less on the command itself: `--select <path>` (`requests[*].url`), `--grep <regex>` (`--context n`), `--fields a,b`; `--full` prints everything. `net list` / `console list` page 30 rows (`nextPageIdx`);
+Large things come back as **file paths** (screenshots, bodies, `snapshot --file-path`). Any answer whose `data` is over `TABCAP_OUTPUT_LIMIT` (16384 bytes) comes back as `{summary, file, bytes, truncated: true}`: the summary keeps the counts, `file` holds the whole `data` as JSON. **Read `file` when you need the rest**, or ask for less on the command itself: `--select <path>` (`requests[*].url`), `--grep <regex>` (`--context n`), `--fields a,b`; `--full` prints everything. `net list` / `console list` page 30 rows (`nextPageIdx`).
 
-## Record → analyse → replay
+## Tasks
 
-1. Record: `net start`, use the site (`navigate`, `snapshot --interactive`, `click` / `fill`, `wait --text …`, `net wait --url …`), `net stop`. Action commands return a `cmd` id; `net list --since c-41` is what that action caused.
-   Scrape with `net start --bodies api+script` + `tabcap fetch <url> …` (by the logged-in tab; `--batch`, `--stop-on`, ≥ 3 s/host; on `guard.stopped` decide with the user). See [recording](references/recording.md).
-2. Analyse: `where <ref|value>` (which response carries a shown value), `recon` (stack, data channels, cookies, protection), `analyze deps <bundle>` / `analyze chain <bundle> --request r-N` (where every input comes from). Encoded bodies: decode plugin views are read (chain `plugin:<name>`; `bundle decode` adds them later). Field drift: `analyze schema-diff <old> <new>` ([analysis](references/analysis.md)).
-3. Replay: `replay serve <bundle>` (`--rules`: volatile params, encoded bodies), `replay export-python <bundle> -o ./client`, then `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.**
-4. Hand the live session to the user's script: while recording, `session export --for httpx --out ./example_session.py` (or `requests` / `playwright`) writes cookies, the page's auth headers and storage tokens to a 0600 file, answering counts only. Never print, commit or share that file. Details: [replay](references/replay.md).
+**First look at a site.** `navigate` → `snapshot --interactive` → `net start` → `click` / `fill` → `net list --resource-types xhr,fetch` → `net body r-N` → `where <ref>` (which response carries a shown value). An action's `cmd` id: `net list --since c-41` is what it caused. `tabcap guide first-look`
+
+**Scrape through the logged-in tab.** `session start <name> --site <site>`, log in once with `fill --secret` (below), `net start --bodies api+script`, then `tabcap fetch <url>` (`--batch`, `--stop-on`; scripts: `POST /fetch`). 3 s per host, no flag to skip; `fetch.blocked` with a wildcard `Access-Control-Allow-Origin` → `--credentials omit`; on `guard.stopped` decide with the user. `session export --for httpx --out <file>` hands the session to a script (0600; never print or share it). `tabcap guide scrape-through-browser`
+
+**Encrypted API bodies.** A decode plugin when the key is known (template: `templates/plugins/decode-python/` in the package), else observe the page's own decryption (a diagnostic mode that slows the page: tell the user first). Plugin views outrank page views; `net body` shows the decoded view, `--raw` the original. `tabcap guide encrypted-site`
+
+**Offline replay.** After `net stop`: `analyze chain <bundle> --request r-N` (where each input comes from), a rules file (`ignoreQuery`, `body`, `"prefer": "2xx"` when a key was 403 then 200) → `replay serve <bundle> --rules <file>`, `bundle export fixtures`, `replay export-python <bundle> --out ./client` → `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.** `tabcap guide offline-replay`
+
+**Login with a challenge.** Credentials by reference, the `waiting` hand-off (below); image captcha lines are advisory. `tabcap guide login-with-challenge`
 
 ## Credentials
 
@@ -51,14 +55,6 @@ tabcap fill e6 --secret example.password --session example   # you get "value":"
 ## Handoff (`waiting`)
 
 While `net start` records, a challenge (e.g. an HTML 403 "please verify" page) trips the guard: the session goes to `waiting`, a screenshot is taken, and every command that acts on the page fails with `{"code":"waiting","reason":"verify-page","screenshot":"…","next":"…"}`. Stop, tell the user the reason and the screenshot path, and wait. Read-only commands still work and carry a `handoff` field. When the user says they are done, run `tabcap handoff continue`; never on your own.
-
-## If you know Chrome DevTools MCP
-
-Names follow its tools (`take_snapshot` → `snapshot`, `list_network_requests` → `net list` …). Three things differ:
-
-1. **Refs are not uids.** A ref (`e12`, `f2/e7` in a frame) comes from `snapshot` or `find` and is bound to one node in one document; after a navigation or re-render the command fails with `stale-ref` — take a new snapshot.
-2. **`net list` hides failed requests and `data:` URLs by default**, but counts them in `hidden: {failed, data}`; `--failed` shows only those, `--all` everything.
-3. **`--snapshot` is optional.** `click`, `hover`, `fill`, `type`, `press-key`, `upload` return a fresh snapshot only with `--snapshot`.
 
 ## Cheat-sheet
 
