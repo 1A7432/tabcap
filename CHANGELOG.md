@@ -2,7 +2,9 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.7.0 (2026-10-17)
+
+First public release. 0.6.0 below was built and tested but never published; everything in it ships here.
 
 ### Task guides (0.7-A)
 
