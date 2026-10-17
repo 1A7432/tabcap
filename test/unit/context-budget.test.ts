@@ -63,8 +63,8 @@ describe("applyBudget", () => {
     expect(out.file.startsWith(join(dir, "outputs") + "/")).toBe(true);
     expect(out.file).toMatch(/\/\d{8}-\d{6}-analyze-find\.json$/);
     if (process.platform !== "win32") expect(statSync(out.file).mode & 0o777).toBe(0o600);
-    // generic summary: scalars kept, arrays / objects / long strings by their length
-    expect(out.summary).toEqual({ schema: "x/0", bundle: "/b", ok: true, n: 3, items: 400, meta: 2, long: 500 });
+    // generic summary: scalars kept, arrays / objects / long strings by their length; analyze find adds its own (0.7-C)
+    expect(out.summary).toMatchObject({ schema: "x/0", bundle: "/b", ok: true, n: 3, items: 400, meta: 2, long: 500, hitCount: 0, hits: [] });
   });
 
   test("--full, exempt commands and a limit of Infinity print everything", async () => {
@@ -111,14 +111,14 @@ describe("summaries", () => {
       unresolved: [{}, {}, {}],
       warnings: [],
     };
-    expect(summaryOf("analyze deps", data)).toEqual({ schema: "tabcap-deps/0", bundle: "/b", requests: 2, edges: 1, unresolved: 3, warnings: 0, inputs: { "r-1": 2, "r-2": 0 } });
+    expect(summaryOf("analyze deps", data)).toEqual({ schema: "tabcap-deps/0", bundle: "/b", requests: 2, edges: 1, unresolved: 3, warnings: 0, inputs: { "r-1": 2, "r-2": 0 }, inputCount: 2, unresolvedFirst: [{}, {}, {}] });
   });
 
   test("recon: the dossier summary block; trace list: API × script counts; where: the top 5 candidates", () => {
     const recon = { dossier: "/b/exports/dossier.json", markdown: "/b/exports/dossier.md", receipt: { dossier: "exports/dossier.json" }, page: { url: "u" }, summary: { channels: 4, requests: 9 }, warnings: [] };
     expect(summaryOf("recon", recon)).toMatchObject({ dossier: "/b/exports/dossier.json", summary: { channels: 4, requests: 9 }, page: { url: "u" } });
     const trace = { session: "s", rows: [{ api: "navigator.userAgent", access: "get", script: "https://x/a.js", count: 3, documents: 1, callers: [{}], truncated: false, value: true }], totals: { rows: 1, reads: 3 } };
-    expect(summaryOf("trace list", trace)).toEqual({ session: "s", rows: [{ api: "navigator.userAgent", script: "https://x/a.js", count: 3 }], totals: { rows: 1, reads: 3 } });
+    expect(summaryOf("trace list", trace)).toEqual({ session: "s", rowCount: 1, rows: [{ api: "navigator.userAgent", script: "https://x/a.js", count: 3 }], totals: { rows: 1, reads: 3 } });
     const cands = Array.from({ length: 8 }, (_, i) => ({ request: `r-${i}`, chain: [], match: "exact", score: 1 - i / 10 }));
     const where = summaryOf("where", { schema: "tabcap-where/0", query: { input: "1", kind: "text", text: "1" }, normalized: [], candidates: cands });
     expect(where["candidates"]).toEqual(cands.slice(0, 5));
