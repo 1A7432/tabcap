@@ -18,7 +18,7 @@ tabcap is the workbench for that loop. The agent explores and repeats; you provi
 
 ## Quick start
 
-**1. Install.** Download the package for your platform from the release page (`tabcap-v<version>-darwin-arm64.tar.gz`, `-linux-x64.tar.gz`, `-linux-arm64.tar.gz` or `-windows-x64.zip`; checksums in `SHA256SUMS`), unpack it and put `tabcap` (`tabcap.exe` on Windows) on your `PATH`. On macOS, after a browser download, run `xattr -d com.apple.quarantine tabcap` once. Or build from source: Bun 1.4 or newer, then `bun install && bun run build`.
+**1. Install.** Download the package for your platform from the release page (`tabcap-v<version>-darwin-arm64.tar.gz`, `-linux-x64.tar.gz`, `-linux-arm64.tar.gz` or `-windows-x64.zip`; checksums in `SHA256SUMS`), unpack it and put `tabcap` (`tabcap.exe` on Windows) on your `PATH`. On macOS, after a browser download, run `xattr -d com.apple.quarantine tabcap` once. Or build from source: with Bun 1.4 or newer and Zig 0.16.0, run `bun install && bun scripts/native.ts build` (the wire component tabcap embeds), then `bun run build`.
 
 **2. Get a browser and start.**
 
