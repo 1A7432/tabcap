@@ -178,6 +178,12 @@ function fakeRunner(calls: Call[], path: string) {
   };
 }
 
+// The clients below hand their result over (and close) on the next macrotask, never
+// inside a TLS socket's own `end` callback: there, the test's continuation (and this
+// afterEach tearing the echo down) ran nested in Bun's TLS data handler, and Bun 1.4.2
+// on Windows segfaulted in it now and then (us_internal_ssl_on_data ->
+// us_internal_ssl_close; CI 0.7-F: 1-10 of 20 runs of the four echo tests crashed,
+// 0 of 60 with the hand-over deferred; Bun 1.4.3 crashed as well).
 let echo: Echo | null = null;
 afterEach(async () => {
   await echo?.stop();
@@ -193,7 +199,10 @@ function h1Get(port: number, path: string, onSession?: () => void): Promise<{ bo
     const localPort = () => s.localPort ?? -1;
     let got = "";
     s.on("data", (d: Buffer) => (got += d.toString("utf8")));
-    s.on("end", () => resolve({ body: got.slice(got.indexOf("\r\n\r\n") + 4), localPort: localPort() }));
+    s.on("end", () => {
+      const v = { body: got.slice(got.indexOf("\r\n\r\n") + 4), localPort: localPort() };
+      setImmediate(() => resolve(v)); // out of the TLS callback (see afterEach)
+    });
     s.on("error", reject);
   });
 }
@@ -239,10 +248,13 @@ describe("echo: relay, correlation, answers", () => {
       let got = "";
       req.setEncoding("utf8");
       req.on("data", (d: string) => (got += d));
-      req.on("end", () => {
-        c.close();
-        resolve(got);
-      });
+      // out of the TLS callback (see afterEach)
+      req.on("end", () =>
+        setImmediate(() => {
+          c.close();
+          resolve(got);
+        }),
+      );
       req.on("error", reject);
       req.end();
     });
