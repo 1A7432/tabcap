@@ -68,7 +68,7 @@ describe("generated package", () => {
     expect(readFileSync(join(out, ".gitignore"), "utf8")).toBe("mine\n");
   });
 
-  test("--no-chain: a login form field named `pass` is a secret input; its recorded value is written nowhere (default@2)", () => {
+  test("--no-chain: a login form field named `pass` is a secret input; its recorded value is written nowhere (default@3)", () => {
     const out = join(root, "py-pass");
     const r = exportPython({ bundle, out, chain: false });
     const recorded = new URLSearchParams(LOGIN_BODY).get("pass") ?? "?";

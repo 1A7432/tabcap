@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { CALLER_NAMES, DepsGraph, deps, depsFindings, depsOf, distinctive, isCallerInput, jsonLeafName, plainValue, unwrapHeaderValue, type DepsInput, type DepsResult } from "../../src/analyze/deps.ts";
-import { chain, chainOf, defaultTarget } from "../../src/analyze/chain.ts";
+import { chain, chainOf, defaultTarget, renderChainText } from "../../src/analyze/chain.ts";
 import { run } from "../../src/cli/main.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { buildBundle, tmp } from "./_analyze.ts";
@@ -280,6 +280,15 @@ describe("CLI", () => {
     expect((await run(["analyze", "chain", flows, "--json"])).code).toBe(2);
     const cd = cj.envelope.ok ? cj.envelope.data : null;
     expect(isRecord(cd) && cd["schema"]).toBe("tabcap-chain/0");
+  });
+
+  test("0.7-E: chain --text shows a CAS return URL's ticket as <redacted:ticket>; the JSON keeps the recorded URL", () => {
+    const url = "https://sso.example.test/app/return?ticket=ST-77-secret&lang=zh";
+    const res = { schema: "tabcap-chain/0" as const, bundle: "./b", target: "r-2", steps: [{ id: "r-2", method: "GET", url, provides: [], needs: [] }], todo: [], inputs: [], warnings: [] };
+    const text = renderChainText(res);
+    expect(text).toContain("r-2 GET https://sso.example.test/app/return?ticket=<redacted:ticket>&lang=zh");
+    expect(text).not.toContain("ST-77-secret");
+    expect(res.steps[0]?.url).toBe(url);
   });
 
   test("the bundle is read-only unless --write-findings; findings: 实测 for re-read exact sources, 推断 otherwise, no values", async () => {

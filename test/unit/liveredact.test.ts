@@ -1,5 +1,5 @@
 // 0.6-E live output redaction (src/daemon/tools/liveredact.ts). Oracle: the
-// `bundle redact` name rule default@2 as docs/04 §8 states it (sensitive
+// `bundle redact` name rule default@3 as docs/04 §8 states it (sensitive
 // header set + name parts; names with token / secret / passw / session / sid /
 // auth / api key, pass / pwd as a segment) and the s07 shapes of docs/05
 // (`x-csrf` is not sensitive; the `sid` cookie and `Authorization` are).
@@ -67,6 +67,8 @@ describe("URLs and bodies", () => {
     expect(redactUrl("https://h/a?token=t1&page=2&q=a%20b&user_pass=x&bypass=y#frag", plain)).toBe("https://h/a?token=<redacted:token>&page=2&q=a%20b&user_pass=<redacted:user_pass>&bypass=y#frag");
     expect(redactUrl("https://h/a?api%5Fkey=1", plain)).toBe("https://h/a?api%5Fkey=<redacted:api_key>");
     expect(redactUrl("https://h/a", plain)).toBe("https://h/a");
+    // default@3 (0.7-E): a CAS return URL's service ticket
+    expect(redactUrl("https://h/login/return?ticket=ST-1-abc&next=%2Fhome", plain)).toBe("https://h/login/return?ticket=<redacted:ticket>&next=%2Fhome");
     expect(redactUrl("https://h/a?&&=x&sid", plain)).toBe("https://h/a?&&=x&sid");
   });
 
@@ -137,7 +139,8 @@ describe("recon dossier", () => {
     };
     const r = redactDossier(base, plain);
     expect(r.page.url).toBe("http://h/p?access_token=<redacted:access_token>&tab=2");
-    expect(r.protection[0]).toMatchObject({ url: "http://h/v?ticket=1&sessionId=<redacted:sessionId>" });
+    // default@3 (0.7-E): ticket is a sensitive name now
+    expect(r.protection[0]).toMatchObject({ url: "http://h/v?ticket=<redacted:ticket>&sessionId=<redacted:sessionId>" });
     expect({ ...r, page: base.page, protection: base.protection }).toEqual(base);
   });
 });

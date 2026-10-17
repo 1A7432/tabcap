@@ -19,6 +19,7 @@
 
 import { TabcapError } from "../shared/envelope.ts";
 import type { RequestEvent } from "../bundle/types.ts";
+import { redactUrl } from "../daemon/tools/liveredact.ts";
 import { DepsGraph, type DepsClass, type InputLocation } from "./deps.ts";
 import type { StepName } from "./decoders.ts";
 
@@ -182,10 +183,16 @@ export function chain(bundleDir: string, opts: ChainOptions = {}): ChainResult {
 
 const label = (t: { location: string; name: string; path?: string }) => `${t.location} ${t.path ?? t.name}`;
 
+/**
+ * `analyze chain --text`. 0.7-E: step URLs show sensitive query parameters as
+ * `<redacted:name>` (the docs/04 §8.3 URL rule; a CAS `ticket=` in a login
+ * return URL); the JSON answer keeps the URLs as recorded (export-python reads it).
+ */
 export function renderChainText(r: ChainResult): string {
   const lines = [`chain to ${r.target} in ${r.bundle}: ${r.steps.length} step(s), ${r.todo.length} TODO, ${r.inputs.length} caller input(s)`];
   r.steps.forEach((s, i) => {
-    lines.push("", `${i + 1}. ${s.id} ${s.method} ${s.url.length > 100 ? s.url.slice(0, 99) + "…" : s.url}`);
+    const url = redactUrl(s.url, { scrub: (x) => x });
+    lines.push("", `${i + 1}. ${s.id} ${s.method} ${url.length > 100 ? url.slice(0, 99) + "…" : url}`);
     for (const p of s.provides) lines.push(`   provides ${p.kind === "set-cookie" ? `set-cookie ${p.cookie ?? ""}` : `response ${p.path ?? "(text)"}`} → ${p.to.request} ${label(p.to)}${p.prefix === undefined ? "" : ` (prefix ${JSON.stringify(p.prefix)})`}`);
     for (const n of s.needs) {
       const extra = [n.hints.length > 0 ? `[${n.hints.join(",")}]` : "", n.covaries.length > 0 ? `varies with ${n.covaries.join(", ")}` : "", n.via === undefined ? "" : `via ${n.via}`].filter((x) => x !== "").join(" ");
