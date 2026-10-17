@@ -1193,6 +1193,20 @@ Example: `tabcap schema --json`
 
 ## Other
 
+### `tabcap status`
+
+everything at once: daemon, browser, sessions (site, recording, waiting, trace, fetch stops), plugins, and conflicts with the next command
+
+```
+tabcap status [--text]
+```
+
+Example: `tabcap status --text`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--text` |  | print one screen (a line per session, then the conflicts) instead of JSON |
+
 ### `tabcap proxy add`
 
 add a proxy to the local store (state.db, 0600) for the account pool: the password is typed at a prompt (recommended: by the human) or piped with --password-stdin, never passed as an argument, and never shown in tabcap output
