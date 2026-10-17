@@ -26,6 +26,7 @@ import { listen, newToken, type Listening } from "./listener.ts";
 import { budgetBlock } from "./tools/pool.ts";
 import { CdpClosedError, CdpError, CdpTimeoutError } from "./transport/direct/cdp.ts";
 import { TRACE_PAUSED_NOTE } from "./trace/tracer.ts";
+import { statusOf, type StatusDaemon } from "./tools/status.ts";
 
 /** How often the daemon looks for proxies whose health check is due (pool.health.intervalS, down back-off). */
 const HEALTH_TICK_MS = 15_000;
@@ -71,6 +72,8 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     return ok({ stopping: true, pid: process.pid });
   }
   if (action === "daemon.status") return markFetchAuth(d, ok(statusData(d)));
+  // 0.7-B: read-only and daemon-wide, so it opens no cmd window and is never refused while a session waits.
+  if (action === "status") return markFetchAuth(d, ok(statusOf(d, daemonFacts(d))));
   const known = TOOLS[action];
   if (known === undefined) return fail("usage", `unknown action: ${action}`, "Run `tabcap --help`.");
   // Sites may have been added by `tabcap site add` (another process) since the last command.
@@ -212,6 +215,19 @@ export function scrubbedBody(d: Daemon, env: Envelope<unknown>): string {
 }
 
 let listening: Listening["describe"] | null = null;
+
+/** The process part of `tabcap status` (0.7-B). */
+function daemonFacts(d: Daemon): StatusDaemon {
+  return {
+    running: true,
+    pid: process.pid,
+    version: TOOL_VERSION,
+    listener: d.paths.listener,
+    socket: d.paths.listener === "unix" ? d.paths.socket : null,
+    ...(listening !== null && listening.listener === "tcp" ? { port: listening.port } : {}),
+    startedAt: d.startedAt,
+  };
+}
 
 function statusData(d: Daemon): unknown {
   return {

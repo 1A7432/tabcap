@@ -2,6 +2,7 @@
 
 exports[`tools/list: the default core set the listed commands, then tabcap_handoff_wait, tabcap_run, tabcap_help (snapshot); the server lists it by default 1`] = `
 [
+  "tabcap_status",
   "tabcap_session_start",
   "tabcap_session_stop",
   "tabcap_session_list",
@@ -21,7 +22,6 @@ exports[`tools/list: the default core set the listed commands, then tabcap_hando
   "tabcap_net_body",
   "tabcap_net_show",
   "tabcap_wait",
-  "tabcap_handoff_status",
   "tabcap_handoff_continue",
   "tabcap_handoff_wait",
   "tabcap_run",
@@ -36,6 +36,7 @@ exports[`tools/list --all-tools: generated from the command table tool names (sn
   "tabcap_daemon_start",
   "tabcap_daemon_stop",
   "tabcap_daemon_status",
+  "tabcap_status",
   "tabcap_browser_start",
   "tabcap_browser_stop",
   "tabcap_browser_status",

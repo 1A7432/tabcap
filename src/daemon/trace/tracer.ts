@@ -1348,6 +1348,16 @@ export class Tracer {
     return this.stopped;
   }
 
+  /** 0.7-B `tabcap status`: the observe mode (`--decode`) is on. */
+  get observing(): boolean {
+    return this.opts.decode;
+  }
+
+  /** 0.7-B `tabcap status`: observe rows filed with `evidence.link: "weak"` so far. */
+  get weakRowCount(): number {
+    return this.weakRows;
+  }
+
   status(): Record<string, unknown> {
     const docs = this.book.summaries();
     if (this.opts.decode) this.armed.expire(Date.now());

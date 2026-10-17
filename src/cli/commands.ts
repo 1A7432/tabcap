@@ -136,6 +136,14 @@ export const COMMANDS: CommandSpec[] = [
   { path: ["daemon", "start"], pos: [], flags: [], summary: "start the background daemon", example: "tabcap daemon start" },
   { path: ["daemon", "stop"], pos: [], flags: [], summary: "stop the daemon (closes the browser, finishes recordings)", example: "tabcap daemon stop" },
   { path: ["daemon", "status"], pos: [], flags: [], summary: "daemon and browser status, open recordings", example: "tabcap daemon status" },
+  {
+    path: ["status"],
+    pos: [],
+    flags: [{ flag: "--text", key: "text", kind: "bool", help: "print one screen (a line per session, then the conflicts) instead of JSON" }],
+    summary: "everything at once: daemon, browser, sessions (site, recording, waiting, trace, fetch stops), plugins, and conflicts with the next command",
+    example: "tabcap status --text",
+    action: "status",
+  },
   { path: ["daemon", "run"], pos: [], flags: [], summary: "run the daemon in the foreground (used by `daemon start`)", example: "tabcap daemon run", internal: true },
   {
     path: ["browser", "start"],

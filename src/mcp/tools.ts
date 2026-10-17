@@ -164,7 +164,8 @@ export const CORE: Readonly<Record<string, string>> = {
   "net list": "recorded requests, 100 per page; failed and data: URLs hidden unless failed / all",
   "net show": "one recorded request in full: headers, postData, timing, initiator",
   "net body": "a response body or WebSocket frame as a file path plus a short text preview",
-  "handoff status": "is the session handed to the human? state running | waiting | resumed",
+  // 0.7-B: `status` replaces `handoff status` here (it lists waiting sessions with reasons); tabcap_run still runs it.
+  status: "all state at once: sessions (site, recording, waiting, trace), plugins, conflicts with the next command",
   "handoff continue": "end a waiting state after the human finished in the browser (only when they say so)",
 };
 

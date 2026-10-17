@@ -39,6 +39,7 @@ import { applyFilters, filterOptions, hasFilters, type FilterOptions } from "../
 import { applyBudget, outputLimit } from "../shared/budget.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
 import { renderTraceText } from "../daemon/trace/table.ts";
+import { offlineStatus, renderStatusText } from "../daemon/tools/status.ts";
 import { renderFingerprintText } from "../fingerprint/fields.ts";
 import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
 import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
@@ -471,6 +472,12 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
         return { code: failed ? 1 : 0, envelope: env, text: lines.map((l) => JSON.stringify(l)).join("\n") };
       }
       const code = env.ok ? 0 : env.error.code === "usage" ? 2 : 1;
+      // 0.7-B `status`: without a daemon it still answers (what the CLI can read itself); `--text` is rendered here.
+      if (key === "status") {
+        const st = !env.ok && env.error.code === "not-running" ? ok(offlineStatus(p.config, p.listener)) : env;
+        const stCode = st.ok ? 0 : code;
+        return parsed.args["text"] === true && st.ok ? { code: stCode, envelope: st, text: renderStatusText(st.data) } : { code: stCode, envelope: st };
+      }
       // `where --text`: the daemon answers JSON as always; the human report is rendered here.
       if (key === "where" && parsed.args["text"] === true && env.ok) {
         const r = whereResultOf(env.data);

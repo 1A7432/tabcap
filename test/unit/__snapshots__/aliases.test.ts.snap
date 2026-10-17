@@ -114,6 +114,31 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
       "usage": "tabcap daemon status",
     },
     {
+      "daemon": true,
+      "example": "tabcap status --text",
+      "flags": [
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--text",
+          "help": "print one screen (a line per session, then the conflicts) instead of JSON",
+          "key": "text",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+      ],
+      "internal": false,
+      "name": "status",
+      "path": [
+        "status",
+      ],
+      "positionals": [],
+      "summary": "everything at once: daemon, browser, sessions (site, recording, waiting, trace, fetch stops), plugins, and conflicts with the next command",
+      "usage": "tabcap status [--text]",
+    },
+    {
       "daemon": false,
       "example": "tabcap daemon run",
       "flags": [],

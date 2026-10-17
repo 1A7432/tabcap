@@ -195,7 +195,7 @@ export type RecorderOptions = {
 };
 
 /** What the recorder needs from the decode plugins (hooks/decode.ts DecodeSession). */
-export type RecorderDecode = { readonly empty: boolean; decode(job: DecodeJob): Promise<DecodeOutcome | null> };
+export type RecorderDecode = { readonly empty: boolean; readonly plugins?: ReadonlyArray<{ readonly name: string }>; decode(job: DecodeJob): Promise<DecodeOutcome | null> };
 
 export class Recorder {
   readonly dir: string;
@@ -1047,6 +1047,11 @@ export class Recorder {
 
   get recording(): boolean {
     return !this.writerClosed;
+  }
+
+  /** 0.7-B `tabcap status`: the decode plugins this recording asks (fixed at `net start`), by name. */
+  get decodePlugins(): string[] {
+    return (this.opts.decode?.plugins ?? []).map((p) => p.name);
   }
 
   /** For `daemon status`: where the bundle is and how much is in it. */

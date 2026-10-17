@@ -139,9 +139,10 @@ describe("tools/list: the default core set", () => {
     const names = CORE_TOOLS.map((t) => t.def.name);
     expect(names).toMatchSnapshot();
     // the coordinator's list (2026-10-16): session start/stop/list, navigate, snapshot, outline, click, fill, type,
-    // press-key, hover, wait, screenshot, evaluate, net start/stop/list/show/body, handoff status/continue
+    // press-key, hover, wait, screenshot, evaluate, net start/stop/list/show/body, handoff status/continue;
+    // 0.7-B: status in place of handoff status
     expect(Object.keys(CORE).sort()).toEqual(
-      ["click", "evaluate", "fill", "handoff continue", "handoff status", "hover", "navigate", "net body", "net list", "net show", "net start", "net stop", "outline", "press-key", "screenshot", "session list", "session start", "session stop", "snapshot", "type", "wait"].sort(),
+      ["click", "evaluate", "fill", "handoff continue", "status", "hover", "navigate", "net body", "net list", "net show", "net start", "net stop", "outline", "press-key", "screenshot", "session list", "session start", "session stop", "snapshot", "type", "wait"].sort(),
     );
     expect(names.slice(-3)).toEqual([HANDOFF_WAIT, RUN, HELP]);
     const { s } = server();
