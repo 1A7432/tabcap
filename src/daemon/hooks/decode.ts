@@ -38,6 +38,9 @@
 // disable the plugin for the rest of the session (the recorder writes a
 // `note` event). `ok:false` and `declined` are answers, not failures. The plugin's stderr
 // is drained and dropped: it may print its keys.
+// 0.6-V (owner decision 10-17): a CORS preflight and a 0-byte body are never
+// offered to a plugin, live or in `bundle decode` (`decodeSkip`): no view, no
+// decline; `bundle decode` counts them as `skipped: {preflight, empty}`.
 
 import { lstatSync } from "node:fs";
 import { isAbsolute, resolve, sep } from "node:path";
@@ -403,6 +406,24 @@ export type DecodeJob = {
   mime: string | null;
 };
 
+/**
+ * A CORS preflight (0.6-S rule, shared with replay/common.ts `isPreflight`):
+ * an OPTIONS request with CDP initiator type "preflight" or an
+ * `access-control-request-method` header (HAR imports, older recordings).
+ */
+export function isPreflightOf(method: string, initiatorType: unknown, headers: Headers): boolean {
+  if (method.toUpperCase() !== "OPTIONS") return false;
+  if (initiatorType === "preflight") return true;
+  return Object.keys(headers).some((k) => k.toLowerCase() === "access-control-request-method");
+}
+
+/** 0.6-V: why a body is not offered to the decode plugins (preflight: the whole
+ * exchange; empty: this side has 0 bytes), or null when it is offered. */
+export function decodeSkip(o: { method: string; initiatorType: unknown; requestHeaders: Headers; body: Uint8Array }): "preflight" | "empty" | null {
+  if (isPreflightOf(o.method, o.initiatorType, o.requestHeaders)) return "preflight";
+  return o.body.length === 0 ? "empty" : null;
+}
+
 export type DecodeOutcome =
   | { by: string; version: string; direction: DecodeDirection; ok: true; mime: string | null; body: Uint8Array; note?: string }
   | { by: string; version: string; direction: DecodeDirection; ok: false; error: string };
@@ -515,14 +536,14 @@ export class DecodeSession {
    * reported to `declined` and, when every matching plugin declined, the
    * result is null. Never throws.
    */
-  async decode(job: DecodeJob, declined?: (plugin: string) => void): Promise<DecodeOutcome | null> {
+  async decode(job: DecodeJob, declined?: (plugin: string, version: string) => void): Promise<DecodeOutcome | null> {
     const list = this.matching(job);
     if (list.length === 0) return null;
     let first: DecodeOutcome | null = null;
     for (const p of list) {
       const out = await this.one(p, job);
       if (out === null) {
-        declined?.(p.name);
+        declined?.(p.name, p.version);
         continue;
       }
       if (out.ok) return out;

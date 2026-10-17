@@ -13,10 +13,12 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { join, resolve } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { decodeBundle, renderBundleDecodeText } from "../../src/bundle/decode.ts";
-import { SIDECAR_FILE } from "../../src/bundle/decoded.ts";
+import { SIDECAR_FILE, declinedRow, latestViews, overlayEvent, parseDecoded, parseSidecarText } from "../../src/bundle/decoded.ts";
+import { BlobStore } from "../../src/bundle/blobs.ts";
+import { decodedEntry } from "../../src/daemon/tools/net.ts";
 import { Tabs } from "../../src/daemon/browser/targets.ts";
 import { Recorder } from "../../src/daemon/capture/recorder.ts";
-import { DecodeHost, DecodeSession, MAX_FAILURES, decodeMatches, parseDecodeReply, resolveDecodeCommand, type DecodeJob, type DecodePlugin } from "../../src/daemon/hooks/decode.ts";
+import { DecodeHost, DecodeSession, MAX_FAILURES, decodeMatches, decodeSkip, parseDecodeReply, resolveDecodeCommand, type DecodeJob, type DecodePlugin } from "../../src/daemon/hooks/decode.ts";
 import { MAX_PLUGIN_MANIFEST_BYTES, decodePlugins, listPlugins, parseManifest, pluginsFor, setEnabled } from "../../src/daemon/hooks/plugins.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../../src/daemon/transport/types.ts";
 import { S42_ITEMS_JSON, S42_ORDER_JSON, S42_POST_JSON, S42_TOKEN_JSON, xorEncode } from "../e2e/site.ts";
@@ -516,4 +518,156 @@ describe("bundle decode: views for a bundle recorded before the plugin existed (
       rmSync(root, { recursive: true, force: true });
     }
   }, 20_000);
+});
+
+// ------------------------------------------------------------ 0.6-V
+
+// Owner decisions 10-17 (after two real-site rounds): a CORS preflight and a
+// 0-byte body are never offered to a plugin (live and offline; `bundle decode`
+// counts them in `skipped`), and a decline supersedes the same plugin's earlier
+// failure (a declined sidecar row; readers see no view). Oracle: the decisions
+// as worded in the brief and docs/04 §28 0.6-V; the bundles are hand-built.
+describe("0.6-V: preflights and empty bodies are not offered; a decline supersedes the same plugin's failure", () => {
+  /** An in-process decoder that records what it was offered and decodes everything ok. */
+  const counting = () => {
+    const seen: string[] = [];
+    return {
+      seen,
+      empty: false,
+      decode: async (j: DecodeJob) => {
+        seen.push(`${j.method} ${new URL(j.url).pathname} ${j.direction}`);
+        return { by: "cnt", version: "1", direction: j.direction, ok: true as const, mime: "text/plain", body: new TextEncoder().encode("PLAIN") };
+      },
+    };
+  };
+
+  test("decodeSkip: OPTIONS with initiator preflight or an access-control-request-method header; then 0 bytes", () => {
+    const one = new Uint8Array(1);
+    const none = new Uint8Array(0);
+    expect(decodeSkip({ method: "OPTIONS", initiatorType: "preflight", requestHeaders: {}, body: one })).toBe("preflight");
+    expect(decodeSkip({ method: "options", initiatorType: null, requestHeaders: { "Access-Control-Request-Method": "POST" }, body: one })).toBe("preflight");
+    // an OPTIONS the page sent itself is not a preflight
+    expect(decodeSkip({ method: "OPTIONS", initiatorType: "script", requestHeaders: {}, body: one })).toBeNull();
+    expect(decodeSkip({ method: "GET", initiatorType: "preflight", requestHeaders: { "access-control-request-method": "GET" }, body: none })).toBe("empty");
+    expect(decodeSkip({ method: "GET", initiatorType: null, requestHeaders: {}, body: one })).toBeNull();
+  });
+
+  test("live: the recorder does not offer a preflight or a 0-byte side; no decoded field, no failure", async () => {
+    const dec = counting();
+    const { t, emit } = fakeChrome({ R1: "pre", R2: "pre2", R3: "", R4: "body", R5: "resp" });
+    const tabs = new Tabs(t, false);
+    await tabs.createTab("skip");
+    const dir = join(tmp("tabcap-decskip-"), "b");
+    const rec = await Recorder.start({ session: "skip", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, decode: dec });
+    const reqs: Array<[string, string, string, Record<string, unknown>, Record<string, string>, string | null]> = [
+      ["R1", "OPTIONS", "/api/p1", { type: "preflight", url: `${ORIGIN}/page` }, {}, null],
+      ["R2", "OPTIONS", "/api/p2", { type: "other" }, { "access-control-request-method": "POST" }, null],
+      ["R3", "GET", "/api/empty", { type: "script" }, {}, null],
+      ["R4", "GET", "/api/body", { type: "script" }, {}, null],
+      ["R5", "POST", "/api/post", { type: "script" }, { "content-type": "text/plain" }, ""],
+    ];
+    let ts = 10;
+    for (const [id, method, path, initiator, headers, postData] of reqs) {
+      ts++;
+      emit("Network.requestWillBeSent", { requestId: id, loaderId: "L1", type: "Fetch", timestamp: ts, wallTime: 1760600000 + ts, initiator, request: { url: `${ORIGIN}${path}`, method, headers, ...(postData === null ? {} : { postData, hasPostData: true }) } });
+      emit("Network.responseReceived", { requestId: id, type: "Fetch", timestamp: ts + 0.1, response: { status: 200, headers: { "content-type": "text/plain" }, mimeType: "text/plain" } });
+      emit("Network.loadingFinished", { requestId: id, timestamp: ts + 0.2 });
+    }
+    await Bun.sleep(50);
+    await rec.stop();
+    expect(dec.seen.sort()).toEqual(["GET /api/body response", "POST /api/post response"]);
+    const reader = BundleReader.open(dir);
+    const views = Object.fromEntries(reader.requests().map((r) => [new URL(r.url).pathname, [r.request.decoded?.by ?? null, r.response?.decoded?.by ?? null]]));
+    expect(views).toEqual({ "/api/p1": [null, null], "/api/p2": [null, null], "/api/empty": [null, null], "/api/body": [null, "cnt"], "/api/post": [null, "cnt"] });
+  }, 20_000);
+
+  test("offline: bundle decode skips them too and counts skipped {preflight, empty}", async () => {
+    const root = tmp("tabcap-decskipo-");
+    try {
+      const dir = await buildBundle(join(root, "b"), { name: "sk", created: 1760600000000, seed: 9 }, async (b) => {
+        await b.request({ url: `${ORIGIN}/api/p1`, method: "OPTIONS", type: "other", mime: "text/plain", body: "pre", ts: 1760600000010, extra: { initiator: { type: "preflight" } } });
+        await b.request({ url: `${ORIGIN}/api/p2`, method: "OPTIONS", type: "fetch", mime: "text/plain", body: "pre", reqHeaders: { "access-control-request-method": "PUT" }, ts: 1760600000020 });
+        await b.request({ url: `${ORIGIN}/api/empty`, type: "fetch", mime: "text/plain", body: "", ts: 1760600000030 });
+        await b.request({ url: `${ORIGIN}/api/body`, type: "fetch", mime: "text/plain", body: "hello", ts: 1760600000040 });
+        await b.request({ url: `${ORIGIN}/api/post`, method: "POST", type: "fetch", mime: "text/plain", body: "world", postData: "", ts: 1760600000050 });
+      });
+      const dec = counting();
+      const res = await decodeBundle(dir, dec);
+      expect(dec.seen.sort()).toEqual(["GET /api/body response", "POST /api/post response"]);
+      expect([res.requests, res.decoded, res.failed, res.declined, res.appended]).toEqual([5, 2, 0, 0, 2]);
+      expect(res.skipped).toEqual({ preflight: 2, empty: 2 });
+      expect(renderBundleDecodeText(res)).toContain("2 preflight(s) and 2 empty bod(ies) not offered");
+      const urlOf = new Map(BundleReader.open(dir).requests().map((r) => [r.id, new URL(r.url).pathname]));
+      expect(res.rows.map((r) => urlOf.get(r.request))).toEqual(["/api/body", "/api/post"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed view, then the same plugin declines: a declined row is appended (superseded), readers see no view; a re-run appends nothing", async () => {
+    const root = tmp("tabcap-decsup-");
+    try {
+      const dir = await buildBundle(join(root, "b"), { name: "sup", created: 1760600000000, seed: 10 }, async (b) => {
+        await b.request({ url: `${ORIGIN}/api/a`, type: "fetch", mime: "text/plain", body: "ciphertext-a", ts: 1760600000010 });
+        await b.request({ url: `${ORIGIN}/api/b`, type: "fetch", mime: "text/plain", body: "ciphertext-b", ts: 1760600000020 });
+      });
+      // the old runner: "returned None" was an ok:false view
+      const failing = { decode: async (j: DecodeJob) => ({ by: "fake", version: "0", direction: j.direction, ok: false as const, error: "returned None" }) };
+      const first = await decodeBundle(dir, failing);
+      expect([first.failed, first.appended, first.superseded]).toEqual([2, 2, 0]);
+      expect(BundleReader.open(dir).requests().map((r) => r.response?.decoded?.error)).toEqual(["returned None", "returned None"]);
+      // the new runner declines r-3 only (another plugin declining would not touch fake's failure)
+      const declining = {
+        decode: async (j: DecodeJob, declined?: (plugin: string, version: string) => void) => {
+          if (j.id === "r-3") declined?.("fake", "1");
+          else declined?.("other", "1");
+          return null;
+        },
+      };
+      const second = await decodeBundle(dir, declining, () => 1760700000000);
+      expect([second.declined, second.appended, second.superseded, second.failed]).toEqual([2, 1, 1, 0]);
+      expect(second.rows).toEqual([{ request: "r-3", direction: "response", by: "fake", ok: false, mime: null, bytes: null, error: "declined", superseded: true }]);
+      expect(renderBundleDecodeText(second)).toContain("1 superseded");
+      const line = readFileSync(join(dir, SIDECAR_FILE), "utf8").trim().split("\n").at(-1) ?? "";
+      expect(JSON.parse(line)).toEqual({ seq: 3, request: "r-3", direction: "response", decoded: { by: "fake", version: "1", direction: "response", mime: null, blob: null, bytes: null, ok: false, declined: true, error: "declined" }, at: 1760700000000 });
+      const reader = BundleReader.open(dir);
+      expect(reader.issues).toEqual([]);
+      // r-3 is /api/b (the builder's second request): its failure is hidden, /api/a keeps its own
+      expect(reader.requests().map((r) => [r.id, new URL(r.url).pathname, r.response?.decoded?.error ?? null])).toEqual([
+        ["r-2", "/api/a", "returned None"],
+        ["r-3", "/api/b", null],
+      ]);
+      // net show / net body read one event through the same overlay
+      expect(decodedEntry({ id: "r-3" }, dir, new BlobStore(dir))).toBeNull();
+      // a re-run sees no view on r-3 any more: nothing to supersede
+      const third = await decodeBundle(dir, declining);
+      expect([third.declined, third.appended, third.superseded]).toEqual([2, 0, 0]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the reader: a declined row hides only its own plugin's failure (inline or earlier in the sidecar); any later view wins over it", () => {
+    const fail = (by: string) => ({ by, version: "1", direction: "response", mime: null, blob: null, bytes: null, ok: false, error: "bad" });
+    const ok = { by: "fake", version: "1", direction: "response", mime: "text/plain", blob: `sha256:${"a".repeat(64)}`, bytes: 3, ok: true };
+    const dec = declinedRow("fake", "1", "response");
+    const ev = (inline: Record<string, unknown> | null) => ({ kind: "request", id: "r-1", response: inline === null ? { status: 200 } : { status: 200, decoded: inline } });
+    const views = (...rows: Record<string, unknown>[]) => latestViews(parseSidecarText(rows.map((d, i) => JSON.stringify({ seq: i + 1, request: "r-1", direction: "response", decoded: d, at: 1 })).join("\n")));
+    const shown = (e: Record<string, unknown>): unknown => {
+      const r = e["response"];
+      return typeof r === "object" && r !== null && "decoded" in r ? (r as { decoded: unknown }).decoded : undefined;
+    };
+    // inline failure by the same plugin: gone; by another plugin, or an ok view: kept
+    expect(shown(overlayEvent(ev(fail("fake")), views(dec)))).toBeUndefined();
+    expect(shown(overlayEvent(ev(fail("other")), views(dec)))).toEqual(fail("other"));
+    expect(shown(overlayEvent(ev(ok), views(dec)))).toEqual(ok);
+    expect(shown(overlayEvent(ev(null), views(dec)))).toBeUndefined();
+    // sidecar: failure then decline → no view; decline does not displace another plugin's failure; a later failure shows again
+    expect(shown(overlayEvent(ev(null), views(fail("fake"), dec)))).toBeUndefined();
+    expect(shown(overlayEvent(ev(null), views(fail("other"), dec)))).toEqual(fail("other"));
+    expect(shown(overlayEvent(ev(null), views(fail("fake"), dec, fail("fake"))))).toEqual(fail("fake"));
+    expect(shown(overlayEvent(ev(null), views(ok, dec)))).toEqual(ok);
+    // parsed, a declined row says so
+    expect(parseDecoded(dec)).toMatchObject({ by: "fake", ok: false, declined: true, error: "declined" });
+  });
 });

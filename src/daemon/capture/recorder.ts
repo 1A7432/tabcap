@@ -49,7 +49,7 @@ import { framePayload, WsBook, type WsConn } from "./ws.ts";
 import { cookieArray, cookieStateFields, navCookieParams, navWantsCookies, stateOrigin, type StateReason } from "./cookies.ts";
 import { continueHeaders, initiatorMatch, markerOf, withoutMarker, type FetchReg } from "./fetchmark.ts";
 import type { FetchCredentials } from "../fetch/spec.ts";
-import { decodedField, type DecodeDirection, type DecodeJob, type DecodeOutcome } from "../hooks/decode.ts";
+import { decodedField, decodeSkip, type DecodeDirection, type DecodeJob, type DecodeOutcome } from "../hooks/decode.ts";
 import { BODIES_DEFAULT, keepsBody, SKIPPED_REASON, type BodiesMode } from "../../shared/bodies.ts";
 import { appendSidecar, readSidecar } from "../../bundle/decoded.ts";
 
@@ -997,6 +997,7 @@ export class Recorder {
    * Ask the decode plugins about the request body (as stored) and the response
    * body; the views go to blobs. Never throws: a failure is a `decoded` with
    * `ok: false`, an error here (bundle closed meanwhile) means no view.
+   * 0.6-V: a CORS preflight and a 0-byte side are not offered (`decodeSkip`).
    */
   private async decodeBodies(q: Pending, post: string | null, postStored: boolean, body: Uint8Array | null): Promise<{ request: Record<string, unknown> | null; response: Record<string, unknown> | null }> {
     const none = { request: null, response: null };
@@ -1005,6 +1006,7 @@ export class Recorder {
     // The plugin sees the headers as recorded: without a `tabcap fetch` marker (0.6-A).
     const reqH = mergeHeaders(withoutMarker(q.headers), this.extraReq.get(q.key) ?? null).headers;
     const side = async (direction: DecodeDirection, bytes: Uint8Array, mime: string | null, response: DecodeJob["response"]): Promise<Record<string, unknown> | null> => {
+      if (decodeSkip({ method: q.method, initiatorType: q.initiator?.["type"], requestHeaders: reqH, body: bytes }) !== null) return null;
       try {
         const out = await dec.decode({ direction, id: null, url: q.url, method: q.method, requestHeaders: reqH, response, body: bytes, mime });
         if (out === null || this.writerClosed) return null;

@@ -6,6 +6,7 @@ import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
 import type { BundleReader } from "../bundle/reader.ts";
 import type { Headers, RequestEvent } from "../bundle/types.ts";
+import { isPreflightOf } from "../daemon/hooks/decode.ts";
 
 /** RFC 9110 §7.6.1 connection-specific fields, plus the legacy ones proxies still send. */
 export const HOP_BY_HOP: ReadonlySet<string> = new Set([
@@ -157,8 +158,7 @@ export function unreplayable(r: RequestEvent): string | null {
  * OPTIONS with an access-control-request-method header).
  */
 export function isPreflight(r: RequestEvent): boolean {
-  if (r.method.toUpperCase() !== "OPTIONS") return false;
-  return r.initiator?.type === "preflight" || headerJoined(r.request.headers, "access-control-request-method") !== null;
+  return isPreflightOf(r.method, r.initiator?.type, r.request.headers);
 }
 
 export type Skipped = { id: string; reason: string };

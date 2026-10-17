@@ -7,6 +7,11 @@
 // and bytes null, `error` says why). The original body is never changed.
 // Readers treat the field as untrusted: a malformed one is ignored. Views
 // added after the recording live in the decoded.jsonl sidecar (below).
+// 0.6-V: a sidecar row `{by, version, direction, mime:null, blob:null,
+// bytes:null, ok:false, declined:true, error:"declined"}` records that plugin
+// `by` now declines the side (decode() returned None): it hides that plugin's
+// earlier `ok:false` view and is otherwise no view at all (`latestViews`,
+// `overlayEvent`).
 
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +29,8 @@ export type DecodedView = {
   ok: boolean;
   error?: string;
   note?: string;
+  /** 0.6-V: a `bundle decode` row saying plugin `by` declines this side now (never a view). */
+  declined?: true;
   /** Observe-mode rows (`by:"page"`, docs/04 §33) only. */
   evidence?: DecodedEvidence;
 };
@@ -61,6 +68,7 @@ export function parseDecoded(v: unknown): DecodedView | undefined {
   const error = str(v, "error") ?? (ok ? null : "not decoded");
   const note = str(v, "note");
   const evidence = evidenceOf(v["evidence"]);
+  const declined = isDeclinedRow(v);
   return {
     by,
     version: str(v, "version") ?? "",
@@ -71,8 +79,21 @@ export function parseDecoded(v: unknown): DecodedView | undefined {
     ok,
     ...(error === null ? {} : { error }),
     ...(note === null ? {} : { note }),
+    ...(declined ? { declined: true as const } : {}),
     ...(evidence === undefined ? {} : { evidence }),
   };
+}
+
+/** 0.6-V: a declined row (`ok:false, declined:true`) — no view; it hides the
+ * same plugin's earlier failure. */
+export function isDeclinedRow(v: Record<string, unknown>): boolean {
+  return v["ok"] === false && v["declined"] === true;
+}
+
+/** The `decoded` row `bundle decode` appends when plugin `by` declines a side
+ * whose current view is its own `ok:false` view (0.6-V). */
+export function declinedRow(by: string, version: string, direction: "request" | "response"): Record<string, unknown> {
+  return { by, version, direction, mime: null, blob: null, bytes: null, ok: false, declined: true, error: "declined" };
 }
 
 /** `{decoded}` to spread into a parsed side, or {} when there is none. */
@@ -104,8 +125,12 @@ export type Sidecar = { entries: SidecarEntry[]; issues: SidecarIssue[]; lastSeq
 
 const REQ_ID = /^r-[1-9][0-9]*$/;
 
-/** docs/04 §33 D4: an ok plugin view (2) outranks an ok page view (1); ok:false stays last-wins (0). */
-const viewRank = (v: Record<string, unknown>): number => (v["ok"] === true && v["by"] !== "page" ? 2 : v["ok"] === true ? 1 : 0);
+/** docs/04 §33 D4: an ok plugin view (2) outranks an ok page view (1); ok:false stays last-wins (0);
+ * 0.6-V: a declined row ranks below everything (-1). */
+const viewRank = (v: Record<string, unknown>): number => (isDeclinedRow(v) ? -1 : v["ok"] === true && v["by"] !== "page" ? 2 : v["ok"] === true ? 1 : 0);
+
+/** A failed (not declined) view by plugin `by`: what a declined row of `by` hides (0.6-V). */
+const failedBy = (v: Record<string, unknown> | null | undefined, by: unknown): boolean => v !== null && v !== undefined && v["ok"] !== true && !isDeclinedRow(v) && v["by"] === by;
 
 export function parseSidecarText(text: string): Sidecar {
   const entries: SidecarEntry[] = [];
@@ -158,14 +183,16 @@ export const sideKey = (request: string, direction: "request" | "response"): str
 
 /** The winning `decoded` field per (request, direction): the highest-ranked view
  * (an ok plugin view over an ok page view), the last line within a rank. An
- * unattributed row (`request: null`) is not on a request — never a winner. */
+ * unattributed row (`request: null`) is not on a request — never a winner.
+ * 0.6-V: a declined row wins only over nothing, another declined row, or the
+ * same plugin's failure (which it hides); any later view wins over it. */
 export function latestViews(s: Sidecar | null): Map<string, Record<string, unknown>> {
   const out = new Map<string, Record<string, unknown>>();
   for (const e of s?.entries ?? []) {
     if (e.request === null) continue;
     const key = sideKey(e.request, e.direction);
     const prev = out.get(key);
-    if (prev === undefined || viewRank(e.decoded) >= viewRank(prev)) out.set(key, e.decoded);
+    if (prev === undefined || viewRank(e.decoded) >= viewRank(prev) || (isDeclinedRow(e.decoded) && failedBy(prev, e.decoded["by"]))) out.set(key, e.decoded);
   }
   return out;
 }
@@ -180,12 +207,23 @@ export function overlayEvent<T extends Record<string, unknown>>(e: T, views: Rea
     return d === null ? -1 : viewRank(d);
   };
   const out: Record<string, unknown> = { ...e };
-  const reqV = views.get(sideKey(id, "request"));
-  const respV = views.get(sideKey(id, "response"));
   // D4 applies to an inline view too: an ok plugin view recorded with the
   // event wins over a later page row; within a rank the later line wins.
-  if (reqV !== undefined && isRecord(e["request"]) && viewRank(reqV) >= inlineRank("request")) out["request"] = { ...e["request"], decoded: reqV };
-  if (respV !== undefined && isRecord(e["response"]) && viewRank(respV) >= inlineRank("response")) out["response"] = { ...e["response"], decoded: respV };
+  // 0.6-V: a declined row is never a view — it removes the same plugin's
+  // inline failure and leaves anything else as it is.
+  for (const side of ["request", "response"] as const) {
+    const v = views.get(sideKey(id, side));
+    const s = e[side];
+    if (v === undefined || !isRecord(s)) continue;
+    if (isDeclinedRow(v)) {
+      if (failedBy(isRecord(s["decoded"]) ? s["decoded"] : null, v["by"])) {
+        const { decoded: _hidden, ...rest } = s;
+        out[side] = rest;
+      }
+      continue;
+    }
+    if (viewRank(v) >= inlineRank(side)) out[side] = { ...s, decoded: v };
+  }
   return { ...e, ...out };
 }
 
