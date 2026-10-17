@@ -242,7 +242,7 @@
   - `type --trusted "aB3 中"`：从第一个 `keydown` 起，除 `seq` / `timeStamp` / `dt` / `screenX` / `screenY` 外逐字段等于 Playwright `type` 导出；`'中'` 只有 beforeinput / textInput / input。
   - `type --insert` 与默认 `type`：同上逐字段等于 Playwright `fill` 导出；输出 `eventShape:"insert"`、警告含「incomplete event sequence」。
   - 默认 `click`：只有 1 个 `click`，`isTrusted:false`、`detail:0`、坐标 0,0（同 `js_click` 导出）；输出 `level:1`、`eventShape:"incomplete"`。
-  - `click --trusted /link 的 #next`（0.7.3）：成功（不再报 `cdp` / `not-delivered`），`eventShape:"full"`、`delivered:{pointerdown:"unknown",mousedown:"unknown",reason:"navigated"}`、`effect:"navigation"`，`url` 为 `/second`；`--no-wait` 同样成功、`delivered.reason:"navigated"`、不报 `effect`，`url` 仍是 `/second`；`--trusted --dbl-click` 点 `#plain` 不受影响：`delivered` 里的两个值都是 `true`、`url` 仍是 `/link`。
+  - `click --trusted /link 的 #next`（0.7.3）：成功（不再报 `cdp` / `not-delivered`），`eventShape:"full"`、`delivered` 二选一（导航在探针回读前提交 → `{pointerdown:"unknown",mousedown:"unknown",reason:"navigated"}`；回读先到 → `{pointerdown:true,mousedown:true}`；【实测 CI ubuntu 8b388c5】两种都出现过）、`effect:"navigation"`，`url` 为 `/second`；`--no-wait` 同样成功、`delivered.reason:"navigated"`、不报 `effect`，`url` 仍是 `/second`；`--trusted --dbl-click` 点 `#plain` 不受影响：`delivered` 里的两个值都是 `true`、`url` 仍是 `/link`。
 
 ## 7. 0.6-D 真实项目试用后补的场景（10-16，均 P1；s23–s29 已被 docs/09 的规划占用，从 s47 编起）
 

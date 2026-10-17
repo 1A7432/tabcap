@@ -31,6 +31,17 @@ const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v)
 const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
 const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
 
+/**
+ * 0.7.3: a trusted click on a navigating link succeeds either way; which proof it carries depends on
+ * whether the navigation committed before the delivery probe was read (then the probe is lost and
+ * the tab's navigation record stands in) or after it (the probe reports the press as usual).
+ */
+function deliveredOrNavigated(c: Record<string, unknown>): void {
+  const d = rec(c["delivered"]);
+  if (d["reason"] === "navigated") expect(d).toMatchObject({ pointerdown: "unknown", mousedown: "unknown" });
+  else expect(d).toMatchObject({ pointerdown: true, mousedown: true });
+}
+
 async function tabcap(...args: string[]): Promise<Env> {
   const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdout: "pipe", stderr: "pipe" });
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
@@ -240,22 +251,19 @@ describe.skipIf(!enabled)("tabcap 0.3-E L2 (input fidelity on s46, unreadByPage)
     await ok("navigate", `${probe.origin}/link`, ...P);
     const link = await refOf("下一頁", P);
     const c = await ok("click", link, "--trusted", ...P);
-    expect(c).toMatchObject({
-      level: 2,
-      trusted: true,
-      eventShape: "full",
-      delivered: { pointerdown: "unknown", mousedown: "unknown", reason: "navigated" },
-      effect: "navigation",
-    });
+    expect(c).toMatchObject({ level: 2, trusted: true, eventShape: "full", effect: "navigation" });
+    deliveredOrNavigated(c);
     expect(s(c["url"])).toBe(`${probe.origin}/second`);
     expect(probe.hits).toContain("GET /second");
 
-    // --no-wait: still a success, no effect claimed (the normal click's --no-wait rule)
+    // --no-wait: still a success, no effect claimed (the normal click's --no-wait rule); the
+    // navigation may or may not have committed when the command answers, so wait for it after.
     await ok("navigate", `${probe.origin}/link`, ...P);
     const nw = await ok("click", await refOf("下一頁", P), "--trusted", "--no-wait", ...P);
-    expect(nw).toMatchObject({ trusted: true, eventShape: "full", delivered: { reason: "navigated" } });
+    expect(nw).toMatchObject({ trusted: true, eventShape: "full" });
+    deliveredOrNavigated(nw);
     expect(nw["effect"]).toBeUndefined();
-    expect(s(nw["url"])).toBe(`${probe.origin}/second`);
+    await ok("wait", "--url", "/second", ...P);
 
     // A double click on a plain button neither navigates nor changes the delivery proof.
     await ok("navigate", `${probe.origin}/link`, ...P);
