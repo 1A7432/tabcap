@@ -198,7 +198,9 @@ describe.skipIf(!enabled)("tabcap 0.5-C L2 (context budget on the range)", () =>
     const reqs = recs(full.data["requests"]);
     expect(summary["requests"]).toBe(reqs.length);
     expect(summary["unresolved"]).toBe(recs(full.data["unresolved"]).length);
-    expect(summary["inputs"]).toEqual(Object.fromEntries(reqs.map((q) => [s(q["id"]), recs(q["inputs"]).length])));
+    // 0.7-C: the summary keeps counts plus the first 10 requests' input counts (docs/04 §24), not every request.
+    expect(summary["inputCount"]).toBe(reqs.reduce((n, q) => n + recs(q["inputs"]).length, 0));
+    expect(summary["inputs"]).toEqual(Object.fromEntries(reqs.slice(0, 10).map((q) => [s(q["id"]), recs(q["inputs"]).length])));
     // the filters narrow it to something that fits inline
     const sel = await ok("analyze", "deps", bundle, "--select", "requests[*].id");
     expect(sel.envelope["data"]).toEqual(reqs.map((q) => q["id"]));
