@@ -23,6 +23,16 @@ describe("BlobStore", () => {
     expect(store.read(`sha256:${hex}`)).toEqual(bytes);
   });
 
+  test("the same content stored concurrently: every put succeeds, one file, no temp files (0.7-F, Windows EPERM)", async () => {
+    const dir = tmp();
+    const store = new BlobStore(dir);
+    const bytes = new TextEncoder().encode("same body twice");
+    const hex = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+    const all = await Promise.all(Array.from({ length: 8 }, () => store.put(bytes)));
+    expect(all.map((r) => (r.outcome === "stored" ? r.ref : r.outcome))).toEqual(Array.from({ length: 8 }, () => `sha256:${hex}`));
+    expect(readdirSync(join(dir, "blobs", "sha256", hex.slice(0, 2)))).toEqual([hex]);
+  });
+
   test("too-large is reported, nothing written", async () => {
     const dir = tmp();
     const store = new BlobStore(dir, { sizeCap: 10 });

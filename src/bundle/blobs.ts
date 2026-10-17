@@ -64,6 +64,10 @@ export class BlobStore {
       await rename(tmp, target);
     } catch (e) {
       await unlink(tmp).catch(() => undefined);
+      // The same content stored concurrently (two bodies, one hash): POSIX rename
+      // replaces the file, Windows refuses (EPERM) while the other write's rename or a
+      // reader holds it. The blob under its hash is complete either way.
+      if (await exists(target)) return { outcome: "stored", ref, size: bytes.length, existed: true };
       throw new TabcapError("io", `cannot store blob ${ref}: ${e instanceof Error ? e.message : String(e)}`, "Check free disk space and permissions on the bundle directory.");
     }
     return { outcome: "stored", ref, size: bytes.length, existed: false };
