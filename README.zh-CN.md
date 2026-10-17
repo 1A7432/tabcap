@@ -19,7 +19,6 @@ tabcap 就是这个循环的工作台：agent 探路、重复；你给凭据、�
 ## 安装
 
 - **npm**（任何平台，Node 18 以上）：`npm install -g tabcap`。对应平台的二进制作为可选依赖一起装；每个版本都由 CI 发布、带 provenance。之后升级：`tabcap update`。
-- **Homebrew**（macOS arm64、Linux）：`brew install 1A7432/tabcap/tabcap`。之后升级：`brew upgrade tabcap`。
 - **Release 包**：从 [release 页](https://github.com/1A7432/tabcap/releases)下载 `tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`（校验值在 `SHA256SUMS`），解开，把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`。macOS 上用浏览器下载的，先跑一次 `xattr -d com.apple.quarantine tabcap`。
 - **从源码编**：需要 Bun 1.4 以上和 Zig 0.16.0，先 `bun install && bun scripts/native.ts build`（编出 tabcap 内嵌的 wire 组件），再 `bun run build`。
 
@@ -128,7 +127,7 @@ tabcap daemon stop
 
 文件：`~/.config/tabcap/`（配置、凭据库、插件、socket、日志）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）。Linux 认 `XDG_*`；Windows 上三者都在 `%LOCALAPPDATA%\tabcap\` 下。设 `TABCAP_HOME` 可整体搬到一个目录。
 
-渠道：npm（`tabcap` 加每个平台一个包，推 `v*` tag 由 CI 发布）、Homebrew tap [`1A7432/homebrew-tabcap`](https://github.com/1A7432/homebrew-tabcap)（每个版本从 `packaging/homebrew/` 更新 formula）、release 包。Scoop 的清单在 `packaging/scoop/`，还没有 bucket。
+渠道：npm（`tabcap` 加每个平台一个包，推 `v*` tag 由 CI 发布）和 release 包。Homebrew tap 已在 `packaging/homebrew/` 备好（tap 仓库建好后，每个发布的 release 由 CI 推 formula）；Scoop 清单在 `packaging/scoop/`，还没有 bucket。
 
 ## 文档
 

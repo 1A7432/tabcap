@@ -1,33 +1,32 @@
 # typed: strict
 # frozen_string_literal: true
 
-# Homebrew formula for tabcap. The tap is https://github.com/1A7432/homebrew-tabcap
-# (its Formula/tabcap.rb is this file); `brew install 1A7432/tabcap/tabcap`.
-# Per release: set `version`, replace the version in the three URLs and copy the
-# three sha256 from the release's SHA256SUMS (release and SHA256SUMS are built by
-# .github/workflows/release.yml); then commit the file to the tap.
+# Homebrew formula TEMPLATE for tabcap. scripts/homebrew-formula.ts fills the VERSION
+# and the three SHA256_* placeholders from a release's SHA256SUMS; .github/workflows/homebrew.yml
+# does that for every published GitHub release and pushes Formula/tabcap.rb to the tap
+# https://github.com/1A7432/homebrew-tabcap (`brew install 1A7432/tabcap/tabcap`).
 # Built targets: macOS arm64, Linux x64 and arm64 (no Intel macOS build).
 class Tabcap < Formula
   desc "Browser for AI agents: background tabs, a11y-tree refs, recorded traffic"
   homepage "https://github.com/1A7432/tabcap"
-  version "0.7.2"
+  version "{{VERSION}}"
   license "Apache-2.0"
 
   on_macos do
     on_arm do
-      url "https://github.com/1A7432/tabcap/releases/download/v0.7.2/tabcap-v0.7.2-darwin-arm64.tar.gz"
-      sha256 "2c806dbef90ee94352927374a2964f465426e76c15177e746210c79395e0facf"
+      url "https://github.com/1A7432/tabcap/releases/download/v{{VERSION}}/tabcap-v{{VERSION}}-darwin-arm64.tar.gz"
+      sha256 "{{SHA256_DARWIN_ARM64}}"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/1A7432/tabcap/releases/download/v0.7.2/tabcap-v0.7.2-linux-x64.tar.gz"
-      sha256 "ecb321eacf5b8d605714791debb3ab5d27b782fa566c735caf0a7a78448795d6"
+      url "https://github.com/1A7432/tabcap/releases/download/v{{VERSION}}/tabcap-v{{VERSION}}-linux-x64.tar.gz"
+      sha256 "{{SHA256_LINUX_X64}}"
     end
     on_arm do
-      url "https://github.com/1A7432/tabcap/releases/download/v0.7.2/tabcap-v0.7.2-linux-arm64.tar.gz"
-      sha256 "abb0bafa64d4d2f9db1e2dc2974f1277155bffa163ba13289556c55e3993ab41"
+      url "https://github.com/1A7432/tabcap/releases/download/v{{VERSION}}/tabcap-v{{VERSION}}-linux-arm64.tar.gz"
+      sha256 "{{SHA256_LINUX_ARM64}}"
     end
   end
 

@@ -4,10 +4,11 @@
 // the archives scripts/release.ts actually produces.
 
 import { describe, expect, test } from "bun:test";
+import { renderFormula } from "../../scripts/homebrew-formula.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NPM_PLATFORMS, mainManifest, platformPackageName } from "../../scripts/npm-pack.ts";
-import { planFor } from "../../scripts/release.ts";
+import { planFor, type Target } from "../../scripts/release.ts";
 import { TOOL_VERSION } from "../../src/bundle/manifest.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { REPO_ROOT } from "./_fixtures.ts";
@@ -24,13 +25,17 @@ const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
 
 describe("Homebrew formula template", () => {
   const rb = readFileSync(join(PKG, "homebrew", "tabcap.rb"), "utf8");
-  test("arm64 macOS tarball of this version, a 64-hex sha256, installs tabcap", () => {
-    expect(rb).toContain(`version "${TOOL_VERSION}"`);
-    const url = /url "([^"]+)"/.exec(rb)?.[1] ?? "";
-    expect(url.replaceAll("#{version}", TOOL_VERSION)).toBe(`${RELEASES}/v${TOOL_VERSION}/${planFor("darwin-arm64", TOOL_VERSION).archive}`);
-    expect(rb).toMatch(/sha256 "[0-9a-f]{64}"/);
-    expect(rb).toContain('bin.install "tabcap"');
-    expect(rb).toContain("on_arm do");
+  // The template carries placeholders; scripts/homebrew-formula.ts renders them per release (homebrew.yml).
+  test("rendered for this version: the three tarballs of the release, a 64-hex sha256 each, installs tabcap", () => {
+    expect(rb).toContain('version "{{VERSION}}"');
+    const sums = new Map(["darwin-arm64", "linux-x64", "linux-arm64"].map((t, i) => [planFor(t as Target, TOOL_VERSION).archive, String(i + 1).repeat(64)]));
+    const out = renderFormula(rb, TOOL_VERSION, sums);
+    expect(out).toContain(`version "${TOOL_VERSION}"`);
+    const urls = [...out.matchAll(/url "([^"]+)"/g)].map((m) => m[1]);
+    expect(urls).toEqual(["darwin-arm64", "linux-x64", "linux-arm64"].map((t) => `${RELEASES}/v${TOOL_VERSION}/${planFor(t as Target, TOOL_VERSION).archive}`));
+    expect(out.match(/sha256 "[0-9a-f]{64}"/g)?.length).toBe(3);
+    expect(out).toContain('bin.install "tabcap"');
+    expect(out).toContain("on_arm do");
   });
   // Starting ruby on the windows-latest runner took 0.5 s to over 5 s (3.3 s
   // with --disable-gems too, so not RubyGems).

@@ -1,0 +1,78 @@
+# Homebrew tap: when a GitHub release is PUBLISHED (the owner publishes the draft
+# release.yml made), render packaging/homebrew/tabcap.rb for that release from its
+# SHA256SUMS and push Formula/tabcap.rb to https://github.com/1A7432/homebrew-tabcap.
+# The release's assets are public only once it is published, so this cannot run from
+# release.yml. Auth: the repository secret HOMEBREW_TAP_TOKEN, a fine-grained PAT with
+# Contents: read and write on the tap repository only (packaging/homebrew/README.md).
+# Without the secret the job warns and does nothing, so a release never fails on it.
+# workflow_dispatch with a tag re-runs it for a release that is already published.
+name: homebrew
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "release tag to render, e.g. v0.7.2"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  formula:
+    name: push the formula to the tap
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TAP_REPO: 1A7432/homebrew-tabcap
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+
+      - name: render Formula/tabcap.rb from the release's SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag $TAG is not v<major.minor.patch>"; exit 1; }
+          version="${TAG#v}"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir out --clobber
+          mkdir -p out/tap/Formula
+          bun scripts/homebrew-formula.ts --version "$version" --sums out/SHA256SUMS --out out/tap/Formula/tabcap.rb
+          cat out/tap/Formula/tabcap.rb
+          # Linuxbrew is on the ubuntu runner image; style-check the rendered file when it is.
+          if command -v brew >/dev/null 2>&1; then brew style out/tap/Formula/tabcap.rb; fi
+
+      - name: push to the tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set: the formula was rendered but not pushed (packaging/homebrew/README.md)"
+            exit 0
+          fi
+          version="${TAG#v}"
+          git clone --quiet --depth 1 "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${TAP_REPO}.git" out/clone
+          mkdir -p out/clone/Formula
+          cp out/tap/Formula/tabcap.rb out/clone/Formula/tabcap.rb
+          [ -f out/clone/README.md ] || cp packaging/homebrew/TAP-README.md out/clone/README.md
+          cd out/clone
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "tap already has tabcap $version"; exit 0; fi
+          git commit --quiet -m "tabcap $version"
+          git push --quiet origin HEAD
+          echo "pushed tabcap $version to $TAP_REPO"

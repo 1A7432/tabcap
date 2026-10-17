@@ -19,7 +19,6 @@ tabcap is the workbench for that loop. The agent explores and repeats; you provi
 ## Install
 
 - **npm** (any platform, Node 18 or newer): `npm install -g tabcap`. The binary for your platform comes as an optional dependency; every release is published from CI with provenance. Later: `tabcap update`.
-- **Homebrew** (macOS arm64, Linux): `brew install 1A7432/tabcap/tabcap`. Later: `brew upgrade tabcap`.
 - **Release packages**: `tabcap-v<version>-darwin-arm64.tar.gz`, `-linux-x64.tar.gz`, `-linux-arm64.tar.gz` or `-windows-x64.zip` from the [release page](https://github.com/1A7432/tabcap/releases), checksums in `SHA256SUMS`; unpack and put `tabcap` (`tabcap.exe` on Windows) on your `PATH`. On macOS, after a browser download, run `xattr -d com.apple.quarantine tabcap` once.
 - **From source**: Bun 1.4 or newer and Zig 0.16.0; `bun install && bun scripts/native.ts build` (the wire component tabcap embeds), then `bun run build`.
 
@@ -128,7 +127,7 @@ Several tools turn recorded browser traffic into something an agent can call: In
 
 Files: `~/.config/tabcap/` (config, credential store, plugins, socket, log), `~/.cache/tabcap/` (the browser), `~/.local/share/tabcap/` (screenshots, bundles). `XDG_*` is honoured on Linux; on Windows all three live under `%LOCALAPPDATA%\tabcap\`. `TABCAP_HOME` moves everything into one directory.
 
-Channels: npm (`tabcap` plus one package per platform, published from CI on a `v*` tag), the Homebrew tap [`1A7432/homebrew-tabcap`](https://github.com/1A7432/homebrew-tabcap) (formula updated per release from `packaging/homebrew/`), and the release packages. A Scoop manifest is under `packaging/scoop/`; there is no bucket yet.
+Channels: npm (`tabcap` plus one package per platform, published from CI on a `v*` tag) and the release packages. A Homebrew tap is prepared under `packaging/homebrew/` (the formula is pushed by CI for every published release once the tap exists); a Scoop manifest is under `packaging/scoop/`, no bucket yet.
 
 ## Documentation
 

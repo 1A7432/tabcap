@@ -521,3 +521,8 @@
 - 做了什么：v0.7.2 release run 39058094255 一次全绿【实测：五个 npm 包第一次就发成，核对轮询生效；草稿 Release 9 个附件】；本机按作者要求 `npm install -g tabcap@0.7.2` 做最后一次手动升级，`tabcap update --check` 回 up-to-date、渠道 npm【实测】。作者指出 README 不说安装方法：安装从「快速开始」第 1 步拆成独立的「安装」节（npm / Homebrew / release 包 / 源码），快速开始重新编号；`packaging/homebrew/tabcap.rb` 改成真 formula（0.7.2 三个平台的 sha256、Linux 块、`brew style` 通过），Scoop 清单填真 hash；tap 仓库内容备在 scratchpad/homebrew-tabcap（`Formula/tabcap.rb` + README），等仓库建好就推。
 - 卡在哪：发布 GitHub Release（取消草稿）和新建公开 tap 仓库被自动模式分类器拦为「新建公开面」【实测】，要作者在网页上做：发布 v0.7.2（取消 pre-release，设为 latest）、新建空的公开仓库 `1A7432/homebrew-tabcap`；之后我推 formula 并在本机 `brew install 1A7432/tabcap/tabcap` 实测。formula 的每版更新目前是手动（改版本号和三个 sha256），自动化需要一个能写 tap 仓库的 PAT 作为 secret，待作者定。v0.7.1 的草稿 Release 还在，被 0.7.2 取代，删不删作者定。
 - 下一格从哪开始：作者做完上面两步 → 推 tap、brew 实测、补 NOTES；0.7.3-A（外部评测五条）由 DeepSeek 在 `0.7.3-review-fixes` 分支做，作者通知后审查合并；loreweaver PR #39 待合、`protocol-v2.4.1` 须在 10-19 17:44 UTC 前推。
+
+## 2026-10-18 · Homebrew tap 自动化（homebrew.yml + 渲染脚本）；Release v0.7.2 已发布（主循环）
+- 做了什么：作者明确授权后发布了 GitHub Release v0.7.2（非 pre-release、latest，附件公开）【实测】。作者决定 brew 分发先缓、但 formula 更新要自动化：`packaging/homebrew/tabcap.rb` 改成模板，`scripts/homebrew-formula.ts` 从 `SHA256SUMS` 渲染（单测 3 条），`.github/workflows/homebrew.yml` 在 release **published** 事件（或手动填 tag）时渲染、`brew style`、用 secret `HOMEBREW_TAP_TOKEN` 推到 `1A7432/homebrew-tabcap`；没 secret 只渲染不推、不失败。README 先撤掉 brew 安装行（tap 还不存在），`packaging/homebrew/README.md` 写了作者的一次性配置步骤。
+- 卡在哪：tap 仓库和 PAT 都要作者建【人确认】；Scoop 没做 bucket；loreweaver 没有 brew/scoop 分发，它的 npm 自动化就是 PR #39。
+- 下一格从哪开始：作者建 tap + secret 后 `gh workflow run homebrew.yml -f tag=v0.7.2`，本机 `brew install 1A7432/tabcap/tabcap` 验证，再把 README 的 Homebrew 行加回来；0.7.3-A 等 DeepSeek 交付审查。

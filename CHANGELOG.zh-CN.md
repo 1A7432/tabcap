@@ -6,7 +6,7 @@
 
 ### 安装渠道
 
-- README 新增「安装」一节（npm、Homebrew、release 包、源码）。Homebrew tap `1A7432/homebrew-tabcap`：macOS arm64 与 Linux 上 `brew install 1A7432/tabcap/tabcap`；`packaging/homebrew/tabcap.rb` 是带真实校验值的 formula，Scoop 清单也填了真实 hash（还没有 bucket）。
+- README 新增「安装」一节（npm、release 包、源码）。Homebrew：`packaging/homebrew/tabcap.rb` 改为 formula 模板，`scripts/homebrew-formula.ts` 用 release 的 `SHA256SUMS` 填充，新的 `homebrew.yml` 工作流在 GitHub Release 发布时把 `Formula/tabcap.rb` 推到 tap `1A7432/homebrew-tabcap`（secret `HOMEBREW_TAP_TOKEN`；没有就只渲染不推）。tap 由作者建好后生效。Scoop 清单填了真实 hash（还没有 bucket）。
 
 ## 0.7.2（2026-10-18）
 
