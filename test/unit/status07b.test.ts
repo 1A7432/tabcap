@@ -12,6 +12,7 @@ import { handleCommand } from "../../src/daemon/main.ts";
 import { Daemon } from "../../src/daemon/state.ts";
 import {
   conflictsOf,
+  nextOf,
   offlineStatus,
   renderStatusText,
   ruleDecodePluginOutranksPage,
@@ -31,7 +32,7 @@ import { paths } from "../../src/shared/paths.ts";
 const OFF = { state: "off" as const, decode: false, weakRows: null };
 
 function sess(name: string, o: Partial<StatusSession> = {}): StatusSession {
-  return { session: name, site: "shop", account: "alice", tabSite: null, tabs: 1, current: "t1", recording: null, state: "running", reason: null, screenshot: null, trace: OFF, guardStops: [], ...o };
+  return { session: name, site: "shop", account: "alice", tabSite: null, tabs: 1, current: "t1", url: null, recording: null, state: "running", reason: null, screenshot: null, trace: OFF, guardStops: [], ...o };
 }
 
 const REC = { bundle: "/b/w-1", since: 1, entries: 7, decodePlugins: [] as string[] };
@@ -75,30 +76,31 @@ describe("conflict rules (pure)", () => {
     expect(ruleWaitingAndFetchStop(facts([sess("w", { state: "waiting", reason: "stop-rule", guardStops: [stop()] })]))).toHaveLength(1);
   });
 
-  test("(b) an enabled decode plugin while a session observes (trace --decode): plugin disable, and a new recording when recording", () => {
+  test("(b) an enabled decode plugin while a session observes (trace --decode): plugin disable, which a recording follows from its next body", () => {
     const on = { state: "on" as const, decode: true, weakRows: 0 };
     const idle = ruleDecodePluginOutranksPage(facts([sess("u", { site: null, trace: on })], { plugins: { decode: ["xor-decode"], challenge: [] } }));
     expect(idle).toHaveLength(1);
     expect(idle[0]).toMatchObject({ code: "decode-plugin-outranks-page", session: "u" });
     expect(idle[0]?.message).toContain("plugin views outrank page views");
     expect(idle[0]?.next).toBe("to observe the page: `tabcap plugin disable xor-decode`");
-    // recording: the plugins it started with count, and it must be restarted
+    // 0.7-E: a recording reads the enabled plugins per body: disabling applies from its next body, no restart
     const recd = ruleDecodePluginOutranksPage(facts([sess("u", { trace: on, recording: { ...REC, decodePlugins: ["xor-decode"] } })], { plugins: { decode: ["xor-decode"], challenge: [] } }));
-    expect(recd[0]?.next).toContain("`tabcap plugin disable xor-decode`, then `tabcap net stop --session u` and `tabcap net start --session u`");
-    // disabled since net start: only the restart is left
-    const stale = ruleDecodePluginOutranksPage(facts([sess("u", { trace: on, recording: { ...REC, decodePlugins: ["xor-decode"] } })]));
-    expect(stale[0]?.next).not.toContain("plugin disable");
-    expect(stale[0]?.next).toContain("net stop");
+    expect(recd[0]?.next).toBe("to observe the page: `tabcap plugin disable xor-decode` (applies from the next body; bodies already decoded keep their plugin view)");
+    expect(recd[0]?.message).toContain("apply to its recording");
+    // disabled since: nothing applies any more, whatever the recording used before
+    expect(ruleDecodePluginOutranksPage(facts([sess("u", { trace: on, recording: { ...REC, decodePlugins: ["xor-decode"] } })]))).toEqual([]);
+    // enabled after net start: it applies to the recording too
+    expect(ruleDecodePluginOutranksPage(facts([sess("u", { trace: on, recording: REC })], { plugins: { decode: ["xor-decode"], challenge: [] } }))).toHaveLength(1);
     // two plugins: the placeholder
     expect(ruleDecodePluginOutranksPage(facts([sess("u", { trace: on })], { plugins: { decode: ["a", "b"], challenge: [] } }))[0]?.next).toContain("plugin disable <name>");
   });
 
-  test("(b) not raised: no decode plugin, trace without --decode, trace off, a recording without plugins", () => {
+  test("(b) not raised: no decode plugin enabled, trace without --decode, trace off", () => {
     const pl = { plugins: { decode: ["xor-decode"], challenge: [] } };
     expect(ruleDecodePluginOutranksPage(facts([sess("u", { trace: { state: "on", decode: true, weakRows: 0 } })]))).toEqual([]);
     expect(ruleDecodePluginOutranksPage(facts([sess("u", { trace: { state: "on", decode: false, weakRows: null } })], pl))).toEqual([]);
     expect(ruleDecodePluginOutranksPage(facts([sess("u")], pl))).toEqual([]);
-    expect(ruleDecodePluginOutranksPage(facts([sess("u", { trace: { state: "paused", decode: true, weakRows: 2 }, recording: REC })], pl))).toEqual([]);
+    expect(ruleDecodePluginOutranksPage(facts([sess("u", { trace: { state: "off", decode: false, weakRows: null }, recording: REC })], pl))).toEqual([]);
   });
 
   test("(c) a session with tabs, no site, and its tab on a store site: fill --secret refused; session stop, then session start --site", () => {
@@ -176,6 +178,22 @@ describe("--text", () => {
     expect(lines).toHaveLength(4 + 2 * 4);
   });
 
+  test("0.7-E: a waiting session shows its tab URL and screenshot; the top-level next says handoff continue after the human", () => {
+    const w = sess("w", { state: "waiting", reason: "verify-page", url: "http://127.0.0.1:9/verify", screenshot: "/shots/w.png" });
+    const f = facts([w, sess("u", { site: null, account: null })]);
+    const conflicts = conflictsOf(f);
+    expect(conflicts).toEqual([]);
+    const next = nextOf(f, conflicts);
+    expect(next).toBe('session "w" waits for the human (verify-page): tell the user (screenshot /shots/w.png); after they finished in the browser: `tabcap handoff continue --session w`');
+    const lines = renderStatusText({ ...f, conflicts, next }).split("\n");
+    expect(lines[1]).toBe("w: site shop (alice) · 1 tab(s) (current t1) · not recording · WAITING verify-page at http://127.0.0.1:9/verify (screenshot /shots/w.png) · trace off");
+    expect(lines.at(-1)).toBe(`next: ${next}`);
+    // nothing waits: the first conflict's next, else null
+    const rec = facts([sess("r", { recording: REC, tabs: 0, current: null })], { browser: { running: false, pid: null, mode: null, tabs: 0 } });
+    expect(nextOf(rec, conflictsOf(rec))).toBe(conflictsOf(rec)[0]?.next ?? "?");
+    expect(nextOf(facts([sess("ok")]), [])).toBeNull();
+  });
+
   test("no daemon, no sessions, no conflicts; malformed input does not throw", () => {
     expect(renderStatusText(offlineStatus(mkdtempSync(join(tmpdir(), "tabcap-st-")), "unix"))).toBe("tabcap status · daemon not running (`tabcap daemon start`) · plugins: none\n(no sessions)\nconflicts: none");
     expect(renderStatusText(null)).toContain("daemon not running");
@@ -212,6 +230,7 @@ describe("status off a daemon (no browser)", () => {
         tabSite: null,
         tabs: 0,
         current: null,
+        url: null,
         recording: null,
         state: "running",
         reason: null,
@@ -223,7 +242,8 @@ describe("status off a daemon (no browser)", () => {
     expect(data["handoff"]).toEqual([]);
     expect(data["conflicts"]).toEqual([]);
     // no `trace` / `handoff` notice fields: it is not a session command
-    expect(Object.keys(data).sort()).toEqual(["browser", "conflicts", "daemon", "handoff", "plugins", "schema", "sessions"]);
+    expect(data["next"]).toBeNull();
+    expect(Object.keys(data).sort()).toEqual(["browser", "conflicts", "daemon", "handoff", "next", "plugins", "schema", "sessions"]);
   });
 
   test("statusOf on an empty daemon: nothing listed", () => {

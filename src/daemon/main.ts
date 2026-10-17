@@ -73,13 +73,18 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   }
   if (action === "daemon.status") return markFetchAuth(d, ok(statusData(d)));
   // 0.7-B: read-only and daemon-wide, so it opens no cmd window and is never refused while a session waits.
-  if (action === "status") return markFetchAuth(d, ok(statusOf(d, daemonFacts(d))));
+  if (action === "status") {
+    // 0.7-E: a hand-off screenshot still being taken is waited for (bounded), so `screenshot` is its path
+    await d.guard.shotTaken(null);
+    return markFetchAuth(d, ok(statusOf(d, daemonFacts(d))));
+  }
   const known = TOOLS[action];
   if (known === undefined) return fail("usage", `unknown action: ${action}`, "Run `tabcap --help`.");
   // Sites may have been added by `tabcap site add` (another process) since the last command.
   d.refreshSecrets();
   // docs/05 s15: while the session waits for the human, nothing acts on the page.
   const blockedBy = d.guard.blocking(session, action, typeof args["url"] === "string" ? args["url"] : null);
+  if (blockedBy !== null) await d.guard.shotTaken(blockedBy.session);
   // 0.4-D: an account over its configured hourly budget does not act on pages either.
   const overBudget = blockedBy === null ? budgetBlock(d, session, action) : null;
   const tool: typeof known = blockedBy !== null ? () => Promise.reject(waitingError(blockedBy)) : overBudget !== null ? () => Promise.reject(overBudget) : known;
@@ -106,7 +111,9 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     const out = startId !== null && ACTION_COMMANDS.has(action) && isRecord(data) && !("cmd" in data) ? { ...data, cmd: startId } : data;
     const h = d.guard.get(session);
     if (h !== null && h.state === "waiting" && h.since >= started && BLOCKED_WHILE_WAITING.has(action)) {
-      // This very command ran into the challenge: stop here, with its own result attached.
+      // This very command ran into the challenge: stop here, with its own result attached
+      // (0.7-E: and with the screenshot, which the tab takes once this command let go of it).
+      await d.guard.shotTaken(session);
       env = toFail(waitingError(h));
       if (!env.ok) env.error["result"] = out;
     } else {

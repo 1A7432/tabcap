@@ -6,7 +6,9 @@ import type { Daemon } from "../state.ts";
 import { optStr, type Args } from "./args.ts";
 import { saveSiteSession } from "./session.ts";
 
-export function handoffStatus(d: Daemon, _a: Args, session: string): unknown {
+export async function handoffStatus(d: Daemon, _a: Args, session: string): Promise<unknown> {
+  // 0.7-E: right after the trip the screenshot is still being taken; wait for it (bounded)
+  await d.guard.shotTaken(session);
   const h = d.guard.get(session);
   return {
     session,

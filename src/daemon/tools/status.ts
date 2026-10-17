@@ -33,6 +33,8 @@ export type StatusSession = {
   tabSite: string | null;
   tabs: number;
   current: string | null;
+  /** 0.7-E: the URL of the current tab (else the session's first tab), null without a tab. */
+  url: string | null;
   recording: StatusRecording | null;
   state: "running" | "waiting";
   reason: string | null;
@@ -41,7 +43,8 @@ export type StatusSession = {
   guardStops: StatusGuardStop[];
 };
 
-export type StatusHandoff = { session: string; reason: string; site: string | null; since: number; screenshot: string | null };
+/** `url`: the request the guard handed over on (0.7-E). */
+export type StatusHandoff = { session: string; reason: string; site: string | null; url: string; since: number; screenshot: string | null };
 
 export type ConflictCode = "waiting-and-fetch-stop" | "decode-plugin-outranks-page" | "unbound-session" | "recording-without-browser" | "trace-without-recording";
 
@@ -56,7 +59,18 @@ export type StatusFacts = {
   handoff: StatusHandoff[];
 };
 
-export type StatusAnswer = StatusFacts & { conflicts: StatusConflict[] };
+/**
+ * `next` (0.7-E): what to do first: for a waiting session `tabcap handoff continue` once the human
+ * finished (one clause per waiting session), else the first conflict's next, else null.
+ */
+export type StatusAnswer = StatusFacts & { conflicts: StatusConflict[]; next: string | null };
+
+/** The top-level `next` of a status answer (pure). */
+export function nextOf(f: StatusFacts, conflicts: readonly StatusConflict[]): string | null {
+  const waiting = f.sessions.filter((s) => s.state === "waiting");
+  if (waiting.length > 0) return waiting.map((s) => `session ${q(s.session)} waits for the human (${s.reason ?? "?"}): tell the user${s.screenshot === null ? "" : ` (screenshot ${s.screenshot})`}; after they finished in the browser: \`tabcap handoff continue ${S(s.session)}\``).join("; ");
+  return conflicts[0]?.next ?? null;
+}
 
 const q = (s: string) => JSON.stringify(s);
 const S = (s: string) => `--session ${s}`;
@@ -90,25 +104,22 @@ export function ruleWaitingAndFetchStop(f: StatusFacts): StatusConflict[] {
 /**
  * (b) The observe mode (`trace start --decode`) runs while decode plugins
  * apply: a body a plugin filed a view for is not observed and plugin views
- * outrank `by:"page"` views (docs/04 §33 D4). The plugins a recording asks are
- * fixed at `net start`; without a recording, the enabled ones are what the
- * next `net start` takes.
+ * outrank `by:"page"` views (docs/04 §33 D4). 0.7-E: a recording reads the
+ * enabled plugins per body, so the enabled ones are what applies, to the
+ * current recording from its next body or to the next recording.
  */
 export function ruleDecodePluginOutranksPage(f: StatusFacts): StatusConflict[] {
   const out: StatusConflict[] = [];
   for (const s of f.sessions) {
     if (s.trace.state === "off" || !s.trace.decode) continue;
-    const names = s.recording !== null ? s.recording.decodePlugins : f.plugins.decode;
+    const names = f.plugins.decode;
     if (names.length === 0) continue;
     const first = names.length === 1 ? (names[0] ?? "<name>") : "<name>";
-    const enabled = names.filter((n) => f.plugins.decode.includes(n));
-    const disable = enabled.length === 0 ? "" : `\`tabcap plugin disable ${first}\``;
-    const restart = s.recording === null ? "" : `\`tabcap net stop ${S(s.session)}\` and \`tabcap net start ${S(s.session)}\` (a recording keeps the plugins it started with)`;
     out.push({
       code: "decode-plugin-outranks-page",
       session: s.session,
       message: `session ${q(s.session)} observes the page (trace --decode) while decode plugin(s) ${names.join(", ")} apply${s.recording === null ? " to the next recording" : " to its recording"}: plugin views outrank page views, and a body a plugin decoded is not observed`,
-      next: `to observe the page: ${[disable, restart].filter((x) => x !== "").join(", then ")}`,
+      next: `to observe the page: \`tabcap plugin disable ${first}\`${s.recording === null ? "" : " (applies from the next body; bodies already decoded keep their plugin view)"}`,
     });
   }
   return out;
@@ -214,6 +225,7 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
       tabSite: site === null ? tabSiteOf(d, currentUrl) : null,
       tabs: tabs.length,
       current,
+      url: currentUrl,
       recording: r === undefined ? null : { bundle: r.dir, since: recordingSince(r.status()), entries: r.index.length, decodePlugins: r.decodePlugins },
       state: waiting ? "waiting" : "running",
       reason: waiting ? h.reason : null,
@@ -233,9 +245,10 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
     handoff: d.guard
       .all()
       .filter((h) => h.state === "waiting")
-      .map((h) => ({ session: h.session, reason: h.reason, site: h.site, since: h.since, screenshot: h.screenshot })),
+      .map((h) => ({ session: h.session, reason: h.reason, site: h.site, url: h.url, since: h.since, screenshot: h.screenshot })),
   };
-  return { ...facts, conflicts: conflictsOf(facts) };
+  const conflicts = conflictsOf(facts);
+  return { ...facts, conflicts, next: nextOf(facts, conflicts) };
 }
 
 function recordingSince(st: Record<string, unknown>): number {
@@ -253,7 +266,8 @@ export function offlineStatus(configDir: string, listener: string): StatusAnswer
     plugins: enabledPlugins(configDir),
     handoff: [],
   };
-  return { ...facts, conflicts: conflictsOf(facts) };
+  const conflicts = conflictsOf(facts);
+  return { ...facts, conflicts, next: nextOf(facts, conflicts) };
 }
 
 // ---------------------------------------------------------------- --text
@@ -282,7 +296,7 @@ export function renderStatusText(data: unknown): string {
     const r = isRecord(x["recording"]) ? x["recording"] : null;
     const tr = rec(x["trace"]);
     const trace = tr["state"] === "off" || tr["state"] === undefined ? "trace off" : `trace ${txt(tr["state"])}${tr["decode"] === true ? ` decode (weak ${txt(tr["weakRows"])})` : ""}`;
-    const state = x["state"] === "waiting" ? `WAITING ${txt(x["reason"])}${typeof x["screenshot"] === "string" ? ` (screenshot ${x["screenshot"]})` : ""}` : "running";
+    const state = x["state"] === "waiting" ? `WAITING ${txt(x["reason"])}${typeof x["url"] === "string" ? ` at ${x["url"]}` : ""}${typeof x["screenshot"] === "string" ? ` (screenshot ${x["screenshot"]})` : ""}` : "running";
     const stops = recs(x["guardStops"]).map((g) => `${txt(g["site"])} ${txt(g["rule"])}`);
     const parts = [
       site,
@@ -300,5 +314,6 @@ export function renderStatusText(data: unknown): string {
     lines.push(`- [${txt(c["code"])}] ${txt(c["message"])}`);
     lines.push(`  next: ${txt(c["next"])}`);
   }
+  if (typeof s["next"] === "string") lines.push(`next: ${s["next"]}`);
   return lines.join("\n");
 }

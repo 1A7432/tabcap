@@ -10,7 +10,7 @@
 // `decodePlugins`; never status itself.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
@@ -54,17 +54,6 @@ async function ok(...args: string[]): Promise<Record<string, unknown>> {
   const e = await tabcap(args);
   if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
   return e.data;
-}
-
-async function until<T>(what: string, f: () => Promise<T>, good: (v: T) => boolean, ms = 15_000): Promise<T> {
-  const end = Date.now() + ms;
-  let v = await f();
-  while (!good(v)) {
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await Bun.sleep(150);
-    v = await f();
-  }
-  return v;
 }
 
 const sessionOf = (st: Record<string, unknown>, name: string): Record<string, unknown> => rec(recs(st["sessions"]).find((x) => x["session"] === name));
@@ -134,21 +123,24 @@ describe.skipIf(!enabled)("tabcap 0.7-B L2 (status and conflicts)", () => {
     const sixth = await tabcap(["fetch", "/api/limited", "--stop-on", "status>=400", ...W]);
     expect(sixth.ok).toBe(false);
     expect(site.hits.filter((h) => h === "GET /api/limited").length).toBe(LIMIT_OK + 1);
-    const st = await until(
-      "w waiting with a screenshot",
-      () => ok("status"),
-      (x) => sessionOf(x, "w")["state"] === "waiting" && typeof sessionOf(x, "w")["screenshot"] === "string",
-    );
+    // 0.7-E: no polling: status waits for the screenshot still being taken (it said null for ~0.5 s before)
+    const st = await ok("status");
     const w = sessionOf(st, "w");
-    expect(w).toMatchObject({ reason: "verify-page" });
+    // read before toMatchObject: bun's asymmetric matchers can leave themselves in the received object
+    const wShot = s(w["screenshot"]);
+    expect(wShot).toMatch(/[/\\]shots[/\\]w-t\d+-.*\.png$/);
+    expect(existsSync(wShot)).toBe(true);
+    expect(w).toMatchObject({ state: "waiting", reason: "verify-page", url: `${site.origin}/s15/` });
+    expect(s(st["next"])).toContain("after they finished in the browser: `tabcap handoff continue --session w`");
     expect(recs(w["guardStops"])).toEqual([expect.objectContaining({ site: SITE, rule: "status>=400", reason: "fetch-stop", by: "w" })]);
-    expect(recs(st["handoff"])).toEqual([expect.objectContaining({ session: "w", reason: "verify-page" })]);
+    expect(recs(st["handoff"])).toEqual([expect.objectContaining({ session: "w", reason: "verify-page", url: `${site.origin}/api/limited`, screenshot: wShot })]);
     expect(codes(st, "w")).toEqual(["waiting-and-fetch-stop"]);
     expect(s(conflict(st, "w", "waiting-and-fetch-stop")["next"])).toContain("tabcap handoff continue --session w");
     const text = await statusText("w waiting, fetches on range-demo stopped");
     expect(text).toContain("w: site range-demo (demo-user)");
-    expect(text).toContain("WAITING verify-page");
+    expect(text).toContain(`WAITING verify-page at ${site.origin}/s15/ (screenshot `);
     expect(text).toContain("[waiting-and-fetch-stop]");
+    expect(text).toContain("\nnext: session \"w\" waits for the human (verify-page)");
     // the guard itself: guard resume lifts the fetch stop, the wait stays
     expect(await ok("guard", "resume", "--site", SITE, ...W)).toMatchObject({ site: SITE, resumed: true });
     expect((await ok("handoff", "status", ...W))["state"]).toBe("waiting");
@@ -156,7 +148,31 @@ describe.skipIf(!enabled)("tabcap 0.7-B L2 (status and conflicts)", () => {
     expect(sessionOf(after, "w")).toMatchObject({ state: "waiting", guardStops: [] });
     expect(codes(after, "w")).toEqual([]);
     expect(await ok("handoff", "continue", ...W)).toMatchObject({ state: "resumed" });
-    expect(sessionOf(await ok("status"), "w")).toMatchObject({ state: "running", reason: null, screenshot: null });
+    const done = await ok("status");
+    expect(sessionOf(done, "w")).toMatchObject({ state: "running", reason: null, screenshot: null });
+    // nothing waits any more: next is the first conflict's (u is unbound on the store site), no handoff continue
+    expect(s(done["next"])).not.toContain("handoff continue");
+  }, 90_000);
+
+  test("0.7-E: a navigate that lands on a 403 verify page answers `waiting` with the screenshot path; handoff status has it too", async () => {
+    const N = ["--session", "n"];
+    await ok("net", "start", ...N);
+    const wall = `${site.origin}/api/limited?bucket=nav`;
+    for (let i = 1; i <= LIMIT_OK; i++) await ok("navigate", wall, ...N);
+    const hit = await tabcap(["navigate", wall, ...N]);
+    expect([hit.ok, hit.error?.["code"]]).toEqual([false, "waiting"]);
+    const shot = s(hit.error?.["screenshot"]);
+    expect(shot).toMatch(/[/\\]shots[/\\]n-t\d+-.*\.png$/);
+    expect(existsSync(shot)).toBe(true);
+    expect(rec((await ok("handoff", "status", ...N))["handoff"])).toMatchObject({ state: "waiting", reason: "verify-page", screenshot: shot });
+    const st = await ok("status");
+    expect(sessionOf(st, "n")).toMatchObject({ state: "waiting", url: wall, screenshot: shot });
+    expect(s(st["next"])).toContain("`tabcap handoff continue --session n`");
+    await statusText("n waiting after a navigate onto the verify page");
+    // the wait outlives the recording, the screenshot with it
+    await ok("net", "stop", ...N);
+    expect(sessionOf(await ok("status"), "n")).toMatchObject({ state: "waiting", recording: null, screenshot: shot });
+    expect(await ok("handoff", "continue", ...N)).toMatchObject({ state: "resumed" });
   }, 90_000);
 
   test("trace start --decode with a decode plugin enabled: (b) and, without a recording, (e)", async () => {
@@ -168,11 +184,11 @@ describe.skipIf(!enabled)("tabcap 0.7-B L2 (status and conflicts)", () => {
     expect(codes(st, "u")).toEqual(["decode-plugin-outranks-page", "unbound-session", "trace-without-recording"]);
     expect(s(conflict(st, "u", "decode-plugin-outranks-page")["next"])).toBe("to observe the page: `tabcap plugin disable xor-decode`");
     await statusText("u observing with xor-decode enabled, not recording");
-    // recording: (e) goes, (b) stays and asks for a new recording too
+    // recording: (e) goes, (b) stays; 0.7-E: the recording follows plugin disable from its next body, no restart
     await ok("net", "start", ...U);
     const rec2 = await ok("status");
     expect(codes(rec2, "u")).toEqual(["decode-plugin-outranks-page", "unbound-session"]);
-    expect(s(conflict(rec2, "u", "decode-plugin-outranks-page")["next"])).toContain("`tabcap net stop --session u` and `tabcap net start --session u`");
+    expect(s(conflict(rec2, "u", "decode-plugin-outranks-page")["next"])).toBe("to observe the page: `tabcap plugin disable xor-decode` (applies from the next body; bodies already decoded keep their plugin view)");
     await ok("trace", "stop", ...U);
     await ok("net", "stop", ...U);
     expect(codes(await ok("status"), "u")).toEqual(["unbound-session"]);

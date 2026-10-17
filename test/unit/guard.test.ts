@@ -76,6 +76,33 @@ describe("challenge detection (docs/05 s15)", () => {
 });
 
 describe("guard: waiting state", () => {
+  test("0.7-E: shotTaken waits (bounded) for the screenshot still being taken, so the answer carries its path", async () => {
+    let release: (p: string) => void = () => undefined;
+    const g = new Guard({
+      configDir: config,
+      secrets: new Secrets(),
+      siteOf: () => null,
+      screenshot: () => new Promise<string>((r) => (release = r)),
+      pageInfo: () => Promise.resolve({ url: null, title: null, text: null }),
+      settleMs: 0,
+    });
+    const rec = new FakeRec("s");
+    g.watch(rec);
+    rec.emit(entry({ id: "r-2", status: 403, mime: "text/html" }));
+    expect(g.get("s")?.screenshot).toBeNull(); // waiting at once, the screenshot follows
+    const t0 = Date.now();
+    await g.shotTaken("s", 50); // bounded: the tab never answered yet
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(g.get("s")?.screenshot).toBeNull();
+    const waited = g.shotTaken(null);
+    await Bun.sleep(5);
+    release("/data/shots/s-t1.png");
+    await waited;
+    expect(g.get("s")?.screenshot).toBe("/data/shots/s-t1.png");
+    await g.shotTaken("other"); // nothing pending for another session: returns at once
+    await g.settle();
+  });
+
   test("trip → breaker, waiting with screenshot; page commands blocked (also navigate to that origin from other sessions); continue resumes", async () => {
     const { g } = guard();
     const rec = new FakeRec("s");

@@ -94,7 +94,12 @@ export type Handoff = {
   /** 0.6-I stop-rule handoffs: the rule that fired and what it saw. */
   rule?: string;
   ruleDetail?: string;
+  /** 0.7-E: the screenshot being taken (settle delay, then the tab's turn); answers wait for it, bounded. */
+  shot?: Promise<void>;
 };
+
+/** 0.7-E: how long an answer waits for a hand-off screenshot still being taken. */
+export const SHOT_WAIT_MS = 5000;
 
 /** Public view of a handoff (CLI output and the `waiting` error). */
 export function handoffView(h: Handoff): Record<string, unknown> {
@@ -336,6 +341,29 @@ export class Guard {
     return this.handoffs.get(session) ?? null;
   }
 
+  /** The hand-off screenshot: after the settle delay, saved under the data dir's shots/ (recording or not). */
+  private takeShot(h: Handoff): Promise<void> {
+    const shot = (async () => {
+      await Bun.sleep(this.deps.settleMs ?? 400);
+      h.screenshot = await this.deps.screenshot(h.session, h.tab).catch(() => null);
+    })();
+    h.shot = shot;
+    return shot;
+  }
+
+  /**
+   * 0.7-E: wait (at most `ms`) for the screenshots of waiting hand-offs (one session, or all with
+   * null) that are still being taken, so the answer that reports the wait carries the path. Before,
+   * an answer right after the trip said `screenshot: null` and the file appeared ~0.5 s later.
+   */
+  async shotTaken(session: string | null, ms = SHOT_WAIT_MS): Promise<void> {
+    const shots = [...this.handoffs.values()].filter((h) => h.state === "waiting" && (session === null || h.session === session)).flatMap((h) => (h.shot === undefined ? [] : [h.shot]));
+    if (shots.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([Promise.all(shots), new Promise<void>((r) => (timer = setTimeout(r, ms)))]);
+    clearTimeout(timer);
+  }
+
   all(): Handoff[] {
     return [...this.handoffs.values()];
   }
@@ -449,8 +477,7 @@ export class Guard {
       { tab: e.tab },
     );
     log.info("guard: site stop rule fired", { session, site, rule: hit.rule, request: e.id });
-    await Bun.sleep(this.deps.settleMs ?? 400);
-    h.screenshot = await this.deps.screenshot(session, e.tab).catch(() => null);
+    await this.takeShot(h);
     rec.event(
       "handoff",
       {
@@ -501,8 +528,7 @@ export class Guard {
       { event: "breaker", site: h.site, account: bound?.account ?? null, detail: { reason, request: e.id, url: e.url, status: e.status, mime: e.mime, ...(coolUntil === null ? {} : { coolUntil }) } },
       { tab: e.tab },
     );
-    await Bun.sleep(this.deps.settleMs ?? 400);
-    h.screenshot = await this.deps.screenshot(session, e.tab).catch(() => null);
+    await this.takeShot(h);
     rec.event(
       "handoff",
       { state: "waiting", reason, question: "Complete the verification in the browser, then tell the AI to continue.", timeoutMs: null, answerRef: null, request: e.id, url: e.url, screenshot: h.screenshot },
