@@ -64,6 +64,16 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: templates/python/pyproject.toml
+      - name: uv cache warm-up (network; the Python runs in the tests are offline)
+        run: |
+          uv python install 3.13
+          # Lock and install a throwaway package with the generated pyproject.toml, so the
+          # tests' offline `uv sync` of each generated package finds every wheel and index
+          # entry in the cache (a `uv pip install` warm-up does not serve an offline lock).
+          mkdir .uv-warm
+          sed 's/{{[A-Za-z]*}}/uv-warm/g' templates/python/pyproject.toml > .uv-warm/pyproject.toml
+          uv sync --project .uv-warm --group test
+          rm -rf .uv-warm
       - name: L0 unit tests
         run: bun test test/unit
       # The wire component (native/wireprint): release.ts cross-compiles the four
