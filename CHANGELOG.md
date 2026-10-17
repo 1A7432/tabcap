@@ -4,6 +4,13 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### Task guides (0.7-A)
+
+- **`tabcap guide [<id>]`**: task-first entry points. Without an id it lists the guides (id, title, when to use it); with one it gives the commands in order (5–10 copy-pastable steps with `--session`, each with why), the pitfalls that are easy to miss (implicit state included) and the references to read; `--text` prints the steps as a numbered shell block with `# why` comments. First five: `first-look`, `scrape-through-browser`, `encrypted-site`, `offline-replay`, `login-with-challenge`. The command opens a new **Start here** group at the top of `tabcap --help`.
+- One source of truth in the binary (`src/cli/guides.ts`): `bun run gen:docs` also writes `skills/tabcap/references/guides.md`, and a unit test parses every `tabcap …` command a guide names with the command registry, so a guide cannot name a command or flag that does not exist.
+- **MCP**: `tabcap_help` takes an optional `guide` (`""` lists the guides, an id gives one); the core-set instructions point to it.
+- **SKILL.md by task**: the "Record → analyse → replay" section became five short tasks, each ending in `tabcap guide <id>`; the Chrome DevTools MCP differences moved to `references/devtools-mcp.md` (SKILL.md keeps a one-line pointer). SKILL.md stays under 8 KB (8166 bytes).
+
 ## 0.6.0 (2026-10-17)
 
 ### plugin init (0.7-D)
