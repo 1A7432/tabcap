@@ -59,6 +59,11 @@ jobs:
         run: |
           want="v$(bun -e 'Bun.file("package.json").json().then((p) => console.log(p.version))')"
           [ "$want" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME does not match package.json ($want)"; exit 1; }
+      # The unit tests compile and run the generated Python client through uv (same steps as ci.yml).
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: templates/python/pyproject.toml
       - name: L0 unit tests
         run: bun test test/unit
       # The wire component (native/wireprint): release.ts cross-compiles the four
