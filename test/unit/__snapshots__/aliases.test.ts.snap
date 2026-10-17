@@ -3905,7 +3905,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": false,
           "flag": "--decode",
-          "help": "observe mode instead of signal tracing (no signal breakpoints; not with --apis): every JSON.parse of a string of 32+ chars pauses, and a plaintext tied to a response that looks like ciphertext is filed as a decoded view by "page" (evidence.link strong / weak); turn it off after the recording (config.json trace.decode sets the default; TextDecoder / SubtleCrypto pauses are evidence only)",
+          "help": "observe mode instead of signal tracing (no signal breakpoints; not with --apis): every JSON.parse of a string of 32+ chars pauses, and a plaintext tied to a response that looks like ciphertext is filed as a decoded view by "page" (evidence.link strong / weak; config.json trace.weakRows false counts weak ones as drops.weak instead); turn it off after the recording (config.json trace.decode sets the default; TextDecoder / SubtleCrypto pauses are evidence only)",
           "key": "decode",
           "repeatable": false,
           "required": false,
@@ -4428,7 +4428,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "run decode plugins over a finished bundle: plaintext views of matching request / response bodies are appended to the bundle's decoded.jsonl sidecar (events.jsonl never changes) and read as request.decoded / response.decoded by net body / find / where / deps / recon / replay check; a re-run appends only new or changed views",
+      "summary": "run decode plugins over a finished bundle: plaintext views of matching request / response bodies are appended to the bundle's decoded.jsonl sidecar (events.jsonl never changes) and read as request.decoded / response.decoded by net body / find / where / deps / recon / replay check; a body a plugin declines (decode() returned None: not its body) gets no view and is counted as declined, and a decline hides that plugin's earlier failure on the body (superseded); CORS preflights and empty bodies are never offered; a re-run appends only new or changed views",
       "usage": "tabcap bundle decode <bundle> [--plugin name]",
     },
     {

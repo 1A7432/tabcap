@@ -757,7 +757,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--stack", key: "stack", kind: "number", help: "stack frames kept per signal event", default: 8, metavar: "n" },
       { flag: "--first-n", key: "firstN", kind: "number", help: "signal events with a stack per (api, caller); later ones only count", default: 20, metavar: "n" },
       { flag: "--max-hits", key: "maxHits", kind: "number", help: "reads of one API in one document before its breakpoint is removed (the event gets truncated: true)", default: 500, metavar: "n" },
-      { flag: "--decode", key: "decode", kind: "bool", help: "observe mode instead of signal tracing (no signal breakpoints; not with --apis): every JSON.parse of a string of 32+ chars pauses, and a plaintext tied to a response that looks like ciphertext is filed as a decoded view by \"page\" (evidence.link strong / weak); turn it off after the recording (config.json trace.decode sets the default; TextDecoder / SubtleCrypto pauses are evidence only)" },
+      { flag: "--decode", key: "decode", kind: "bool", help: "observe mode instead of signal tracing (no signal breakpoints; not with --apis): every JSON.parse of a string of 32+ chars pauses, and a plaintext tied to a response that looks like ciphertext is filed as a decoded view by \"page\" (evidence.link strong / weak; config.json trace.weakRows false counts weak ones as drops.weak instead); turn it off after the recording (config.json trace.decode sets the default; TextDecoder / SubtleCrypto pauses are evidence only)" },
       { flag: "--no-decode", key: "decode", kind: "bool", help: "start without the observe mode, whatever config.json says", value: false },
     ],
     summary:
@@ -858,7 +858,7 @@ export const COMMANDS: CommandSpec[] = [
     pos: ["bundle"],
     flags: [{ flag: "--plugin", key: "plugin", kind: "string", help: "only this decode plugin (installed; naming it is the opt-in, it need not be enabled); default: every enabled decode plugin", metavar: "name" }],
     summary:
-      "run decode plugins over a finished bundle: plaintext views of matching request / response bodies are appended to the bundle's decoded.jsonl sidecar (events.jsonl never changes) and read as request.decoded / response.decoded by net body / find / where / deps / recon / replay check; a re-run appends only new or changed views",
+      "run decode plugins over a finished bundle: plaintext views of matching request / response bodies are appended to the bundle's decoded.jsonl sidecar (events.jsonl never changes) and read as request.decoded / response.decoded by net body / find / where / deps / recon / replay check; a body a plugin declines (decode() returned None: not its body) gets no view and is counted as declined, and a decline hides that plugin's earlier failure on the body (superseded); CORS preflights and empty bodies are never offered; a re-run appends only new or changed views",
     example: "tabcap bundle decode ./b --plugin xor-decode",
   },
   {
