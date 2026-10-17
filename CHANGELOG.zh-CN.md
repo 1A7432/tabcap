@@ -4,6 +4,10 @@
 
 ## 未发布
 
+### tabcap update
+
+- `tabcap update` 升级 tabcap 自己。只在你运行它时向 npm registry 发一次请求（`/tabcap/latest`），从不在后台检查。npm 安装的（二进制在 `node_modules/tabcap-<os>-<cpu>/bin/` 下）用它所在全局 prefix 的 npm（找不到就用 `PATH` 上的 `npm`）跑 `npm install -g tabcap@<latest>`，npm 的输出走 stderr；守护进程在跑时，回答提示重启它。release 包或源码编的从不下载、不替换：回答给出两个版本号和 release 页。`--check` 在任何渠道都只比较。`TABCAP_NPM_REGISTRY` 改 registry 地址，`TABCAP_NPM` 改 npm 可执行文件。不是 MCP 工具。
+
 ### CI
 
 - `release.yml`：npm job 最后的核对改为轮询 registry 最多 15 分钟，不再只查一次；`npm publish` 打出 `+ name@version` 之后 registry 还要处理几分钟（0.7.1 的包 1 到 7 分钟后才出现，第一次真实运行因此标红，虽然五个包都发成功了）。

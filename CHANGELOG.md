@@ -4,6 +4,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### tabcap update
+
+- `tabcap update` updates tabcap itself. It makes one request to the npm registry (`/tabcap/latest`), only when you run it; tabcap never checks in the background. An npm install (the binary under `node_modules/tabcap-<os>-<cpu>/bin/`) runs `npm install -g tabcap@<latest>` with the npm of its own global prefix (else `npm` on `PATH`); npm's output goes to stderr, and when a daemon is running the answer says to restart it. A release package or a source build is never downloaded or replaced: the answer gives both versions and the release page. `--check` only compares, on every channel. `TABCAP_NPM_REGISTRY` overrides the registry URL, `TABCAP_NPM` the npm executable. Not an MCP tool.
+
 ### CI
 
 - `release.yml`: the npm job's final check polls the registry for up to 15 minutes instead of looking once; the registry still processes a new version for a few minutes after `npm publish` says `+ name@version` (0.7.1's packages appeared 1 to 7 minutes later, which made the first real run of the job red although every package was published).

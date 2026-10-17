@@ -140,6 +140,14 @@ export const COMMANDS: CommandSpec[] = [
     summary: "download Chrome for Testing (Stable) into the cache and record it in config.json",
     example: "tabcap setup",
   },
+  {
+    path: ["update"],
+    pos: [],
+    flags: [{ flag: "--check", key: "check", kind: "bool", help: "only compare the running version with the latest release; run nothing" }],
+    summary:
+      "update tabcap itself: one request to the npm registry, only when run. An npm install runs `npm install -g tabcap@<latest>` with the npm that owns it (then restart a running daemon); a release package or source build is never replaced, the answer gives the release page. $TABCAP_NPM_REGISTRY overrides the registry URL, $TABCAP_NPM the npm executable",
+    example: "tabcap update --check",
+  },
   { path: ["daemon", "start"], pos: [], flags: [], summary: "start the background daemon", example: "tabcap daemon start" },
   { path: ["daemon", "stop"], pos: [], flags: [], summary: "stop the daemon (closes the browser, finishes recordings)", example: "tabcap daemon stop" },
   { path: ["daemon", "status"], pos: [], flags: [], summary: "daemon and browser status, open recordings", example: "tabcap daemon status" },
@@ -1235,7 +1243,7 @@ export function usageOf(c: CommandSpec, skip: readonly string[] = []): string {
 export const COMMAND_GROUPS: ReadonlyArray<{ id: string; title: string; test: (c: CommandSpec) => boolean; last?: true }> = [
   // 0.7-A: task guides first, the entry point for an agent that does not know the commands yet.
   { id: "start", title: "Start here", test: (c) => c.path[0] === "guide" },
-  { id: "lifecycle", title: "Setup and lifecycle", test: (c) => ["setup", "daemon", "browser", "mcp"].includes(c.path[0] ?? "") },
+  { id: "lifecycle", title: "Setup and lifecycle", test: (c) => ["setup", "update", "daemon", "browser", "mcp"].includes(c.path[0] ?? "") },
   { id: "sessions", title: "Sites, sessions and tabs", test: (c) => ["site", "session", "tab"].includes(c.path[0] ?? "") },
   { id: "page", title: "Navigation and page reading", test: (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "") },
   { id: "input", title: "Input", test: (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "") },

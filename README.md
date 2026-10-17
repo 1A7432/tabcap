@@ -18,7 +18,7 @@ tabcap is the workbench for that loop. The agent explores and repeats; you provi
 
 ## Quick start
 
-**1. Install.** `npm install -g tabcap` (Node 18 or newer; the binary for your platform comes as an optional dependency, published by CI with provenance). Or download the package for your platform from the release page (`tabcap-v<version>-darwin-arm64.tar.gz`, `-linux-x64.tar.gz`, `-linux-arm64.tar.gz` or `-windows-x64.zip`; checksums in `SHA256SUMS`), unpack it and put `tabcap` (`tabcap.exe` on Windows) on your `PATH`; on macOS, after a browser download, run `xattr -d com.apple.quarantine tabcap` once. Or build from source: with Bun 1.4 or newer and Zig 0.16.0, run `bun install && bun scripts/native.ts build` (the wire component tabcap embeds), then `bun run build`.
+**1. Install.** `npm install -g tabcap` (Node 18 or newer; the binary for your platform comes as an optional dependency, published by CI with provenance; later, `tabcap update`). Or download the package for your platform from the release page (`tabcap-v<version>-darwin-arm64.tar.gz`, `-linux-x64.tar.gz`, `-linux-arm64.tar.gz` or `-windows-x64.zip`; checksums in `SHA256SUMS`), unpack it and put `tabcap` (`tabcap.exe` on Windows) on your `PATH`; on macOS, after a browser download, run `xattr -d com.apple.quarantine tabcap` once. Or build from source: with Bun 1.4 or newer and Zig 0.16.0, run `bun install && bun scripts/native.ts build` (the wire component tabcap embeds), then `bun run build`.
 
 **2. Get a browser and start.**
 
@@ -71,7 +71,7 @@ The commands come in groups; `tabcap help <group>` lists one, for example `tabca
 | Group | Commands |
 |---|---|
 | Start here | `guide` (task recipes: the commands in order, why, the pitfalls), `status` (everything in one answer, with conflicts and what to do) |
-| Lifecycle | `setup`, `daemon start/stop/status`, `browser start/stop/status`, `mcp` |
+| Lifecycle | `setup`, `update`, `daemon start/stop/status`, `browser start/stop/status`, `mcp` |
 | Sites, sessions, tabs | `site`, `account`, `proxy` (*experimental*), `session start/stop/list/export`, `tab list/select/new/close` |
 | Page | `navigate`, `go`, `reload`, `snapshot`, `outline`, `find`, `wait`, `html` |
 | Input | `click`, `hover`, `fill`, `type`, `press-key`, `upload`, `dialog` |

@@ -24,6 +24,7 @@ import { renderWhereText, whereResultOf } from "../analyze/where.ts";
 import { runReplay } from "./replay.ts";
 import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts";
 import { pluginInit } from "./plugin-init.ts";
+import { cmdUpdate } from "./update.ts";
 import { accountAdd, accountBind, accountList, accountRemove, accountSetState, proxyAdd, proxyCheck, proxyList, proxyRemove, proxySetState } from "./pool.ts";
 import { Store, storePath } from "../daemon/store/db.ts";
 import { Secrets, variantsOf } from "../daemon/secrets.ts";
@@ -351,6 +352,9 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
     }
     case "setup":
       data = await cmdSetup(parsed.args);
+      break;
+    case "update":
+      data = await cmdUpdate(parsed.args);
       break;
     case "daemon start":
       // Store permission problems surface here, not as a daemon that never comes up.

@@ -18,7 +18,7 @@ tabcap 就是这个循环的工作台：agent 探路、重复；你给凭据、�
 
 ## 快速开始
 
-**1. 安装。** `npm install -g tabcap`（Node 18 以上；对应平台的二进制作为可选依赖一起装，由 CI 发布、带 provenance）。或者从 release 页下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，校验值在 `SHA256SUMS`），解开，把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`；macOS 上用浏览器下载的，先跑一次 `xattr -d com.apple.quarantine tabcap`。或者从源码编：需要 Bun 1.4 以上和 Zig 0.16.0，先 `bun install && bun scripts/native.ts build`（编出 tabcap 内嵌的 wire 组件），再 `bun run build`。
+**1. 安装。** `npm install -g tabcap`（Node 18 以上；对应平台的二进制作为可选依赖一起装，由 CI 发布、带 provenance；之后用 `tabcap update` 升级）。或者从 release 页下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，校验值在 `SHA256SUMS`），解开，把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`；macOS 上用浏览器下载的，先跑一次 `xattr -d com.apple.quarantine tabcap`。或者从源码编：需要 Bun 1.4 以上和 Zig 0.16.0，先 `bun install && bun scripts/native.ts build`（编出 tabcap 内嵌的 wire 组件），再 `bun run build`。
 
 **2. 装浏览器，启动。**
 
@@ -71,7 +71,7 @@ tabcap daemon stop
 | 组 | 命令 |
 |---|---|
 | 从这里开始 | `guide`（任务配方：命令顺序、为什么、坑）、`status`（一屏看全，含冲突和下一步） |
-| 生命周期 | `setup`、`daemon start/stop/status`、`browser start/stop/status`、`mcp` |
+| 生命周期 | `setup`、`update`、`daemon start/stop/status`、`browser start/stop/status`、`mcp` |
 | 站点、会话、标签 | `site`、`account`、`proxy`（*实验*）、`session start/stop/list/export`、`tab list/select/new/close` |
 | 页面 | `navigate`、`go`、`reload`、`snapshot`、`outline`、`find`、`wait`、`html` |
 | 输入 | `click`、`hover`、`fill`、`type`、`press-key`、`upload`、`dialog` |

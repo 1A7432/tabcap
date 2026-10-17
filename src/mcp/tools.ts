@@ -31,6 +31,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   mcp: "this server itself",
   schema: "the tool list is the schema",
   "daemon run": "internal: the daemon in the foreground",
+  update: "for the human: an agent must not upgrade its own tool mid-session",
   "site add": "for the human: reads the password from a prompt or stdin, which is the MCP channel",
   "proxy add": "for the human: reads the password from a prompt or stdin, which is the MCP channel",
   "account add": "for the human: reads the password from a prompt or stdin, which is the MCP channel",

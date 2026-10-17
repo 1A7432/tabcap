@@ -50,6 +50,20 @@ Example: `tabcap setup`
 | `--executable-path <path>` |  | use this Chrome for Testing binary instead of downloading |
 | `--platform <platform>` |  | mac-arm64 \| mac-x64 \| linux64 \| win64 (default: this machine) |
 
+### `tabcap update`
+
+update tabcap itself: one request to the npm registry, only when run. An npm install runs `npm install -g tabcap@<latest>` with the npm that owns it (then restart a running daemon); a release package or source build is never replaced, the answer gives the release page. $TABCAP_NPM_REGISTRY overrides the registry URL, $TABCAP_NPM the npm executable
+
+```
+tabcap update [--check]
+```
+
+Example: `tabcap update --check`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--check` |  | only compare the running version with the latest release; run nothing |
+
 ### `tabcap daemon start`
 
 start the background daemon
