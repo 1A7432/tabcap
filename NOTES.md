@@ -541,3 +541,8 @@
 - 做了什么：0.7.3-A 合入后发 0.7.3（4e0d9bb，release run 39064401568 一次全绿，npm 五包 latest=0.7.3，GitHub Release 已按作者授权发布为 latest）；本机 `tabcap update` 从 0.7.2 升到 0.7.3【实测：npm 渠道、nvm 的 npm、退出 0，`--check` 回 up-to-date】，0.7.2-A 的【待验】关掉。loreweaver PR #39 以 rebase 合入（5ee55dd），`publish-protocol.yml` 干跑绿【实测：版本校验 2.4.0 / 协议 2.4，test + build，2.4.0 已在 registry 故发布步骤跳过】。合并后 main 的 CI 又红了两次，都是时序断言：v02d 在 `wait --text` 之后断言 `net wait` 的 `alreadyFinished:true`（慢 runner 上录制器的 finished 晚于页面文字，Windows 回了 `alreadyFinished:false, waitedMs:849`）→ 不再断言这个字段；v03e 断言 trusted 点链接必是 `delivered.reason:"navigated"`（探针先于导航回读时是 `pointerdown:true`，ubuntu 出现过）→ 两种都接受，`--no-wait` 后先 `wait --url`。
 - 卡在哪：这两条本来就是「产品两种合法结果、测试只认一种」，不是产品问题；loreweaver-protocol 的 trusted publisher 仍 pending validation，要在 2026-10-19 17:44 UTC 前真发一次 2.4.1（作者定）；v0.7.1 的草稿 Release 还挂着，删不删作者定。
 - 下一格从哪开始：看这次 main CI（v03e 放宽后）是否全绿；之后 0.7.4 候选：`where` 对「label: value」、observe 方案 B、OOPIF 接管监听、脱敏占位符改用包里的盐、Windows 上 `tabcap update` 的 `npm.cmd` 路径实测。
+
+## 2026-10-18 · 合并后 CI 追绿：analyze chain 的步骤顺序是真 bug（主循环）
+- 做了什么：2b105c5 之后 main 的 CI 两边各红一条：Windows 的 v02d `net list --method POST` 紧跟 `wait --text` 后列到 0 条（录制器晚于页面，改成 `until`）；ubuntu 的 v04a `analyze chain` 步骤顺序为 `[data, login]`【实测日志：login r-21 在 mono 293025.23 结束，data r-20 在 1.18 ms 后开始，但 login 的事件序号更大】——`chain.ts` 按录制序号 `seq` 排步骤，而序号在正文落盘时分配，登录正文晚一点落盘就排到依赖它的请求之后，`replay export-python` 的调用顺序也跟着错。改成按 `timing.start`（否则 `mono`）排、`seq` 只打平手；单测 `deps.test.ts` 加「steps follow the start clock」用例；CHANGELOG 未发布节记录。5265226 的 CI 八个 job 全绿【实测 run main-ci-chain】。
+- 卡在哪：这类「测试一返回就读录制」的时序断言 CI 上每轮出一条，已改掉四处（v05f、v02d×2、v03e）；再出现按同样套路改。
+- 下一格从哪开始：0.7.4 候选加一条「chain 步骤按开始时间排」已在 Unreleased；其余候选见上一条；作者醒来定 loreweaver 2.4.1 发布（trusted publisher 验证期限 10-19 17:44 UTC）与 v0.7.1 草稿 Release 去留。
