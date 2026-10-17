@@ -4,6 +4,16 @@
 
 ## 0.6.0（2026-10-17）
 
+### 两轮真实站点后作者定的几处（0.6-V）
+
+- **weak 观察行可以关掉**：`config.json` 写 `{"trace": {"weakRows": false}}` 后不再写 single-suspect 行（`evidence.link: "weak"`）——到目前为止它在每个真实站点样本上都归错了；本会写入的每一行计入 `trace status` / `trace stop` 的 `decode` 块里的 `drops.weak`。默认仍是 `true`（照旧写入）。`trace start --decode` 与 `trace status` 带 `weakRows`。
+- **观察模式的证据帧带脚本 URL**：`evidence.frames[].url` 以前总是 `""`，因为调用帧的脚本 id 读错了位置（应为 `location.scriptId`）；现在先用帧自己的 URL，再用脚本解析时的 URL。同一处修正也让观察模式按原设计跳过 tabcap 自己的脚本与隔离世界里的 JSON.parse。
+- **解码插件不再收到 CORS 预检和空正文**：录制时与 `bundle decode` 都一样；`bundle decode` 的回答计入 `skipped: {preflight, empty}`。
+- **放弃覆盖同一插件的旧失败**：插件现在放弃的正文，若当前视图正是它自己以前的 `ok:false`（旧 runner 的「returned None」），`bundle decode` 追加一行放弃行，读者（`net show`、`net body`、`find` 等）看到的是没有视图；计入 `superseded`。`bundle decode` 的命令说明提到放弃。
+- **`trace status` 与 `trace stop` 带 `decodePlugins` / `decodePluginsNotice`**：观察模式开着时，与 `trace start --decode` 一样。
+- **形状不计没有响应的交换**：`analyze shape` / `schema-diff` 不再推断 `incomplete` 交换（HAR 导出也不导出它们），与 `--types` 无关；`excluded` 改为 `{types, incomplete}`。包与它的 HAR 往返在这种端点上不再报漂移。
+- **文档**：点击最后一个请求结束超过 300 ms 后才开的弹窗不由这次点击报告；`tab list` 里它是带 opener 的 `popup`。
+
 ### 复测修正：usage 间隔、fixtures 汇总、popup 字段、解码插件提示（0.6-U）
 
 - **`bundle info --usage` 的间隔不算 CORS 预检**：每行的 `minIntervalMs`、`meanIntervalMs`、`maxBurst1s` 只按非预检请求算。一个真实包的 `fetch` 行最短间隔是 0.2 ms——那是预检和它的请求之间的距离。预检照旧计入 `requests`、`byMethod`、`preflights`；`firstMono` / `lastMono` 仍跨整行。

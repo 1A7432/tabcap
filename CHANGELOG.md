@@ -4,6 +4,16 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## 0.6.0 (2026-10-17)
 
+### Owner decisions after the real-site rounds (0.6-V)
+
+- **Weak observe rows can be turned off**: `config.json` `{"trace": {"weakRows": false}}` stops filing single-suspect rows (`evidence.link: "weak"`), which were wrong on every real-site sample so far; each one that would have been filed is counted as `drops.weak` in the `decode` block of `trace status` / `trace stop`. The default stays `true` (filed as before). `trace start --decode` and `trace status` say `weakRows`.
+- **Observe evidence frames carry the script URL**: `evidence.frames[].url` was always `""` because the call frame's script id was read from the wrong place (`location.scriptId`); it is now the frame's own URL, else the URL the script was parsed with. The same fix makes the observe mode skip JSON.parse calls from tabcap's own scripts and isolated worlds, as intended.
+- **Decode plugins never see CORS preflights or empty bodies**, live or in `bundle decode`, whose answer counts them in `skipped: {preflight, empty}`.
+- **A decline supersedes the same plugin's earlier failure**: when a plugin now declines a body whose view is its own old `ok:false` view (the old runner's "returned None"), `bundle decode` appends a `declined` row and readers (`net show`, `net body`, `find`, …) see no view; counted as `superseded`. The `bundle decode` summary mentions declined bodies.
+- **`trace status` and `trace stop` carry `decodePlugins` / `decodePluginsNotice`** while decode is on, like `trace start --decode`.
+- **Shapes leave out exchanges without a response**: `analyze shape` / `schema-diff` no longer shape `incomplete` exchanges (HAR exports leave them out too), whatever `--types` says; `excluded` is now `{types, incomplete}`. A bundle and its HAR round trip no longer drift on such an endpoint.
+- **Docs**: a popup opened more than 300 ms after a click's last request ended is not reported by that click; `tab list` shows it as `popup` with its opener.
+
 ### Re-test fixes: usage intervals, fixtures summary, popup field, decode-plugin notice (0.6-U)
 
 - **`bundle info --usage` intervals leave CORS preflights out**: a row's `minIntervalMs`, `meanIntervalMs` and `maxBurst1s` are computed over its non-preflight requests. A real bundle's `fetch` row showed a 0.2 ms minimum — the gap between a preflight and its request. Preflights are still counted in `requests`, `byMethod` and `preflights`; `firstMono` / `lastMono` still span the whole row.
