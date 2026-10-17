@@ -17,6 +17,22 @@ The CLI applies these to the envelope's `data` after the command ran, in this or
 | `--fields <a,b,c>` |  | project each array element to these keys |
 | `--full` |  | print data whole even above TABCAP_OUTPUT_LIMIT (default 16384 bytes; above it data becomes {summary, file, bytes, truncated}) (not on screenshot) |
 
+## Start here
+
+### `tabcap guide`
+
+task recipes, start here: no id lists them (id, title, when to use it); with an id, the commands in order with why, the pitfalls (implicit state too) and the references to read. Guides: first-look, scrape-through-browser, encrypted-site, offline-replay, login-with-challenge
+
+```
+tabcap guide [<id>] [--text]
+```
+
+Example: `tabcap guide scrape-through-browser --text`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--text` |  | print the list, or the guide's steps as a numbered shell block with `# why` comments, instead of JSON |
+
 ## Setup and lifecycle
 
 ### `tabcap setup`

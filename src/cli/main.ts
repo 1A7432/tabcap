@@ -46,6 +46,7 @@ import { renderWireText, wireResultOf } from "../wire/probe.ts";
 import type { RunOptions } from "../mcp/tools.ts";
 import { hostConfig } from "../mcp/hosts.ts";
 import { fetchArgs, fetchClientTimeout } from "./fetch.ts";
+import { guideList, guideOf, renderGuideListText, renderGuideText } from "./guides.ts";
 
 const USAGE = BUNDLE_USAGE;
 
@@ -336,6 +337,17 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
   const p = paths();
   let data: unknown;
   switch (key) {
+    case "guide": {
+      // 0.7-A: task guides from the registry in guides.ts; --text renders them for a human or a shell.
+      const id = typeof parsed.args["id"] === "string" ? parsed.args["id"] : null;
+      const text = parsed.args["text"] === true;
+      if (id === null) {
+        const list = guideList();
+        return text ? { code: 0, envelope: ok(list), text: renderGuideListText() } : { code: 0, envelope: ok(list) };
+      }
+      const g = guideOf(id);
+      return text ? { code: 0, envelope: ok(g), text: renderGuideText(g) } : { code: 0, envelope: ok(g) };
+    }
     case "setup":
       data = await cmdSetup(parsed.args);
       break;

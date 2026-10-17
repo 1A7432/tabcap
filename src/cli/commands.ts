@@ -12,6 +12,7 @@
 import { TabcapError } from "../shared/envelope.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
 import { MCP_HOSTS } from "../mcp/hosts.ts";
+import { GUIDE_IDS } from "./guides.ts";
 
 /** `optnum`: a flag whose number value may be omitted (`--idle` or `--idle 800`). */
 export type FlagKind = "string" | "bool" | "number" | "optnum";
@@ -114,6 +115,14 @@ const NO_WAIT: FlagSpec = {
 const INTERACT: FlagSpec[] = [NO_WAIT, { flag: "--snapshot", key: "snapshot", kind: "bool", help: "also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait" }];
 
 export const COMMANDS: CommandSpec[] = [
+  {
+    path: ["guide"],
+    pos: ["id"],
+    optional: 1,
+    flags: [{ flag: "--text", key: "text", kind: "bool", help: "print the list, or the guide's steps as a numbered shell block with `# why` comments, instead of JSON" }],
+    summary: `task recipes, start here: no id lists them (id, title, when to use it); with an id, the commands in order with why, the pitfalls (implicit state too) and the references to read. Guides: ${GUIDE_IDS.join(", ")}`,
+    example: "tabcap guide scrape-through-browser --text",
+  },
   {
     path: ["setup"],
     pos: [],
@@ -1201,6 +1210,8 @@ export function usageOf(c: CommandSpec, skip: readonly string[] = []): string {
  * (0.6-E: the optional diagnostics, which the MCP core set and SKILL.md leave out).
  */
 export const COMMAND_GROUPS: ReadonlyArray<{ id: string; title: string; test: (c: CommandSpec) => boolean; last?: true }> = [
+  // 0.7-A: task guides first, the entry point for an agent that does not know the commands yet.
+  { id: "start", title: "Start here", test: (c) => c.path[0] === "guide" },
   { id: "lifecycle", title: "Setup and lifecycle", test: (c) => ["setup", "daemon", "browser", "mcp"].includes(c.path[0] ?? "") },
   { id: "sessions", title: "Sites, sessions and tabs", test: (c) => ["site", "session", "tab"].includes(c.path[0] ?? "") },
   { id: "page", title: "Navigation and page reading", test: (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "") },
@@ -1257,7 +1268,7 @@ export function helpAll(): string {
     "Output flags (every command): --select <path> --grep <regex> [--context n] [--max-matches n] --fields a,b --full",
     "  data over TABCAP_OUTPUT_LIMIT (16384 bytes) becomes {summary, file, bytes, truncated}: read `file`, or filter.",
     "",
-    "Start: tabcap setup && tabcap daemon start && tabcap browser start, then navigate → snapshot --interactive → click / fill",
+    "Start: tabcap setup && tabcap daemon start && tabcap browser start, then tabcap guide (task recipes) or navigate → snapshot --interactive → click / fill",
     "More:  tabcap help <command> (= tabcap <command> --help) · tabcap help <group>, e.g. tabcap help network · tabcap schema --json",
   );
   return lines.join("\n");

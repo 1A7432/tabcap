@@ -31,6 +31,7 @@ exports[`tools/list: the default core set the listed commands, then tabcap_hando
 
 exports[`tools/list --all-tools: generated from the command table tool names (snapshot) follow the spec's name rules and are unique 1`] = `
 [
+  "tabcap_guide",
   "tabcap_setup",
   "tabcap_daemon_start",
   "tabcap_daemon_stop",
