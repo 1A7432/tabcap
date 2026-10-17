@@ -114,7 +114,7 @@ describe("the guide registry", () => {
 
   test("the check catches drift: an unknown command, an unknown flag, a missing --session or required flag, a bad positional count, an unquoted glob", () => {
     for (const bad of [
-      "tabcap plugin init --kind decode ./x",
+      "tabcap plugin scaffold --kind decode ./x",
       "tabcap fetch https://example.com/ --referrer https://example.com/ --session s",
       "tabcap net list --resource-types xhr,fetch",
       "tabcap where --session s",
@@ -126,6 +126,7 @@ describe("the guide registry", () => {
     }
     expect(checkTabcap("tabcap net list --grep /api/ --fields id,url --session s")).toBe("net list");
     expect(checkTabcap("tabcap replay export-python ./b --out ./client")).toBe("replay export-python");
+    expect(checkTabcap("tabcap plugin init --kind decode --name mydecode")).toBe("plugin init");
   });
 
   test("`tabcap guide <id>` mentions point at existing guides; the replay rules a guide writes are valid rules", () => {

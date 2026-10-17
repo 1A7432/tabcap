@@ -34,7 +34,7 @@ Large things come back as **file paths** (screenshots, bodies, `snapshot --file-
 
 **Scrape through the logged-in tab.** `session start <name> --site <site>`, log in once with `fill --secret` (below), `net start --bodies api+script`, then `tabcap fetch <url>` (`--batch`, `--stop-on`; scripts: `POST /fetch`). 3 s per host, no flag to skip; `fetch.blocked` with a wildcard `Access-Control-Allow-Origin` → `--credentials omit`; on `guard.stopped` decide with the user. `session export --for httpx --out <file>` hands the session to a script (0600; never print or share it). `tabcap guide scrape-through-browser`
 
-**Encrypted API bodies.** A decode plugin when the key is known (template: `templates/plugins/decode-python/` in the package), else observe the page's own decryption (a diagnostic mode that slows the page: tell the user first). Plugin views outrank page views; `net body` shows the decoded view, `--raw` the original. `tabcap guide encrypted-site`
+**Encrypted API bodies.** A decode plugin when the key is known (`tabcap plugin init --kind decode --name <n>` writes one), else observe the page's own decryption (a diagnostic mode that slows the page: tell the user first). Plugin views outrank page views; `net body` shows the decoded view, `--raw` the original. `tabcap guide encrypted-site`
 
 **Offline replay.** After `net stop`: `analyze chain <bundle> --request r-N` (where each input comes from), a rules file (`ignoreQuery`, `body`, `"prefer": "2xx"` when a key was 403 then 200) → `replay serve <bundle> --rules <file>`, `bundle export fixtures`, `replay export-python <bundle> --out ./client` → `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.** `tabcap guide offline-replay`
 

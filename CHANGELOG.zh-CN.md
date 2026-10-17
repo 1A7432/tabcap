@@ -9,7 +9,7 @@
 - **`tabcap guide [<id>]`**：按任务给入口。不带 id 列出配方（id、标题、何时用）；带 id 给出按顺序的命令（5–10 步、可直接粘贴、带 `--session`，每步写为什么）、容易漏的坑（含隐式状态）和该读的参考；`--text` 打成带 `# why` 注释的编号 shell 块。首批五条：`first-look`、`scrape-through-browser`、`encrypted-site`、`offline-replay`、`login-with-challenge`。这条命令在 `tabcap --help` 顶部新开 **Start here** 组。
 - 唯一真源在二进制里（`src/cli/guides.ts`）：`bun run gen:docs` 同时生成 `skills/tabcap/references/guides.md`；单测用命令注册表解析配方里的每条 `tabcap …`，配方写了不存在的命令或旗标就失败。
 - **MCP**：`tabcap_help` 多一个可选参数 `guide`（`""` 列出配方，id 给一条）；核心工具集的 instructions 指向它。
-- **SKILL.md 按任务重组**：「Record → analyse → replay」一节换成五个短任务，各以 `tabcap guide <id>` 收尾；Chrome DevTools MCP 的三处差异移到 `references/devtools-mcp.md`（SKILL.md 留一行指引）。SKILL.md 仍在 8 KB 以内（8166 字节）。
+- **SKILL.md 按任务重组**：「Record → analyse → replay」一节换成五个短任务，各以 `tabcap guide <id>` 收尾；Chrome DevTools MCP 的三处差异移到 `references/devtools-mcp.md`（SKILL.md 留一行指引）。SKILL.md 仍在 8 KB 以内（8163 字节）。
 
 ## 0.6.0（2026-10-17）
 
