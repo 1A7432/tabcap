@@ -34,7 +34,7 @@
 | 6. 复现 | AI | 生成独立客户端，重放请求，与录到的响应逐项比对 |
 | 7. 落地 | AI + 人 | 导出离线 fixture 和测试；回归多份样本；定时重放，检测接口变化 |
 
-人可以随时接管：目前的交还都由工具触发（验证页、站点停手规则、`handoff`），「工具发现人正在操作 AI 的标签就自动暂停」**还没有实现**（0.7.1 候选：隔离世界的被动输入监听器在 tabcap 自己的命令窗口之外看到 isTrusted 输入就进入等待；能否可靠识别仍【待验】）。在它做实之前，人接手前先让 AI 停下，或用 `tabcap handoff` 显式交接。
+人可以随时接管：除了工具触发的交还（验证页、站点停手规则），0.7.1-A 起 `direct` 模式下「工具发现人正在操作 AI 的标签就自动暂停」也做了：tabcap 隔离世界里的被动监听器在 AI 的标签上看到 `isTrusted` 的 `pointerdown` / `keydown` / `wheel` / `touchstart`，且不落在 tabcap 自己的 CDP 输入窗口里，会话就进入 `waiting`（`reason:"human-takeover"`），AI 的动作命令一律回 `waiting`；人说做完了，AI 才 `tabcap handoff continue`，不自动恢复（`04` §37，`config.json` `handoff.detectTakeover:false` 可关）。【实测】的只是机制：用 CDP 注入模拟「命令窗口之外的一次可信输入」能触发，tabcap 自己的 `click --trusted` / `type` / `press-key` 不触发，页面自己合成的事件不触发（e2e v071a，`07` §1.1）。真人的 OS 输入（鼠标、键盘、触控板、拖滚动条、自动填充、输入法）在本机由人实际操作时是否同样可靠，仍【待验】；跨进程 iframe 里的输入和 `ext` 模式不覆盖。
 
 ## 4. 这个工具体现的工作方式
 
