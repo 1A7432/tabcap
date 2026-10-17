@@ -70,6 +70,8 @@ function account(username: string, o: Partial<AccountRow> = {}): AccountRow {
 }
 
 describe("store migration 3 (additive)", () => {
+  // 30 s, not bun's 5 s default: plain synchronous SQLite work, but a slow Windows runner
+  // took 10.8 s once (release run 39051903323 attempt 1) and that alone made the release red.
   test("a v2 store gets proxies and the pool columns; its rows stay as they were", () => {
     const cfg = join(tmp("tabcap-pool-mig-"), "config");
     mkdirSync(cfg, { mode: 0o700 });
@@ -98,7 +100,7 @@ describe("store migration 3 (additive)", () => {
     expect(s.accountCounter("example", "alice", t + 3_600_000)).toMatchObject({ requests: 0, logins: 0 });
     expect(s.guardCounter("example", "s1").loginAttempts).toBe(1);
     s.close();
-  });
+  }, 30_000);
 });
 
 describe("proxy state machine (fake clock)", () => {

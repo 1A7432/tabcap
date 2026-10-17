@@ -18,7 +18,7 @@ tabcap 就是这个循环的工作台：agent 探路、重复；你给凭据、�
 
 ## 快速开始
 
-**1. 安装。** 从 release 页下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，校验值在 `SHA256SUMS`），解开，把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`。macOS 上用浏览器下载的，先跑一次 `xattr -d com.apple.quarantine tabcap`。或者从源码编：需要 Bun 1.4 以上和 Zig 0.16.0，先 `bun install && bun scripts/native.ts build`（编出 tabcap 内嵌的 wire 组件），再 `bun run build`。
+**1. 安装。** `npm install -g tabcap`（Node 18 以上；对应平台的二进制作为可选依赖一起装，由 CI 发布、带 provenance）。或者从 release 页下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，校验值在 `SHA256SUMS`），解开，把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`；macOS 上用浏览器下载的，先跑一次 `xattr -d com.apple.quarantine tabcap`。或者从源码编：需要 Bun 1.4 以上和 Zig 0.16.0，先 `bun install && bun scripts/native.ts build`（编出 tabcap 内嵌的 wire 组件），再 `bun run build`。
 
 **2. 装浏览器，启动。**
 
@@ -57,7 +57,7 @@ tabcap daemon stop
 - **从不占你的屏幕。** 标签在后台打开；需要焦点的输入，在一条命令的时长里用 Chrome 的焦点仿真；抢走前台的弹窗会被交还；只有显式的 `tab select --bring-to-front` 会把标签提到前面。
 - **把流量录成证据。** `net start` 把请求、响应正文、WebSocket 帧、控制台输出和命令时间线写进一个证据包。可以导出成 HAR（默认打码），也可以导入别处录的 HAR；录制中就能用 `net list`、`net show`、`net body`、`net wait` 读。
 - **凭据不经过模型。** 站点、账号、密码存在本地库里（`tabcap site add`，在提示符下输入或用管道喂）。agent 只写引用（`fill e6 --secret example.password`）；所有输出、日志和证据包事件里，已知的秘密值一律替换成 `<secret:…>`。
-- **交还给人，不硬闯。** 每个站点每个会话只试一次登录。撞上验证页，会话进入 `waiting` 并附截图，直到你在浏览器里处理完、跑 `tabcap handoff continue`。tabcap 不带任何验证码或挑战的解法；插件接口可以加载你自己写的处理程序。
+- **交还给人，不硬闯。** 每个站点每个会话只试一次登录。撞上验证页，会话进入 `waiting` 并附截图，直到你在浏览器里处理完、跑 `tabcap handoff continue`。你自己在 agent 的标签里点击、打字或滚动也一样：tabcap 察觉到是人在操作，agent 就等着，直到你说做完了。tabcap 不带任何验证码或挑战的解法；插件接口可以加载你自己写的处理程序。
 - **让你的爬虫经已登录的标签发请求。** `tabcap fetch <url>` 由页面自己发请求（带它的 cookie，受它的 CORS 规则），录下并打标，并发也不会混。同一主机按间隔排队（默认 3 秒，没有跳过的开关）；`status>=400`、`json:$.code!=0` 这类停手规则一命中就停下该站点，直到 `tabcap guard resume`。Python 爬虫可以经守护进程的套接字做同样的事。
 - **录完离线干活。** `analyze find` 和 `where` 把页面上显示的一个值追到携带它的响应，解码和归一化都算在内。`analyze deps` 与 `analyze chain` 指出每个请求输入从哪来、复现它需要哪些请求。`analyze diff` 跨多次录制给参数分类；`analyze shape` 与 `schema-diff` 描述端点的形状和漂移。`replay export-python` 把一条链生成为带测试的 httpx 客户端；`replay serve` 用证据包应答；`replay check` 把一次真实运行逐字段比对；`bundle export fixtures` 给你已有的测试框架写夹具，一条交换一个。
 - **加密正文用你自己的代码读。** 解码插件是你自己的一个进程（一行一个 JSON，密钥留在它自己的配置里），把编码或加密的正文变成明文视图，`find`、`where`、`deps`、`replay check` 都读它。页面自己在 JS 里解密的站点，`trace start --decode` 观察页面交给 `JSON.parse` 的明文，归到对应的响应，并标出关联是强是弱。
@@ -121,7 +121,7 @@ tabcap daemon stop
 
 文件：`~/.config/tabcap/`（配置、凭据库、插件、socket、日志）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）。Linux 认 `XDG_*`；Windows 上三者都在 `%LOCALAPPDATA%\tabcap\` 下。设 `TABCAP_HOME` 可整体搬到一个目录。
 
-Homebrew、npm、Scoop 的模板在 `packaging/`，还没发布到任何仓库。
+npm 是已发布的渠道（`tabcap` 加每个平台一个包；推 `v*` tag 由 CI 发布）。Homebrew 和 Scoop 的模板在 `packaging/`，还没发布。
 
 ## 文档
 
