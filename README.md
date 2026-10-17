@@ -16,18 +16,25 @@ Most agent browsers start from "give the agent a clean, isolated browser and let
 
 tabcap is the workbench for that loop. The agent explores and repeats; you provide the credentials, pass the checks and confirm the conclusions; everything is recorded, so each conclusion can be replayed and checked later.
 
+## Install
+
+- **npm** (any platform, Node 18 or newer): `npm install -g tabcap`. The binary for your platform comes as an optional dependency; every release is published from CI with provenance. Later: `tabcap update`.
+- **Homebrew** (macOS arm64, Linux): `brew install 1A7432/tabcap/tabcap`. Later: `brew upgrade tabcap`.
+- **Release packages**: `tabcap-v<version>-darwin-arm64.tar.gz`, `-linux-x64.tar.gz`, `-linux-arm64.tar.gz` or `-windows-x64.zip` from the [release page](https://github.com/1A7432/tabcap/releases), checksums in `SHA256SUMS`; unpack and put `tabcap` (`tabcap.exe` on Windows) on your `PATH`. On macOS, after a browser download, run `xattr -d com.apple.quarantine tabcap` once.
+- **From source**: Bun 1.4 or newer and Zig 0.16.0; `bun install && bun scripts/native.ts build` (the wire component tabcap embeds), then `bun run build`.
+
+Then `tabcap setup` downloads Chrome for Testing (about 180 MB) into `~/.cache/tabcap`; nothing else is needed.
+
 ## Quick start
 
-**1. Install.** `npm install -g tabcap` (Node 18 or newer; the binary for your platform comes as an optional dependency, published by CI with provenance; later, `tabcap update`). Or download the package for your platform from the release page (`tabcap-v<version>-darwin-arm64.tar.gz`, `-linux-x64.tar.gz`, `-linux-arm64.tar.gz` or `-windows-x64.zip`; checksums in `SHA256SUMS`), unpack it and put `tabcap` (`tabcap.exe` on Windows) on your `PATH`; on macOS, after a browser download, run `xattr -d com.apple.quarantine tabcap` once. Or build from source: with Bun 1.4 or newer and Zig 0.16.0, run `bun install && bun scripts/native.ts build` (the wire component tabcap embeds), then `bun run build`.
-
-**2. Get a browser and start.**
+**1. Get a browser and start.**
 
 ```sh
 tabcap setup                                 # downloads Chrome for Testing into ~/.cache/tabcap, asks nothing
 tabcap daemon start && tabcap browser start  # the daemon and its own Chrome, separate profile
 ```
 
-**3. Open a page and look around.**
+**2. Open a page and look around.**
 
 ```sh
 tabcap navigate https://example.com         # opens in a background tab and waits until ready
@@ -37,7 +44,7 @@ tabcap fill e7 alice                        # password fields show <masked> in e
 tabcap screenshot                           # saves a PNG and prints its path
 ```
 
-**4. Record what the page calls.**
+**3. Record what the page calls.**
 
 ```sh
 tabcap net start                            # records requests, bodies, WebSocket frames, console
@@ -121,7 +128,7 @@ Several tools turn recorded browser traffic into something an agent can call: In
 
 Files: `~/.config/tabcap/` (config, credential store, plugins, socket, log), `~/.cache/tabcap/` (the browser), `~/.local/share/tabcap/` (screenshots, bundles). `XDG_*` is honoured on Linux; on Windows all three live under `%LOCALAPPDATA%\tabcap\`. `TABCAP_HOME` moves everything into one directory.
 
-npm is the published channel (`tabcap` plus one package per platform; a `v*` tag publishes them from CI). Templates for Homebrew and Scoop are under `packaging/` but not published yet.
+Channels: npm (`tabcap` plus one package per platform, published from CI on a `v*` tag), the Homebrew tap [`1A7432/homebrew-tabcap`](https://github.com/1A7432/homebrew-tabcap) (formula updated per release from `packaging/homebrew/`), and the release packages. A Scoop manifest is under `packaging/scoop/`; there is no bucket yet.
 
 ## Documentation
 

@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { FORBIDDEN, PACKAGE_FILES, QUICK_START, TARGETS, assemble, parseArgs, planFor, sha256File, standaloneReadme, tarExe, writeSums, zipCommand } from "../../scripts/release.ts";
 import { REPO_ROOT } from "./_fixtures.ts";
 
-describe("release README (quick start only)", () => {
+describe("release README (install and quick start only)", () => {
   const out = standaloneReadme(readFileSync(join(REPO_ROOT, "README.md"), "utf8"), "9.9.9");
-  test("cut from the quick start: install, setup, first session, the agent hook-up; nothing after it", () => {
-    expect(out.startsWith("# tabcap 9.9.9\n\n## Quick start\n")).toBe(true);
+  test("cut from install through the quick start: install, setup, first session, the agent hook-up; nothing after it", () => {
+    expect(out.startsWith("# tabcap 9.9.9\n\n## Install\n")).toBe(true);
+    expect(out).toContain("\n## Quick start\n");
     for (const s of ["xattr -d com.apple.quarantine tabcap", "tabcap setup", "tabcap daemon start && tabcap browser start", "tabcap net start", "claude mcp add tabcap -- tabcap mcp", "skills/tabcap/"]) expect(out).toContain(s);
     expect(out).not.toContain("<!--");
     expect(out).not.toContain("## What it does");
@@ -19,7 +20,8 @@ describe("release README (quick start only)", () => {
   });
   test("the Chinese README is cut the same way and passes the same check", () => {
     const zh = standaloneReadme(readFileSync(join(REPO_ROOT, "README.zh-CN.md"), "utf8"), "9.9.9", QUICK_START.zh);
-    expect(zh.startsWith("# tabcap 9.9.9\n\n## 快速开始\n")).toBe(true);
+    expect(zh.startsWith("# tabcap 9.9.9\n\n## 安装\n")).toBe(true);
+    expect(zh).toContain("\n## 快速开始\n");
     expect(zh).not.toContain("<!--");
     for (const re of FORBIDDEN) expect(re.test(zh)).toBe(false);
     expect(() => standaloneReadme("## 快速开始\n\n占位\n", "1", QUICK_START.zh)).toThrow();

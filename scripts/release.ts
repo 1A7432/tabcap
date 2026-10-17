@@ -12,7 +12,7 @@
 // then dist/release/tabcap-v<version>-<target>/ holds the binary (tabcap or
 // tabcap.exe), skills/tabcap/ (agentskills.io layout),
 // templates/plugins/decode-python/ (the decode plugin template, 0.6-T), README.md and
-// README.zh-CN.md (the quick-start sections only, generated-table markers
+// README.zh-CN.md (the install and quick-start sections only, generated-table markers
 // stripped, checked for internal wording), LICENSE and NOTICE; it is packed as
 // .tar.gz (zip for Windows) with a `shasum -a 256` style .sha256 next to it.
 // SHA256SUMS lists every package of this version in dist/release/.
@@ -34,12 +34,16 @@ export function isTarget(v: string): v is Target {
 export const FORBIDDEN = [/同事/, /占位/, /placeholder/i, /\bevidence\//, /逆向/, /Kimi/i];
 
 export const QUICK_START = { en: "## Quick start", zh: "## 快速开始" } as const;
+/** The install section that precedes the quick start (0.7.3); a README without it starts at the quick start. */
+const INSTALL: Record<string, string> = { [QUICK_START.en]: "## Install", [QUICK_START.zh]: "## 安装" };
 
-/** The quick-start section of a README as a standalone README (generated-table markers stripped). */
+/** The install and quick-start sections of a README as a standalone README (generated-table markers stripped). */
 export function standaloneReadme(readme: string, version: string, heading: string = QUICK_START.en): string {
-  const start = readme.indexOf(heading);
-  if (start < 0) throw new Error(`README has no "${heading}" section`);
-  const next = readme.indexOf("\n## ", start + heading.length);
+  const quick = readme.indexOf(heading);
+  if (quick < 0) throw new Error(`README has no "${heading}" section`);
+  const install = INSTALL[heading] === undefined ? -1 : readme.lastIndexOf(INSTALL[heading], quick);
+  const start = install < 0 ? quick : install;
+  const next = readme.indexOf("\n## ", quick + heading.length);
   const section = readme.slice(start, next < 0 ? undefined : next).trimEnd();
   const body = section
     .split("\n")

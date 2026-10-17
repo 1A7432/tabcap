@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### 安装渠道
+
+- README 新增「安装」一节（npm、Homebrew、release 包、源码）。Homebrew tap `1A7432/homebrew-tabcap`：macOS arm64 与 Linux 上 `brew install 1A7432/tabcap/tabcap`；`packaging/homebrew/tabcap.rb` 是带真实校验值的 formula，Scoop 清单也填了真实 hash（还没有 bucket）。
+
 ## 0.7.2（2026-10-18）
 
 ### tabcap update

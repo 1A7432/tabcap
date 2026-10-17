@@ -16,18 +16,25 @@ tabcap 给 agent 一份自己的 Chrome，在后台标签里干活，不抢你�
 
 tabcap 就是这个循环的工作台：agent 探路、重复；你给凭据、过验证、核结论；全程录下来，每条结论事后都能回放核对。
 
+## 安装
+
+- **npm**（任何平台，Node 18 以上）：`npm install -g tabcap`。对应平台的二进制作为可选依赖一起装；每个版本都由 CI 发布、带 provenance。之后升级：`tabcap update`。
+- **Homebrew**（macOS arm64、Linux）：`brew install 1A7432/tabcap/tabcap`。之后升级：`brew upgrade tabcap`。
+- **Release 包**：从 [release 页](https://github.com/1A7432/tabcap/releases)下载 `tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`（校验值在 `SHA256SUMS`），解开，把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`。macOS 上用浏览器下载的，先跑一次 `xattr -d com.apple.quarantine tabcap`。
+- **从源码编**：需要 Bun 1.4 以上和 Zig 0.16.0，先 `bun install && bun scripts/native.ts build`（编出 tabcap 内嵌的 wire 组件），再 `bun run build`。
+
+然后 `tabcap setup` 把 Chrome for Testing（约 180 MB）下载到 `~/.cache/tabcap`，别的都不用。
+
 ## 快速开始
 
-**1. 安装。** `npm install -g tabcap`（Node 18 以上；对应平台的二进制作为可选依赖一起装，由 CI 发布、带 provenance；之后用 `tabcap update` 升级）。或者从 release 页下载对应平台的包（`tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`，校验值在 `SHA256SUMS`），解开，把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`；macOS 上用浏览器下载的，先跑一次 `xattr -d com.apple.quarantine tabcap`。或者从源码编：需要 Bun 1.4 以上和 Zig 0.16.0，先 `bun install && bun scripts/native.ts build`（编出 tabcap 内嵌的 wire 组件），再 `bun run build`。
-
-**2. 装浏览器，启动。**
+**1. 装浏览器，启动。**
 
 ```sh
 tabcap setup                                 # 下载 Chrome for Testing 到 ~/.cache/tabcap，不问任何问题
 tabcap daemon start && tabcap browser start  # 守护进程和它自己的 Chrome，独立 profile
 ```
 
-**3. 打开页面，看一眼。**
+**2. 打开页面，看一眼。**
 
 ```sh
 tabcap navigate https://example.com         # 在后台标签打开，等到就绪
@@ -37,7 +44,7 @@ tabcap fill e7 alice                        # 密码框的值在所有输出里�
 tabcap screenshot                           # 存一张 PNG，打印路径
 ```
 
-**4. 录下页面调了什么。**
+**3. 录下页面调了什么。**
 
 ```sh
 tabcap net start                            # 录请求、正文、WebSocket 帧、控制台
@@ -121,7 +128,7 @@ tabcap daemon stop
 
 文件：`~/.config/tabcap/`（配置、凭据库、插件、socket、日志）、`~/.cache/tabcap/`（浏览器）、`~/.local/share/tabcap/`（截图、证据包）。Linux 认 `XDG_*`；Windows 上三者都在 `%LOCALAPPDATA%\tabcap\` 下。设 `TABCAP_HOME` 可整体搬到一个目录。
 
-npm 是已发布的渠道（`tabcap` 加每个平台一个包；推 `v*` tag 由 CI 发布）。Homebrew 和 Scoop 的模板在 `packaging/`，还没发布。
+渠道：npm（`tabcap` 加每个平台一个包，推 `v*` tag 由 CI 发布）、Homebrew tap [`1A7432/homebrew-tabcap`](https://github.com/1A7432/homebrew-tabcap)（每个版本从 `packaging/homebrew/` 更新 formula）、release 包。Scoop 的清单在 `packaging/scoop/`，还没有 bucket。
 
 ## 文档
 

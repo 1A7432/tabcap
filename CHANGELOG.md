@@ -2,6 +2,12 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### Install channels
+
+- README gains an Install section (npm, Homebrew, release packages, source). Homebrew tap `1A7432/homebrew-tabcap`: `brew install 1A7432/tabcap/tabcap` on macOS arm64 and Linux; `packaging/homebrew/tabcap.rb` is the formula with the release's real checksums, and the Scoop manifest carries the real hash too (no bucket yet).
+
 ## 0.7.2 (2026-10-18)
 
 ### tabcap update
