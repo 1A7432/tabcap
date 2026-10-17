@@ -255,11 +255,11 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
     const pd = rec(req["postData"]);
     expect(pd["truncated"]).toBe(true);
     expect(s(pd["head"])).toHaveLength(2048);
-    expect(Number(pd["size"])).toBeGreaterThan(POST_PAD);
+    expect(Number(pd["bytes"])).toBeGreaterThan(POST_PAD);
     expect(sha(s(pd["path"]))).toBe(site.served.get("post:/api/submit") ?? "missing");
     const body = rec(rec(d["response"])["body"]);
     expect(sha(s(body["path"]))).toBe(site.served.get("/api/submit") ?? "missing");
-    expect(typeof rec(d["timing"])["total"]).toBe("number");
+    expect(typeof rec(d["timing"])["totalMs"]).toBe("number");
     expect(rec(d["initiator"])["type"]).toBe("script");
     expect(s(rec(d["initiator"])["at"])).toContain(`${site.origin}/post:`);
     expect((await tabcap("net", "show", "r-999999", "--session", S)).error?.code).toBe("not-found");

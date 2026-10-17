@@ -562,11 +562,11 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--all", key: "all", kind: "bool", help: "also failed requests and data: URLs" },
       { flag: "--page-size", key: "pageSize", kind: "number", help: "requests per page (max 1000); 0 returns every match", default: 30, metavar: "n" },
       { flag: "--page-idx", key: "pageIdx", kind: "number", help: "page to return, 0-based; nextPageIdx names the next one", default: 0, metavar: "n" },
-      { flag: "--kind", key: "kind", kind: "string", help: "http (requests) | ws (WebSocket frames: id, direction, opcode, size, ts)", default: "http", metavar: "http|ws" },
+      { flag: "--kind", key: "kind", kind: "string", help: "http (requests) | ws (WebSocket frames: id, direction, opcode, bytes, ts)", default: "http", metavar: "http|ws" },
       REVEAL,
     ],
     summary:
-      "recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)",
+      "recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, bytes, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)",
     example: "tabcap net list --resource-types xhr,fetch --status 2xx",
     action: "net.list",
   },
@@ -615,7 +615,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--pretty", key: "pretty", kind: "bool", help: "search JavaScript / JSON bodies as `net body --pretty` prints them (line numbers then refer to the pretty text)" },
     ],
     summary:
-      "raw-text regex search over every recorded response body of the session (decoded, secret-scrubbed): per request {request, url, resourceType, count, matches}; at most 50 requests (more: n), bodies over 8 MB listed under skipped. Not `analyze find`, which follows values through decode chains",
+      "raw-text regex search over every recorded response body of the session (decoded, secret-scrubbed): per request {id, url, resourceType, count, matches}; at most 50 requests (more: n), bodies over 8 MB listed under skipped. Not `analyze find`, which follows values through decode chains",
     example: "tabcap net grep 'x-sign|signature' --resource-types script",
     action: "net.grep",
   },

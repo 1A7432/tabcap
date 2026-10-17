@@ -114,7 +114,7 @@ describe("entropy thresholds by size (docs/04 §15)", () => {
       ids.push(idOf(await b.request({ url: "http://127.0.0.1:4310/api/small", ts: T0 + 20, mime: "text/plain", body: b64(small) })));
     });
     const r = find(dir, "not in there");
-    expect(r.hints?.suspectEncrypted.map((s) => [s.ref, s.size])).toEqual([[ids[0] ?? "?", 300]]);
+    expect(r.hints?.suspectEncrypted.map((s) => [s.ref, s.bytes])).toEqual([[ids[0] ?? "?", 300]]);
   });
 });
 

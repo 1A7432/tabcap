@@ -184,16 +184,16 @@ export function requestByUrl(index: readonly NetEntry[], url: string): { entry: 
   return entry === undefined ? null : { entry, count: all.length };
 }
 
-export type GrepRow = { request: string; url: string; resourceType: string; count: number; matches: LineMatch[] };
+export type GrepRow = { id: string; url: string; resourceType: string; count: number; matches: LineMatch[] };
 
 /** `net grep`: pure core over (entry, bytes) pairs, for tests and the tool. */
 export function grepBodies(
   items: ReadonlyArray<{ entry: NetEntry; bytes: () => Uint8Array | null }>,
   re: RegExp,
   o: { context: number; max: number; pretty: boolean; scrub: (s: string) => string; charset: (id: string) => string | null },
-): { searched: number; requests: GrepRow[]; more: number; total: number; skipped: Array<{ request: string; url: string; bytes: number; reason: string }>; binary: number } {
+): { searched: number; requests: GrepRow[]; more: number; total: number; skipped: Array<{ id: string; url: string; bytes: number; reason: string }>; binary: number } {
   const rows: GrepRow[] = [];
-  const skipped: Array<{ request: string; url: string; bytes: number; reason: string }> = [];
+  const skipped: Array<{ id: string; url: string; bytes: number; reason: string }> = [];
   let searched = 0;
   let binary = 0;
   let more = 0;
@@ -201,13 +201,13 @@ export function grepBodies(
   for (const { entry, bytes } of items) {
     const size = entry.size ?? 0;
     if (size > GREP_MAX_BYTES) {
-      skipped.push({ request: entry.id, url: entry.url, bytes: size, reason: "over 8 MB" });
+      skipped.push({ id: entry.id, url: entry.url, bytes: size, reason: "over 8 MB" });
       continue;
     }
     const b = bytes();
     if (b === null) continue;
     if (b.length > GREP_MAX_BYTES) {
-      skipped.push({ request: entry.id, url: entry.url, bytes: b.length, reason: "over 8 MB" });
+      skipped.push({ id: entry.id, url: entry.url, bytes: b.length, reason: "over 8 MB" });
       continue;
     }
     const decoded = decodeBody(b, entry.mime, () => o.charset(entry.id));
@@ -225,7 +225,7 @@ export function grepBodies(
       more++;
       continue;
     }
-    rows.push({ request: entry.id, url: entry.url, resourceType: entry.type, count: r.total, matches: r.matches });
+    rows.push({ id: entry.id, url: entry.url, resourceType: entry.type, count: r.total, matches: r.matches });
   }
   return { searched, requests: rows, more, total, skipped, binary };
 }

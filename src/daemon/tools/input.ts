@@ -595,7 +595,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
           trusted: true,
           eventShape: "full",
           at: xy(r.to),
-          trajectory: { from: xy(r.from), to: xy(r.to), points: r.result.plan.points.length, ms: r.result.plan.durationMs, actualMs: r.result.actualMs },
+          trajectory: { from: xy(r.from), to: xy(r.to), points: r.result.plan.points.length, plannedMs: r.result.plan.durationMs, actualMs: r.result.actualMs },
           pressGapMs: r.result.plan.pressGapMs,
           delivered: r.result.delivered,
           ...(r.held === null ? {} : { paint: r.held }),
@@ -659,7 +659,7 @@ export async function hover(d: Daemon, a: Args, session: string): Promise<unknow
               level: 2,
               trusted: true,
               at: xy(to),
-              trajectory: { from: xy(from), to: xy(to), points: plan.points.length, ms: plan.durationMs, actualMs },
+              trajectory: { from: xy(from), to: xy(to), points: plan.points.length, plannedMs: plan.durationMs, actualMs },
               ...(held === null ? {} : { paint: held }),
               overlayCheck,
             };

@@ -197,7 +197,7 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     const target = searches[1]?.id ?? "";
     const chain = await ok("analyze", "chain", bundle);
     expect(chain["target"]).toBe(target);
-    const steps = recs(chain["steps"]).map((x) => x["request"]);
+    const steps = recs(chain["steps"]).map((x) => x["id"]);
     expect(steps[0]).toBe(doc?.id);
     expect(steps[steps.length - 1]).toBe(target);
     expect(recs(chain["todo"]).filter((t) => t["request"] === target).map((t) => t["name"])).toEqual(expect.arrayContaining(["sig", "nonce"]));
@@ -240,7 +240,7 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
     expect(auth.class).toBe("response");
     expect(auth.primary).toEqual({ kind: "response", request: tokenReq.id, path: "$.access_token", decode: [], match: "exact", prefix: "Bearer " });
     const chain = await ok("analyze", "chain", bundle);
-    expect(recs(chain["steps"]).map((x) => x["request"])).toEqual([tokenReq.id, me.id]);
+    expect(recs(chain["steps"]).map((x) => x["id"])).toEqual([tokenReq.id, me.id]);
 
     const out = join(home, "s53-client");
     await ok("replay", "export-python", bundle, "-o", out);
@@ -303,7 +303,7 @@ describe.skipIf(!enabled)("tabcap 0.4-A L2 (deps, chain, export-python verify on
 
     const chain = await ok("analyze", "chain", bundle);
     expect(chain["target"]).toBe(data.id);
-    expect(recs(chain["steps"]).map((x) => x["request"])).toEqual([login.id, data.id]);
+    expect(recs(chain["steps"]).map((x) => x["id"])).toEqual([login.id, data.id]);
 
     const out = join(home, "s07-client");
     const e = await ok("replay", "export-python", bundle, "-o", out);

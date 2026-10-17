@@ -268,13 +268,13 @@ describe.skipIf(!enabled)("tabcap 0.5-F L2 (in-command search: snapshot filters,
     const tok = await ok("net", "grep", SEARCH_MIN_TOKEN, ...S);
     const hits = recs(tok["requests"]);
     // the token literal is only in the API body (the script reads j.token)
-    expect(hits.map((h) => h["request"])).toEqual([apiId]);
+    expect(hits.map((h) => h["id"])).toEqual([apiId]);
     expect(rec(hits[0])).toMatchObject({ url: `${trace.a}/trace/min-api`, count: 1 });
     expect(rec(recs(rec(hits[0])["matches"])[0])["text"]).toBe(SEARCH_MIN_API);
     const sku = await ok("net", "grep", "S05F-\\d", "--resource-types", "fetch", "--max-matches", "1", ...S);
-    expect(recs(sku["requests"]).map((h) => [h["request"], h["count"], recs(h["matches"]).length])).toEqual([[apiId, 2, 1]]);
+    expect(recs(sku["requests"]).map((h) => [h["id"], h["count"], recs(h["matches"]).length])).toEqual([[apiId, 2, 1]]);
     const scripts = await ok("net", "grep", "s05f", "--resource-types", "script", ...S);
-    expect(recs(scripts["requests"]).map((h) => h["request"])).toEqual([jsId]);
+    expect(recs(scripts["requests"]).map((h) => h["id"])).toEqual([jsId]);
     const both = await ok("net", "grep", "navigator\\.(userAgent|platform)", ...S);
     expect(recs(both["requests"]).map((h) => h["url"]).sort()).toEqual([docUrl, scriptUrl].sort());
     expect(both).toMatchObject({ more: 0, skipped: [] });

@@ -143,9 +143,15 @@ export function netList(d: Daemon, a: Args, session: string): unknown {
     shown: r.shown,
     hidden: r.hidden,
     ...pagedFields(r),
-    requests: r.rows.map(({ blob: _b, at: _at, url, ...rest }) => ({ ...rest, ...shownUrl(url) })),
+    // 0.7-C: `bytes` in the answer (docs/04 §2.1); the index keeps the on-disk `size`.
+    requests: r.rows.map(({ blob: _b, at: _at, url, ...rest }) => ({ ...withBytes(rest), ...shownUrl(url) })),
     ...(notes.length > 0 ? { note: notes.join("; ") } : {}),
   };
+}
+
+/** A row with its `size` (a byte count, the on-disk name) answered as `bytes`, in place (0.7-C, docs/04 §2.1). */
+export function withBytes(row: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(row).map(([k, v]) => [k === "size" ? "bytes" : k, v]));
 }
 
 /** The paging part of a list answer. */
@@ -164,7 +170,7 @@ function wsList(dir: string, frames: WsFrameEntry[], recording: boolean, session
   const all = frames
     .filter((f) => q.filter === null || f.url.includes(q.filter))
     .filter((f) => q.tab === null || f.tab === q.tab)
-    .map((f) => ({ id: f.id, ws: f.ws, tab: f.tab, url: f.url, phase: f.phase, direction: f.direction, opcode: f.opcode, size: f.size, ts: f.ts, ...(f.reason === null ? {} : { reason: f.reason }) }));
+    .map((f) => ({ id: f.id, ws: f.ws, tab: f.tab, url: f.url, phase: f.phase, direction: f.direction, opcode: f.opcode, bytes: f.size, ts: f.ts, ...(f.reason === null ? {} : { reason: f.reason }) }));
   const page = pageOf(all, q.paging);
   return {
     session,
@@ -317,13 +323,13 @@ function bodyResult(o: { id: string; url: string; path: string; blob: string | n
       // --pretty alone: the 0.3-F preview (10000 chars), of the pretty text.
       const p = prettify(text, bytes.length, o.mime, search.resourceType);
       const pv = bodyPreview(new TextEncoder().encode(p.text), true);
-      return { ...base, size: bytes.length, mime: o.mime, pretty: p.pretty, lines: splitLines(p.text).length, textPreview: pv.text, previewTruncated: pv.truncated, ...(p.note === null ? {} : { note: p.note }) };
+      return { ...base, bytes: bytes.length, mime: o.mime, pretty: p.pretty, lines: splitLines(p.text).length, textPreview: pv.text, previewTruncated: pv.truncated, ...(p.note === null ? {} : { note: p.note }) };
     }
     return searchBody(base, text, bytes.length, o.mime, search.resourceType, search.s);
   }
   // chrome-devtools-mcp body conventions (formatters.ts): up to 10000 chars of text, <binary data>, <empty response>.
   const p = bodyPreview(bytes, isTextMime(o.mime));
-  return { id, url: o.url, ...o.extra, path: outPath, blob: o.blob, size: bytes.length, mime: o.mime, textPreview: p.binary ? null : p.text, previewTruncated: p.truncated, ...(p.binary ? { preview: p.text } : {}) };
+  return { id, url: o.url, ...o.extra, path: outPath, blob: o.blob, bytes: bytes.length, mime: o.mime, textPreview: p.binary ? null : p.text, previewTruncated: p.truncated, ...(p.binary ? { preview: p.text } : {}) };
 }
 
 export async function netShow(d: Daemon, a: Args, session: string): Promise<unknown> {

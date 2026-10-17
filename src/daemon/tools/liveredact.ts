@@ -223,7 +223,7 @@ export const requestContentType = (ev: Record<string, unknown>): string | null =
 
 /**
  * `net show` of a stored request event, redacted: `detailOf` (netshow.ts requestDetail) runs on the
- * redacted copy; a blob-backed postData `head` is redacted afterwards, and `size` stays the recorded one.
+ * redacted copy; a blob-backed postData `head` is redacted afterwards, and `bytes` stays the recorded one.
  */
 export function redactedDetail(ev: Record<string, unknown>, c: LiveCtx, detailOf: (ev: Record<string, unknown>) => Record<string, unknown>): Record<string, unknown> {
   const d = detailOf(redactRequestEvent(ev, c));
@@ -232,7 +232,7 @@ export function redactedDetail(ev: Record<string, unknown>, c: LiveCtx, detailOf
   if (isRecord(pd)) {
     if (typeof pd["head"] === "string") pd["head"] = redactBodyText(pd["head"], requestContentType(ev), c);
     const recorded = isRecord(ev["request"]) && isRecord(ev["request"]["postData"]) ? ev["request"]["postData"]["inline"] : undefined;
-    if (typeof recorded === "string") pd["size"] = new TextEncoder().encode(recorded).length;
+    if (typeof recorded === "string") pd["bytes"] = new TextEncoder().encode(recorded).length;
   }
   return d;
 }

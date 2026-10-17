@@ -204,7 +204,7 @@ describe("chain", () => {
     const c = chain(flows, { request: id["data"] });
     expect(c.schema).toBe("tabcap-chain/0");
     expect(c.target).toBe(id["data"]);
-    expect(c.steps.map((s) => s.request)).toEqual([id["doc"], id["login"], id["data"]]);
+    expect(c.steps.map((s) => s.id)).toEqual([id["doc"], id["login"], id["data"]]);
     const [doc, login, data] = c.steps;
     expect(doc?.provides).toEqual([{ kind: "response", to: { request: id["login"], location: "body", name: "_token" }, decode: [], match: "embedded" }]);
     expect(login?.provides).toContainEqual({ kind: "response", to: { request: id["data"], location: "header", name: "x-csrf" }, path: "$.csrf", decode: [], match: "exact" });
@@ -227,9 +227,9 @@ describe("chain", () => {
   test("a value carried through an earlier request still pulls in its producer", () => {
     const c = chain(flows, { request: id["items2"] });
     // owner comes from the login body; x-inner-token from the data body (base64 + json)
-    expect(c.steps.map((s) => s.request)).toEqual([id["doc"], id["login"], id["data"], id["items2"]]);
+    expect(c.steps.map((s) => s.id)).toEqual([id["doc"], id["login"], id["data"], id["items2"]]);
     // q = "green pears" has no source: a search term the caller chooses (`q` is a CALLER_NAMES name, 0.6-E)
-    expect(c.steps.find((s) => s.request === id["items2"])?.needs.find((n) => n.name === "q")?.class).toBe("caller-input");
+    expect(c.steps.find((s) => s.id === id["items2"])?.needs.find((n) => n.name === "q")?.class).toBe("caller-input");
     expect(c.inputs.map((t) => [t.request, t.name])).toEqual([[id["items2"], "q"]]);
     expect(c.todo.some((t) => t.name === "q")).toBe(false);
   });
@@ -254,7 +254,7 @@ describe("chain", () => {
     const g = DepsGraph.open(flows);
     expect(defaultTarget(g).id).toBe(id["search2"]);
     expect(chainOf(g, flows).target).toBe(id["search2"]);
-    expect(chainOf(g, flows).steps.map((s) => s.request)).toEqual([id["search2"]]);
+    expect(chainOf(g, flows).steps.map((s) => s.id)).toEqual([id["search2"]]);
   });
 });
 
@@ -345,7 +345,7 @@ describe("deps: prefixed header values and caller-input (0.6-E)", () => {
     expect(find(res, me ?? "", "header", "x-ref").primary).toEqual({ kind: "response", request: tok, path: "$.ref", decode: [], match: "exact", prefix: '"', suffix: '"' });
     expect(res.edges).toContainEqual({ kind: "response", from: { request: tok, path: "$.access_token" }, to: { request: me, location: "header", name: "authorization" } });
     const c = chain(dir);
-    expect(c.steps.map((x) => x.request)).toEqual([tok, me]);
+    expect(c.steps.map((x) => x.id)).toEqual([tok, me]);
     expect(c.steps[0]?.provides).toContainEqual({ kind: "response", to: { request: me, location: "header", name: "authorization" }, path: "$.access_token", decode: [], match: "exact", prefix: "Bearer " });
     expect(c.todo).toEqual([]);
     // findings: the leaf re-reads exactly once the prefix is taken off (实测), no value in the claim

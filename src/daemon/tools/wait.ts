@@ -299,7 +299,7 @@ export async function netWait(d: Daemon, a: Args, session: string): Promise<unkn
     url: e.url,
     status: e.status,
     mime: e.mime,
-    size: e.size,
+    bytes: e.size,
     blob: e.blob,
     path: e.blob === null ? null : store.pathOf(e.blob),
     outcome: e.outcome,

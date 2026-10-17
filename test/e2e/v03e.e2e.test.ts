@@ -114,8 +114,8 @@ describe.skipIf(!enabled)("tabcap 0.3-E L2 (input fidelity on s46, unreadByPage)
     expect(c).toMatchObject({ level: 2, trusted: true, eventShape: "full", delivered: { pointerdown: true, mousedown: true } });
     const traj = rec(c["trajectory"]);
     expect(Number(traj["points"])).toBeGreaterThanOrEqual(3);
-    expect(Number(traj["ms"])).toBeGreaterThanOrEqual(100);
-    expect(Number(traj["ms"])).toBeLessThanOrEqual(400);
+    expect(Number(traj["plannedMs"])).toBeGreaterThanOrEqual(100);
+    expect(Number(traj["plannedMs"])).toBeLessThanOrEqual(400);
     expect(Number(c["pressGapMs"])).toBeGreaterThanOrEqual(50);
     expect(Number(c["pressGapMs"])).toBeLessThanOrEqual(140);
     const r = await report("tc-trusted");

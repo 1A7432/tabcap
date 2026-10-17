@@ -154,27 +154,27 @@ describe("net show", () => {
     error: null,
   };
 
-  test("requestDetail: headers, long postData as path + 2 KB head, body path, timing total, 1-based initiator", () => {
+  test("requestDetail: headers, long postData as path + 2 KB head, body path, timing totalMs, 1-based initiator", () => {
     const store = { pathOf: (r: string) => `/blobs/${r.slice(7, 9)}/${r.slice(7)}`, tryRead: () => null };
     const d = requestDetail(ev, store, (text) => materialize(dir, "post", "r-12.txt", text));
     expect(d).toMatchObject({ id: "r-12", tab: "t1", nav: "n-3", cmd: "c-10", method: "POST", status: 200, outcome: "finished" });
     const req = d["request"] as Record<string, Record<string, unknown>>;
     expect(req["headers"]?.["x-sign"]).toBe("sig-1");
     expect(String(req["headers"]?.["cookie"])).toMatch(/…\(\+52 chars\)$/);
-    expect(req["postData"]).toMatchObject({ size: long.length, truncated: true });
+    expect(req["postData"]).toMatchObject({ bytes: long.length, truncated: true });
     expect(String(req["postData"]?.["head"])).toHaveLength(2048);
     const path = String(req["postData"]?.["path"]);
     expect(readFileSync(path, "utf8")).toBe(long);
     expectMode(path, 0o600);
-    expect(d["response"]).toMatchObject({ headers: { "set-cookie": ["a=1", "b=2"] }, mime: "application/json", body: { size: 12, path: `/blobs/ab/${"ab".repeat(32)}` } });
-    expect(d["timing"]).toEqual({ start: 1000.5, responseStart: 1003, end: 1004.25, total: 3.75 });
+    expect(d["response"]).toMatchObject({ headers: { "set-cookie": ["a=1", "b=2"] }, mime: "application/json", body: { bytes: 12, path: `/blobs/ab/${"ab".repeat(32)}` } });
+    expect(d["timing"]).toEqual({ start: 1000.5, responseStart: 1003, end: 1004.25, totalMs: 3.75 });
     expect(d["initiator"]).toEqual({ type: "script", at: "http://127.0.0.1:8080/post:3:1" });
   });
 
   test("short postData stays inline", () => {
     const short = { ...ev, request: { headers: {}, postData: { inline: "a=1" } } };
     const d = requestDetail(short, { pathOf: () => null, tryRead: () => null }, () => "unused");
-    expect((d["request"] as Record<string, unknown>)["postData"]).toEqual({ inline: "a=1", size: 3, truncated: false });
+    expect((d["request"] as Record<string, unknown>)["postData"]).toEqual({ inline: "a=1", bytes: 3, truncated: false });
   });
 
   test("findRequestEvent reads the event line by id and skips torn lines", () => {

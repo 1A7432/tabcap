@@ -652,7 +652,7 @@ Example: `tabcap net stop`
 
 ### `tabcap net list`
 
-recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, size, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)
+recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, bytes, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)
 
 ```
 tabcap net list [--session name] [--filter s] [--host s] [--status code] [--method M] [--resource-types xhr,fetch] [--tab t2] [--since c-12] [--failed] [--no-failed] [--all] [--page-size n] [--page-idx n] [--kind http|ws] [--reveal]
@@ -674,7 +674,7 @@ Example: `tabcap net list --resource-types xhr,fetch --status 2xx`
 | `--all` |  | also failed requests and data: URLs |
 | `--page-size <n>` | `30` | requests per page (max 1000); 0 returns every match |
 | `--page-idx <n>` | `0` | page to return, 0-based; nextPageIdx names the next one |
-| `--kind <http\|ws>` | `http` | http (requests) \| ws (WebSocket frames: id, direction, opcode, size, ts) |
+| `--kind <http\|ws>` | `http` | http (requests) \| ws (WebSocket frames: id, direction, opcode, bytes, ts) |
 | `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ### `tabcap net body`
@@ -718,7 +718,7 @@ Example: `tabcap net show r-12`
 
 ### `tabcap net grep`
 
-raw-text regex search over every recorded response body of the session (decoded, secret-scrubbed): per request {request, url, resourceType, count, matches}; at most 50 requests (more: n), bodies over 8 MB listed under skipped. Not `analyze find`, which follows values through decode chains
+raw-text regex search over every recorded response body of the session (decoded, secret-scrubbed): per request {id, url, resourceType, count, matches}; at most 50 requests (more: n), bodies over 8 MB listed under skipped. Not `analyze find`, which follows values through decode chains
 
 ```
 tabcap net grep <regex> [--session name] [--resource-types script,xhr] [--max-matches n] [--context n] [--pretty]

@@ -60,8 +60,8 @@ export type FieldDiff = { path: string; kind: "missing" | "extra" | "changed"; r
 export type BodyDiff =
   | { kind: "json"; fields: FieldDiff[]; count: number }
   | { kind: "not-json"; detail: string }
-  | { kind: "text"; recordedSha256: string; gotSha256: string; recordedSize: number; gotSize: number; firstDiff: number }
-  | { kind: "binary"; recordedSha256: string; gotSha256: string; recordedSize: number; gotSize: number };
+  | { kind: "text"; recordedSha256: string; gotSha256: string; recordedBytes: number; gotBytes: number; firstDiff: number }
+  | { kind: "binary"; recordedSha256: string; gotSha256: string; recordedBytes: number; gotBytes: number };
 
 export type HeaderDiff = { name: string; recorded: string; got: string | null };
 
@@ -134,7 +134,7 @@ export function compareBodies(recorded: Uint8Array, mime: string | null, got: Ui
     if (fields === null) {
       // too large to walk: fall back to bytes
       const same = sha256Hex(recorded) === sha256Hex(got);
-      return same ? null : { kind: "binary", recordedSha256: sha256Hex(recorded), gotSha256: sha256Hex(got), recordedSize: recorded.length, gotSize: got.length };
+      return same ? null : { kind: "binary", recordedSha256: sha256Hex(recorded), gotSha256: sha256Hex(got), recordedBytes: recorded.length, gotBytes: got.length };
     }
     return fields.length === 0 ? null : { kind: "json", fields: fields.slice(0, MAX_FIELD_DIFFS), count: fields.length };
   }
@@ -144,11 +144,11 @@ export function compareBodies(recorded: Uint8Array, mime: string | null, got: Ui
     let i = 0;
     const n = Math.min(recorded.length, got.length);
     while (i < n && recorded[i] === got[i]) i++;
-    return { kind: "text", recordedSha256: sha256Hex(recorded), gotSha256: sha256Hex(got), recordedSize: recorded.length, gotSize: got.length, firstDiff: i };
+    return { kind: "text", recordedSha256: sha256Hex(recorded), gotSha256: sha256Hex(got), recordedBytes: recorded.length, gotBytes: got.length, firstDiff: i };
   }
   const ra = sha256Hex(recorded);
   const gb = sha256Hex(got);
-  return ra === gb ? null : { kind: "binary", recordedSha256: ra, gotSha256: gb, recordedSize: recorded.length, gotSize: got.length };
+  return ra === gb ? null : { kind: "binary", recordedSha256: ra, gotSha256: gb, recordedBytes: recorded.length, gotBytes: got.length };
 }
 
 /** `location` compared as a path when it points at the request's own origin (replay serve rewrites it so). */
@@ -430,11 +430,11 @@ async function checkOne(
   } else if (resp?.bodyMissing) {
     if (EMPTY_BY_DESIGN.has(resp.bodyMissing.reason)) {
       bodyChecked = true;
-      if (got.length > 0 && method !== "HEAD") row.diffs.body = { kind: "binary", recordedSha256: sha256Hex(new Uint8Array(0)), gotSha256: sha256Hex(got), recordedSize: 0, gotSize: got.length };
+      if (got.length > 0 && method !== "HEAD") row.diffs.body = { kind: "binary", recordedSha256: sha256Hex(new Uint8Array(0)), gotSha256: sha256Hex(got), recordedBytes: 0, gotBytes: got.length };
     } else row.notes.push(`recorded body missing (${resp.bodyMissing.reason}); body not compared`);
   } else {
     bodyChecked = true;
-    if (got.length > 0 && method !== "HEAD") row.diffs.body = { kind: "binary", recordedSha256: sha256Hex(new Uint8Array(0)), gotSha256: sha256Hex(got), recordedSize: 0, gotSize: got.length };
+    if (got.length > 0 && method !== "HEAD") row.diffs.body = { kind: "binary", recordedSha256: sha256Hex(new Uint8Array(0)), gotSha256: sha256Hex(got), recordedBytes: 0, gotBytes: got.length };
   }
   if (Object.keys(row.diffs).length > 0) row.result = "different";
   else if (!bodyChecked) row.result = "unverified";
@@ -546,7 +546,7 @@ function detail(row: CheckRow): string {
   const b = row.diffs.body;
   if (b?.kind === "json") parts.push(`body ${b.count} field(s): ${b.fields.slice(0, 3).map((f) => `${f.path} ${f.kind}`).join(", ")}${b.count > 3 ? ", …" : ""}`);
   else if (b?.kind === "not-json") parts.push(`body: ${b.detail}`);
-  else if (b !== undefined) parts.push(`body ${b.kind} ${b.recordedSize} → ${b.gotSize} bytes, sha256 differs`);
+  else if (b !== undefined) parts.push(`body ${b.kind} ${b.recordedBytes} → ${b.gotBytes} bytes, sha256 differs`);
   parts.push(...row.notes);
   return parts.join("; ");
 }

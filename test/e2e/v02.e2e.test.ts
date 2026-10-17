@@ -85,7 +85,7 @@ describe.skipIf(!enabled)("tabcap 0.2-A L2", () => {
     const recv = frames.filter((f) => f["direction"] === "recv");
     expect(sent.map((f) => f["opcode"])).toEqual([1, 1, 2]);
     expect(recv.map((f) => f["opcode"])).toEqual([1, 1, 2, 1]);
-    expect(sent.map((f) => f["size"])).toEqual([7, 7, WS_BINARY.length]);
+    expect(sent.map((f) => f["bytes"])).toEqual([7, 7, WS_BINARY.length]);
     const sentHashes: string[] = [];
     for (const f of sent) sentHashes.push(sha(s((await ok("net", "body", s(f["id"]), "--session", S))["path"])));
     const recvHashes: string[] = [];
@@ -186,7 +186,7 @@ describe.skipIf(!enabled)("tabcap 0.2-A L2", () => {
     const nw2 = await ok("net", "wait", "--url", "/slow-api", "--session", S);
     expect(nw2["alreadyFinished"]).toBe(false);
     expect(nw2["id"]).not.toBe(nw["id"]);
-    expect(Number(nw2["size"])).toBe(new TextEncoder().encode(SLOW_API_BODY).length);
+    expect(Number(nw2["bytes"])).toBe(new TextEncoder().encode(SLOW_API_BODY).length);
     expect(sha(s(nw2["path"]))).toBe(site.served.get("/slow-api") ?? "missing");
   }, 60_000);
 

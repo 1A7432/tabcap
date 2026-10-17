@@ -818,12 +818,12 @@ function verifyExpected(
   byRef: ReadonlyMap<string, RequestEvent>,
   skipped: readonly { id: string; reason: string }[],
 ): Record<string, unknown> {
-  const inChain = new Set(chain.steps.map((s) => s.request));
+  const inChain = new Set(chain.steps.map((s) => s.id));
   const steps: VerifyStep[] = [];
   for (const s of chain.steps) {
-    const r = byRef.get(s.request) ?? graph.byId.get(s.request);
+    const r = byRef.get(s.id) ?? graph.byId.get(s.id);
     if (r === undefined) continue;
-    const p = planned.find((x) => x.group.samples.some((smp) => smp.ref === s.request));
+    const p = planned.find((x) => x.group.samples.some((smp) => smp.ref === s.id));
     const base = { request: r.id, method: r.method, path: (() => { try { const u = new URL(r.url); return u.pathname + u.search; } catch { return r.url; } })() };
     if (p === undefined) {
       const why = skipped.find((x) => x.id === r.id)?.reason ?? "not generated";
@@ -879,7 +879,7 @@ function chainReadme(chain: ChainResult, redacted: boolean): string {
     "",
     "## The action chain, TODOs and `verify()`",
     "",
-    `This client follows the action chain (\`tabcap analyze deps\` / \`analyze chain\`): target \`${chain.target}\`, ${chain.steps.length} step(s) (${chain.steps.map((s) => `\`${s.request}\``).join(" → ")}). Inputs with no source in the recording (\`computed-in-page\`) are parameters defaulting to \`TODO\`; values the caller chooses (\`caller-input\`: page, page size, period, search term …) are plain parameters whose default is the recorded value; values from an earlier step's response are parameters the caller or \`verify()\` takes from that step's reply; cookies travel in the \`Session\` cookie jar.`,
+    `This client follows the action chain (\`tabcap analyze deps\` / \`analyze chain\`): target \`${chain.target}\`, ${chain.steps.length} step(s) (${chain.steps.map((s) => `\`${s.id}\``).join(" → ")}). Inputs with no source in the recording (\`computed-in-page\`) are parameters defaulting to \`TODO\`; values the caller chooses (\`caller-input\`: page, page size, period, search term …) are plain parameters whose default is the recorded value; values from an earlier step's response are parameters the caller or \`verify()\` takes from that step's reply; cookies travel in the \`Session\` cookie jar.`,
     "",
     "The caller's agent works in this order:",
     "",
@@ -1068,7 +1068,7 @@ export function exportPython(opts: ExportOptions): ExportResult {
     files: files.sort(),
     skipped: skipped.slice(0, 200),
     skippedCount: skipped.length,
-    chain: chainMode && chain !== null ? { target: chain.target, steps: chain.steps.map((x) => x.request), todo: chain.todo.length } : null,
+    chain: chainMode && chain !== null ? { target: chain.target, steps: chain.steps.map((x) => x.id), todo: chain.todo.length } : null,
     warnings,
   };
 }

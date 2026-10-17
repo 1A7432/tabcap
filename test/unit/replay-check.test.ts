@@ -58,10 +58,10 @@ describe("bodies", () => {
     expect(compareBodies(enc('{"a":1}'), "application/json", enc('{"a":2}'))).toEqual({ kind: "json", fields: [{ path: "$.a", kind: "changed", recorded: "1", got: "2" }], count: 1 });
     expect(compareBodies(enc('{"a":1}'), "application/json", enc("<html>"))).toMatchObject({ kind: "not-json" });
     expect(compareBodies(enc("hello"), "text/plain", enc("hello"))).toBeNull();
-    expect(compareBodies(enc("hello"), "text/plain", enc("help!"))).toMatchObject({ kind: "text", firstDiff: 3, recordedSize: 5, gotSize: 5 });
+    expect(compareBodies(enc("hello"), "text/plain", enc("help!"))).toMatchObject({ kind: "text", firstDiff: 3, recordedBytes: 5, gotBytes: 5 });
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff]);
     expect(compareBodies(png, "image/png", png)).toBeNull();
-    expect(compareBodies(png, "image/png", png.slice(0, 4))).toMatchObject({ kind: "binary", recordedSize: 5, gotSize: 4 });
+    expect(compareBodies(png, "image/png", png.slice(0, 4))).toMatchObject({ kind: "binary", recordedBytes: 5, gotBytes: 4 });
   });
 
   test("field diffs are capped but counted", () => {

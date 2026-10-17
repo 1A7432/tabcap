@@ -115,7 +115,7 @@ export type SuspectEncrypted = {
   method: string | null;
   status: number | null;
   mime: string | null;
-  size: number;
+  bytes: number;
   entropy: number;
   decode: StepName[];
   path: string | null;
@@ -492,7 +492,7 @@ function suspectOf(t: Target, op: OpaqueNode): SuspectEncrypted {
     method: t.method,
     status: t.status,
     mime: t.mime,
-    size: op.size,
+    bytes: op.size,
     entropy: Math.round(op.entropy * 1000) / 1000,
     decode: op.chain,
     path: op.paths[0] ?? null,
@@ -591,7 +591,7 @@ export function renderFindText(r: FindResult): string {
   if (r.hints !== null) {
     lines.push(`hint: ${r.hints.message}`);
     for (const x of r.hints.suspectEncrypted) {
-      lines.push(`  suspect ${x.ref} ${x.method ?? ""} ${x.url ?? ""} ${x.size} B entropy ${x.entropy} decode [${x.decode.join(",")}]${x.path === null ? "" : ` ${x.path}`}`);
+      lines.push(`  suspect ${x.ref} ${x.method ?? ""} ${x.url ?? ""} ${x.bytes} B entropy ${x.entropy} decode [${x.decode.join(",")}]${x.path === null ? "" : ` ${x.path}`}`);
     }
   }
   for (const w of r.warnings) lines.push(`warning: ${w}`);

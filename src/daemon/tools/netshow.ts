@@ -95,11 +95,11 @@ export function requestDetail(ev: Record<string, unknown>, store: Pick<BlobStore
   const pd = isRecord(req["postData"]) ? req["postData"] : null;
   if (pd !== null && typeof pd["inline"] === "string") {
     const text = pd["inline"];
-    const size = new TextEncoder().encode(text).length;
-    postData = text.length <= SHOW_INLINE_MAX ? { inline: text, size, truncated: false } : { path: materializePost(text), size, head: head(text), truncated: true };
+    const bytes = new TextEncoder().encode(text).length;
+    postData = text.length <= SHOW_INLINE_MAX ? { inline: text, bytes, truncated: false } : { path: materializePost(text), bytes, head: head(text), truncated: true };
   } else if (pd !== null && typeof pd["blob"] === "string") {
     const bytes = store.tryRead(pd["blob"]);
-    postData = { path: store.pathOf(pd["blob"]), blob: pd["blob"], size: num(pd, "size") ?? bytes?.length ?? null, head: bytes === null ? null : head(decoder().decode(bytes.subarray(0, SHOW_INLINE_MAX * 4))), truncated: true };
+    postData = { path: store.pathOf(pd["blob"]), blob: pd["blob"], bytes: num(pd, "size") ?? bytes?.length ?? null, head: bytes === null ? null : head(decoder().decode(bytes.subarray(0, SHOW_INLINE_MAX * 4))), truncated: true };
   }
 
   const body = isRecord(resp["body"]) ? resp["body"] : null;
@@ -138,7 +138,7 @@ export function requestDetail(ev: Record<string, unknown>, store: Pick<BlobStore
           ? body !== null && typeof body["skipped"] === "string"
             ? { skipped: body["skipped"] }
             : null
-          : { path: store.pathOf(blob), blob, size: num(body ?? {}, "size"), wireEncoding: body === null ? null : (body["wireEncoding"] ?? null) },
+          : { path: store.pathOf(blob), blob, bytes: num(body ?? {}, "size"), wireEncoding: body === null ? null : (body["wireEncoding"] ?? null) },
       bodyMissing: missing,
       ...decodedDetail(resp["decoded"], store),
     },
@@ -147,7 +147,7 @@ export function requestDetail(ev: Record<string, unknown>, store: Pick<BlobStore
       start,
       responseStart: num(timing, "responseStart"),
       end,
-      total: start !== null && end !== null ? round3(end - start) : null,
+      totalMs: start !== null && end !== null ? round3(end - start) : null,
     },
     initiator: init === null ? null : { type: str(init, "type") ?? "other", at: initiatorAt(init) },
     ...(ev["bodySource"] !== undefined ? { bodySource: ev["bodySource"] } : {}),
@@ -179,10 +179,10 @@ export function frameDetail(dir: string, f: WsFrameEntry): Record<string, unknow
     phase: f.phase,
     direction: f.direction,
     opcode: f.opcode,
-    size: f.size,
+    bytes: f.size,
     ts: f.ts,
     reason: f.reason,
-    payload: path === null ? null : { path, blob: f.blob, size: bytes?.length ?? f.size, textHead: text, truncated: text !== null && (bytes?.length ?? 0) > SHOW_INLINE_MAX },
+    payload: path === null ? null : { path, blob: f.blob, bytes: bytes?.length ?? f.size, textHead: text, truncated: text !== null && (bytes?.length ?? 0) > SHOW_INLINE_MAX },
   };
 }
 

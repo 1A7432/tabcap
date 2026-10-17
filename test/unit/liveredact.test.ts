@@ -93,14 +93,14 @@ describe("net show detail", () => {
     timing: {},
   };
 
-  test("redactedDetail: url, both header maps and postData (size as recorded); the event itself unchanged", () => {
+  test("redactedDetail: url, both header maps and postData (bytes as recorded); the event itself unchanged", () => {
     const copy: unknown = JSON.parse(JSON.stringify(ev));
     const d = redactedDetail(ev, plain, (e) => requestDetail(e, { pathOf: () => null, tryRead: () => null }, () => "/unused"));
     expect(d["url"]).toBe("http://127.0.0.1:1/api/data?sid=<redacted:sid>&page=1");
     const req = isRecord(d["request"]) ? d["request"] : {};
     const resp = isRecord(d["response"]) ? d["response"] : {};
     expect(req["headers"]).toEqual({ "x-csrf": "c5f0", cookie: "sid=<redacted:sid>", authorization: "<redacted:authorization>", "content-type": "application/x-www-form-urlencoded" });
-    expect(req["postData"]).toEqual({ inline: "a=1&secret=<redacted:secret>", size: 12, truncated: false });
+    expect(req["postData"]).toEqual({ inline: "a=1&secret=<redacted:secret>", bytes: 12, truncated: false });
     expect(resp["headers"]).toEqual({ "set-cookie": "sid=<redacted:sid>; Path=/", "content-type": "application/json" });
     expect(JSON.parse(JSON.stringify(ev))).toEqual(copy);
   });

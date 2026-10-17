@@ -55,7 +55,8 @@ export type ChainNeed = {
   secret?: string;
 };
 
-export type ChainStep = { request: string; method: string; url: string; provides: ChainProvide[]; needs: ChainNeed[] };
+/** One step of the chain: the request itself (`id`, docs/04 §2.1), what it provides and needs. */
+export type ChainStep = { id: string; method: string; url: string; provides: ChainProvide[]; needs: ChainNeed[] };
 
 export type ChainTodo = Omit<ChainNeed, "class" | "action" | "secret"> & { request: string; class: "computed-in-page" | "unrecorded" };
 
@@ -159,13 +160,13 @@ export function chainOf(g: DepsGraph, bundle: string, opts: ChainOptions = {}): 
     .map((id) => g.byId.get(id))
     .filter((r): r is RequestEvent => r !== undefined)
     .sort((a, b) => a.seq - b.seq)
-    .map((r) => ({ request: r.id, method: r.method, url: r.url, provides: provides.get(r.id) ?? [], needs: needs.get(r.id) ?? [] }));
+    .map((r) => ({ id: r.id, method: r.method, url: r.url, provides: provides.get(r.id) ?? [], needs: needs.get(r.id) ?? [] }));
   const todo: ChainTodo[] = [];
   const inputs: ChainInput[] = [];
   for (const s of steps) {
     for (const n of s.needs) {
       if (n.class === "action") continue;
-      const base = { request: s.request, location: n.location, name: n.name, ...(n.path === undefined ? {} : { path: n.path }), hints: n.hints, covaries: n.covaries, ...(n.via === undefined ? {} : { via: n.via }) };
+      const base = { request: s.id, location: n.location, name: n.name, ...(n.path === undefined ? {} : { path: n.path }), hints: n.hints, covaries: n.covaries, ...(n.via === undefined ? {} : { via: n.via }) };
       if (n.class === "caller-input") inputs.push({ ...base, class: n.class });
       else todo.push({ ...base, class: n.class });
     }
@@ -184,7 +185,7 @@ const label = (t: { location: string; name: string; path?: string }) => `${t.loc
 export function renderChainText(r: ChainResult): string {
   const lines = [`chain to ${r.target} in ${r.bundle}: ${r.steps.length} step(s), ${r.todo.length} TODO, ${r.inputs.length} caller input(s)`];
   r.steps.forEach((s, i) => {
-    lines.push("", `${i + 1}. ${s.request} ${s.method} ${s.url.length > 100 ? s.url.slice(0, 99) + "…" : s.url}`);
+    lines.push("", `${i + 1}. ${s.id} ${s.method} ${s.url.length > 100 ? s.url.slice(0, 99) + "…" : s.url}`);
     for (const p of s.provides) lines.push(`   provides ${p.kind === "set-cookie" ? `set-cookie ${p.cookie ?? ""}` : `response ${p.path ?? "(text)"}`} → ${p.to.request} ${label(p.to)}${p.prefix === undefined ? "" : ` (prefix ${JSON.stringify(p.prefix)})`}`);
     for (const n of s.needs) {
       const extra = [n.hints.length > 0 ? `[${n.hints.join(",")}]` : "", n.covaries.length > 0 ? `varies with ${n.covaries.join(", ")}` : "", n.via === undefined ? "" : `via ${n.via}`].filter((x) => x !== "").join(" ");

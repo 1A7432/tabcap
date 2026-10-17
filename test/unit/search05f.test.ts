@@ -326,7 +326,7 @@ describe("net grep (grepBodies)", () => {
     expect(r.requests).toHaveLength(50);
     expect(r.more).toBe(3);
     expect(r.total).toBe(53 * 3);
-    expect(r.requests[0]).toEqual({ request: "r-1", url: "http://h/1.js", resourceType: "script", count: 3, matches: [{ line: 1, col: 1, text: "sig sig sig", before: [], after: [] }, { line: 1, col: 5, text: "sig sig sig", before: [], after: [] }] });
+    expect(r.requests[0]).toEqual({ id: "r-1", url: "http://h/1.js", resourceType: "script", count: 3, matches: [{ line: 1, col: 1, text: "sig sig sig", before: [], after: [] }, { line: 1, col: 5, text: "sig sig sig", before: [], after: [] }] });
   });
 
   test("over 8 MB skipped and listed, binary counted, secrets never searchable", () => {
@@ -336,7 +336,7 @@ describe("net grep (grepBodies)", () => {
       { entry: entry(3), bytes: enc("pw=hunter2") },
     ];
     const r = grepBodies(items, compileRegex("hunter2", "net grep", true), opts);
-    expect(r.skipped).toEqual([{ request: "r-1", url: "http://h/1.js", bytes: 9 * 1024 * 1024, reason: "over 8 MB" }]);
+    expect(r.skipped).toEqual([{ id: "r-1", url: "http://h/1.js", bytes: 9 * 1024 * 1024, reason: "over 8 MB" }]);
     expect(r.binary).toBe(1);
     expect(r.searched).toBe(1);
     expect(r.requests).toEqual([]);
