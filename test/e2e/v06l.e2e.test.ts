@@ -49,6 +49,7 @@ import {
   S59_ENC_RACE1,
   S59_ENC_RACE2,
   S59_ENC_XOR,
+  S59_LINGER_PLAINS,
   S59_NOISE_LOCAL,
   S59_NOISE_PLAIN1,
   S59_NOISE_PLAIN2,
@@ -489,4 +490,40 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     );
     expect(decode?.["rows"]).toMatchObject({ attributed: 3, weak: 0, unattributed: 0 });
   }, 120_000);
+
+  // ------------------------------------------------------------ 0.6-W
+
+  /** The rows of a bundle as [request, plaintext, link, candidates] (readable in a timeout message). */
+  const rowSummary = (bundle: string): Array<[string | null, string | null, unknown, unknown]> => {
+    const reader = BundleReader.open(bundle);
+    return sidecarRows(bundle).map((r) => [r.request, viewText(reader, r.decoded), rec(r.decoded["evidence"])["link"], rec(r.decoded["evidence"])["candidates"]]);
+  };
+
+  test("s59 xhr: the page parses in onload, before tabcap indexes the body; the row is strong", async () => {
+    const { bundle, enc } = await runPage("s59xh", "/s59?mode=xhr", ["--decode"], ["enc?mode=xhr"]);
+    const encId = enc[0]?.id ?? "";
+    const rows = await until("the xhr row", () => Promise.resolve(rowSummary(bundle)), (rs) => rs.length >= 1);
+    expect(rows).toEqual([[encId, S59_PLAIN, "strong", undefined]]);
+    expect(rec(sidecarRows(bundle)[0]?.decoded["evidence"])["match"]).toBe(sha(XOR_DATA));
+    const { decode } = await stopBoth("s59xh");
+    expect(decode?.["rows"]).toMatchObject({ attributed: 1, weak: 0, unattributed: 0 });
+  }, 120_000);
+
+  test("s59 xhr&linger=3, three times in a row: three unclaimed live suspects do not take the xhr plaintext (the grace race)", async () => {
+    for (const run of [1, 2, 3]) {
+      const session = `s59xl${run}`;
+      const { bundle, enc } = await runPage(session, "/s59?mode=xhr&linger=3", ["--decode"], ["enc?mode=xhr", "linger&slot=1", "linger&slot=2", "linger&slot=3"]);
+      const encId = enc[0]?.id ?? "";
+      // the oracle: every lingering plaintext is larger than the xhr one, so each lingering suspect fits it
+      for (const p of S59_LINGER_PLAINS) expect(p.length).toBeGreaterThan(S59_PLAIN.length);
+      expect(enc.slice(1).map((e) => e.id).every((id) => id !== "" && id !== encId)).toBe(true);
+      const rows = await until(`run ${run}: the xhr row, strong`, () => Promise.resolve(rowSummary(bundle)), (rs) => rs.some((r) => r[0] === encId && r[2] === "strong"));
+      const { decode } = await stopBoth(session);
+      const all = rowSummary(bundle);
+      expect([run, all]).toEqual([run, [[encId, S59_PLAIN, "strong", undefined]]]);
+      expect(rows.length).toBe(1);
+      expect(rec(sidecarRows(bundle)[0]?.decoded["evidence"])["match"]).toBe(sha(XOR_DATA));
+      expect(decode?.["rows"]).toMatchObject({ attributed: 1, weak: 0, unattributed: 0 });
+    }
+  }, 240_000);
 });
