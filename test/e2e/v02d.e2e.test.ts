@@ -293,7 +293,11 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
     await ok("wait", "--text", "look-done", "--session", S);
     await ok("snapshot", "--session", S); // read-only: does not move the look-back point
     const nw = await ok("net", "wait", "--url", "/api/look", "--session", S);
-    expect(nw).toMatchObject({ status: 200, alreadyFinished: true, lookBack: { from: "action", action: "click", cmd: click["cmd"] } });
+    // alreadyFinished is not asserted: the page shows "look-done" when its fetch resolves, and the
+    // recorder's finished event (plus the body fetch) can land a little later on a slow runner
+    // (windows-latest once answered alreadyFinished:false, waitedMs:849); the look-back point is the claim here.
+    expect(nw).toMatchObject({ status: 200, lookBack: { from: "action", action: "click", cmd: click["cmd"] } });
+    expect(typeof nw["alreadyFinished"]).toBe("boolean");
     expect(sha(s(nw["path"]))).toBe(site.served.get("/api/look") ?? "missing");
     const fresh = await tabcap("net", "wait", "--url", "/api/look", "--fresh", "--timeout", "700", "--session", S);
     expect(fresh.error?.code).toBe("timeout");
