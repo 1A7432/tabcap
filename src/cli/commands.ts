@@ -1282,25 +1282,106 @@ export function helpAll(): string {
   return lines.join("\n");
 }
 
-/** `tabcap help <group>`: the full help of every command in an index group or a command-word group, or null. */
+/** Characters of a summary in a group listing (`tabcap help <group>`); the whole one is in `tabcap help <command>`. */
+export const GROUP_SUMMARY_CHARS = 160;
+
+/**
+ * A summary for a group listing: its first top-level clause (a `; ` or `. `
+ * outside parentheses ends it), cut at 160 characters on a word boundary.
+ */
+export function groupSummary(summary: string): string {
+  let depth = 0;
+  let end = summary.length;
+  for (let i = 0; i < summary.length - 1; i++) {
+    const ch = summary[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && (ch === ";" || ch === ".") && summary[i + 1] === " ") {
+      end = i;
+      break;
+    }
+  }
+  const clause = summary.slice(0, end).trim();
+  if (clause.length <= GROUP_SUMMARY_CHARS) return clause;
+  const cut = clause.slice(0, GROUP_SUMMARY_CHARS - 1);
+  const sp = cut.lastIndexOf(" ");
+  return `${(sp > 40 ? cut.slice(0, sp) : cut).replace(/[\s,.;:→/|(-]+$/, "")}…`;
+}
+
+/** One command of a group listing: its usage without the common flags, then its short summary. */
+function groupLine(c: CommandSpec): string {
+  return `  ${usageOf(c, COMMON_FLAGS)}\n      ${groupSummary(c.summary)}`;
+}
+
+/**
+ * `tabcap help <group>` (an index group id or a command word, e.g. `network`,
+ * `net`): one entry per command — usage without the common flags, then the
+ * short summary; options and the example only in `tabcap help <command>`
+ * (0.7-C: `help network` was 13 KB of option tables). Null: no such group.
+ */
 export function helpTopic(word: string): string | null {
   const g = groupedCommands().find((x) => x.id === word);
   const cmds = g?.commands ?? COMMANDS.filter((c) => c.path[0] === word && c.path.length > 1 && c.internal !== true);
   if (cmds.length === 0) return null;
-  const title = g === undefined ? `${TOOL_NAME} ${word} — subcommands` : `${g.title} — ${cmds.length} command(s)`;
-  return [title, "", ...cmds.map((c) => helpFor(c)).join("\n\n---\n\n").split("\n")].join("\n");
+  const title = g === undefined ? `${TOOL_NAME} ${word} — subcommands:` : `${g.title} — ${cmds.length} command(s):`;
+  const first = cmds[0]?.path.join(" ") ?? word;
+  return [title, ...cmds.map(groupLine), "", `Options and an example: ${TOOL_NAME} help <command>, e.g. ${TOOL_NAME} help ${first}. Every browser command also takes --session <name>; most take --timeout <ms>.`].join("\n");
 }
 
 /** Short list of a command group (`tabcap replay --help`): its subcommands, or null when `group` is no group. */
 export function helpGroup(group: string): string | null {
-  const subs = COMMANDS.filter((c) => c.path[0] === group && c.path.length > 1 && c.internal !== true);
-  if (subs.length === 0) return null;
-  return [
-    `${TOOL_NAME} ${group} — subcommands:`,
-    ...subs.map((c) => `  ${usageOf(c, COMMON_FLAGS)}\n      ${c.summary}`),
-    "",
-    `More: ${TOOL_NAME} ${group} <subcommand> --help`,
-  ].join("\n");
+  return COMMANDS.some((c) => c.path[0] === group && c.path.length > 1 && c.internal !== true) ? helpTopic(group) : null;
+}
+
+/** Levenshtein distance (insert / delete / substitute, each 1). */
+export function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const sub = (prev[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1);
+      cur.push(Math.min((prev[j] ?? 0) + 1, (cur[j - 1] ?? 0) + 1, sub));
+    }
+    prev = cur;
+  }
+  return prev[b.length] ?? 0;
+}
+
+export const SUGGEST_MAX = 3;
+
+/**
+ * The commands closest to what was typed (0.7-C: an unknown command names
+ * these instead of the whole list). A candidate qualifies when its first word
+ * is the typed first word, one of the two is a prefix of the other (3+
+ * characters), or the typed words (as many as the candidate has) are within
+ * edit distance max(1, ⌊length / 4⌋) of it. Ranked by that edit distance,
+ * then registry order; at most `max`. `among`: the candidate paths (default:
+ * every current command).
+ */
+export function closestCommands(words: readonly string[], max: number = SUGGEST_MAX, among: readonly (readonly string[])[] = currentCommands().map((c) => c.path)): string[] {
+  const first = words[0] ?? "";
+  if (first === "" || max <= 0) return [];
+  const scored: { path: string; d: number; i: number }[] = [];
+  among.forEach((path, i) => {
+    const want = path.join(" ");
+    const typed = words.slice(0, path.length).join(" ");
+    const d = editDistance(typed, want);
+    const head = path[0] ?? "";
+    const related = head === first || (Math.min(first.length, head.length) >= 3 && (head.startsWith(first) || first.startsWith(head)));
+    if (related || d <= Math.max(1, Math.floor(want.length / 4))) scored.push({ path: want, d, i });
+  });
+  return scored
+    .sort((a, b) => a.d - b.d || a.i - b.i)
+    .slice(0, max)
+    .map((x) => `${TOOL_NAME} ${x.path}`);
+}
+
+/** The `next` of an unknown command: the closest commands, then where the groups are listed. */
+export function unknownCommandNext(words: readonly string[], among?: readonly (readonly string[])[]): string {
+  const near = closestCommands(words, SUGGEST_MAX, among);
+  const groups = `\`${TOOL_NAME} --help\` lists the command groups; \`${TOOL_NAME} help <command>\` shows one command.`;
+  return near.length === 0 ? `No command is close to that. ${groups}` : `Did you mean: ${near.join(" | ")}? ${groups}`;
 }
 
 function flagHelp(f: FlagSpec): string {

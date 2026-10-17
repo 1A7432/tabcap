@@ -21,7 +21,9 @@ describe("tabcap bundle (JSON envelope)", () => {
     expect(code).toBe(2);
     expect(envelope).toMatchObject({ ok: false, error: { code: "usage" } });
     if (envelope.ok) throw new Error("expected failure");
-    expect(envelope.error.next).toContain("tabcap bundle info");
+    // 0.7-C: nothing is close to `frobnicate`: the groups, not the 8 KB list
+    expect(envelope.error.next).toContain("tabcap --help");
+    expect(envelope.error.next).not.toContain("tabcap bundle info");
   });
 
   test("missing bundle -> not-found with next", async () => {

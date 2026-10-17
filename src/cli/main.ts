@@ -34,7 +34,7 @@ import { bundleRules } from "./replay.ts";
 import { DecodeHost, DecodeSession, type DecodePlugin } from "../daemon/hooks/decode.ts";
 import { asDecodePlugin, asFixturePlugin, decodePlugins, listPlugins, pluginsDir } from "../daemon/hooks/plugins.ts";
 import type { FixturePlugin } from "../daemon/hooks/fixture.ts";
-import { BUNDLE_USAGE, COMMANDS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, flagNames, helpAll, helpFor, helpTopic, matchCommand, parseCommand, schema, specOf, spellingsOf, usageOf, type CommandSpec } from "./commands.ts";
+import { BUNDLE_USAGE, COMMANDS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, flagNames, helpAll, helpFor, helpTopic, matchCommand, unknownCommandNext, parseCommand, schema, specOf, spellingsOf, usageOf, type CommandSpec } from "./commands.ts";
 import { applyFilters, filterOptions, hasFilters, type FilterOptions } from "../shared/filter.ts";
 import { applyBudget, outputLimit } from "../shared/budget.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
@@ -663,8 +663,8 @@ async function runCommand(argv: readonly string[], opts: RunOptions = {}): Promi
     const c = matchCommand(words);
     if (c === null) {
       const got = words.slice(0, 2).join(" ");
-      const all = COMMANDS.filter((c) => c.internal !== true).map((c) => usageOf(c));
-      return { code: 2, envelope: fail("usage", got === "" ? "no command given" : `unknown command: ${got}`, `Run \`tabcap --help\`. Available: ${all.join(" | ")}`) };
+      // 0.7-C: the closest commands, never the whole list (it was 8 KB).
+      return { code: 2, envelope: fail("usage", got === "" ? "no command given" : `unknown command: ${got}`, got === "" ? "Run `tabcap --help` for the command groups." : unknownCommandNext(words)) };
     }
     // Drop the command words (first occurrences, in order) and keep everything else.
     const rest = [...argv];
@@ -694,7 +694,8 @@ async function runBundle(argv: readonly string[]): Promise<{ code: number; envel
     else if (group === "bundle" && sub === "decode") data = await cmdDecode(rest(2));
     else {
       const got = p.positional.slice(0, 3).join(" ");
-      return { code: 2, envelope: fail("usage", got === "" ? "no command given" : `unknown command: ${got}`, `Available: ${USAGE.join(" | ")}`) };
+      const bundleCommands = COMMANDS.filter((c) => c.path[0] === "bundle" && c.internal !== true).map((c) => c.path);
+      return { code: 2, envelope: fail("usage", got === "" ? "no command given" : `unknown command: ${got}`, unknownCommandNext(p.positional, bundleCommands)) };
     }
     if (sub === "info" && p.flags.get("--text") === true && p.flags.get("--usage") === true) return { code: 0, envelope: ok(data), text: renderUsageText(data as UsageReport) };
     return { code: 0, envelope: ok(data) };

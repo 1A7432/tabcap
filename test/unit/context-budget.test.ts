@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUDGET_EXEMPT, OUTPUT_LIMIT_DEFAULT, applyBudget, commandSlug, genericSummary, isBudgeted, outputLimit, summaryOf, writeOutputFile } from "../../src/shared/budget.ts";
 import { applyFilters, compileGrep, filterOptions, grepLines, parseFields, parsePath, projectFields, selectPath } from "../../src/shared/filter.ts";
-import { COMMAND_GROUPS, COMMANDS, currentCommands, groupedCommands, helpAll, helpFor, indexSummary, schema, specOf, OUTPUT_FLAGS_NOT_ON } from "../../src/cli/commands.ts";
+import { COMMAND_GROUPS, COMMANDS, COMMON_FLAGS, GROUP_SUMMARY_CHARS, SUGGEST_MAX, closestCommands, currentCommands, editDistance, groupSummary, groupedCommands, helpAll, helpFor, helpTopic, indexSummary, schema, specOf, usageOf, OUTPUT_FLAGS_NOT_ON } from "../../src/cli/commands.ts";
 import { run, takeOutputFlags } from "../../src/cli/main.ts";
 import { SNAPSHOT_MAX_CHARS } from "../../src/daemon/tools/snapshot.ts";
 import { OUTLINE_MAX_CHARS } from "../../src/daemon/tools/outline.ts";
@@ -283,13 +283,50 @@ describe("help index (tabcap --help) and tabcap help <command|group>", () => {
     expect(indexSummary("x (y) z")).toBe("x z");
   });
 
-  test("help <command> is the per-command help; help <group> the full help of every command in it", async () => {
+  test("help <command> is the per-command help; help <group> one entry per command, no option tables (0.7-C)", async () => {
     expect((await run(["help", "snapshot"])).text).toBe(helpFor(specOf("snapshot")));
     const net = (await run(["help", "network"])).text ?? "";
-    for (const c of COMMANDS.filter((x) => x.path[0] === "net")) expect(net).toContain(`Example: ${c.example}`);
-    expect(net).toContain("Example: tabcap where");
-    expect((await run(["net", "--help"])).text).toContain("Usage: tabcap net list");
-    expect((await run(["help", "lifecycle"])).text).toContain("Usage: tabcap daemon start");
+    // 0.7-C: 13 KB before; the target is under 4 KB
+    expect(Buffer.byteLength(net)).toBeLessThan(4 * 1024);
+    for (const c of groupedCommands().find((g) => g.id === "network")?.commands ?? []) expect(net).toContain(`  ${usageOf(c, COMMON_FLAGS)}\n      ${groupSummary(c.summary)}`);
+    expect(net).not.toContain("Options:");
+    expect(net).not.toContain("Example:");
+    expect(net).not.toContain("[--session");
+    expect(net).toContain("tabcap help <command>");
+    expect((await run(["net", "--help"])).text).toContain("tabcap net list [--filter s]");
+    expect((await run(["help", "lifecycle"])).text).toContain("tabcap daemon start");
+    for (const g of groupedCommands()) expect([g.id, Buffer.byteLength(helpTopic(g.id) ?? "") < 8 * 1024]).toEqual([g.id, true]);
+  });
+
+  test("group summaries: the first clause outside parentheses, at most 160 characters", () => {
+    expect(groupSummary("a (b; c) d; e")).toBe("a (b; c) d");
+    expect(groupSummary("one. two")).toBe("one");
+    expect(groupSummary("v1.2 stays")).toBe("v1.2 stays");
+    for (const c of currentCommands()) expect(groupSummary(c.summary).length).toBeLessThanOrEqual(GROUP_SUMMARY_CHARS);
+  });
+
+  test("an unknown command names the closest commands, never the whole list (0.7-C)", async () => {
+    expect(closestCommands(["trac", "status"])[0]).toBe("tabcap trace status");
+    expect(closestCommands(["net", "lst"])[0]).toBe("tabcap net list");
+    expect(closestCommands(["snapshoot"])).toEqual(["tabcap snapshot"]);
+    expect(closestCommands(["press", "Enter"])).toEqual(["tabcap press-key"]);
+    expect(closestCommands(["console"])).toEqual(["tabcap console list", "tabcap console show"]);
+    expect(closestCommands(["tabs"]).every((c) => c.startsWith("tabcap tab "))).toBe(true);
+    expect(closestCommands(["frobnicate"])).toEqual([]);
+    expect(closestCommands(["net", "x"]).length).toBe(SUGGEST_MAX);
+    expect(closestCommands(["bundle", "inf"], 3, [["bundle", "info"], ["bundle", "redact"]])[0]).toBe("tabcap bundle info");
+    expect(editDistance("kitten", "sitting")).toBe(3);
+    expect(editDistance("", "abc")).toBe(3);
+    for (const argv of [["frobnicate"], ["trac", "status"], ["bundle", "inf", "x"]]) {
+      const r = await run(argv);
+      expect(r.code).toBe(2);
+      if (r.envelope.ok) throw new Error("expected failure");
+      expect(r.envelope.error.next).toContain("tabcap --help");
+      expect(Buffer.byteLength(JSON.stringify(r.envelope))).toBeLessThan(512);
+    }
+    const trac = await run(["trac", "status"]);
+    if (trac.envelope.ok) throw new Error("expected failure");
+    expect(trac.envelope.error.next).toContain("Did you mean: tabcap trace status");
   });
 });
 
