@@ -103,6 +103,8 @@ describe.skipIf(!enabled)("tabcap 0.7-B L2 (status and conflicts)", () => {
     const bundle = s((await ok("net", "start", "--session", "w"))["bundle"]);
     await ok("navigate", `${site.origin}/s15/`, "--session", "w");
     await ok("navigate", `${site.origin}/s15/?bucket=u`, "--session", "u");
+    // a plain browsing session on no store site: unbound, but (c) stays quiet (owner 10-17)
+    await ok("navigate", "data:text/html,<p>plain</p>", "--session", "plain");
     const st = await ok("status");
     expect(st["schema"]).toBe("tabcap-status/0");
     expect(rec(st["daemon"])).toMatchObject({ running: true });
@@ -115,11 +117,14 @@ describe.skipIf(!enabled)("tabcap 0.7-B L2 (status and conflicts)", () => {
     expect(u).toMatchObject({ site: null, account: null, tabSite: SITE, tabs: 1, recording: null, state: "running" });
     expect(codes(st, "w")).toEqual([]);
     expect(codes(st, "u")).toEqual(["unbound-session"]);
+    expect(sessionOf(st, "plain")).toMatchObject({ site: null, tabSite: null, tabs: 1 });
+    expect(codes(st, "plain")).toEqual([]);
     expect(s(conflict(st, "u", "unbound-session")["next"])).toContain(`tabcap session start u --site ${SITE}`);
     // the claim of (c), checked against tabcap itself: fill --secret in u is refused
     const refused = await tabcap(["fill", "e1", "--secret", `${SITE}.password`, "--session", "u"]);
     expect(refused.ok).toBe(false);
     expect(s(refused.error?.["message"])).toContain("is not bound to a site");
+    await ok("session", "stop", "plain");
     await statusText("bound w recording, unbound u");
   }, 60_000);
 

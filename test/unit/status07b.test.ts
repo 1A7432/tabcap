@@ -101,20 +101,22 @@ describe("conflict rules (pure)", () => {
     expect(ruleDecodePluginOutranksPage(facts([sess("u", { trace: { state: "paused", decode: true, weakRows: 2 }, recording: REC })], pl))).toEqual([]);
   });
 
-  test("(c) a session with tabs and no site: fill --secret refused; session stop, then session start --site", () => {
-    const c = ruleUnboundSession(facts([sess("u", { site: null, account: null }), sess("w")]));
+  test("(c) a session with tabs, no site, and its tab on a store site: fill --secret refused; session stop, then session start --site", () => {
+    const c = ruleUnboundSession(facts([sess("u", { site: null, account: null, tabSite: "shop" }), sess("w")]));
     expect(c).toEqual([
       {
         code: "unbound-session",
         session: "u",
-        message: 'session "u" has 1 tab(s) but is not bound to a site: `fill --secret` will be refused',
-        next: "if it needs a stored secret: `tabcap session stop u`, then `tabcap session start u --site <site>`",
+        message: 'session "u" is on store site shop but not bound to it: `fill --secret` will be refused',
+        next: "if it needs a stored secret: `tabcap session stop u`, then `tabcap session start u --site shop`",
       },
     ]);
-    const hinted = ruleUnboundSession(facts([sess("u", { site: null, tabSite: "shop" })]));
-    expect(hinted[0]?.message).toContain("store site shop");
-    expect(hinted[0]?.next).toContain("--site shop");
-    expect(ruleUnboundSession(facts([sess("u", { site: null, tabs: 0 })]))).toEqual([]);
+    expect(ruleUnboundSession(facts([sess("u", { site: null, tabSite: "shop", tabs: 0 })]))).toEqual([]);
+  });
+
+  test("(c) not raised for a plain browsing session (no store site under its tab), owner 10-17", () => {
+    expect(ruleUnboundSession(facts([sess("default", { site: null, account: null, tabSite: null })]))).toEqual([]);
+    expect(conflictsOf(facts([sess("default", { site: null, account: null, tabSite: null })]))).toEqual([]);
   });
 
   test("(d) a recording open on a session whose browser (or every tab) is gone", () => {
@@ -144,7 +146,7 @@ describe("conflict rules (pure)", () => {
     const f = facts(
       [
         sess("w", { state: "waiting", reason: "verify-page", guardStops: [stop()], recording: REC }),
-        sess("u", { site: null, account: null, trace: { state: "on", decode: true, weakRows: 1 } }),
+        sess("u", { site: null, account: null, tabSite: "shop", trace: { state: "on", decode: true, weakRows: 1 } }),
         sess("z", { tabs: 0, recording: REC }),
       ],
       { plugins: { decode: ["xor-decode"], challenge: [] } },
@@ -158,7 +160,7 @@ describe("--text", () => {
     const f = facts(
       [
         sess("w", { state: "waiting", reason: "verify-page", screenshot: "/shots/w.png", guardStops: [stop()], recording: REC }),
-        sess("u", { site: null, account: null, current: "t2", trace: { state: "on", decode: true, weakRows: 3 } }),
+        sess("u", { site: null, account: null, tabSite: "shop", current: "t2", trace: { state: "on", decode: true, weakRows: 3 } }),
       ],
       { plugins: { decode: ["xor-decode"], challenge: ["fake-verify"] } },
     );

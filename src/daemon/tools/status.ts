@@ -114,16 +114,23 @@ export function ruleDecodePluginOutranksPage(f: StatusFacts): StatusConflict[] {
   return out;
 }
 
-/** (c) A session with tabs and no site binding: `fill --secret` is refused there. */
+/**
+ * (c) A session with tabs, no site binding, and its current tab on a store
+ * site (`tabSite`): `fill --secret` is refused there. A session browsing
+ * pages of no store site (a plain `default`) is not reported (owner 10-17).
+ */
 export function ruleUnboundSession(f: StatusFacts): StatusConflict[] {
-  return f.sessions
-    .filter((s) => s.tabs > 0 && s.site === null)
-    .map((s) => ({
-      code: "unbound-session" as const,
-      session: s.session,
-      message: `session ${q(s.session)} has ${s.tabs} tab(s) but is not bound to a site: \`fill --secret\` will be refused${s.tabSite === null ? "" : ` (its tab is on store site ${s.tabSite})`}`,
-      next: `if it needs a stored secret: \`tabcap session stop ${s.session}\`, then \`tabcap session start ${s.session} --site ${s.tabSite ?? "<site>"}\``,
-    }));
+  return f.sessions.flatMap((s) => {
+    if (s.tabs === 0 || s.site !== null || s.tabSite === null) return [];
+    return [
+      {
+        code: "unbound-session" as const,
+        session: s.session,
+        message: `session ${q(s.session)} is on store site ${s.tabSite} but not bound to it: \`fill --secret\` will be refused`,
+        next: `if it needs a stored secret: \`tabcap session stop ${s.session}\`, then \`tabcap session start ${s.session} --site ${s.tabSite}\``,
+      },
+    ];
+  });
 }
 
 /** (d) A recording is still open on a session that has no open tab (the browser or its tabs are gone). */
