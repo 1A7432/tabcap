@@ -197,15 +197,22 @@ export function mainReadme(readme: string, version: string, scope: string | null
 
 /**
  * Versions in a compiled binary's embedded package.json (bun bundles it as an
- * object literal: `name: "tabcap",` then `version: "…",`). Empty when the
- * marker is not found (an unknown layout, not proof of a stale binary).
+ * object literal: `name: "tabcap",` then, after whitespace, `version: "…",`;
+ * the indentation depends on the bun version). Empty when the marker is not
+ * found (an unknown layout, not proof of a stale binary).
  */
 export function embeddedVersions(bytes: Uint8Array): string[] {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const marker = Buffer.from(`\n  name: "${TOOL_NAME}",\n  version: "`, "latin1");
+  // bun 1.4 nests the literal in an __esm wrapper, so the indentation varies
+  // (2 or 4 spaces): match `name: "tabcap",`, skip whitespace, then `version: "`.
+  const head = Buffer.from(`name: "${TOOL_NAME}",`, "latin1");
+  const tail = Buffer.from(`version: "`, "latin1");
   const out = new Set<string>();
-  for (let i = buf.indexOf(marker); i >= 0; i = buf.indexOf(marker, i + marker.length)) {
-    const from = i + marker.length;
+  for (let i = buf.indexOf(head); i >= 0; i = buf.indexOf(head, i + head.length)) {
+    let from = i + head.length;
+    while (from < buf.length && (buf[from] === 0x20 || buf[from] === 0x0a || buf[from] === 0x0d || buf[from] === 0x09)) from++;
+    if (buf.compare(tail, 0, tail.length, from, from + tail.length) !== 0) continue;
+    from += tail.length;
     const quote = buf.indexOf(0x22, from);
     if (quote < 0 || quote - from > 64) continue;
     out.add(buf.toString("latin1", from, quote));

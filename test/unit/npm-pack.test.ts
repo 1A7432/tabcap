@@ -204,6 +204,8 @@ describe("binary version check", () => {
     const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
     expect(embeddedVersions(enc(`\0\0${pkgText("0.4.0")}\0`))).toEqual(["0.4.0"]);
     expect(embeddedVersions(enc(`${pkgText("0.2.0")}\n${pkgText("0.4.0")}`)).sort()).toEqual(["0.2.0", "0.4.0"]);
+    // bun 1.4.2's real layout: the literal sits four spaces deep inside an __esm wrapper
+    expect(embeddedVersions(enc(`__esm(() => {\n  package_default = {\n    name: "tabcap",\n    version: "0.7.0",\n    private: true,`))).toEqual(["0.7.0"]);
     expect(embeddedVersions(enc(`{"name":"tabcap","version":"0.4.0"}`))).toEqual([]);
     expect(embeddedVersions(enc(`\n  name: "tabcap",\n  version: "unterminated`))).toEqual([]);
   });
