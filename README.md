@@ -50,7 +50,7 @@ tabcap daemon stop
 
 Every command prints one JSON envelope on stdout: `{"ok":true,"data":…}` or `{"ok":false,"error":{"code","message","next"}}`. When a command fails, do what `next` says. `tabcap --help` lists the commands by group; `tabcap <command> --help` shows the options and an example.
 
-**Give it to an agent.** The skill lives in `skills/tabcap/` (`SKILL.md` plus `references/`, no scripts). Copy it to `~/.claude/skills/tabcap/` for Claude Code (it also reads `~/.agents/skills/tabcap/`), or into the skills directory of Hermes Agent or another host. For hosts that speak MCP instead: `claude mcp add tabcap -- tabcap mcp`; `tabcap mcp --print-config <host>` prints the entry for Cursor, Codex, Gemini CLI, Windsurf (untested) and Claude Desktop. Then ask the agent: "open this page with tabcap and show me which APIs it calls".
+**Give it to an agent.** The skill lives in `skills/tabcap/` (`SKILL.md` plus `references/`, no scripts). Copy it to `~/.claude/skills/tabcap/` for Claude Code (it also reads `~/.agents/skills/tabcap/`), or into the skills directory of Hermes Agent or another host. For hosts that speak MCP instead: `claude mcp add tabcap -- tabcap mcp`; `tabcap mcp --print-config <host>` prints the entry for Cursor, Codex, Gemini CLI, Windsurf (untested) and Claude Desktop. Then ask the agent: "open this page with tabcap and show me which APIs it calls". `tabcap guide` lists the task recipes an agent can follow (first look, scraping through the logged-in tab, encrypted sites, offline replay, login with a challenge); `tabcap status` shows everything that is going on and what is in conflict.
 
 ## What it does
 
@@ -70,13 +70,14 @@ The commands come in groups; `tabcap help <group>` lists one, for example `tabca
 
 | Group | Commands |
 |---|---|
+| Start here | `guide` (task recipes: the commands in order, why, the pitfalls), `status` (everything in one answer, with conflicts and what to do) |
 | Lifecycle | `setup`, `daemon start/stop/status`, `browser start/stop/status`, `mcp` |
 | Sites, sessions, tabs | `site`, `account`, `proxy`, `session start/stop/list/export`, `tab list/select/new/close` |
 | Page | `navigate`, `go`, `reload`, `snapshot`, `outline`, `find`, `wait`, `html` |
 | Input | `click`, `hover`, `fill`, `type`, `press-key`, `upload`, `dialog` |
 | Page tools | `evaluate`, `screenshot`, `resize`, `emulate`, `console list/show` |
 | Network | `net start/stop/list/show/body/grep/wait`, `fetch`, `where`, `recon` |
-| Handoff | `handoff status/continue`, `guard resume`, `plugin list/enable/disable` |
+| Handoff | `handoff status/continue`, `guard resume`, `plugin init/list/enable/disable` |
 | Offline | `bundle export/import/redact/info/decode`, `analyze find/diff/deps/chain/shape/schema-diff/recon`, `replay serve/check/session/export-python`, `schema` |
 | Diagnostics | `trace`, `fingerprint`, `wire` |
 

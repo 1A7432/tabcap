@@ -50,7 +50,7 @@ tabcap daemon stop
 
 每条命令在 stdout 打印一个 JSON 信封：`{"ok":true,"data":…}` 或 `{"ok":false,"error":{"code","message","next"}}`。失败了就照 `next` 做。`tabcap --help` 按组列出命令，`tabcap <命令> --help` 看选项和例子。
 
-**交给 agent。** skill 在 `skills/tabcap/`（`SKILL.md` 加 `references/`，没有脚本）。Claude Code 拷到 `~/.claude/skills/tabcap/`（它也认 `~/.agents/skills/tabcap/`），Hermes Agent 等宿主拷进各自的 skills 目录。只认 MCP 的宿主：`claude mcp add tabcap -- tabcap mcp`；`tabcap mcp --print-config <宿主>` 打印 Cursor、Codex、Gemini CLI、Windsurf（没验证过）、Claude Desktop 的配置条目。然后对 agent 说：「用 tabcap 打开这个页面，看它调了哪些接口」。
+**交给 agent。** skill 在 `skills/tabcap/`（`SKILL.md` 加 `references/`，没有脚本）。Claude Code 拷到 `~/.claude/skills/tabcap/`（它也认 `~/.agents/skills/tabcap/`），Hermes Agent 等宿主拷进各自的 skills 目录。只认 MCP 的宿主：`claude mcp add tabcap -- tabcap mcp`；`tabcap mcp --print-config <宿主>` 打印 Cursor、Codex、Gemini CLI、Windsurf（没验证过）、Claude Desktop 的配置条目。然后对 agent 说：「用 tabcap 打开这个页面，看它调了哪些接口」。`tabcap guide` 列出 agent 可以照着走的任务配方（初次查看、爬虫经已登录标签、加密站点、离线回放、带验证的登录）；`tabcap status` 一屏看全当前状态和冲突。
 
 ## 它做什么
 
@@ -70,13 +70,14 @@ tabcap daemon stop
 
 | 组 | 命令 |
 |---|---|
+| 从这里开始 | `guide`（任务配方：命令顺序、为什么、坑）、`status`（一屏看全，含冲突和下一步） |
 | 生命周期 | `setup`、`daemon start/stop/status`、`browser start/stop/status`、`mcp` |
 | 站点、会话、标签 | `site`、`account`、`proxy`、`session start/stop/list/export`、`tab list/select/new/close` |
 | 页面 | `navigate`、`go`、`reload`、`snapshot`、`outline`、`find`、`wait`、`html` |
 | 输入 | `click`、`hover`、`fill`、`type`、`press-key`、`upload`、`dialog` |
 | 页面工具 | `evaluate`、`screenshot`、`resize`、`emulate`、`console list/show` |
 | 网络 | `net start/stop/list/show/body/grep/wait`、`fetch`、`where`、`recon` |
-| 交接 | `handoff status/continue`、`guard resume`、`plugin list/enable/disable` |
+| 交接 | `handoff status/continue`、`guard resume`、`plugin init/list/enable/disable` |
 | 离线 | `bundle export/import/redact/info/decode`、`analyze find/diff/deps/chain/shape/schema-diff/recon`、`replay serve/check/session/export-python`、`schema` |
 | 诊断 | `trace`、`fingerprint`、`wire` |
 
