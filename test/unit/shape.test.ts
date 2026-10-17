@@ -304,6 +304,8 @@ describe("diff table", () => {
     });
     const r = schemaDiff(a, b);
     expect(r.endpoints.map((e) => [e.key, e.verdict, e.removed])).toEqual([["GET /api/me", "drift", ["$:object", "$.user:object", "$.user.id:number(int)"]]]);
+    // 0.7-C: the two bundles, old then new, by short name
+    expect(r.bundles).toEqual([{ short: a.split("/").pop() ?? "", dir: a }, { short: b.split("/").pop() ?? "", dir: b }]);
     expect(schemaDiff(b, a).endpoints.map((e) => [e.verdict, e.added.length])).toEqual([["drift", 3]]);
   });
 

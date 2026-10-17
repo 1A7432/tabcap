@@ -37,6 +37,7 @@ import { isSensitiveName } from "../bundle/redact.ts";
 import type { RequestEvent, ResourceType } from "../bundle/types.ts";
 import { RESOURCE_TYPES } from "../bundle/reader.ts";
 import { TabcapError } from "../shared/envelope.ts";
+import { bundleList } from "../shared/paths.ts";
 import {
   STEP_CAP,
   STEP_NAMES,
@@ -629,6 +630,8 @@ export type EndpointDiff = {
 export type SchemaDiffSide = { dir: string; id: string; session: string; endpoints: number };
 export type SchemaDiffResult = {
   schema: typeof SCHEMA_DIFF_SCHEMA;
+  /** The two bundles, old then new (0.7-C: `short` is the directory's basename). */
+  bundles: { short: string; dir: string }[];
   old: SchemaDiffSide;
   new: SchemaDiffSide;
   filter: { template: string | null; types: ResourceType[] | "all"; json: boolean };
@@ -718,7 +721,7 @@ export function schemaDiff(oldDir: string, newDir: string, opts: SchemaDiffOptio
   const summary: Record<Verdict, number> = { same: 0, drift: 0, new: 0, gone: 0 };
   for (const e of endpoints) summary[e.verdict]++;
   const side = (r: BundleReader, s: ShapeResult): SchemaDiffSide => ({ dir: r.dir, id: r.manifest.id, session: s.session, endpoints: s.endpoints.length });
-  const result: SchemaDiffResult = { schema: SCHEMA_DIFF_SCHEMA, old: side(ra, sa), new: side(rb, sb), filter: { template: filterKey, types: types.types, json: types.json }, drift: summary.drift > 0, summary, endpoints, warnings };
+  const result: SchemaDiffResult = { schema: SCHEMA_DIFF_SCHEMA, bundles: bundleList([ra.dir, rb.dir]), old: side(ra, sa), new: side(rb, sb), filter: { template: filterKey, types: types.types, json: types.json }, drift: summary.drift > 0, summary, endpoints, warnings };
   if (opts.write === true) result.written = { old: writeShape(oldDir, sa), new: writeShape(newDir, sb) };
   return result;
 }

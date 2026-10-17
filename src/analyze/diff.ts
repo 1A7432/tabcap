@@ -14,6 +14,7 @@
 
 import { TabcapError } from "../shared/envelope.ts";
 import { BundleReader } from "../bundle/reader.ts";
+import { bundleShorts } from "../shared/paths.ts";
 import type { Headers, RequestEvent } from "../bundle/types.ts";
 import { parseJsonDoc, walkJson } from "./decoders.ts";
 
@@ -47,11 +48,13 @@ export type DiffGroup = {
   samples: number;
   perBundle: number[];
   sessions: number;
-  requests: { bundle: number; ref: string }[];
+  /** The group's requests: `bundle` is the short name of their bundle (`bundles[].short`, 0.7-C), `id` the request id there. */
+  requests: { bundle: string; id: string }[];
   params: DiffParam[];
 };
 
-export type DiffBundle = { dir: string; label: string; id: string; session: string; sessionKey: string; complete: boolean; requests: number };
+/** `short`: the directory's basename (0.7-C), the name rows use in `bundle`. */
+export type DiffBundle = { short: string; dir: string; label: string; id: string; session: string; sessionKey: string; complete: boolean; requests: number };
 
 export type DiffResult = {
   bundles: DiffBundle[];
@@ -269,7 +272,7 @@ export function groupRequests(sources: readonly GroupSource[], warn: (w: string)
 }
 
 /** Classify every parameter of a group with at least two samples (`nBundles`: how many sources were grouped). */
-export function classifyGroup(key: string, g: GroupAcc, cookieValues: readonly Set<string>[], nBundles: number): DiffGroup | null {
+export function classifyGroup(key: string, g: GroupAcc, cookieValues: readonly Set<string>[], nBundles: number, shortOf: (bundle: number) => string = (i) => `b${i + 1}`): DiffGroup | null {
   const sessions = new Set(g.samples.map((s) => s.session));
   const keys = new Set<string>();
   for (const s of g.samples) for (const k of s.params.keys()) keys.add(k);
@@ -290,7 +293,7 @@ export function classifyGroup(key: string, g: GroupAcc, cookieValues: readonly S
     samples: g.samples.length,
     perBundle: Array.from({ length: nBundles }, (_, i) => g.samples.filter((s) => s.bundle === i).length),
     sessions: sessions.size,
-    requests: g.samples.map((s) => ({ bundle: s.bundle, ref: s.ref })),
+    requests: g.samples.map((s) => ({ bundle: shortOf(s.bundle), id: s.ref })),
     params,
   };
 }
@@ -301,13 +304,14 @@ export function diff(dirs: readonly string[]): DiffResult {
   const bundles: DiffBundle[] = [];
   const sources: GroupSource[] = [];
 
+  const shorts = bundleShorts(dirs);
   dirs.forEach((dir, bi) => {
     const reader = BundleReader.open(dir);
     const label = `b${bi + 1}`;
     const name = reader.manifest.session.name;
     const sessionKey = name !== "" ? name : reader.manifest.id;
     const requests = reader.requests();
-    bundles.push({ dir, label, id: reader.manifest.id, session: name, sessionKey, complete: reader.isComplete(), requests: requests.length });
+    bundles.push({ short: shorts[bi] ?? label, dir, label, id: reader.manifest.id, session: name, sessionKey, complete: reader.isComplete(), requests: requests.length });
     if (!reader.isComplete()) warnings.push(`${label}: bundle is not finished`);
     sources.push({ label, sessionKey, requests, readBlob: (ref) => reader.readBlob(ref) });
   });
@@ -320,7 +324,7 @@ export function diff(dirs: readonly string[]): DiffResult {
       singleSampleGroups.push(key);
       continue;
     }
-    const dg = classifyGroup(key, g, cookieValues, dirs.length);
+    const dg = classifyGroup(key, g, cookieValues, dirs.length, (i) => shorts[i] ?? `b${i + 1}`);
     if (dg !== null) out.push(dg);
   }
 

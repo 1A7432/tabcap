@@ -110,7 +110,7 @@ function cmdDiff(argv: readonly string[]): Outcome {
       tool: "diff",
       grade: "推断",
       claim: diffClaim(result),
-      evidence: result.groups.flatMap((g) => g.requests.filter((q) => q.bundle === 0).map((q) => ({ request: q.ref }))),
+      evidence: result.groups.flatMap((g) => g.requests.filter((q) => q.bundle === result.bundles[0]?.short).map((q) => ({ request: q.id }))),
       input: { bundles: result.bundles.map((b) => ({ dir: b.dir, id: b.id, session: b.sessionKey })) },
       output: { summary: result.summary, groups: result.groups.map((g) => ({ key: g.key, params: g.params.map((p) => ({ location: p.location, name: p.name, class: p.class, hints: p.hints })) })) },
     });

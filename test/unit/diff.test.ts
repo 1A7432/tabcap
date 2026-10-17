@@ -147,6 +147,12 @@ describe("s06-like classification (A4)", () => {
     const q = r.groups.find((g) => g.key === SEARCH)?.params.find((p) => p.name === "q");
     expect(q?.alsoIn).toEqual([`${LOG} json $.query`, `${TRACK} form kw`]);
     expect(r.warnings).toEqual([]);
+    // 0.7-C: each bundle has a short name (its directory's basename); request rows name their bundle by it, ids stay r-N
+    const shorts = B.map((d) => d.split("/").pop() ?? "");
+    expect(r.bundles.map((b) => [b.short, b.dir])).toEqual(B.map((d, i) => [shorts[i] ?? "", d]));
+    const reqs = r.groups.find((g) => g.key === SEARCH)?.requests ?? [];
+    expect(reqs.map((q) => q.bundle)).toEqual(shorts);
+    for (const q of reqs) expect(q.id).toMatch(/^r-\d+$/);
   });
 
   test("two recordings of one session: sid is constant-or-session (A4.1)", () => {

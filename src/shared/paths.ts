@@ -191,3 +191,24 @@ function recordedTcp(daemonInfo: string): Endpoint | null {
   if (!existsSync(daemonInfo)) return null;
   return parseTcpRecord(tryParseJson(readFileSync(daemonInfo, "utf8")));
 }
+
+/**
+ * Short names of the bundles one answer compares (0.7-C, docs/04 §2.1): each
+ * bundle directory's basename; a basename given twice gets `~2`, `~3` … in
+ * order, so the names stay unique within the answer.
+ */
+export function bundleShorts(dirs: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return dirs.map((d) => {
+    const base = d.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || d;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base}~${n}`;
+  });
+}
+
+/** The `bundles` list of a cross-bundle answer: `{short, dir}` per bundle, in argument order. */
+export const bundleList = (dirs: readonly string[]): { short: string; dir: string }[] => {
+  const shorts = bundleShorts(dirs);
+  return dirs.map((dir, i) => ({ short: shorts[i] ?? dir, dir }));
+};
