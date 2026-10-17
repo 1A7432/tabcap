@@ -126,7 +126,7 @@ describe("analyze shape over a bundle", () => {
     expect(r.endpoints.map((e) => e.key)).toEqual(["GET /api/item/{id}", "POST /api/login", "POST /api/save"]);
     // 0.6-S: the script is not an API-like exchange (default types xhr, fetch, document + JSON responses)
     expect(r.unshaped).toEqual(["GET /"]);
-    expect(r.excluded).toBe(1);
+    expect(r.excluded).toEqual({ types: 1, incomplete: 0 });
     expect(r.filter).toMatchObject({ types: ["xhr", "fetch", "document"], json: true });
     expect(shape(b, { types: parseShapeTypes("all") }).unshaped).toEqual(["GET /", "GET /app.js"]);
     const item = r.endpoints[0];

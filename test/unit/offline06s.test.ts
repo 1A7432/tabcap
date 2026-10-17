@@ -323,11 +323,11 @@ describe("analyze shape / schema-diff: default resource types and --types", () =
   test("default: xhr, fetch, document and JSON responses of any type; static resources left out and counted", () => {
     const r = shape(sb);
     expect(r.endpoints.map((e) => e.key)).toEqual(["GET /api/list", "GET /beacon"]);
-    expect(r.excluded).toBe(3);
+    expect(r.excluded).toEqual({ types: 3, incomplete: 0 });
     expect(r.filter).toMatchObject({ types: ["xhr", "fetch", "document"], json: true });
     const all = shape(sb, { types: parseShapeTypes("all") });
     expect(all.endpoints.map((e) => e.key)).toEqual(["GET /api/list", "GET /app.js", "GET /site.css", "GET /logo.png", "GET /beacon"]);
-    expect(all.excluded).toBe(0);
+    expect(all.excluded).toEqual({ types: 0, incomplete: 0 });
     const narrow = shape(sb, { types: parseShapeTypes("xhr,fetch") });
     expect(narrow.endpoints.map((e) => [e.key, e.exchanges])).toEqual([["GET /api/list", 2]]);
     expect(narrow.filter).toMatchObject({ types: ["xhr", "fetch"], json: false });
@@ -355,7 +355,9 @@ describe("analyze shape / schema-diff: default resource types and --types", () =
     expect([red?.optionalityChanged, red?.added, red?.removed, red?.changed]).toEqual([[], [], [], [{ path: "query:token", from: "string(id)", to: "string" }]]);
   });
 
-  test("an incomplete exchange of the endpoint is not in the HAR (docs/04 §9.1): optionality drift whatever the types", async () => {
+  // 0.6-V (owner decision 10-17): shape leaves incomplete exchanges out by
+  // default, as the HAR export does — the round trip of this bundle is `same`.
+  test("an incomplete exchange of the endpoint is not in the HAR (docs/04 §9.1), nor shaped (0.6-V): same whatever the types", async () => {
     const ib = await buildBundle(join(root, "inc"), { name: "inc06s", created: C, seed: 8 }, async (b) => {
       await b.request({ url: `${A}/api/list?page=1&size=20`, mime: J, body: body(1), ts: C + 1 });
       await b.request({ url: `${A}/api/list?page=2&size=20`, mime: J, body: body(2), ts: C + 2 });
@@ -366,7 +368,16 @@ describe("analyze shape / schema-diff: default resource types and --types", () =
     const out = join(root, "inc-imp");
     await importHar(JSON.parse(JSON.stringify(har.har)), out);
     const d = schemaDiff(ib, out, { types: parseShapeTypes("xhr,fetch") });
-    expect(d.endpoints[0]?.optionalityChanged).toEqual([{ path: "query:size", from: "optional", to: "required" }]);
+    expect(d.summary).toEqual({ same: 1, drift: 0, new: 0, gone: 0 });
+    expect(d.endpoints[0]?.optionalityChanged).toEqual([]);
+    expect(schemaDiff(ib, out).summary).toEqual({ same: 1, drift: 0, new: 0, gone: 0 });
+    expect(schemaDiff(ib, out, { types: parseShapeTypes("all") }).summary).toEqual({ same: 1, drift: 0, new: 0, gone: 0 });
+    // counted in excluded.incomplete; --types does not change it; --request is never filtered
+    const s = shape(ib, { types: parseShapeTypes("all") });
+    expect(s.excluded).toEqual({ types: 0, incomplete: 1 });
+    expect(s.endpoints[0]?.exchanges).toBe(2);
+    const inc = BundleReader.open(ib).requests().find((x) => x.outcome === "incomplete")?.id ?? "";
+    expect(shape(ib, { request: inc }).endpoints.map((e) => e.exchanges)).toEqual([1]);
   });
 
   test("the false drift: a HAR exported with xhr,fetch differs from its bundle in the request set; --types xhr,fetch on both sides is same", async () => {

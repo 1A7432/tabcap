@@ -20,6 +20,10 @@
 // any exchange whose response has a JSON content type; `--types a,b` shapes
 // exactly those types (no JSON rule), `--types all` every exchange (0.6-G).
 // `--request r-N` is never filtered. Left-out exchanges are counted in `excluded`.
+// 0.6-V (owner decision 10-17): an `incomplete` exchange (no response: the
+// HAR export leaves it out too, docs/04 §9.1) is not shaped, whatever
+// `--types` says; `excluded` is {types, incomplete}. A bundle and its HAR
+// round trip no longer drift on an endpoint with one incomplete exchange.
 // Oracle: test/unit/shape.test.ts (inference, union, format and diff tables
 // over synthetic bundles), test/e2e/v06g.e2e.test.ts (range s06 /api/list and
 // its ?v=2 variant, LIST_V1 / LIST_V2 in test/e2e/site.ts).
@@ -141,8 +145,8 @@ export type ShapeResult = {
   /** `types`: the resource types shaped ("all", or the list); `json`: JSON responses of any type too (0.6-S). */
   filter: { request: string | null; template: string | null; types: ResourceType[] | "all"; json: boolean };
   limits: { fields: number; depth: number; arrayItems: number; enum: number };
-  /** Exchanges left out by the type filter (0.6-S). */
-  excluded: number;
+  /** Exchanges left out: by the type filter (0.6-S); `incomplete`, no response (0.6-V). */
+  excluded: { types: number; incomplete: number };
   endpoints: EndpointShape[];
   /** Endpoints recorded with nothing to shape (no JSON body, no query, no request body): scripts, images, HTML pages. */
   unshaped: string[];
@@ -475,11 +479,15 @@ export function shapeOf(reader: BundleReader, opts: ShapeOptions = {}): ShapeRes
   }
   const want = opts.template === undefined ? null : parseTemplate(opts.template);
   const types = opts.types ?? DEFAULT_TYPES;
-  let excluded = 0;
+  const excluded = { types: 0, incomplete: 0 };
   const byKey = new Map<string, EndpointAcc>();
   for (const r of requests) {
     if (opts.request === undefined && !typeSelected(r, types)) {
-      excluded++;
+      excluded.types++;
+      continue;
+    }
+    if (opts.request === undefined && r.outcome === "incomplete") {
+      excluded.incomplete++;
       continue;
     }
     const template = channelTemplate(r.url);
@@ -725,7 +733,7 @@ function shapeLines(label: string, f: Flat): string[] {
 
 export function renderShapeText(r: ShapeResult): string {
   const kinds = r.filter.types === "all" ? "all types" : `types ${r.filter.types.join(",")}${r.filter.json ? " + JSON responses" : ""}`;
-  const L: string[] = [`shape of ${r.bundle} (session ${r.session}): ${r.endpoints.length} endpoint(s), ${kinds}${r.excluded > 0 ? `, ${r.excluded} exchange(s) of other types left out` : ""}`];
+  const L: string[] = [`shape of ${r.bundle} (session ${r.session}): ${r.endpoints.length} endpoint(s), ${kinds}${r.excluded.types > 0 ? `, ${r.excluded.types} exchange(s) of other types left out` : ""}${r.excluded.incomplete > 0 ? `, ${r.excluded.incomplete} without a response left out` : ""}`];
   for (const e of r.endpoints) {
     L.push("", `${e.key}  exchanges ${e.exchanges} (${e.requests.join(", ")}${e.exchanges > e.requests.length ? ", …" : ""}), status ${e.status.map((s) => s ?? "-").join(",")}, json ${e.samples.response}${e.notJson > 0 ? `, not json ${e.notJson}` : ""}${e.decode.length > 0 ? `, decode ${e.decode.join(",")}` : ""}`);
     L.push(...shapeLines("", flatOf(e)));
