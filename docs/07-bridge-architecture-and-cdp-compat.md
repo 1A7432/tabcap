@@ -92,6 +92,7 @@
   - 【实测】`el.focus()` / `window.scrollBy` 经 `Runtime.evaluate` 给可信的 `focus` / `blur` / `scroll`，不在监听的四种里。
   - 【实测 e2e v071a，实现用的世界名 `tabcap-takeover`】s62 上 tabcap 自己的 `click --trusted`、`click --trusted`（文本框）、`type --trusted ab`、`press-key Enter`、`hover` 都以可信事件到了页面（页面自己的记录是 `btn:true`、三条 `key:true`），会话仍是 `running`；页面同时合成了约 25 轮不可信事件，也不触发。测试专用注入（绕过窗口的一次 CDP 按下）在 3 s 内让会话进 `waiting`（`human-takeover`）；`handoff.detectTakeover:false` 时同一注入（按下与 Shift）不触发。第一版测试里，离第一次约 250 ms 的第二次注入按下没有报上来（包里没有它的 `action`，守护进程日志里也没有「忽略」），判断是页面侧 250 ms 合并吞掉的【推断】，按设计；隔 400 ms 后连跑 3 次都在。
   - 【待验】真人的 OS 输入：真鼠标、键盘、触控板的事件是否同样可信、时延多少；拖动视口滚动条与元素滚动条有没有 `pointerdown`；浏览器自动填充、密码管理器、输入法组合、Chrome 自己的快捷键（⌘L、⌘T）会不会在页面里出 `keydown`；页面自己的脚本有没有办法造出可信事件（规范上没有，未量）。跨进程 iframe（OOPIF）没装监听器，里面的输入不覆盖。
+  - 【实测 2026-10-18，作者的 Mac，CfT 155，作者授权的真实使用而非测试】作者在 tabcap 自己的 CfT 窗口里登录 npmjs.com 配 trusted publisher 时，真鼠标点 Cloudflare 的验证框和 npm 的「Use security key」按钮都被监听器收到可信 `pointerdown`，会话随即 `waiting`（`reason: human-takeover`），后续 `navigate` 按设计拒绝，`handoff continue` 后恢复；驱动脚本因此要在人点过之后、下一次动页面之前先 `handoff continue`。键盘时延、滚动条、自动填充、输入法、Chrome 快捷键仍未量。
 
 ### 1.2 启动参数表（抄自 Playwright `chromiumSwitches.ts`，Apache-2.0，保留 NOTICE；10-15 作者定）
 

@@ -216,13 +216,20 @@ jobs:
             echo "publish $f ($name@$version) $DRY_RUN"
             npm publish "$f" --access public --registry "$NPM_REGISTRY" $DRY_RUN
           done
+      # After `+ name@version` the registry still processes the version ("may take a few
+      # minutes"): 0.7.1's packages showed up 1 to 7 minutes after publish, so poll.
       - name: verify on the registry
         if: ${{ !inputs.npm_dry_run }}
         run: |
           version="$(bun -e 'Bun.file("package.json").json().then((p) => console.log(p.version))')"
           for f in dist/npm/*.tgz; do
             name="$(tar -xOzf "$f" package/package.json | jq -r .name)"
-            got="$(npm view "$name@$version" version --registry "$NPM_REGISTRY")"
-            [ "$got" = "$version" ] || { echo "$name@$version not on the registry (got '$got')"; exit 1; }
+            got=""
+            for i in $(seq 1 60); do
+              got="$(npm view "$name@$version" version --registry "$NPM_REGISTRY" 2>/dev/null || true)"
+              [ "$got" = "$version" ] && break
+              sleep 15
+            done
+            [ "$got" = "$version" ] || { echo "$name@$version not on the registry after 15 minutes (got '$got')"; exit 1; }
             echo "ok $name@$version"
           done

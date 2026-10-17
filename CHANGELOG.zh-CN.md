@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### CI
+
+- `release.yml`：npm job 最后的核对改为轮询 registry 最多 15 分钟，不再只查一次；`npm publish` 打出 `+ name@version` 之后 registry 还要处理几分钟（0.7.1 的包 1 到 7 分钟后才出现，第一次真实运行因此标红，虽然五个包都发成功了）。
+
 ## 0.7.1（2026-10-18）
 
 ### 人接管识别（0.7.1-A）

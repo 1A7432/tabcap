@@ -2,6 +2,12 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### CI
+
+- `release.yml`: the npm job's final check polls the registry for up to 15 minutes instead of looking once; the registry still processes a new version for a few minutes after `npm publish` says `+ name@version` (0.7.1's packages appeared 1 to 7 minutes later, which made the first real run of the job red although every package was published).
+
 ## 0.7.1 (2026-10-18)
 
 ### Human take-over detection (0.7.1-A)
