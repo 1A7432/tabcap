@@ -38,7 +38,7 @@ import type { Tab, Tabs } from "../browser/targets.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../transport/types.ts";
 import { classifyPause, signalFields, TraceBook, type Aggregate, type BpInfo, type DocRef, type DocSummary, type PauseFrame, type ScriptInfo, type TraceLimits } from "./aggregate.ts";
 import { hashBulkData, INSTRUMENTATION_EVENTS, notRecorded, resolverExpression, SCRIPT_FIRST_STATEMENT, VALUE_INLINE_MAX, valueExpression, type SignalList } from "./signals.ts";
-import { addBounded, Armed, attribute, consoleSites, dropRawBody, jsonParseLogpoint, OBJECT_PROBES, observeRow, OBSERVE_VERSION, PAGE_BY, pauseSite, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, settleOutcome, sha256Text, SINKS, suspectOf, suspectShas, SUSPECT_WINDOW_MS, takeLogged, TEXT_DECODER_CONDITION, utf8Bytes, type LoggedPlain, type PageEvidence, type PlainCandidate, type Settling, type SinkName } from "./observe.ts";
+import { addBounded, Armed, attribute, consoleSites, dropRawBody, evidenceFrames, frameScriptId, jsonParseLogpoint, OBJECT_PROBES, observeRow, OBSERVE_VERSION, PAGE_BY, pauseSite, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, settleOutcome, sha256Text, SINKS, suspectOf, suspectShas, SUSPECT_WINDOW_MS, takeLogged, TEXT_DECODER_CONDITION, utf8Bytes, type LoggedPlain, type PageEvidence, type PlainCandidate, type Settling, type SinkName } from "./observe.ts";
 import type { NetEntry } from "../capture/recorder.ts";
 
 export const TRACE_NOTICE = "Trace mode installs debugger breakpoints in the page: scripts run slower and the timing is observable.";
@@ -111,6 +111,9 @@ export type TracerOptions = {
   paused: boolean;
   /** 0.6-L observe mode: arm the decode sinks on encrypted responses. */
   decode: boolean;
+  /** 0.6-V: file single-suspect rows (`link: "weak"`); config.json
+   * `trace.weakRows`, default false (counted as `drops.weak` instead). */
+  weakRows?: boolean;
   /** 0.6-L2: register the observe log-point marker so the recorder's console
    * capture drops the plaintext it carries; returns an unregister callback. */
   suppressConsole?: (marker: string) => () => void;
@@ -165,7 +168,7 @@ export class Tracer {
   private sinksSkipped = 0;
   private walks = 0;
   private recovered = { console: 0, scope: 0 };
-  private drops = { plaintextMissing: 0, tooLarge: 0, afterStop: 0, unattributedCapped: 0, rawBody: 0, orphan: 0, unpaired: 0, noFit: 0 };
+  private drops = { plaintextMissing: 0, tooLarge: 0, afterStop: 0, unattributedCapped: 0, rawBody: 0, orphan: 0, unpaired: 0, noFit: 0, weak: 0 };
   /** Requests that already have a page row (0.6-L2): one row per response. */
   private filedRequests = new Set<string>();
   /**
@@ -178,6 +181,8 @@ export class Tracer {
    * has no row yet. 0.6-Q: unattributed rows settle too (`request` null, their
    * candidates kept): an envelope parsed while other suspects are armed, before
    * its own body was indexed, is dropped once that body arrives (item C).
+   * 0.6-V: with `weakRows` off (the default) a single-suspect row still settles
+   * and is counted as `drops.weak` where it would have been filed.
    */
   private settle: Array<Settling & { from: PlainCandidate["from"]; frames: PageEvidence["frames"] }> = [];
   private static readonly SETTLE_MS = 500;
@@ -676,7 +681,8 @@ export class Tracer {
       if (
         frames.length === 0 ||
         frames.some((f) => {
-          const id = str(f, "scriptId") ?? "";
+          // 0.6-V: the script id is the call frame's `location.scriptId`.
+          const id = frameScriptId(f) ?? "";
           return st.tabcapScripts.has(id) || st.internalScripts.has(id) || (st.scripts.get(id)?.isDefault === false);
         })
       ) {
@@ -825,8 +831,12 @@ export class Tracer {
     const due = all ? this.settle : this.settle.filter((s) => s.at <= cut);
     this.settle = all ? [] : this.settle.filter((s) => s.at > cut);
     for (const s of due) {
-      const out = settleOutcome(s, this.rawShas, this.filedRequests, this.unattributedKept);
+      const out = settleOutcome(s, this.rawShas, this.filedRequests, this.unattributedKept, this.opts.weakRows === true);
       if (out === "filed") continue;
+      if (out === "weak") {
+        this.drops.weak++;
+        continue;
+      }
       if (out === "rawBody") {
         this.drops.rawBody++;
         continue;
@@ -889,15 +899,10 @@ export class Tracer {
     }
   }
 
-  /** The caller frames for a pause's evidence (docs/04 §33, ≤5): cheap, no CDP. */
+  /** The caller frames for a pause's evidence (docs/04 §33, ≤5): cheap, no CDP.
+   * 0.6-V: the frame's own `url`, then the scriptParsed map by `location.scriptId`. */
   private framesOf(st: Sess, frames: readonly Record<string, unknown>[]): PageEvidence["frames"] {
-    const out: PageEvidence["frames"] = [];
-    for (const f of frames.slice(0, 5)) {
-      const info = st.scripts.get(str(f, "scriptId") ?? "");
-      const loc = isRecord(f["location"]) ? f["location"] : null;
-      out.push({ url: info?.url ?? "", line: loc === null ? 0 : (num(loc, "lineNumber") ?? 0), column: loc === null ? 0 : (num(loc, "columnNumber") ?? 0), function: str(f, "functionName") || "(anonymous)" });
-    }
-    return out;
+    return evidenceFrames(frames, (id) => st.scripts.get(id)?.url);
   }
 
   /**
@@ -1308,6 +1313,7 @@ export class Tracer {
       instrumentation: this.opts.decode ? [] : [...INSTRUMENTATION_EVENTS],
       ...(this.opts.decode
         ? {
+            weakRows: this.opts.weakRows === true,
             decode: {
               armed: this.armed.live().length,
               rows: { attributed: this.attributedRows, weak: this.weakRows, unattributed: this.unattributedRows, unattributedKept: this.unattributedKept },

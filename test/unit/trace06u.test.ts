@@ -9,7 +9,8 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setEnabled } from "../../src/daemon/hooks/plugins.ts";
-import { decodePluginsFields } from "../../src/daemon/tools/trace.ts";
+import { parseTraceConfig } from "../../src/shared/config.ts";
+import { decodeNotice, decodePluginsFields, withDecodePlugins } from "../../src/daemon/tools/trace.ts";
 import { installXor, XOR_PLUGIN } from "./_decode.ts";
 
 const root = mkdtempSync(join(tmpdir(), "tabcap-trace06u-"));
@@ -47,5 +48,37 @@ describe("trace start --decode: enabled decode plugins (0.6-U)", () => {
     expect(f.decodePluginsNotice).toContain("`tabcap plugin disable <name>`");
     setEnabled(two, "a-decode", false);
     expect(decodePluginsFields(two).decodePlugins).toEqual(["xor-decode"]);
+  });
+});
+
+// 0.6-V (owner decision 10-17): `trace status` and `trace stop` carry the same
+// two fields while decode is on; a signal-tracing answer (no `decode` block)
+// is unchanged. And the `--decode` notice says what happens to weak rows.
+describe("trace status / stop: the decode-plugin notice while decode is on (0.6-V)", () => {
+  test("with a decode block: the fields are added; without one, or with no plugin enabled: unchanged", () => {
+    const on = join(root, "status-on");
+    installXor(on);
+    const status = { session: "s", trace: "on", decode: { armed: 0 }, weakRows: false };
+    const f = withDecodePlugins(status, on);
+    expect(f["decodePlugins"]).toEqual(["xor-decode"]);
+    expect(String(f["decodePluginsNotice"])).toContain("`tabcap plugin disable xor-decode`");
+    expect(f).toMatchObject(status);
+    const signals = { session: "s", trace: "on", hits: 3 };
+    expect(withDecodePlugins(signals, on)).toEqual(signals);
+    expect(withDecodePlugins(status, join(root, "status-none"))).toEqual(status);
+  });
+
+  test("config.json trace.weakRows: default false, a boolean or an error", () => {
+    expect(parseTraceConfig(undefined)).toEqual({ decode: false, weakRows: false });
+    expect(parseTraceConfig({ weakRows: true })).toEqual({ decode: false, weakRows: true });
+    expect(parseTraceConfig({ decode: true, weakRows: false })).toEqual({ decode: true, weakRows: false });
+    expect(() => parseTraceConfig({ weakRows: "yes" })).toThrow("trace.weakRows is invalid");
+  });
+
+  test("the --decode notice: weak rows counted, not filed, by default; named as weak when trace.weakRows is on", () => {
+    expect(decodeNotice(false)).toContain("drops.weak");
+    expect(decodeNotice(false)).toContain("trace.weakRows");
+    expect(decodeNotice(true)).toContain('evidence.link "weak"');
+    expect(decodeNotice(true)).not.toContain("drops.weak");
   });
 });

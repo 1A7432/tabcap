@@ -22,9 +22,16 @@
 // ≥ 1 KB localStorage parse is not filed under two small armed suspects
 // (`drops.noFit`), no row is an envelope the page parsed early; `net body`
 // reads the page view (default and --decoded, during and after recording).
+// 0.6-V (owner decisions 10-17): weak rows are off by default (config.json
+// `trace.weakRows`): s59 deferred files no row and counts `drops.weak: 1`;
+// with `trace.weakRows: true` it files the weak row as before. The evidence
+// frames carry the script URL: every s59 parse runs in the page's inline
+// script (worker mode too — the worker posts the plaintext string back and
+// the main thread's onmessage parses it, test/e2e/site.ts s59Worker), whose
+// URL is the document URL.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -76,6 +83,13 @@ type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, u
 const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
 const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
 const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
+/** The url of a page row's top evidence frame. */
+const topFrameUrl = (decoded: Record<string, unknown> | undefined): unknown => recs(rec(decoded?.["evidence"])["frames"])[0]?.["url"];
+/** config.json in the test home (read by every `trace start`). */
+const writeConfig = (v: Record<string, unknown>): void => {
+  mkdirSync(join(home, "config"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(home, "config", "config.json"), JSON.stringify(v) + "\n");
+};
 
 async function tabcap(args: string[]): Promise<Env> {
   const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
@@ -182,6 +196,8 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     expect(ev["link"]).toBe("strong");
     expect(ev["candidates"]).toBeUndefined();
     expect(recs(ev["frames"]).length).toBeGreaterThanOrEqual(1);
+    // 0.6-V: the parse runs in the page's inline script; its URL is the document URL.
+    expect(topFrameUrl(r.decoded)).toBe(`${site.origin}/s59`);
     expect(s(r.decoded["blob"])).toMatch(/^sha256:[0-9a-f]{64}$/);
 
     // The control: plain JSON the page parses too — no row, no view.
@@ -289,6 +305,10 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
       // `env`, worker's onmessage arrow closes over s59Worker's `data` (its
       // executor uses it) — so the link is strong and the match is the leaf.
       expect([mode, rec(hit?.decoded["evidence"])["link"], rec(hit?.decoded["evidence"])["match"]]).toEqual([mode, "strong", sha(XOR_DATA)]);
+      // 0.6-V: every mode parses in the page's inline script (worker: the main
+      // thread's onmessage parses the string the worker posted), so the top
+      // frame's URL is the document URL.
+      expect([mode, topFrameUrl(hit?.decoded)]).toEqual([mode, `${site.origin}/s59?mode=${mode}`]);
       // No sidecar row is the raw envelope (the axios-shape bug of 0.6-L).
       for (const r of rows) expect(viewText(reader, r.decoded)).not.toBe(S59_ENC_XOR);
       const { decode } = await stopBoth(session);
@@ -325,19 +345,42 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     expect(recs((await ok("analyze", "find", bundle, S59_BIG_MARKER))["hits"]).some((h) => JSON.stringify(h["decode"] ?? []).includes("page"))).toBe(true);
   }, 180_000);
 
-  test("s59 deferred: no ciphertext reachable from the parse — filed under the only armed suspect, link weak, and find says so", async () => {
-    const { bundle, enc } = await runPage("s59d", "/s59?mode=deferred", ["--decode"]);
-    const rows = await until("the deferred page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
-    expect(rows.length).toBe(1);
-    const r = rows[0] as SidecarRow;
-    expect(r.request).toBe(enc[0]?.id ?? "");
-    expect(viewText(BundleReader.open(bundle), r.decoded)).toBe(S59_PLAIN);
-    const ev = rec(r.decoded["evidence"]);
-    expect([ev["match"], ev["link"]]).toEqual([null, "weak"]);
-    const { decode } = await stopBoth("s59d");
-    expect(decode?.["rows"]).toMatchObject({ attributed: 1, weak: 1, unattributed: 0 });
-    const hits = recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"]);
-    expect(hits.map((h) => [h["ref"], h["decode"], h["link"]])).toEqual([[enc[0]?.id ?? "", ["page"], "weak"]]);
+  test("s59 deferred, trace.weakRows true: no ciphertext reachable from the parse — filed under the only armed suspect, link weak, and find says so", async () => {
+    writeConfig({ trace: { weakRows: true } });
+    try {
+      const { bundle, enc, tr } = await runPage("s59d", "/s59?mode=deferred", ["--decode"]);
+      expect(tr["weakRows"]).toBe(true);
+      const rows = await until("the deferred page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
+      expect(rows.length).toBe(1);
+      const r = rows[0] as SidecarRow;
+      expect(r.request).toBe(enc[0]?.id ?? "");
+      expect(viewText(BundleReader.open(bundle), r.decoded)).toBe(S59_PLAIN);
+      const ev = rec(r.decoded["evidence"]);
+      expect([ev["match"], ev["link"]]).toEqual([null, "weak"]);
+      expect(topFrameUrl(r.decoded)).toBe(`${site.origin}/s59?mode=deferred`);
+      const { decode } = await stopBoth("s59d");
+      expect(decode?.["rows"]).toMatchObject({ attributed: 1, weak: 1, unattributed: 0 });
+      expect(rec(decode?.["drops"])["weak"]).toBe(0);
+      const hits = recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"]);
+      expect(hits.map((h) => [h["ref"], h["decode"], h["link"]])).toEqual([[enc[0]?.id ?? "", ["page"], "weak"]]);
+    } finally {
+      writeConfig({});
+    }
+  }, 120_000);
+
+  test("s59 deferred, default config (0.6-V): the weak plaintext files no row and is counted as drops.weak", async () => {
+    const S = ["--session", "s59dd"];
+    const { bundle, tr } = await runPage("s59dd", "/s59?mode=deferred", ["--decode"]);
+    expect(tr["weakRows"]).toBe(false);
+    expect(s(tr["decodeNotice"])).toContain("drops.weak");
+    // the weak row settles (500 ms) and is then counted, not filed
+    const st = await until("drops.weak in trace status", () => ok("trace", "status", ...S), (v) => Number(rec(rec(v["decode"])["drops"])["weak"] ?? 0) >= 1);
+    expect(st["weakRows"]).toBe(false);
+    const { decode } = await stopBoth("s59dd");
+    expect(rec(decode?.["drops"])["weak"]).toBe(1);
+    expect(decode?.["rows"]).toMatchObject({ attributed: 0, weak: 0, unattributed: 0 });
+    expect(sidecarRows(bundle)).toEqual([]);
+    expect(recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"])).toEqual([]);
   }, 120_000);
 
   test("--decode with --apis is a usage error (the observe mode installs no signal breakpoints)", async () => {
@@ -358,6 +401,8 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     const encId = s((await ok("net", "wait", "--url", "/api/enc", ...S))["id"]);
     const rows = await until("the reloaded page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
     expect(rows.map((r) => [r.request, viewText(BundleReader.open(bundle), r.decoded), rec(r.decoded["evidence"])["link"]])).toEqual([[encId, S59_PLAIN, "strong"]]);
+    // 0.6-V: the inline script was parsed before the tracer attached; its URL still reaches the evidence.
+    expect(topFrameUrl(rows[0]?.decoded)).toBe(`${site.origin}/s59`);
     await stopBoth("s59l");
   }, 120_000);
 

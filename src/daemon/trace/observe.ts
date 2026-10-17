@@ -20,6 +20,10 @@
 // row's `evidence.link` is "strong"; single-suspect — exactly one suspect
 // armed, no such string — `link` "weak"; otherwise the row is unattributed
 // (`request: null`) with the candidates it was confused with. Never by recency.
+// 0.6-V (owner decision 10-17): weak rows were wrong on every real-site
+// sample, so they are off by default (config.json `trace.weakRows`): a
+// single-suspect row still settles, and where it would have been filed it is
+// counted as `drops.weak` instead (`settleOutcome`).
 //
 // Reading the plaintext (spike-06l exp4, spike-06l2 E1-E10, CfT 155): a
 // function-call breakpoint pauses with only the caller frame — the callee's
@@ -522,8 +526,9 @@ export type PageEvidence = {
   /** 0.6-Q: which form of the ciphertext (or raw body) `match` is (strong rows only). */
   matchForm?: MatchForm;
   /** 0.6-L2: how the row is tied to its request — "strong": a scope-string
-   * match; "weak": the only armed suspect, nothing in the scope tied it.
-   * Absent on unattributed rows. */
+   * match; "weak": the only armed suspect, nothing in the scope tied it
+   * (filed only with config.json `trace.weakRows`, 0.6-V). Absent on
+   * unattributed rows. */
   link?: "strong" | "weak";
   frames: Array<{ url: string; line: number; column: number; function: string }>;
   at: number;
@@ -611,11 +616,42 @@ export type Settling = { request: string | null; candidates: string[] | null; te
 /** What a settled row turns into at flush (0.6-Q item C): filed, or why not —
  * the plaintext is a recorded raw body (`rawBody`: the envelope the page
  * parsed before tabcap indexed it), its request already has a row (`filed`),
- * the recording has its 50 unattributed rows (`capped`). */
-export function settleOutcome(s: Settling, rawShas: ReadonlySet<string>, filed: ReadonlySet<string>, unattributedKept: number): "file" | "rawBody" | "filed" | "capped" {
+ * the recording has its 50 unattributed rows (`capped`). 0.6-V: a settled
+ * row with a request is a single-suspect (weak) row — strong rows never
+ * settle — and with `weakRows` off it is not filed (`weak`, counted as
+ * `drops.weak`); only rows that would have been filed count. */
+export function settleOutcome(s: Settling, rawShas: ReadonlySet<string>, filed: ReadonlySet<string>, unattributedKept: number, weakRows: boolean): "file" | "rawBody" | "filed" | "capped" | "weak" {
   if (rawShas.has(s.textSha)) return "rawBody";
-  if (s.request !== null) return filed.has(s.request) ? "filed" : "file";
+  if (s.request !== null) return filed.has(s.request) ? "filed" : weakRows ? "file" : "weak";
   return unattributedKept >= UNATTRIBUTED_CAP ? "capped" : "file";
+}
+
+// ------------------------------------------------------------ evidence frames (pure, 0.6-V)
+
+/** A `Debugger.CallFrame`'s script id: it sits in `location.scriptId` (CDP
+ * has no top-level `scriptId` on a call frame); null when absent. */
+export function frameScriptId(f: Record<string, unknown>): string | null {
+  const loc = isRecord(f["location"]) ? f["location"] : null;
+  return loc === null ? null : str(loc, "scriptId");
+}
+
+/** The caller frames of an observe pause's evidence (docs/04 §33, ≤5): the
+ * frame's own `url` first, then the URL `Debugger.scriptParsed` gave its
+ * script id, else "". */
+export function evidenceFrames(frames: readonly Record<string, unknown>[], scriptUrl: (scriptId: string) => string | undefined): PageEvidence["frames"] {
+  const out: PageEvidence["frames"] = [];
+  for (const f of frames.slice(0, 5)) {
+    const id = frameScriptId(f);
+    const own = str(f, "url") ?? "";
+    const loc = isRecord(f["location"]) ? f["location"] : null;
+    out.push({
+      url: own !== "" ? own : ((id === null ? undefined : scriptUrl(id)) ?? ""),
+      line: loc === null ? 0 : (num(loc, "lineNumber") ?? 0),
+      column: loc === null ? 0 : (num(loc, "columnNumber") ?? 0),
+      function: str(f, "functionName") || "(anonymous)",
+    });
+  }
+  return out;
 }
 
 /** A raw body was indexed (0.6-Q item C): the settling or held entries whose

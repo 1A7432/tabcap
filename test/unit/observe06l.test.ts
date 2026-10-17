@@ -16,6 +16,11 @@
 // 76 of 91 bodies MIME-wrapped): the four hash forms of a candidate and the
 // matched form, the per-suspect plaintext bound (no-fit), the settle of
 // unattributed rows and the raw-body drop of settling / held entries.
+// 0.6-V (owner decisions 10-17, after two real-site rounds where every weak
+// row was wrong): weak rows off by default (`settleOutcome` "weak" →
+// drops.weak), and the evidence frames' url (CDP Debugger.CallFrame: `url`
+// and `location.scriptId`, no top-level scriptId — the 0.6-L reader looked
+// for one, so every frame url was "").
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -56,7 +61,7 @@ import {
   type PageEvidence,
 } from "../../src/daemon/trace/observe.ts";
 import { latestViews, overlayEvent, parseSidecarText } from "../../src/bundle/decoded.ts";
-import { dropRawBody, fits, formsOf, settleOutcome, tokenBound, tokenCore, utf8Bytes, type Settling } from "../../src/daemon/trace/observe.ts";
+import { dropRawBody, evidenceFrames, fits, formsOf, frameScriptId, settleOutcome, tokenBound, tokenCore, utf8Bytes, type Settling } from "../../src/daemon/trace/observe.ts";
 import { decodedEntry, noDecodedView } from "../../src/daemon/tools/net.ts";
 
 const sha = (s: string): string => createHash("sha256").update(s, "utf8").digest("hex");
@@ -539,13 +544,13 @@ describe("0.6-Q C: settle of unattributed rows, the envelope race", () => {
   const settling = (over: Partial<Settling>): Settling => ({ request: null, candidates: ["r-1", "r-2"], text: ENV, textSha: sha(ENV), at: 1, ...over });
   test("settleOutcome: a raw body is dropped at flush, weak rows of a filed request too, unattributed rows respect the cap", () => {
     const none = new Set<string>();
-    expect(settleOutcome(settling({}), new Set([sha(ENV)]), none, 0)).toBe("rawBody");
-    expect(settleOutcome(settling({}), none, none, 0)).toBe("file");
-    expect(settleOutcome(settling({}), none, none, UNATTRIBUTED_CAP)).toBe("capped");
-    expect(settleOutcome(settling({}), none, none, UNATTRIBUTED_CAP - 1)).toBe("file");
+    expect(settleOutcome(settling({}), new Set([sha(ENV)]), none, 0, true)).toBe("rawBody");
+    expect(settleOutcome(settling({}), none, none, 0, true)).toBe("file");
+    expect(settleOutcome(settling({}), none, none, UNATTRIBUTED_CAP, true)).toBe("capped");
+    expect(settleOutcome(settling({}), none, none, UNATTRIBUTED_CAP - 1, true)).toBe("file");
     const weak = settling({ request: "r-7", candidates: null, text: PLAIN_ROWS, textSha: sha(PLAIN_ROWS) });
-    expect(settleOutcome(weak, none, new Set(["r-7"]), 0)).toBe("filed");
-    expect(settleOutcome(weak, none, none, UNATTRIBUTED_CAP)).toBe("file"); // the cap is for unattributed rows only
+    expect(settleOutcome(weak, none, new Set(["r-7"]), 0, true)).toBe("filed");
+    expect(settleOutcome(weak, none, none, UNATTRIBUTED_CAP, true)).toBe("file"); // the cap is for unattributed rows only
   });
   test("dropRawBody: a body indexed after the parse drops the settling / held entries that are its text", () => {
     const list = [settling({}), settling({ text: PLAIN_ROWS, textSha: sha(PLAIN_ROWS) }), { ...settling({}), textSha: null }];
@@ -601,5 +606,38 @@ describe("0.6-Q D: net body resolves the page view like analyze find (D4 rank, t
     }
     expect(noDecodedView("r-2", plain, true).next).not.toContain("--decode");
     expect(noDecodedView("r-2", null, false).next).not.toContain("--decode");
+  });
+});
+
+describe("0.6-V: weak rows off by default; evidence frames carry the script URL", () => {
+  const PLAIN = '{"rows":[{"id":"S59-0001","amount":12}],"total":1,"page":1}';
+  const weak: Settling = { request: "r-7", candidates: null, text: PLAIN, textSha: sha(PLAIN), at: 1 };
+  const none = new Set<string>();
+  test("settleOutcome: a weak row that would be filed is `weak` (drops.weak) unless weakRows is on", () => {
+    expect(settleOutcome(weak, none, none, 0, false)).toBe("weak");
+    expect(settleOutcome(weak, none, none, 0, true)).toBe("file");
+    // only rows that would have been filed count as weak
+    expect(settleOutcome(weak, new Set([sha(PLAIN)]), none, 0, false)).toBe("rawBody");
+    expect(settleOutcome(weak, none, new Set(["r-7"]), 0, false)).toBe("filed");
+    // unattributed rows are not weak rows: filed either way
+    const un: Settling = { ...weak, request: null, candidates: ["r-1", "r-2"] };
+    expect(settleOutcome(un, none, none, 0, false)).toBe("file");
+  });
+  test("frameScriptId reads location.scriptId (a call frame has no top-level scriptId)", () => {
+    expect(frameScriptId({ location: { scriptId: "12", lineNumber: 1, columnNumber: 2 } })).toBe("12");
+    expect(frameScriptId({ scriptId: "12" })).toBeNull();
+    expect(frameScriptId({})).toBeNull();
+  });
+  test("evidenceFrames: the frame's own url first, the scriptParsed map second, else empty; at most 5", () => {
+    const map = new Map([["12", "https://t/app.js"], ["13", "https://t/other.js"]]);
+    const f = (url: string | undefined, id: string, line: number, fn: string) => ({ callFrameId: `cf-${line}`, functionName: fn, ...(url === undefined ? {} : { url }), location: { scriptId: id, lineNumber: line, columnNumber: 4 } });
+    const out = evidenceFrames([f("https://t/own.js", "12", 1, "a"), f("", "13", 2, ""), f(undefined, "99", 3, "c"), f("", "12", 4, "d"), f("", "12", 5, "e"), f("", "12", 6, "f")], (id) => map.get(id));
+    expect(out).toEqual([
+      { url: "https://t/own.js", line: 1, column: 4, function: "a" },
+      { url: "https://t/other.js", line: 2, column: 4, function: "(anonymous)" },
+      { url: "", line: 3, column: 4, function: "c" },
+      { url: "https://t/app.js", line: 4, column: 4, function: "d" },
+      { url: "https://t/app.js", line: 5, column: 4, function: "e" },
+    ]);
   });
 });

@@ -12,7 +12,10 @@
 // for is not observed (tracer.ts) and plugin views outrank the page's
 // (docs/04 §33 D4), so where one matches, few `by:"page"` rows appear.
 // Whether one matches the session's traffic is not knowable at start; an
-// enabled one is enough.
+// enabled one is enough. 0.6-V: `trace status` and `trace stop` answer the
+// same two fields while decode is on, and every `--decode` answer says
+// `weakRows` (config.json `trace.weakRows`, default false: single-suspect
+// rows are counted as `drops.weak`, not filed).
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -53,10 +56,18 @@ export function loadSignalList(configDir: string, file: string | null): SignalLi
 /** The observe mode traces no signals (0.6-L2): an empty list, said as such. */
 const OBSERVE_ONLY: SignalList = { names: [], source: "none (--decode: observe mode, no signal breakpoints)", hash: sha256Text("[]"), warnings: [] };
 
-const DECODE_NOTICE =
-  'observe mode on, no signal breakpoints: every JSON.parse of a string of 32+ chars pauses (~0.4 ms plus a round trip) and its argument is logged to tabcap through the native console.dirxml; turn it off after the recording (trace stop / --no-decode). The plaintext the page parses is filed by "page" as a decoded view; evidence.link "weak" means it was only the one armed suspect';
+const DECODE_NOTICE_BASE =
+  'observe mode on, no signal breakpoints: every JSON.parse of a string of 32+ chars pauses (~0.4 ms plus a round trip) and its argument is logged to tabcap through the native console.dirxml; turn it off after the recording (trace stop / --no-decode). The plaintext the page parses is filed by "page" as a decoded view';
 
-/** `trace start --decode` fields naming the enabled decode plugins (0.6-U), or {} when there is none. */
+/** The `decodeNotice` of `trace start --decode` (0.6-V: says what happens to weak rows). */
+export function decodeNotice(weakRows: boolean): string {
+  return weakRows
+    ? `${DECODE_NOTICE_BASE}; weakRows on: evidence.link "weak" means it was only the one armed suspect`
+    : `${DECODE_NOTICE_BASE} when the parsing frame can reach the ciphertext (evidence.link "strong"); a plaintext tied only by being the one armed suspect is counted as drops.weak, not filed (config.json trace.weakRows: true files it with link "weak")`;
+}
+
+/** `trace start --decode` fields naming the enabled decode plugins (0.6-U), or {} when there is none.
+ * 0.6-V: `trace status` / `trace stop` answer them too while decode is on (`withDecodePlugins`). */
 export function decodePluginsFields(configDir: string): { decodePlugins?: string[]; decodePluginsNotice?: string } {
   const names = decodePlugins(configDir).map((p) => p.name);
   if (names.length === 0) return {};
@@ -65,6 +76,12 @@ export function decodePluginsFields(configDir: string): { decodePlugins?: string
     decodePlugins: names,
     decodePluginsNotice: `enabled decode plugin(s) ${names.join(", ")}: a response body one of them filed a view for (decoded or failed) is not observed, and plugin views outrank by:"page" views (docs/04 §33 D4), so where a plugin matches the traffic few by:"page" rows appear; to observe the page instead: \`tabcap plugin disable ${names.length === 1 ? first : "<name>"}\``,
   };
+}
+
+/** A trace status / stop answer with the decode-plugin fields added when the
+ * observe mode is on (the answer carries a `decode` block), else unchanged. */
+export function withDecodePlugins(answer: Record<string, unknown>, configDir: string): Record<string, unknown> {
+  return answer["decode"] === undefined ? answer : { ...answer, ...decodePluginsFields(configDir) };
 }
 
 export async function traceStart(d: Daemon, a: Args, session: string): Promise<unknown> {
@@ -94,6 +111,7 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     scrub: (s) => d.secrets.scrub(s),
     paused: d.guard.isWaiting(session),
     decode,
+    weakRows: cfg.weakRows,
     suppressConsole: (marker) => consoleLog.suppressMarker(marker),
   });
   d.tracers.set(session, tr);
@@ -104,7 +122,7 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     notice: TRACE_NOTICE,
     ...statusLite(tr),
     recording,
-    ...(decode ? { decode: tr.status()["decode"], decodeNotice: DECODE_NOTICE, ...decodePluginsFields(d.paths.config) } : {}),
+    ...(decode ? { decode: tr.status()["decode"], weakRows: cfg.weakRows, decodeNotice: decodeNotice(cfg.weakRows), ...decodePluginsFields(d.paths.config) } : {}),
     ...(recording === null
       ? { warning: decode ? "the session is not recording: observe rows reach a bundle only while `tabcap net start` records" : "the session is not recording: signal events reach a bundle only while `tabcap net start` records; trace status still counts reads" }
       : {}),
@@ -123,13 +141,13 @@ export async function traceStop(d: Daemon, _a: Args, session: string): Promise<u
   const hits = tr.hits;
   const decode = tr.status()["decode"];
   await tr.stop("trace stop");
-  return { session, stopped: true, hits, ...(decode === undefined ? {} : { decode }), bundle: d.recorders.get(session)?.dir ?? null };
+  return withDecodePlugins({ session, stopped: true, hits, ...(decode === undefined ? {} : { decode }), bundle: d.recorders.get(session)?.dir ?? null }, d.paths.config);
 }
 
 export function traceStatus(d: Daemon, _a: Args, session: string): unknown {
   const tr = d.tracers.get(session);
   if (tr === undefined) return { session, trace: "off" };
-  return tr.status();
+  return withDecodePlugins(tr.status(), d.paths.config);
 }
 
 /** Stop trace mode of a session (session stop), writing what it saw first. */

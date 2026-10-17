@@ -243,22 +243,26 @@ export function readSiteGuards(file: string): Map<string, SiteGuardConfig> {
 // ------------------------------------------------------------ trace (0.6-L)
 
 /**
- * `config.json` `trace` (docs/04 §33): {decode: false}. `decode` turns on the
- * observe mode of `tabcap trace start` for every session that does not pass
- * an explicit `--decode` / `--no-decode`.
+ * `config.json` `trace` (docs/04 §33): {decode: false, weakRows: false}.
+ * `decode` turns on the observe mode of `tabcap trace start` for every
+ * session that does not pass an explicit `--decode` / `--no-decode`.
+ * `weakRows` (0.6-V, owner decision 10-17): file single-suspect rows
+ * (`evidence.link: "weak"`); off by default because on real sites every one
+ * was wrong — they are counted as `drops.weak` instead.
  */
-export type TraceConfig = { decode: boolean };
+export type TraceConfig = { decode: boolean; weakRows: boolean };
 
-export const TRACE_DEFAULTS: TraceConfig = { decode: false };
+export const TRACE_DEFAULTS: TraceConfig = { decode: false, weakRows: false };
 
 export function parseTraceConfig(raw: unknown, base: TraceConfig = TRACE_DEFAULTS, where = "trace"): TraceConfig {
   const out: TraceConfig = { ...base };
   if (raw === undefined || raw === null) return out;
-  if (!isRecord(raw)) throw new TabcapError("bad-input", `config.json ${where} is invalid`, `Set ${where} to an object {decode: true|false}, or remove it.`);
-  const d = raw["decode"];
-  if (d !== undefined) {
-    if (typeof d !== "boolean") throw new TabcapError("bad-input", `config.json ${where}.decode is invalid`, `Set ${where}.decode to true or false, or remove it.`);
-    out.decode = d;
+  if (!isRecord(raw)) throw new TabcapError("bad-input", `config.json ${where} is invalid`, `Set ${where} to an object {decode: true|false, weakRows: true|false}, or remove it.`);
+  for (const key of ["decode", "weakRows"] as const) {
+    const v = raw[key];
+    if (v === undefined) continue;
+    if (typeof v !== "boolean") throw new TabcapError("bad-input", `config.json ${where}.${key} is invalid`, `Set ${where}.${key} to true or false, or remove it.`);
+    out[key] = v;
   }
   return out;
 }
