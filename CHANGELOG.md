@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.7.1 (2026-10-18)
 
 ### Human take-over detection (0.7.1-A)
 

@@ -4,7 +4,7 @@
   "created": 1760500000000,
   "producer": {
     "tool": "tabcap",
-    "version": "0.7.0"
+    "version": "0.7.1"
   },
   "session": {
     "name": "range-s02",
