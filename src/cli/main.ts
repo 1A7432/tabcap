@@ -23,6 +23,7 @@ import { runAnalyze } from "./analyze.ts";
 import { renderWhereText, whereResultOf } from "../analyze/where.ts";
 import { runReplay } from "./replay.ts";
 import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts";
+import { pluginInit } from "./plugin-init.ts";
 import { accountAdd, accountBind, accountList, accountRemove, accountSetState, proxyAdd, proxyCheck, proxyList, proxyRemove, proxySetState } from "./pool.ts";
 import { Store, storePath } from "../daemon/store/db.ts";
 import { Secrets, variantsOf } from "../daemon/secrets.ts";
@@ -390,6 +391,9 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
       break;
     case "plugin disable":
       data = pluginSet(p, parsed.args, false);
+      break;
+    case "plugin init":
+      data = pluginInit(p.config, parsed.args, process.cwd());
       break;
     case "fingerprint serve":
       return await fingerprintServe(p, parsed.args);

@@ -35,7 +35,9 @@ export const DEFAULT_TIMEOUT_MS = 10_000;
 export const MAX_TIMEOUT_MS = 60_000;
 const MAX_STDOUT = 1024 * 1024;
 const MAX_STDERR = 4096;
-const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** A plugin name: also its directory name under plugins/. */
+export const PLUGIN_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const NAME = PLUGIN_NAME;
 const ENABLED_FILE = "enabled.json";
 /** manifest.json is read whole; anything larger is refused unread. */
 export const MAX_PLUGIN_MANIFEST_BYTES = 16 * 1024;

@@ -4173,6 +4173,61 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": false,
+      "example": "tabcap plugin init --kind decode --name my-decode",
+      "flags": [
+        {
+          "alias": null,
+          "default": null,
+          "flag": "--kind",
+          "help": "the template: decode (the Python decode runner; no other kind has one)",
+          "key": "kind",
+          "repeatable": false,
+          "required": true,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": null,
+          "flag": "--name",
+          "help": "plugin name, set in manifest.json (default: the directory's name); alone, the plugin goes to ~/.config/tabcap/plugins/<name>/",
+          "key": "name",
+          "repeatable": false,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--force",
+          "help": "write into a non-empty directory: the template files are rewritten, config.json never, other files are left alone",
+          "key": "force",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+      ],
+      "internal": false,
+      "name": "plugin init",
+      "path": [
+        "plugin",
+        "init",
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "name": "dir",
+          "required": false,
+          "variadic": false,
+        },
+      ],
+      "summary": "write the decode plugin template (manifest.json with the name, plugin.py, runner.py, pyproject.toml, config.example.json, and config.json from the example when absent) into <dir> or ~/.config/tabcap/plugins/<name>/; refuses a non-empty directory without --force. The answer lists the files and the next steps (edit plugin.py, config.json and the manifest's match, then \`plugin enable\`); plugins load only from the plugins directory",
+      "usage": "tabcap plugin init [<dir>] --kind <decode> [--name name] [--force]",
+    },
+    {
+      "daemon": false,
       "example": "tabcap bundle export har ~/.local/share/tabcap/bundles/default-… --types xhr,fetch",
       "flags": [
         {

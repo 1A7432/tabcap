@@ -817,6 +817,19 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap plugin enable my-handler",
   },
   { path: ["plugin", "disable"], pos: ["name"], flags: [], summary: "stop using this handler or decode plugin", example: "tabcap plugin disable my-handler" },
+  {
+    path: ["plugin", "init"],
+    pos: ["dir"],
+    optional: 1,
+    flags: [
+      { flag: "--kind", key: "kind", kind: "string", help: "the template: decode (the Python decode runner; no other kind has one)", required: true, metavar: "decode" },
+      { flag: "--name", key: "name", kind: "string", help: "plugin name, set in manifest.json (default: the directory's name); alone, the plugin goes to ~/.config/tabcap/plugins/<name>/", metavar: "name" },
+      { flag: "--force", key: "force", kind: "bool", help: "write into a non-empty directory: the template files are rewritten, config.json never, other files are left alone" },
+    ],
+    summary:
+      "write the decode plugin template (manifest.json with the name, plugin.py, runner.py, pyproject.toml, config.example.json, and config.json from the example when absent) into <dir> or ~/.config/tabcap/plugins/<name>/; refuses a non-empty directory without --force. The answer lists the files and the next steps (edit plugin.py, config.json and the manifest's match, then `plugin enable`); plugins load only from the plugins directory",
+    example: "tabcap plugin init --kind decode --name my-decode",
+  },
   // Offline commands: no daemon. Parsed by src/cli/main.ts (bundle), src/cli/analyze.ts and src/cli/replay.ts.
   {
     path: ["bundle", "export", "har"],

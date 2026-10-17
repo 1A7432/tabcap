@@ -858,6 +858,22 @@ tabcap plugin disable <name>
 
 Example: `tabcap plugin disable my-handler`
 
+### `tabcap plugin init`
+
+write the decode plugin template (manifest.json with the name, plugin.py, runner.py, pyproject.toml, config.example.json, and config.json from the example when absent) into <dir> or ~/.config/tabcap/plugins/<name>/; refuses a non-empty directory without --force. The answer lists the files and the next steps (edit plugin.py, config.json and the manifest's match, then `plugin enable`); plugins load only from the plugins directory
+
+```
+tabcap plugin init [<dir>] --kind <decode> [--name name] [--force]
+```
+
+Example: `tabcap plugin init --kind decode --name my-decode`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--kind <decode>` |  | the template: decode (the Python decode runner; no other kind has one) (required) |
+| `--name <name>` |  | plugin name, set in manifest.json (default: the directory's name); alone, the plugin goes to ~/.config/tabcap/plugins/<name>/ |
+| `--force` |  | write into a non-empty directory: the template files are rewritten, config.json never, other files are left alone |
+
 ## Offline: bundles, analysis, replay
 
 ### `tabcap bundle export har`

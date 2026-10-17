@@ -98,6 +98,7 @@ exports[`tools/list --all-tools: generated from the command table tool names (sn
   "tabcap_plugin_list",
   "tabcap_plugin_enable",
   "tabcap_plugin_disable",
+  "tabcap_plugin_init",
   "tabcap_bundle_export_har",
   "tabcap_bundle_import_har",
   "tabcap_bundle_redact",
