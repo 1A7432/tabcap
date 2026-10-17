@@ -75,7 +75,11 @@ $ node_modules/.bin/tabcap no-such-command        # 退出码 2，与直接跑�
 
 同样的两个 tgz 用 `npm install -g --prefix <临时目录> --offline …` 全局装也通过：`<prefix>/bin/tabcap --version` 输出同上（shim 在 `lib/node_modules/tabcap/`，平台包是它旁边的 `lib/node_modules/tabcap-darwin-arm64/`，`require.resolve` 向上找得到）【实测】。参数原样转交、退出码、被信号杀死时 shim 以同一信号退出、两种包名，在 `test/unit/npm-pack.test.ts` 里用替身二进制测（非 Windows）。Linux / Windows 的平台包没在真机装过【待验】。
 
-## 3. 发布（作者自己的 shell）
+## 3. 发布（CI 自动；作者 2026-10-17 定）
+
+推送 `v<版本>` tag 就是发布决定：`release.yml` 在四个 runner 上编好二进制后，`npm` job 在 ubuntu 上下载四个二进制、跑 `bun run npm:pack`（校验内嵌版本、宿主平台跑 `--version`），再按顺序 `npm publish` 五个包（先四个平台包，最后 `tabcap`），发完逐个 `npm view` 核对。已在 registry 上的同版本会跳过，所以中途失败后重跑同一个 job 即可。认证：仓库 secret `NPM_TOKEN`（只能 publish、勾 bypass 2FA、限定这五个包的 granular token）存在时用它；不存在时走 npm 的 trusted publishing（OIDC，无长期密钥）——要先在 npmjs.com 给五个包各配一个 trusted publisher：仓库 `1A7432/tabcap`，工作流文件 `release.yml`，environment 留空。trusted publishing 要求 runner 上 npm ≥ 11.5.1、Node ≥ 22.14（job 里 `npm install -g npm@latest`），公开仓库自动带 provenance。干跑：Actions 页手动运行 `release`，勾 `npm_dry_run`，job 会走到 `npm publish --dry-run` 为止，不发布。GitHub Release 仍是草稿，由作者在网页上发布。【待验：0.7.0 是作者手发的，这个 job 还没在真实 tag 上跑过；第一次用请先干跑一次】
+
+## 3b. 手动发布（CI 不可用时的后备）
 
 前提：上面本地验证通过；`dist/npm/` 是同一次 `bun run npm:pack` 的产物（`SHA256SUMS` 对得上）。`npm publish <tgz>` 原样上传这个文件，不再重新打包。
 

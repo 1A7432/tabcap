@@ -1,15 +1,24 @@
 # Tag v* → build the four binaries on matching runners (linux-arm64 is
-# cross-compiled on Linux x64), package them, and create a DRAFT release with
-# the packages, their .sha256 files and SHA256SUMS. Never publishes: the owner
-# reviews the draft and publishes it by hand.
+# cross-compiled on Linux x64), package them, create a DRAFT GitHub release with
+# the packages, their .sha256 files and SHA256SUMS, and publish the five npm
+# packages (owner decision 2026-10-17: the tag push is the publish decision; the
+# GitHub release itself stays a draft the owner publishes by hand).
+# npm auth: the NPM_TOKEN secret when it is set (a granular publish token), else
+# npm trusted publishing (OIDC, no secret; configure the five packages on
+# npmjs.com with this repository and workflow file). Provenance comes with it.
 # workflow_dispatch is the dry run: build and package only, artefacts kept for
-# 3 days, no release.
+# 3 days, no release; with npm_dry_run=true it also runs `npm publish --dry-run`.
 name: release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      npm_dry_run:
+        description: "also run the npm job with `npm publish --dry-run` (nothing is published)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -65,6 +74,15 @@ jobs:
           bin=dist/tabcap-${{ matrix.target }}
           [ "${{ runner.os }}" = "Windows" ] && bin="$bin.exe"
           "$bin" --version
+      # The npm job assembles the platform packages from the raw binaries.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: |
+            dist/tabcap-${{ matrix.target }}
+            dist/tabcap-${{ matrix.target }}.exe
+          if-no-files-found: error
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.target }}
@@ -118,3 +136,74 @@ jobs:
             dist/release/*.zip
             dist/release/*.sha256
             dist/release/SHA256SUMS
+
+  npm:
+    name: npm publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.npm_dry_run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NPM_REGISTRY: https://registry.npmjs.org
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      # Trusted publishing needs npm 11.5.1+ on Node 22.14+; setup-node's registry-url
+      # writes the .npmrc that reads NODE_AUTH_TOKEN (empty when the secret is unset:
+      # then npm falls back to the OIDC exchange).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: ${{ env.NPM_REGISTRY }}
+      - run: npm install -g npm@latest && npm --version && node --version
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: dist
+      - name: assemble the five packages
+        run: |
+          chmod +x dist/tabcap-darwin-arm64 dist/tabcap-linux-x64 dist/tabcap-linux-arm64
+          ls -l dist/tabcap-*
+          bun run npm:pack
+          cat dist/npm/SHA256SUMS
+      - name: publish (platform packages first, then tabcap; a version already on the registry is skipped)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DRY_RUN: ${{ inputs.npm_dry_run && '--dry-run' || '' }}
+        run: |
+          set -euo pipefail
+          main="$(bun -e 'Bun.file("package.json").json().then((p) => console.log(p.name))')"
+          version="$(bun -e 'Bun.file("package.json").json().then((p) => console.log(p.version))')"
+          order=()
+          for f in dist/npm/*.tgz; do
+            name="$(tar -xOzf "$f" package/package.json | jq -r .name)"
+            [ "$name" = "$main" ] && continue
+            order+=("$f")
+          done
+          order+=("dist/npm/$main-$version.tgz")
+          for f in "${order[@]}"; do
+            name="$(tar -xOzf "$f" package/package.json | jq -r .name)"
+            if [ -z "$DRY_RUN" ] && npm view "$name@$version" version --registry "$NPM_REGISTRY" >/dev/null 2>&1; then
+              echo "skip $name@$version: already on the registry"
+              continue
+            fi
+            echo "publish $f ($name@$version) $DRY_RUN"
+            npm publish "$f" --access public --registry "$NPM_REGISTRY" $DRY_RUN
+          done
+      - name: verify on the registry
+        if: ${{ !inputs.npm_dry_run }}
+        run: |
+          version="$(bun -e 'Bun.file("package.json").json().then((p) => console.log(p.version))')"
+          for f in dist/npm/*.tgz; do
+            name="$(tar -xOzf "$f" package/package.json | jq -r .name)"
+            got="$(npm view "$name@$version" version --registry "$NPM_REGISTRY")"
+            [ "$got" = "$version" ] || { echo "$name@$version not on the registry (got '$got')"; exit 1; }
+            echo "ok $name@$version"
+          done

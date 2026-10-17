@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### npm 由 CI 发布
+
+- `release.yml` 多一个 `npm` job：推 `v*` tag 后用编好的二进制组装五个 npm 包并按顺序发布（先平台包后 `tabcap`），已在 registry 上的版本跳过；认证用仓库 secret `NPM_TOKEN`，没有就走 npm trusted publishing（OIDC）；`workflow_dispatch` 勾 `npm_dry_run` 可以干跑到 `npm publish --dry-run`。GitHub Release 仍是草稿。
+
 ## 0.7.0（2026-10-17）
 
 第一个公开版本。下面的 0.6.0 打过包、测过，但没有发布；它的全部内容随本版本一起发。

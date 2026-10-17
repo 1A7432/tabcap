@@ -481,3 +481,8 @@
 - 做了什么：`SENSITIVE_WORDS` 回到 `pass` / `pwd`，规则版本回 `default@2`；redact / liveredact / deps 三处单测改为「ticket 不打码」，chain --text 的示例换成 `access_token`；docs/04 §8 与 0.7-E 节、两份 CHANGELOG 同步。`analyze chain --text` 按 §8.3 打码其它敏感参数的行为保留。
 - 卡在哪：根因是脱敏名单身兼两职（输出打码 + export-python 的 secret 输入分类）；0.7.1 要解耦：录制里能确定来源或对回放无意义的值不要求 env、对着 replay serve 自动填占位并标出（隔壁 10-17 的建议）。
 - 下一格从哪开始：重打 0.7.0 包、tag 提交随之更新；0.7.1 做解耦与 offline-replay 配方第 8 步的 `body:"json"` 说明、规则 glob 含 `{` / `[` 报 bad-input。
+
+## 2026-10-17 · 发布 0.7.0 · npm 已发、目录已挪、仓库已公开；CI 发 npm 的 job（主循环）
+- 做了什么：作者手发了 npm 0.7.0 五个包（registry 上 `tabcap@0.7.0` 的 optionalDependencies 列出四个平台包【实测】）；目录挪到 `~/ClaudeCode/tabcap`，仓库转公开；按作者定的 a 方案给 `release.yml` 加 `npm` job（tag 即发；二进制作为 artifact 传给 ubuntu 上的 `npm:pack`；五包顺序发布、已发版本跳过、发完 `npm view` 核对；`NPM_TOKEN` 有则用，无则 trusted publishing；`npm_dry_run` 干跑），packaging/npm/README.md §3 改为 CI 流程、§3b 保留手动后备。
+- 卡在哪：job 没有在真实 tag 上跑过【待验】；trusted publishing 对五个包要作者在 npmjs.com 各配一次；YAML 只做了本地语法解析。
+- 下一格从哪开始：作者先用 `workflow_dispatch` + `npm_dry_run` 干跑一次；`git tag v0.7.0 73c14f9 && git push origin v0.7.0`（0.7.0 已在 registry，npm job 会全部跳过，只出草稿 Release）；0.7.1 待办见上一条。

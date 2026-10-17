@@ -2,6 +2,12 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### CI publishes npm
+
+- `release.yml` gains an `npm` job: on a `v*` tag it assembles the five npm packages from the built binaries and publishes them in order (platform packages, then `tabcap`), skipping versions already on the registry; auth by the `NPM_TOKEN` secret when set, else npm trusted publishing (OIDC); `workflow_dispatch` with `npm_dry_run` rehearses with `npm publish --dry-run`. The GitHub release stays a draft.
+
 ## 0.7.0 (2026-10-17)
 
 First public release. 0.6.0 below was built and tested but never published; everything in it ships here.
