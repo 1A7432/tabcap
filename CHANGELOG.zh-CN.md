@@ -11,6 +11,12 @@
 
 ## 0.6.0（2026-10-17）
 
+### 观察模式：先等 grace 再判（0.6-W）
+
+- **没有 strong 命中的 parse 最多等 1.5 s 自己的响应**：在 XMLHttpRequest `onload` 里 parse 的页面，parse 早于 tabcap 索引这条正文。那一刻若有别的加密响应在场（页面取回却从不 parse 的、并发的请求），明文以前当场判定——错的 weak 行，或候选里没有真请求的 unattributed 行。现在它等自己的响应，到了就以 strong 写入；过了 grace 才按当时在场的响应判 weak / unattributed / 丢弃。strong 行不延迟；其他行可能晚至多 1.5 s 出现。隔壁项目的 XHR 复刻页从 0/40 strong 变为 40/40；靶场 s59 为此加了 `mode=xhr` 与 `mode=xhr&linger=3`。
+- `trace stop` 与 `net stop` 结束前先判掉还在等的 parse；那时一个在场响应都没遇上的计 `drops.orphan`；`drops.noFit` 仍是「有响应在场，但都装不下这段明文」。
+- `trace status` / `trace stop`：`decode.held`（还在等的 parse 数）。`trace stop` 改为报停止之后的 `decode` 块，stop 时判定的行与 drop 都算进去。
+
 ### 两轮真实站点后作者定的几处（0.6-V）
 
 - **weak 观察行可以关掉**：`config.json` 写 `{"trace": {"weakRows": false}}` 后不再写 single-suspect 行（`evidence.link: "weak"`）——到目前为止它在每个真实站点样本上都归错了；本会写入的每一行计入 `trace status` / `trace stop` 的 `decode` 块里的 `drops.weak`。默认仍是 `true`（照旧写入）。`trace start --decode` 与 `trace status` 带 `weakRows`。

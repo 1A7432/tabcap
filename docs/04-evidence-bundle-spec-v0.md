@@ -764,7 +764,7 @@ sink 与断点（D1；spike exp2/exp3，e2e【实测】）：
 - `JSON.parse`——明文源，condition `typeof arguments[0] === "string" && arguments[0].length >= 32`（exp2：2000 次短 parse 的 heavy 页带 condition 中位 +15 ms，不带 +837 ms）；
 - `TextDecoder.prototype.decode`、`SubtleCrypto.prototype.decrypt`——只计 `evidenceHits`，不给行（D1）；TextDecoder 带 condition `byteLength >= 32`，decrypt 调用稀少不设。
 - **修正（待作者审）：sink 常装**。brief D3「每 suspect 5 s 窗口装断点」与页面竞态必输：arm 由录制 index 推送驱动，而页面的 fetch→解密→`JSON.parse` 在同一微任务串里结束（s59 xor【实测】，首轮 e2e 三次全 miss）。改为 decode 开启即常装：每个 realm 在其 scriptFirstStatement 暂停里装好（0.4-F 的安装通道，JS 内建断点**不**跨 realm 共享，逐 realm 装；同进程重复报 "already exists"、容忍），armed 窗口只做归属。
-- **修正（待作者审）：hold 10 s 补匹配**。微任务串还可以再赢一次：暂停时 armed 为空的 walk 结果先暂存（≤8 个、10 s 过期），arm 一到由 `matchHeld` 补判（归属规则不变）。信封 parse（`{"code":0,"data":…}` 那层）没有明文、其 suspect 也不会命中，自然过期——`drops.plaintextMissing` 里的这类计数是语义内的噪声（「该次暂停没找到明文」），不是错误。
+- **修正（待作者审）：hold 10 s 补匹配**。微任务串还可以再赢一次：暂停时 armed 为空的 walk 结果先暂存（≤8 个、10 s 过期；0.6-W 起 ≤256，且有别的嫌疑在场、没有 scope-string 命中时也先暂存，见 0.6-W 节），arm 一到由 `matchHeld` 补判（归属规则不变）。信封 parse（`{"code":0,"data":…}` 那层）没有明文、其 suspect 也不会命中，自然过期——`drops.plaintextMissing` 里的这类计数是语义内的噪声（「该次暂停没找到明文」），不是错误。
 
 suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `find` 的熵规则（`looksEncrypted`）或 JSON 里有 ≥64 字符的 base64/hex 叶子（0.6-L2 起还有裸 token，见下节）→ arm 5 s；候选 = sha256(整段 body 文本，熵规则命中时) + sha256(每个叶子)，0.6-L2 起末尾再加 sha256(原始 body 文本)（页面拿着原文解密时也能对上，如 axios 的 `transformResponse(data)`）。
 
@@ -791,9 +791,9 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - 行的优先级（D4）：ok 的插件视图 > ok 的 page 视图（page 行后写也顶不掉插件行）；同 rank 后行赢；inline 视图按同一 rank 裁定；`request:null` 的行不 overlay 任何请求。
 - **启用的解码插件提示（0.6-U，来自真实项目复测 10-17：插件匹配了流量，观察模式几乎不出 `by:"page"` 行，用户不知为何）**：`trace start --decode` 的回答在有已启用的解码插件（§28，`plugin enable` 过且清单有效）时多两个字段：`decodePlugins: [<插件名>…]`（按名字排序）与 `decodePluginsNotice`（一句话：插件已写过视图（解出或失败）的响应体不再观察，插件视图又优先于 page 视图（D4），所以插件匹配流量时 `by:"page"` 行很少；想看页面就 `tabcap plugin disable <name>`）。开始时还不知道会话的流量会不会被匹配，所以只看「有没有已启用的」，不看主机。没有已启用的解码插件时这两个字段都不出现；`alreadyOn` 的回答不带。【实测 单测 `test/unit/trace06u.test.ts`，假插件目录】
-- 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`；`trace status` 与 `trace stop` 的 `decode` 块：`{armed, rows:{attributed, weak, unattributed, unattributedKept}, evidenceHits, recovered:{console, scope}, walks, sinks:{resolved, skipped, on}, drops:{plaintextMissing, tooLarge, afterStop, unattributedCapped, rawBody, orphan, unpaired, noFit}}`（`weak` 是 attributed 里 `link:"weak"` 的行数；`unpaired` 是没配上暂停的 log-point 行；`noFit` 是明文超过所有在场嫌疑上限而丢掉的暂停（0.6-Q）；trace stop 报的是停止前的最后状态）。
+- 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`；`trace status` 与 `trace stop` 的 `decode` 块：`{armed, held, rows:{attributed, weak, unattributed, unattributedKept}, evidenceHits, recovered:{console, scope}, walks, sinks:{resolved, skipped, on}, drops:{plaintextMissing, tooLarge, afterStop, unattributedCapped, rawBody, orphan, unpaired, noFit, weak}}`（`weak` 是 attributed 里 `link:"weak"` 的行数；`unpaired` 是没配上暂停的 log-point 行；`noFit` 是明文超过所有在场嫌疑上限而丢掉的暂停（0.6-Q）；`held` 与 `orphan` / `noFit` 的分工见 0.6-W 节；trace stop 报的是**停止之后**的状态（0.6-W 起；之前是停止前的快照，stop 时才判定的暂停与 flush 的 settle 行不在里面），其中 `held` 是 stop 开始时还挂着、由 stop 强制判定的暂停数）。
 
-字面自定（NOTES 待审）：`sinks.skipped` 只计 evaluate 拿不到函数对象或 setBreakpoint 没返回 bpId；「already exists」的 catch 不计数（它是良性共享信令）；plainText 长 ≥32 / scope 字符串 ≥16 / hold 10 s / hold ≤8 / evidence frames ≤5 / mime 固定 `application/json`（明文必须过 `JSON.parse`）；`--text / --first-n` 等 trace 原有旗标与 decode 无交互。
+字面自定（NOTES 待审）：`sinks.skipped` 只计 evaluate 拿不到函数对象或 setBreakpoint 没返回 bpId；「already exists」的 catch 不计数（它是良性共享信令）；plainText 长 ≥32 / scope 字符串 ≥16 / hold 10 s / hold ≤8（0.6-W 起 ≤256）/ grace 1.5 s（0.6-W）/ evidence frames ≤5 / mime 固定 `application/json`（明文必须过 `JSON.parse`）；`--text / --first-n` 等 trace 原有旗标与 decode 无交互。
 
 ### 0.6-L2（10-16）：实参走 log-point；上限 16 MiB；裸 token 嫌疑
 
@@ -846,6 +846,29 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **`trace status` / `trace stop` 带插件提示**：观察模式开着时，与 `trace start --decode` 一样带 `decodePlugins` / `decodePluginsNotice`（有已启用的解码插件时；`withDecodePlugins`）。
 
 靶场（e2e `v06l`）：s59 xor / axios / inline / worker / 「之前已载入」的行，顶层帧 `url` 是页面 URL（这些 parse 都在页面内联脚本里；worker 模式下 worker 只把明文字符串 post 回来，由主线程 `onmessage` 里的 `JSON.parse` 解析——看 `test/e2e/site.ts` 的 `s59Worker`——所以顶层帧不是 worker 脚本）；deferred 默认配置照旧写一条 weak 行（`rows.weak 1`、`drops.weak 0`），`config.json` `{"trace":{"weakRows":false}}` 时不写行、`drops.weak` = 1、`find` 无命中。【实测 10-17，本机 CfT：`v06l` 14/14 连续两次】
+
+### 0.6-W（10-17）：无作用域命中先等 grace、arm 到即重配（作者定 A；B 进 0.7）
+
+依据【隔壁实测，10-17，站点匿名】：观察模式在真实站点上仍有行丢失或归错，隔壁项目找到原因：
+
+- 嫌疑在录制器写完响应（索引推送）之后才武装（`onEntryIndexed`）；用 XHR 的页面在 `onload` 里就 parse 了，早于索引。暂停时**没有**在场嫌疑 → 暂存、arm 到时补判（`matchHeld`），这条 0.6-L 起就对；但**有别的**嫌疑在场时（页面取回却从不 parse 的响应、并发请求），`onSinkPause` 当场判：single-suspect（错的 weak 行）、unattributed（真请求不在候选里）或 no-fit。
+- 当场判不 `forget` 任何嫌疑，没人认领的嫌疑整整 5 s 窗口都在场，把之后的暂停都拖进同一条错路（其 debug 日志里在场嫌疑从 3 涨到 42）。
+- 本地复刻页（XHR，加 3 个页面取回却从不 parse 的加密响应）在 05:03 的构建上 0/40 strong；改用 `fetch()` 是 39/40（`text()` 要等流读完，通常晚于 arm）。其 74 行原型（即下面的 A）：复刻页 40/40 连续三次；真实站点对照解码插件明文 51/51；单测 1155/1155；v06l 12/13。
+
+改动（作者 10-17 定 A，「按 A 修」；下列字面按实现定案，待作者审）：
+
+- **当场只判 scope-string**：strong 行照旧立即写。其他结果（single-suspect / unattributed / no-fit / 没有在场嫌疑）一律进 hold（明文、作用域 sha、证据帧、`at` = 暂停时刻），sweep 排在 `GRACE_MS + 50` ms。例外：没读到明文（log-point 守卫失败、作用域里也没有）而有嫌疑在场的暂停当场判——它归哪个嫌疑都只会计 `plaintextMissing` / `tooLarge`，等也不变。
+- **重配（`matchHeld`，每次 arm、每次 sweep）**：hold 里的暂停从旧到新、各自按那一刻的在场嫌疑重判（每个先摘下再判；前一个写入时 forget 的嫌疑后一个就看不到）：scope-string 立即判（strong）；其他结果等到 `at + GRACE_MS`（1.5 s）之后，按那一刻的在场嫌疑判 weak / unattributed / no-fit（规则同 0.6-Q，weak 受 `trace.weakRows` 管）；那一刻没有在场嫌疑就继续 hold、等下一个 arm，`HOLD_MS`（10 s）到期计 `drops.orphan`。纯函数 `heldVerdict` / `heldWaits` / `passHeld` 在 `observe.ts`，单测 `test/unit/observe06l.test.ts`。
+- **强制判定**：`trace stop` 与录制停止（`net stop`）先等正在跑的那一轮 `matchHeld`，再把 hold 里全部暂停判掉（force），然后才是强制 settle flush——判成 weak / unattributed 的行先进 settle 队列，由同一次 flush 写出。force 时没有在场嫌疑的暂停计 `drops.orphan`。
+- **两个计数器的分工**：`orphan` = 到判定时（10 s 到期或 stop 强制）一个在场嫌疑都没遇上的暂停；`noFit` = 判定时有嫌疑在场、但明文超过它们全部的上限。s59 noise 的 localStorage 那次 parse 在 0.6-Q 是当场判 noFit；现在它先 hold，grace 内两条噪声明文都以 strong 写入（各自的嫌疑被 forget），grace 到时没有在场嫌疑，由 `trace stop` 强制判成 orphan——noise 的断言改为 `drops.orphan ≥ 1`、`drops.noFit` = 0。
+- `HOLD_MAX` 8 → 256（每条只有几个 sha、明文与 ≤5 帧）；满了丢最旧的（不计数，旧行为）。
+- **`decode.held`**（`trace status` / `trace stop`）：还挂着的暂停数；`trace stop` 里是 stop 开始时挂着、由 stop 强制判定的数。`trace stop` 的 `decode` 块改为停止**之后**读：强制判定出的行、drop 与 flush 的 settle 行都算进去（0.6-V NOTES 待审 (c) 的缺口一并补上）。
+- **行可能晚到**：非 strong 的行比 parse 晚至多约 1.5 s（加 settle 的 sweep）才出现；轮询 `decoded.jsonl` / `find` 的脚本要多等。
+- **没人认领的嫌疑**：判成 unattributed / no-fit 的暂停不 forget 与它混淆的嫌疑，它们照旧活到自己的 5 s 窗口结束（不变）；嫌疑自己的明文一旦写入（strong 或 weak）就 forget（`fileDecidedRow`，0.6-L 起）。grace 之后，这些在场的嫌疑不再能当场把别人的暂停拉走，所以本格不缩短它们的窗口。
+
+靶场（docs/05 s59 `mode=xhr`、`mode=xhr&linger=3`，e2e `v06l`）【实测 10-17，本机 CfT】：修前（main 2ac7ea9 加本格的靶场与 e2e）`mode=xhr` 单独通过（没有在场嫌疑 → hold → arm 补判，0.6-L 起就对），`mode=xhr&linger=3` 第一轮即失败：唯一一行 `request:null`、`candidates` 正是三个 linger 请求，没有 strong 行；修后两者都是恰好一条 strong 行（`match` = sha256(`data`)），linger 一个用例里连跑三轮 3/3，整份 `v06l` 16/16 连续三次，`v06b` 5/5。
+
+**B 进 0.7（作者定）**：在 `Fetch.requestPaused` 的 Response 阶段按 `networkId` 武装（页面拿到 body 之前），从根上消掉这个竞态。代价【推断】：要开 Fetch 拦截、对每个响应放行，会改页面时序——属于 AGENTS.md 里「会改页面行为的插桩」，要默认关或显式模式。grace 是在那之前的近似：parse 与 arm 隔了超过 1.5 s，或 grace 结束时恰好只有一个装得下的别的嫌疑在场，仍会错配（weak 行，受 `trace.weakRows` 管）。
 
 ## 34. 0.6-P `fetch --credentials` 与 `session export --origin`（10-17 主循环定需求；字段与下列细节按实现定案，待作者审）
 

@@ -11,6 +11,12 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## 0.6.0 (2026-10-17)
 
+### Observe mode: grace before deciding (0.6-W)
+
+- **A parse without a strong match waits up to 1.5 s for its own response**: a page that parses in an XMLHttpRequest `onload` does so before tabcap has indexed that body. When other encrypted responses were armed at that moment (ones the page fetched and never parses, concurrent requests), the plaintext used to be decided on the spot — a wrong weak row, or an unattributed row whose candidates missed the true request. It now waits for its own response and is filed strong when that arrives; only after the grace is it decided weak / unattributed / dropped against what is armed then. Strong rows are not delayed; other rows may appear up to 1.5 s late. A neighbouring project's XHR replica went from 0/40 to 40/40 strong rows; range s59 has `mode=xhr` and `mode=xhr&linger=3` for it.
+- `trace stop` and `net stop` decide the pending parses before they finish. One that meets no armed response then counts as `drops.orphan`; `drops.noFit` stays "responses were armed, none could hold this plaintext".
+- `trace status` / `trace stop`: `decode.held` (parses waiting). `trace stop` now reports the `decode` block after the stop, so the rows and drops it decided are counted.
+
 ### Owner decisions after the real-site rounds (0.6-V)
 
 - **Weak observe rows can be turned off**: `config.json` `{"trace": {"weakRows": false}}` stops filing single-suspect rows (`evidence.link: "weak"`), which were wrong on every real-site sample so far; each one that would have been filed is counted as `drops.weak` in the `decode` block of `trace status` / `trace stop`. The default stays `true` (filed as before). `trace start --decode` and `trace status` say `weakRows`.
