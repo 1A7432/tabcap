@@ -121,6 +121,9 @@ describe.skipIf(!enabled)("tabcap 0.6-A L2 (fetch through the logged-in tab: att
       expect(d["body"]).toBe(FETCH_ITEM(n, LOGIN_USER));
       expect(d["status"]).toBe(200);
       expect(Object.keys(d).sort()).toEqual(["body", "bytes", "fetchId", "headers", "id", "mime", "status", "statusText", "timing", "waitedMs"]);
+      // 0.7-E: CLI and POST /fetch alike name the duration totalMs (0.7-C naming table)
+      expect(Object.keys(rec(d["timing"])).sort()).toEqual(["endMono", "startMono", "totalMs"]);
+      expect(typeof rec(d["timing"])["totalMs"]).toBe("number");
       fetched.set(s(d["fetchId"]), s(d["id"]));
     });
     // batch lines share one command window: c-N:f-1..f-3; the endpoint calls have their own

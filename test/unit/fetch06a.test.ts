@@ -339,8 +339,8 @@ describe("config.json fetch / sites.<name>.fetch", () => {
       "content-type": "application/json",
       "retry-after": "<secret:x>",
     });
-    expect(envelopeTiming({ timing: { start: 10.5, responseStart: 11, end: 12.25 } })).toEqual({ startMono: 10.5, endMono: 12.25, ms: 1.75 });
-    expect(envelopeTiming({})).toEqual({ startMono: null, endMono: null, ms: null });
+    expect(envelopeTiming({ timing: { start: 10.5, responseStart: 11, end: 12.25 } })).toEqual({ startMono: 10.5, endMono: 12.25, totalMs: 1.75 });
+    expect(envelopeTiming({})).toEqual({ startMono: null, endMono: null, totalMs: null });
   });
 });
 

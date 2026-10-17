@@ -92,12 +92,12 @@ export function envelopeHeaders(h: unknown, scrub: (s: string) => string): Recor
   return out;
 }
 
-/** `timing` of an envelope from the recorded event (CDP monotonic ms). */
-export function envelopeTiming(event: Record<string, unknown>): { startMono: number | null; endMono: number | null; ms: number | null } {
+/** `timing` of an envelope from the recorded event (CDP monotonic ms); 0.7-E: `totalMs` (was `ms`, the 0.7-C naming table). */
+export function envelopeTiming(event: Record<string, unknown>): { startMono: number | null; endMono: number | null; totalMs: number | null } {
   const t = isRecord(event["timing"]) ? event["timing"] : {};
   const start = num(t, "start");
   const end = num(t, "end");
-  return { startMono: start, endMono: end, ms: start !== null && end !== null ? Math.round((end - start) * 1000) / 1000 : null };
+  return { startMono: start, endMono: end, totalMs: start !== null && end !== null ? Math.round((end - start) * 1000) / 1000 : null };
 }
 
 type BodyOut = { where: "inline" | "file" | "raw" | "out"; text: string | null; bytes: Uint8Array };
