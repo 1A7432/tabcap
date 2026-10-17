@@ -18,6 +18,15 @@
 - `--text` 打一屏：每个会话一行，然后是冲突及其 `next`。
 - MCP：`tabcap_status` 进默认核心集，替下 `tabcap_handoff_status`（仍可经 `tabcap_run` 调）；核心集仍是 24 个工具。
 
+### 渐进披露与输出契约（0.7-C）
+
+- **未知命令**：`next` 只给 1–3 个最近的命令（同首词、互为前缀或编辑距离小）并指向 `tabcap --help` 看分组，不再列出全部命令。`tabcap frobnicate` 回答 201 字节（原 8145），`tabcap trac status` 249 字节、带 `Did you mean: tabcap trace status | …`（原 8146）。`bundle` 下的未知子命令只在 `bundle` 组里找。
+- **`tabcap help <组>`**：每条命令一项——不带 `--session` / `--timeout` 的用法行，下一行是摘要的第一分句；选项表与示例只在 `tabcap help <命令>`。`tabcap help network` 2456 字节（原 13209）。`--help` 索引不变。
+- **紧凑的 `decode` 块**（`trace start --decode`、`trace status`、`trace stop`）：`{on, weakRows, rows:{strong, weak, unattributed}, pending, dropped}`；`trace status` / `trace stop` 加 `--verbose` 才给背后的计数器（按原因的 `drops`、`armed`、`held`、`settling`、`evidenceHits`、`recovered`、`walks`、`sinks`、`unattributedKept`、`rows.attributed`）。`trace stop` 先把还没判定的 parse 全部判完再回答，所以它的 `pending` 是 0，新字段 `decidedAtStop` 说判了几个；没遇上任何响应的计入 `dropped`。`trace start` / `trace status` 顶层的 `weakRows` 移进这个块。
+- **超出预算的摘要保留计数与前几个 id**：`net show`、`net body`、`net grep`、`analyze find` / `deps` / `chain` / `diff` / `shape` / `schema-diff`、`bundle info`（含 `--usage`）、`replay check`、`status`、`trace list`、`bundle export fixtures`、`fetch --batch`、`console show` 各有自己的摘要（计数加至多 10 个 id / 键），不再只剩长度。
+- **字段名**（表见 docs/04 §2.1）：`net list` 行（http 与 ws）、`net body`、`net wait`、`net show`（`postData`、`body`、帧与 `payload`）与 `analyze find` 提示里的 `size` 改为 `bytes`；`replay check` 的正文差异改为 `recordedBytes` / `gotBytes`；`net grep` 的行与 `analyze chain` 的步骤用 `id` 指自己的请求（原 `request`）；点击 / 悬停的 `trajectory.ms` 改为 `plannedMs`；`net show` 的 `timing.total` 改为 `timing.totalMs`。包的落盘格式不变。
+- **跨包回答**：`analyze diff` 与 `analyze schema-diff` 列出 `bundles: [{short, dir}]`（`short` 是目录名）；`analyze diff` 的请求行改为 `{bundle:"<short>", id}`（原 `{bundle:<序号>, ref}`）。
+
 ## 0.6.0（2026-10-17）
 
 ### plugin init（0.7-D）

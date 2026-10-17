@@ -46,4 +46,4 @@ With a shell: `tabcap net body r-12 --file` (or `--url <u> --file`, add `--prett
 
 ## `net grep`
 
-`tabcap net grep <regex> [--resource-types script,xhr,fetch,document] [--max-matches 20] [--context 1] [--pretty]` searches every recorded response body of the session. Per request: `{request, url, resourceType, count, matches}`; at most 50 requests (`more` counts the rest); bodies over 8 MB are listed under `skipped` (search them one at a time with `net body --grep`); binary bodies are counted under `binary`.
+`tabcap net grep <regex> [--resource-types script,xhr,fetch,document] [--max-matches 20] [--context 1] [--pretty]` searches every recorded response body of the session. Per request: `{id, url, resourceType, count, matches}`; at most 50 requests (`more` counts the rest); bodies over 8 MB are listed under `skipped` (search them one at a time with `net body --grep`); binary bodies are counted under `binary`.

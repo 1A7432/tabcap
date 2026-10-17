@@ -100,7 +100,7 @@
 | 默认路径 | 第一级：`el.click()`，`isTrusted:false` | **第二级拟真**：焦点仿真 → 滚入视口 → 遮挡检查 → 轨迹（§3.3）→ `mousePressed` → 随机间隔 → `mouseReleased` → 送达探针 |
 | `--trusted` | 第二级、无轨迹 | 保留一版，等同默认，`--help` 写「已是默认，下版删除」（照 `docs/08` §5「旧名保留一版别名」的惯例） |
 | DOM 点击 | 默认 | 只能显式 `--dom`；输出 `eventShape:"incomplete"` 和 `warning:"事件序残缺：DOM el.click()，只有 click 事件，isTrusted=false，无 pointer / mouse 序列"` |
-| 输出新增字段 | — | `eventShape: "full" \| "incomplete"`；`trajectory: {from:{x,y}, to:{x,y}, points, ms}`（只有第二级有）；`pressGapMs`；第一级、或从第二级降级时有 `warning` 与 `degraded`（原因：`not-painted` / `no-box` / `dom-requested`） |
+| 输出新增字段 | — | `eventShape: "full" \| "incomplete"`；`trajectory: {from:{x,y}, to:{x,y}, points, plannedMs, actualMs}`（只有第二级有；`plannedMs` 在 0.7-C 前叫 `ms`）；`pressGapMs`；第一级、或从第二级降级时有 `warning` 与 `degraded`（原因：`not-painted` / `no-box` / `dom-requested`） |
 | 失败 | `not-delivered`、`covered`（0.3-D 遮挡适配器判定被遮挡层挡住）、`page`（终点被遮挡层以外的元素挡住）、`stale-ref` | 不变；新增 `move-timeout`：某条 `mouseMoved` 在单条超时内没有返回，**立即中止，不按下、不重试** |
 
 两种处置（规格第 2 条）的比较：

@@ -18,6 +18,15 @@ English | [中文](CHANGELOG.zh-CN.md)
 - `--text` prints one screen: a line per session, then the conflicts with their `next`.
 - MCP: `tabcap_status` is in the default core set in place of `tabcap_handoff_status` (still reachable through `tabcap_run`); the core set stays 24 tools.
 
+### Progressive disclosure and output contract (0.7-C)
+
+- **Unknown command**: `next` names the 1–3 closest commands (same first word, a prefix of it, or a small edit distance) and points to `tabcap --help` for the groups, instead of listing every command. `tabcap frobnicate` answers 201 bytes (was 8145), `tabcap trac status` 249 bytes with `Did you mean: tabcap trace status | …` (was 8146). Unknown `bundle` subcommands are matched within `bundle`.
+- **`tabcap help <group>`**: one entry per command — the usage without `--session` / `--timeout`, then the first clause of the summary; option tables and examples only in `tabcap help <command>`. `tabcap help network` is 2456 bytes (was 13209). The `--help` index is unchanged.
+- **Compact `decode` block** on `trace start --decode`, `trace status` and `trace stop`: `{on, weakRows, rows: {strong, weak, unattributed}, pending, dropped}`; `--verbose` on `trace status` / `trace stop` adds the counters behind it (`drops` by reason, `armed`, `held`, `settling`, `evidenceHits`, `recovered`, `walks`, `sinks`, `unattributedKept`, `rows.attributed`). `trace stop` decides every pending parse before it answers, so its `pending` is 0 and the new `decidedAtStop` says how many it decided; one that met no response counts in `dropped`. The top-level `weakRows` of `trace start` / `trace status` moved into the block.
+- **Over-budget summaries keep counts and the first ids**: `net show`, `net body`, `net grep`, `analyze find` / `deps` / `chain` / `diff` / `shape` / `schema-diff`, `bundle info` (and `--usage`), `replay check`, `status`, `trace list`, `bundle export fixtures`, `fetch --batch` and `console show` each have their own summary (counts plus up to 10 ids / keys) instead of only lengths.
+- **Field names** (docs/04 §2.1 has the table): `bytes` replaces `size` in `net list` rows (http and ws), `net body`, `net wait`, `net show` (`postData`, `body`, frames, `payload`) and `analyze find` hints; `replay check` body diffs say `recordedBytes` / `gotBytes`; `net grep` rows and `analyze chain` steps name their request `id` (was `request`); click / hover `trajectory.ms` is `plannedMs`; `net show` `timing.total` is `timing.totalMs`. Bundle files on disk are unchanged.
+- **Cross-bundle answers**: `analyze diff` and `analyze schema-diff` list `bundles: [{short, dir}]` (`short` is the directory name); `analyze diff` request rows are `{bundle: "<short>", id}` (was `{bundle: <index>, ref}`).
+
 ## 0.6.0 (2026-10-17)
 
 ### plugin init (0.7-D)

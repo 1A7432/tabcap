@@ -34,6 +34,26 @@
 - `blobs/` 写法：先写临时文件，`fsync`，再 `rename` 到哈希名；同内容只存一份。
 - `raw/` 默认开（lab 阶段要靠它查录制器漏没漏），以后再议默认关。（已定 a）
 
+### 2.1 CLI 回答：信封与公共字段名（0.7-C，10-17 主循环定需求；表与改名按实现定案，待作者审）
+
+每条命令打印一个 JSON 信封：成功 `{ok:true, data}`，失败 `{ok:false, error:{code, message, next}}`；`data` 超过输出预算时换成 `{summary, file, bytes, truncated:true}`（§24）。下表是**回答里**（`data`）的公共字段名；包内落盘格式（§3–§7 的事件、manifest、`decoded.jsonl`）不受它约束，保留原名（例如事件与 blob 引用里的 `size`、信封的 `ts`）。外部格式（HAR 1.2 的 `bodySize` / `startedDateTime` / `time`，CDP 的 `requestId` / `timestamp`）也照原样。
+
+| 名字 | 用于 | 不用 |
+|---|---|---|
+| `bytes` | 字节数（正文、postData、帧载荷、导出文件） | `size`、`length`（`length` 只用于元素个数） |
+| `id` | 一行**就是**这个请求时的请求 id `r-N`（WebSocket 帧 `r-N:M`） | `requestId`、`ref`（指向别的请求的字段仍叫 `request`，如 `edges[].from.request`） |
+| `cmd` | 命令 id `c-N` | `commandId` |
+| `tab` | 标签 id `t-N` | `tabId` |
+| `at` | epoch 毫秒的时刻 | — |
+| `…Ms` | 时长（毫秒），如 `waitedMs`、`timeoutMs`、`plannedMs`、`totalMs` | 无后缀的时长 |
+| `url` | URL | — |
+| `count` / `total` | 计数 / 总数 | — |
+| `bundles: [{short, dir}]` | 比较或引用多个包的回答（`analyze diff`、`analyze schema-diff`）；`short` 是包目录的 basename（同名的第二个起加 `~2`、`~3`），行里用 `bundle: "<short>"` 标出所属包，`id` 仍是该包里的 `r-N`、不改写 | 包序号 |
+
+0.7-C 按此表改过的回答字段（落盘格式未动）：`net list` 行与 `--kind ws` 行、`net body`（预览与 `--pretty`）、`net wait`、`net show`（`request.postData`、`response.body`、帧与 `payload`）的 `size` → `bytes`；`analyze find` 的 `hints.suspectEncrypted[].size` → `bytes`；`replay check` 的 `diffs.body.recordedSize` / `gotSize` → `recordedBytes` / `gotBytes`；`net grep` 的行与 `skipped[]` 的 `request` → `id`；`analyze chain` 的 `steps[].request` → `id`（`todo[]` / `inputs[]` 是某个请求的输入，仍叫 `request`）；`analyze diff` 的 `groups[].requests[]` 从 `{bundle:<序号>, ref}` 改为 `{bundle:"<short>", id}`，`bundles[]` 多 `short`；`analyze schema-diff` 多 `bundles`；`click --trusted` / `hover` 的 `trajectory.ms` → `plannedMs`（与同一对象里的 `actualMs` 对齐）；`net show` 的 `timing.total` → `timing.totalMs`。
+
+留着没改的（NOTES 0.7-C 有清单）：落盘或直接透传落盘字段的（`ts`、blob 引用与事件里的 `size`、`net show` 的 `timing.start` / `end` 单调时钟）；与 `at` 已有别的含义冲突的（`console list` 的 `at` 是 `url:line:col`，`click` 的 `at` 是坐标，`net body --at` 是行列），所以 `console list` / ws 行的墙钟时刻仍叫 `ts`，`since` / `startedAt` / `savedAt` / `generatedAt` 等具名时刻也未改；`analyze find` 的 `hits[].ref`（console 命中时为 null，`where` / `find` 文档都以 `ref` 描述）；`wait` 块与 `fetch` 的 `timing.ms`（字段名本身就是 `ms`）；`session list` 的 `tabs`（数组）与 `status` 的 `tabs`（个数）。
+
 ## 3. 事件信封
 
 每行一个 JSON 对象，公共字段：
@@ -266,7 +286,7 @@
 
 真实项目试用里 `net show` 明文打出 `access-token`、`Authorization: Bearer …` 和会话 cookie，`net list` 打出 URL 里的 token；只有 HAR 导出打了码。现在守护进程的实时输出也按 §8 的名字规则（`default@2`）显示成 `<redacted:<名字>>`：
 
-- **范围**：`net show`（URL、请求 / 响应头、postData 的内联文本与 blob 的 `head`；超过 2 KB 的内联正文落成 `exports/post/<id>.redacted.txt`；`size` 仍是录到的字节数）、`net list`（每行的 `url`，`--kind ws` 的帧 URL）、`net body`（答案里的 `url`；它不输出头）、`fetch` 与 `POST /fetch`（信封里选出的响应头；`location` 按 URL 规则）、`recon`（答案与 `exports/dossier.json` / `.md` 里的页面 URL、guard 检测的 URL）、`trace list`（每行的脚本 URL；行里不带参数值）。
+- **范围**：`net show`（URL、请求 / 响应头、postData 的内联文本与 blob 的 `head`；超过 2 KB 的内联正文落成 `exports/post/<id>.redacted.txt`；`bytes` 仍是录到的字节数，0.7-C 前叫 `size`）、`net list`（每行的 `url`，`--kind ws` 的帧 URL）、`net body`（答案里的 `url`；它不输出头）、`fetch` 与 `POST /fetch`（信封里选出的响应头；`location` 按 URL 规则）、`recon`（答案与 `exports/dossier.json` / `.md` 里的页面 URL、guard 检测的 URL）、`trace list`（每行的脚本 URL；行里不带参数值）。
 - **规则**：名字属于敏感头集合或命中名字规则的头，整值换成 `<redacted:头名小写>`；`cookie` / `set-cookie` 保留 cookie 名和属性，每个值都换（§8 的 state 规则：全部值）；`location` / `referer` / `content-location` 头与各处 URL 只换名字敏感的 query 参数，其余逐字不变（fragment 不动）；请求体：JSON（对象 / 数组）里任意深度名字敏感的键（有改动才紧凑重排，否则原文），表单体逐字段。值规则（邮箱、手机号等）不用在实时输出上。
 - **库里的秘密**：整值是库里已知秘密的，仍显示 `<secret:<站点>.<字段>>`（§8.1 的替换照常作用于所有输出，`--reveal` 也不例外）。
 - **`--reveal`**：上述命令都收（`POST /fetch` 收 `reveal: true`），打印录到的原值；只在人要求时用。
@@ -450,6 +470,7 @@
 
 - 文件：会话正在录制时写进该包的 `exports/<command>-<seq>.json`（`<command>` 为命令词连字符，如 `analyze-deps`；`<seq>` 为该目录里同名文件的最大序号加一，从 1 起）；没有在录（含所有离线命令）时写 `<cache>/outputs/<YYYYMMDD-HHMMSS>-<command>.json`（同秒重名加 `-2`、`-3`…）。0600，目录 0700。内容是整份 `data` 的 JSON（2 空格缩进），守护进程命令的 `data` 已过已知秘密值替换（§8.1）。和 HAR、侦查档案一样不参与分析，`bundle redact` 的副本不带。
 - `summary`：顶层每个标量字段原样（字符串 200 字符以内），数组、对象与更长的字符串换成长度；非对象的 `data` 记 `{type, length}`。命令自带的摘要叠加在上面：`analyze deps` 加 `inputs`（每个请求的输入数）与 `unresolved`（未解析数），`recon` / `analyze recon` 加档案的 `summary` 块与 `page`，`trace list` 加 `rows: [{api, script, count}]` 与 `totals`，`where` 加前 5 个 `candidates`、`candidateCount` 与 `query`。
+- **0.7-C：摘要不再只剩长度**。凡回答可能超限的命令都有自己的摘要：关键计数加前 10 个 id / 键（`SUMMARY_FIRST`），长字符串只给字符数。`net show`（头的个数与前 10 个名字、`postData` / `body` 的 `bytes` 与路径）、`net body`（`previewChars`；`--grep` 的 `matchCount` 与前 10 个 `{line, col}`；`--lines` 的 `lineCount` 与行号）、`net grep`（`requestCount`、前 10 行 `{id, url, count}`、`skippedCount`）、`analyze find`（`hitCount`、前 10 个 `{ref, part, path, match, decode}`、`searched` 的四个计数、`suspectEncrypted` 的 ref）、`analyze deps`（`requests`、`inputCount`、前 10 个请求的输入数 `inputs`、`edges`、`unresolved` 与前 10 条 `unresolvedFirst`）、`analyze chain`（`stepCount`、前 10 步的 `id`、`todo` 与 `todoFirst`、`inputs`）、`analyze diff`（`bundles`、`groupCount`、前 10 组 `{key, samples, sessions}`、`summary`）、`analyze shape`（`endpointCount`、前 10 个 `{key, exchanges, notJson}`、`unshaped`）、`analyze schema-diff`（`summary`、`bundles`、`endpointCount`、前 10 个变化的端点及其增删改个数）、`bundle info`（`counts`、`kinds`、`issueCount` 与前 10 条 `{line, kind}`；`--usage` 时 `hostCount`、前 10 个 `{host, actor, requests}`、登录次数、`stops`、`windows`）、`replay check`（`totals`、`rowCount`、前 10 个不是 same 的 `{id, result}`、`skipped`）、`status`（守护进程 / 浏览器是否在跑、`sessionCount` 与前 10 个会话的状态 / 录制 / trace、`conflictCount` 与前 10 个 `{code, session}`、`handoff`）、`trace list`（`rowCount` 加前 10 行）、`bundle export fixtures`（前 10 个文件、`failed` 与前 10 条、`notPreferred`、`skipped`）、`fetch --batch`（前 10 个结果的 `{ok, id, status}` 或错误码）、`console show`（`textChars`）。分页与自带上限的 `net list` / `console list` / `snapshot` 照旧不受预算约束，不需要摘要。【实测 单测 `test/unit/disclosure07c.test.ts`：每条命令喂一份超过 16 KB 的合成回答，断言摘要有这些键、列表 ≤10 项、摘要 <4 KB】
 - 按实现定案：`TABCAP_OUTPUT_LIMIT=0` 关闭预算，非整数的值按默认；`schema` 也不受此限（CLI 契约整份输出；`schema --json` 本来就是文本）；`screenshot` 不收 `--full`（0.4 已把旧 `--full` 改名 `--full-page`，仍是未知选项），它的回答只有路径，不会超；预算在 CLI 输出层做（过滤之后，见 `08` §5），超限时 CLI 向守护进程问一次当前会话的录制包位置；`cmd` 结束事件的 `outputSummary` 照旧取自完整结果。
 
 ## 25. 0.5-F 命令内搜索（10-16 作者定「做」；字段按实现定案，待作者审）
@@ -748,7 +769,7 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 - **上限**：每个端点 ≤ 2000 个字段（query、请求体、响应合计，超出的新字段不再记，`capped.fields`）；深度 ≤ 32（更深的不展开，`capped.depth`）；每个数组只取前 200 个元素（`capped.items`）；前两种超限另写 `warnings`。
 - **`tabcap-shape/0`**：`{schema, bundle, session, generatedAt, filter:{request, template, types, json}, limits:{fields:2000, depth:32, arrayItems:200, enum:8}, excluded:{types, incomplete}, endpoints:[{key, method, template, exchanges, requests:[r-N…≤10], status:[…], decode:[步骤名], request:{query:Shape|null, body:Shape|null}, response:Shape|null, samples:{query, body, response}, notJson, capped:{fields, depth, items}}], unshaped:[key…], warnings, written?}`。`query` 是一个 object，字段即参数名（值都是字符串，同名重复时为字符串数组）。`--write` 把同一个对象（不含 `written`）写到 `<bundle>/exports/shape.json`，0600、`exports/` 0700，每次覆写；和侦查档案一样不参与分析，`bundle redact` 的副本不带。`--text` 每个端点一行头，然后一行一个位置：`  $.items[].price  string(float)[  optional][  enum a,b]`。
 - **扁平路径**（比较与 `--text` 用）：响应从 `$` 起（`$.items[].name`；不是标识符的名字写成 `$["a b"]`，同 `find` 的 JSON 路径），query 参数为 `query:<名字>`，请求体从 `body:$` 起（与 `analyze deps` 的输入标签同形）。类型文字：`kind` 加可选 `(format)`，union 用 `|` 连接各 variant（`number(int)|null`）。
-- **`schema-diff`**（schema `tabcap-schema-diff/0`）：两包都用上面的规则推断（带 `--template` 时只看这个端点，一边没有就是 new / gone，两边都没有报 `not-found`），按 key 配对。每个端点 `{key, method, template, verdict:"same"|"drift"|"new"|"gone", added:["<路径>:<类型>"…], removed:[…], changed:[{path, from, to}], optionalityChanged:[{path, from:"required"|"optional", to}], enumChanged:[{path, from:[…], to:[…]}]}`；`added` / `removed` 列出每一个新增 / 消失的位置（父节点新增时子节点也逐个列出），`changed` 是两边都有、类型文字不同（含 format 与 union 的变化），`enumChanged` 只在两边都有枚举且不同时报。五个列表任一非空即 `drift`。只在旧包 / 新包里的端点为 `gone` / `new`（不算漂移）；但端点在另一边录到了、只是什么都推不出（如 JSON 接口改回了 HTML 登录页）时，按空形状比较，是 `drift`（全部 removed / added）。另一边那个数组一个元素都没有时，数组下面的位置不比较（没有证据），写一条 `warnings`。顶层：`{schema, old:{dir, id, session, endpoints}, new:{…}, filter:{template, types, json}, drift, summary:{same, drift, new, gone}, endpoints:[…], warnings, written?}`，旧包里的端点在前，新包独有的在后。有 `drift` 时 CLI 退出码 1，信封仍是 `ok:true`（比较本身成功了）；`new` / `gone` 不影响退出码。`--text` 一行一个变化：`drift GET /api/list added $.items[].name:string`、`… removed …`、`… changed <路径> <旧> -> <新>`、`… optionality <路径> required -> optional`、`… enum <路径> [a] -> [a,b]`、`new <key>`、`gone <key>`，末行 `schema-diff: <n> drift, <n> same, <n> new, <n> gone`。`--write` 把两边的形状各写进自己的 `exports/shape.json`。
+- **`schema-diff`**（schema `tabcap-schema-diff/0`）：两包都用上面的规则推断（带 `--template` 时只看这个端点，一边没有就是 new / gone，两边都没有报 `not-found`），按 key 配对。每个端点 `{key, method, template, verdict:"same"|"drift"|"new"|"gone", added:["<路径>:<类型>"…], removed:[…], changed:[{path, from, to}], optionalityChanged:[{path, from:"required"|"optional", to}], enumChanged:[{path, from:[…], to:[…]}]}`；`added` / `removed` 列出每一个新增 / 消失的位置（父节点新增时子节点也逐个列出），`changed` 是两边都有、类型文字不同（含 format 与 union 的变化），`enumChanged` 只在两边都有枚举且不同时报。五个列表任一非空即 `drift`。只在旧包 / 新包里的端点为 `gone` / `new`（不算漂移）；但端点在另一边录到了、只是什么都推不出（如 JSON 接口改回了 HTML 登录页）时，按空形状比较，是 `drift`（全部 removed / added）。另一边那个数组一个元素都没有时，数组下面的位置不比较（没有证据），写一条 `warnings`。顶层：`{schema, bundles:[{short, dir}], old:{dir, id, session, endpoints}, new:{…}, filter:{template, types, json}, drift, summary:{same, drift, new, gone}, endpoints:[…], warnings, written?}`（`bundles` 0.7-C 加，旧包在前，§2.1），旧包里的端点在前，新包独有的在后。有 `drift` 时 CLI 退出码 1，信封仍是 `ok:true`（比较本身成功了）；`new` / `gone` 不影响退出码。`--text` 一行一个变化：`drift GET /api/list added $.items[].name:string`、`… removed …`、`… changed <路径> <旧> -> <新>`、`… optionality <路径> required -> optional`、`… enum <路径> [a] -> [a,b]`、`new <key>`、`gone <key>`，末行 `schema-diff: <n> drift, <n> same, <n> new, <n> gone`。`--write` 把两边的形状各写进自己的 `exports/shape.json`。
 - **HAR 往返的假漂移**（0.6-S 调查；来源：试用者把包按 `--types xhr,fetch` 导出 HAR 再导入，与原包 `schema-diff`，一个端点报了 query 的 optionality 变化）。本地合成包上复现【实测 10-17，`test/unit/offline06s.test.ts` 最后三条】：
   - HAR 往返本身不改 query：全类型、`--no-redact` 导出再导入，`schema-diff` 全部 `same`（含 `+`、空值、没有 `=` 的名、重复的名、百分号编码的值）。默认脱敏时，名字敏感的 query 值（`token` 等）变成占位符，`format` 丢失，报 `changed`（如 `query:token string(id) -> string`），不报 optionality。
   - 静态资源本身不会让一个 API 端点的 optionality 变：它们是别的端点（`GET /app.js`），旧版里表现为一堆 `gone` / `new` 的噪声；0.6-S 默认类型后不再出现。
@@ -791,7 +812,31 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - 行的优先级（D4）：ok 的插件视图 > ok 的 page 视图（page 行后写也顶不掉插件行）；同 rank 后行赢；inline 视图按同一 rank 裁定；`request:null` 的行不 overlay 任何请求。
 - **启用的解码插件提示（0.6-U，来自真实项目复测 10-17：插件匹配了流量，观察模式几乎不出 `by:"page"` 行，用户不知为何）**：`trace start --decode` 的回答在有已启用的解码插件（§28，`plugin enable` 过且清单有效）时多两个字段：`decodePlugins: [<插件名>…]`（按名字排序）与 `decodePluginsNotice`（一句话：插件已写过视图（解出或失败）的响应体不再观察，插件视图又优先于 page 视图（D4），所以插件匹配流量时 `by:"page"` 行很少；想看页面就 `tabcap plugin disable <name>`）。开始时还不知道会话的流量会不会被匹配，所以只看「有没有已启用的」，不看主机。没有已启用的解码插件时这两个字段都不出现；`alreadyOn` 的回答不带。【实测 单测 `test/unit/trace06u.test.ts`，假插件目录】
-- 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`；`trace status` 与 `trace stop` 的 `decode` 块：`{armed, held, rows:{attributed, weak, unattributed, unattributedKept}, evidenceHits, recovered:{console, scope}, walks, sinks:{resolved, skipped, on}, drops:{plaintextMissing, tooLarge, afterStop, unattributedCapped, rawBody, orphan, unpaired, noFit, weak}}`（`weak` 是 attributed 里 `link:"weak"` 的行数；`unpaired` 是没配上暂停的 log-point 行；`noFit` 是明文超过所有在场嫌疑上限而丢掉的暂停（0.6-Q）；`held` 与 `orphan` / `noFit` 的分工见 0.6-W 节；trace stop 报的是**停止之后**的状态（0.6-W 起；之前是停止前的快照，stop 时才判定的暂停与 flush 的 settle 行不在里面），其中 `held` 是 stop 开始时还挂着、由 stop 强制判定的暂停数）。
+- 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`。
+- **`decode` 块**（`trace start --decode`、`trace status`、`trace stop`；0.7-C 起默认是紧凑形，按实现定案，待作者审）：`{on, weakRows, rows:{strong, weak, unattributed}, pending, dropped}`。`--verbose`（`trace status` / `trace stop`）在同一块里再加背后的计数器。字段：
+
+| 字段 | 形 | 含义 |
+|---|---|---|
+| `on` | 紧凑 | sink 断点在、trace 在跑：暂停正被观察。`false`：录制已停（sink 随 `net stop` 撤下，下一次 `net start` 再装）或 trace 已停 |
+| `weakRows` | 紧凑 | `config.json` `trace.weakRows`：single-suspect 行写入（`true`）还是计 `drops.weak`（`false`），0.6-V |
+| `rows.strong` | 紧凑 | scope-string 归属的行（= `rows.attributed` − `rows.weak`） |
+| `rows.weak` | 紧凑 | single-suspect、`link:"weak"` 的行 |
+| `rows.unattributed` | 紧凑 | `request:null` 的行 |
+| `pending` | 紧凑 | 还没判定的 parse：`held` + `settling`。stop 之后恒为 0 |
+| `dropped` | 紧凑 | 下面 `drops` 全部原因之和 |
+| `decidedAtStop` | 只在 `trace stop` | stop 开始时还没判定、由 stop 强制判定的 parse 数（就是当时的 `pending`）；它们的结果已经算进 `rows` 或 `dropped` |
+| `rows.attributed` | `--verbose` | strong + weak |
+| `armed` | `--verbose` | 窗口内的嫌疑数 |
+| `held` | `--verbose` | hold 里的暂停（0.6-W 的 grace，或等 arm）；stop 之后为 0 |
+| `settling` | `--verbose` | 在 500 ms settle 里、还没写的 weak / unattributed 行；stop 之后为 0 |
+| `unattributedKept` | `--verbose` | 本录制已写的 unattributed 行（上限 50，D7） |
+| `evidenceHits` | `--verbose` | `TextDecoder.decode` / `SubtleCrypto.decrypt` 的暂停数（只作证据，D1） |
+| `recovered:{console, scope}` | `--verbose` | 明文来自 log-point / 作用域 |
+| `walks` | `--verbose` | 作用域 walk 次数 |
+| `sinks:{resolved, skipped, on}` | `--verbose` | 装上的 sink 断点、没装上的、sink 意图开着（trace stop 后不改，所以 stop 的回答里仍可能是 `true`；看紧凑的 `on`） |
+| `drops:{plaintextMissing, tooLarge, afterStop, unattributedCapped, rawBody, orphan, unpaired, noFit, weak}` | `--verbose` | 按原因：没找到明文、明文超 16 MiB、录制 / trace 已停、unattributed 超上限、明文就是某个录到的原文 body、没遇上任何在场嫌疑（`orphan`）、没配上暂停的 log-point 行（`unpaired`）、明文超过所有在场嫌疑的上限（`noFit`，0.6-Q）、`trace.weakRows:false` 时本会写入的 weak 行（`weak`） |
+
+  **`trace stop` 先判完再回答**：stop 先等正在跑的那一轮补判，再把还挂着的 parse 全部判掉，再 flush settle，然后才读这个块（0.6-W 起）。所以 stop 的回答里 `pending` 是 0，那些 parse 的结果已经在 `rows` 或 `dropped` 里——没遇上任何响应（在场嫌疑）的计入 `dropped`（`drops.orphan`），不是「还挂着、丢了」。0.7-C 前回答里的 `held` 在 stop 时表示「stop 开始时挂着的数」，读者会把它和 `orphan` 当成两拨丢失，现在由 `decidedAtStop` 说这件事。【实测 e2e `v06l` s59 noise：stop 回答 `pending` 0、`dropped` ≥1（含 1 个 orphan）】
 
 字面自定（NOTES 待审）：`sinks.skipped` 只计 evaluate 拿不到函数对象或 setBreakpoint 没返回 bpId；「already exists」的 catch 不计数（它是良性共享信令）；plainText 长 ≥32 / scope 字符串 ≥16 / hold 10 s / hold ≤8（0.6-W 起 ≤256）/ grace 1.5 s（0.6-W）/ evidence frames ≤5 / mime 固定 `application/json`（明文必须过 `JSON.parse`）；`--text / --first-n` 等 trace 原有旗标与 decode 无交互。
 
@@ -841,7 +886,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 依据：隔壁项目两轮真实站点测试（站点匿名）：weak 行（`evidence.link:"weak"`）在每个真实样本上都归错了；外部脚本的 `evidence.frames[].url` 全是 `""`。作者 10-17 定：
 
-- **`trace.weakRows`**（`config.json`，布尔，**默认 `true`**：作者 10-17 上午先定默认关，随后改为默认开、可关）。`true` 是原行为：single-suspect 行 settle 500 ms 后以 `link:"weak"` 写入，计 `rows.weak`。`false`：single-suspect 行照样 settle，到 flush 时本来会写入的（不是原文 body、该请求还没有行）改为不写，计 `decode.drops.weak`（`trace status` / `trace stop` 的 `decode` 块）；因原文 body、已有 strong 行而丢的照旧计在原处，所以 `drops.weak` 只数「本会写入的 weak 行」。`trace start --decode` 的回答带 `weakRows: true|false`，`decodeNotice` 按它说明 weak 行的去向；`trace status` 在观察模式下也带 `weakRows`。非布尔值报 `bad-input`。
+- **`trace.weakRows`**（`config.json`，布尔，**默认 `true`**：作者 10-17 上午先定默认关，随后改为默认开、可关）。`true` 是原行为：single-suspect 行 settle 500 ms 后以 `link:"weak"` 写入，计 `rows.weak`。`false`：single-suspect 行照样 settle，到 flush 时本来会写入的（不是原文 body、该请求还没有行）改为不写，计 `decode.drops.weak`（`trace status` / `trace stop` 的 `decode` 块）；因原文 body、已有 strong 行而丢的照旧计在原处，所以 `drops.weak` 只数「本会写入的 weak 行」。`trace start --decode` 的回答带 `weakRows: true|false`，`decodeNotice` 按它说明 weak 行的去向；`trace status` 在观察模式下也带 `weakRows`（0.7-C 起在 `decode` 块里：`decode.weakRows`，顶层不再有）。非布尔值报 `bad-input`。
 - **证据帧的 URL**。根因【实测 10-17，e2e v06l 对照】：CDP `Debugger.CallFrame` 的脚本 id 在 `location.scriptId`，调用帧顶层没有 `scriptId`；0.6-L 的 `framesOf` 读顶层 `scriptId`，永远是空，于是查不到 `Debugger.scriptParsed` 表，每个 URL 都是 `""`——与脚本是否在 tracer 挂上之前解析无关。对照实验：只用 scriptParsed 表（按 `location.scriptId`）时 s59 的 xor / axios / 「trace start 之前已载入的页面」三条都拿到页面 URL（后者的内联脚本在 tracer 挂上之前就解析了：`Debugger.enable` 会为已有脚本补发 `scriptParsed`）；换回读顶层 `scriptId` 时同一断言得到 `""`。现在 `evidenceFrames` 先用帧自己的 `url`（CDP 标为 deprecated 但仍在发），再用表，都没有才是 `""`。同一个错也让观察模式的「tabcap 自己的脚本 / 隔离世界」过滤从未生效（`onSinkPause` 同样读顶层 `scriptId`），一并改为 `location.scriptId`（`frameScriptId`）【推断：之后 tabcap 自己 `evaluate` 里的 JSON.parse 不再进观察路径；靶场没有专门断言】。
 - **`trace status` / `trace stop` 带插件提示**：观察模式开着时，与 `trace start --decode` 一样带 `decodePlugins` / `decodePluginsNotice`（有已启用的解码插件时；`withDecodePlugins`）。
 
@@ -862,7 +907,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **强制判定**：`trace stop` 与录制停止（`net stop`）先等正在跑的那一轮 `matchHeld`，再把 hold 里全部暂停判掉（force），然后才是强制 settle flush——判成 weak / unattributed 的行先进 settle 队列，由同一次 flush 写出。force 时没有在场嫌疑的暂停计 `drops.orphan`。
 - **两个计数器的分工**：`orphan` = 到判定时（10 s 到期或 stop 强制）一个在场嫌疑都没遇上的暂停；`noFit` = 判定时有嫌疑在场、但明文超过它们全部的上限。s59 noise 的 localStorage 那次 parse 在 0.6-Q 是当场判 noFit；现在它先 hold，grace 内两条噪声明文都以 strong 写入（各自的嫌疑被 forget），grace 到时没有在场嫌疑，由 `trace stop` 强制判成 orphan——noise 的断言改为 `drops.orphan ≥ 1`、`drops.noFit` = 0。
 - `HOLD_MAX` 8 → 256（每条只有几个 sha、明文与 ≤5 帧）；满了丢最旧的（不计数，旧行为）。
-- **`decode.held`**（`trace status` / `trace stop`）：还挂着的暂停数；`trace stop` 里是 stop 开始时挂着、由 stop 强制判定的数。`trace stop` 的 `decode` 块改为停止**之后**读：强制判定出的行、drop 与 flush 的 settle 行都算进去（0.6-V NOTES 待审 (c) 的缺口一并补上）。
+- **`decode.held`**（`trace status` / `trace stop`；0.7-C 起只在 `--verbose`，紧凑形里并进 `pending`）：还挂着的暂停数；0.7-C 前 `trace stop` 里是 stop 开始时挂着、由 stop 强制判定的数，现在这个数叫 `decidedAtStop`，`held` 在 stop 之后为 0。`trace stop` 的 `decode` 块改为停止**之后**读：强制判定出的行、drop 与 flush 的 settle 行都算进去（0.6-V NOTES 待审 (c) 的缺口一并补上）。
 - **行可能晚到**：非 strong 的行比 parse 晚至多约 1.5 s（加 settle 的 sweep）才出现；轮询 `decoded.jsonl` / `find` 的脚本要多等。
 - **没人认领的嫌疑**：判成 unattributed / no-fit 的暂停不 forget 与它混淆的嫌疑，它们照旧活到自己的 5 s 窗口结束（不变）；嫌疑自己的明文一旦写入（strong 或 weak）就 forget（`fileDecidedRow`，0.6-L 起）。grace 之后，这些在场的嫌疑不再能当场把别人的暂停拉走，所以本格不缩短它们的窗口。
 
