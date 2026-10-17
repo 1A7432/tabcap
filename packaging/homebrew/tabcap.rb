@@ -5,7 +5,7 @@
 class Tabcap < Formula
   desc "Browser for AI agents: background tabs, accessibility-tree refs, recorded traffic"
   homepage "https://github.com/1A7432/tabcap"
-  version "0.7.1"
+  version "0.7.2"
   license "Apache-2.0"
 
   on_macos do
