@@ -19,7 +19,7 @@ import { decodedEntry } from "../../src/daemon/tools/net.ts";
 import { Tabs } from "../../src/daemon/browser/targets.ts";
 import { Recorder } from "../../src/daemon/capture/recorder.ts";
 import { DecodeHost, DecodeSession, MAX_FAILURES, decodeMatches, decodeSkip, parseDecodeReply, resolveDecodeCommand, type DecodeJob, type DecodePlugin } from "../../src/daemon/hooks/decode.ts";
-import { MAX_PLUGIN_MANIFEST_BYTES, decodePlugins, listPlugins, parseManifest, pluginsFor, setEnabled } from "../../src/daemon/hooks/plugins.ts";
+import { MAX_PLUGIN_MANIFEST_BYTES, decodePlugins, listPlugins, liveDecodePlugins, parseManifest, pluginsFor, setEnabled } from "../../src/daemon/hooks/plugins.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../../src/daemon/transport/types.ts";
 import { S42_ITEMS_JSON, S42_ORDER_JSON, S42_POST_JSON, S42_TOKEN_JSON, xorEncode } from "../e2e/site.ts";
 import { buildBundle, tmp } from "./_analyze.ts";
@@ -102,6 +102,24 @@ describe("decode manifests (untrusted input)", () => {
     setEnabled(config, "dec", true);
     expect(decodePlugins(config).map((p) => [p.name, p.version, p.timeoutMs])).toEqual([["dec", "2", 800]]);
     expect(pluginsFor(config, "challenge")).toEqual([]);
+  });
+
+  test("0.7-E: a recording's live set follows plugin enable / disable; used keeps every plugin it has had", () => {
+    const config = join(tmp("tabcap-decl-"), "config");
+    mkdirSync(join(config, "plugins", "dec"), { recursive: true, mode: 0o700 });
+    writeFileSync(join(config, "plugins", "dec", "manifest.json"), JSON.stringify(GOOD));
+    const s = new DecodeSession(new DecodeHost(), liveDecodePlugins(config));
+    const at = { url: "http://127.0.0.1/api/x", mime: "text/plain", direction: "response" as const };
+    expect(s.empty).toBe(true);
+    expect(s.matching(at)).toEqual([]);
+    setEnabled(config, "dec", true);
+    expect(s.empty).toBe(false);
+    expect(s.matching(at).map((p) => p.name)).toEqual(["dec"]);
+    setEnabled(config, "dec", false);
+    expect(s.matching(at)).toEqual([]);
+    expect(s.used).toEqual(["dec"]);
+    // A fixed list stays fixed.
+    expect(new DecodeSession(new DecodeHost(), [fake()]).used).toEqual(["fake"]);
   });
 });
 

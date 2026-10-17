@@ -176,6 +176,34 @@ export function decodePlugins(configDir: string): DecodePlugin[] {
   return listPlugins(configDir).flatMap((p) => (p.enabled ? asDecodePlugin(p) : []));
 }
 
+/**
+ * 0.7-E: the enabled decode plugins as a live supplier for a recording, so a
+ * `tabcap plugin enable` / `disable` during the recording applies to the next
+ * body. The plugin list is re-read only when enabled.json or the plugins
+ * directory changed (one stat each per call), so a body costs no directory scan.
+ */
+export function liveDecodePlugins(configDir: string): () => DecodePlugin[] {
+  let key: string | null = null;
+  let cached: DecodePlugin[] = [];
+  const stamp = (f: string): string => {
+    try {
+      const st = statSync(f);
+      return `${st.mtimeMs}:${st.size}`;
+    } catch {
+      return "-";
+    }
+  };
+  return () => {
+    const root = pluginsDir(configDir);
+    const k = `${stamp(root)}|${stamp(join(root, ENABLED_FILE))}`;
+    if (k !== key) {
+      key = k;
+      cached = decodePlugins(configDir);
+    }
+    return cached;
+  };
+}
+
 /** A listed plugin as a decode plugin, or [] when it is not a valid one. */
 export function asDecodePlugin(p: PluginInfo): DecodePlugin[] {
   const m = p.manifest;

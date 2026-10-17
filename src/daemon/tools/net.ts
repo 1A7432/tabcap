@@ -22,7 +22,7 @@ import { latestViews, overlayEvent, parseDecoded, readSidecar } from "../../bund
 import { decodedPayload } from "../../analyze/views.ts";
 import { suspectOf } from "../trace/observe.ts";
 import { isRecord } from "../../shared/json.ts";
-import { decodePlugins } from "../hooks/plugins.ts";
+import { liveDecodePlugins } from "../hooks/plugins.ts";
 import { redactedDetail, redactUrl, revealOf, withRedactedUrl, type LiveCtx } from "./liveredact.ts";
 import { parseBodiesMode, type BodiesMode } from "../../shared/bodies.ts";
 import { readRecordBodies } from "../../shared/config.ts";
@@ -58,9 +58,10 @@ export async function netStart(d: Daemon, a: Args, session: string): Promise<unk
   const dir = join(d.paths.bundles, `${session}-${compactStamp(nowMs())}`);
   if (existsSync(dir)) throw new TabcapError("conflict", `bundle ${dir} already exists`, "Wait a second and run `tabcap net start` again.");
   const bound = d.sites.get(session) ?? null;
-  // 0.6-B: the enabled decode plugins, as installed when the recording starts.
+  // 0.6-B: the enabled decode plugins; 0.7-E: read per body, so `plugin enable`
+  // during the recording applies to the next body (not to bodies already written).
   let rec: Recorder | null = null;
-  const decode = new DecodeSession(d.decodeHost, decodePlugins(d.paths.config), {
+  const decode = new DecodeSession(d.decodeHost, liveDecodePlugins(d.paths.config), {
     scrub: (s) => d.secrets.scrub(s),
     onDisabled: (name, reason) => void rec?.note(`decode plugin ${name} disabled for this session: ${reason}`, { plugin: name }),
   });

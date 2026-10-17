@@ -506,17 +506,37 @@ export class DecodeSession {
   private disabled = new Set<string>();
   private nextId = 1;
   private readonly scrub: (s: string) => string;
+  private readonly source: () => readonly DecodePlugin[];
+  /** Every plugin name this session has offered so far (0.7-E: the set changes while a recording runs). */
+  private readonly seen = new Set<string>();
 
+  /**
+   * `plugins` is a fixed list (`bundle decode`, `replay check`) or a supplier
+   * read per decode job (0.7-E: a recording follows `plugin enable` /
+   * `plugin disable` made while it runs).
+   */
   constructor(
     private readonly host: DecodeHost,
-    readonly plugins: readonly DecodePlugin[],
+    plugins: readonly DecodePlugin[] | (() => readonly DecodePlugin[]),
     private readonly opts: { scrub?: (s: string) => string; onDisabled?: (name: string, reason: string) => void; maxFailures?: number } = {},
   ) {
     this.scrub = opts.scrub ?? ((s) => s);
+    this.source = typeof plugins === "function" ? plugins : () => plugins;
+    for (const p of this.plugins) this.seen.add(p.name);
+  }
+
+  /** The plugins as of now (a live supplier is read again). */
+  get plugins(): readonly DecodePlugin[] {
+    return this.source();
   }
 
   get empty(): boolean {
     return this.plugins.length === 0;
+  }
+
+  /** Names of the plugins this session has had in its set so far, in name order (enabled at start or later). */
+  get used(): string[] {
+    return [...this.seen].sort();
   }
 
   isDisabled(name: string): boolean {
@@ -525,7 +545,9 @@ export class DecodeSession {
 
   /** Enabled plugins (name order) whose match takes this body. */
   matching(job: Pick<DecodeJob, "url" | "mime" | "direction">): DecodePlugin[] {
-    return this.plugins.filter((p) => !this.disabled.has(p.name) && decodeMatches(p.decode.match, job.url, job.mime, job.direction));
+    const list = this.plugins;
+    for (const p of list) this.seen.add(p.name);
+    return list.filter((p) => !this.disabled.has(p.name) && decodeMatches(p.decode.match, job.url, job.mime, job.direction));
   }
 
   /**

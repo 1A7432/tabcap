@@ -21,7 +21,8 @@
 // captured, before the event is written; its plaintext is stored as a blob
 // and referenced as `decoded` on the `request` / `response` side (docs/04
 // §28). The original body is never changed. A plugin disabled after repeated
-// failures gets a `note` event.
+// failures gets a `note` event. 0.7-E: the plugin set is read per body, so a
+// plugin enabled while the recording runs applies to the next body.
 
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
@@ -195,7 +196,13 @@ export type RecorderOptions = {
 };
 
 /** What the recorder needs from the decode plugins (hooks/decode.ts DecodeSession). */
-export type RecorderDecode = { readonly empty: boolean; readonly plugins?: ReadonlyArray<{ readonly name: string }>; decode(job: DecodeJob): Promise<DecodeOutcome | null> };
+export type RecorderDecode = {
+  readonly empty: boolean;
+  readonly plugins?: ReadonlyArray<{ readonly name: string }>;
+  /** 0.7-E: names of every plugin the recording has had in its set (the set follows `plugin enable` / `disable`). */
+  readonly used?: readonly string[];
+  decode(job: DecodeJob): Promise<DecodeOutcome | null>;
+};
 
 export class Recorder {
   readonly dir: string;
@@ -1049,9 +1056,15 @@ export class Recorder {
     return !this.writerClosed;
   }
 
-  /** 0.7-B `tabcap status`: the decode plugins this recording asks (fixed at `net start`), by name. */
+  /**
+   * 0.7-B `tabcap status`: the decode plugins of this recording, by name.
+   * 0.7-E: the set follows `plugin enable` / `disable` during the recording;
+   * this is every plugin it has had so far (enabled at `net start` or later).
+   */
   get decodePlugins(): string[] {
-    return (this.opts.decode?.plugins ?? []).map((p) => p.name);
+    const d = this.opts.decode;
+    if (d === undefined || d === null) return [];
+    return d.used !== undefined ? [...d.used] : (d.plugins ?? []).map((p) => p.name);
   }
 
   /** For `daemon status`: where the bundle is and how much is in it. */
