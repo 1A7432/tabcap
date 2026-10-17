@@ -8,6 +8,26 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 - README gains an Install section (npm, release packages, source). Homebrew: `packaging/homebrew/tabcap.rb` is now a formula template; `scripts/homebrew-formula.ts` fills it from a release's `SHA256SUMS`, and the new `homebrew.yml` workflow pushes `Formula/tabcap.rb` to the tap `1A7432/homebrew-tabcap` whenever a GitHub release is published (secret `HOMEBREW_TAP_TOKEN`; without it the job only renders). The tap goes live when the owner creates it. The Scoop manifest carries the real hash (no bucket yet).
 
+### Input fidelity: a trusted click that navigates
+
+- `click --trusted` on a link no longer fails with `cdp` / `Runtime.callFunctionOn: Cannot find context with specified id` after the page navigated. When the delivery probe cannot be read and the tab's committed-navigation record (or URL) changed after the press, the click is delivered: `delivered:{pointerdown:"unknown",mousedown:"unknown",reason:"navigated"}`, `eventShape:"full"`, the normal navigation wait, `effect:"navigation"` and `url`. Without a navigation it is still `not-delivered`; double click uses the same path.
+
+### Overlay: a role-less full-viewport mask around a dialog
+
+- The overlay classifier now treats a fixed layer covering at least 90% of the viewport as a `dialog` when a smaller inner block (at most 60% of the viewport, opaque background or border / shadow) holds a button or form control, even without `role="dialog"`. Evidence says `full-viewport wrapper` and `buttons in an inner block`; a full-screen app root (> 500 characters of text, no styled inner block) is not taken for one. A plain `click` now also hit-tests the target centre after the classifier and answers `covered` (same decision as `--trusted`) instead of clicking through the mask; `snapshot` lists the dialog.
+
+### Replay client: no proxy from the environment
+
+- The generated Python client (`Session` in `_runtime.py`, `_tabcap_session.client`) builds `httpx.Client` with `trust_env=False`, so `http_proxy` / `https_proxy` / `NO_PROXY` (a Clash-style `NO_PROXY="[::1],…"` used to crash httpx) never affect it. A proxy comes from `proxy=` or `TABCAP_PROXY_URL` (argument first); the generated README says so.
+
+### Analysis output: values redacted by default
+
+- `analyze diff` (JSON and `--text`), `analyze deps`, `analyze chain` and `analyze recon` show cookie values, `authorization` / `set-cookie` / sensitive-named headers and sensitive-named query / JSON / form values as `<redacted:<hash>>` (one value, one placeholder) by default; classification and dependency analysis still read the recorded values. `--reveal` prints them. The placeholders in `analyze diff` keep the constant / session / varying table comparable.
+
+### Tabs: closing the current tab
+
+- `tab close` on the current tab now switches to the most recently current owned tab (else the last opened owned one) and answers `current`; borrowed tabs never become the fallback. Closing a non-current tab keeps `current`; closing the last owned tab answers `current:null` and later actions still report `no-tab`.
+
 ## 0.7.2 (2026-10-18)
 
 ### tabcap update

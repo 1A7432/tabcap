@@ -231,3 +231,8 @@
 - D7：不要求与 Playwright 严格同形；目标是让 `--trusted` 路径的输入尽可能可信、与真人无异，具体形状以本地探针 oracle 为准。
 - 附带：页面不读取的响应体，`responseReceived` 后 1 s 仍无完成事件且 Fetch 已取得全文时按 `finished` 写入并标 `unreadByPage:true`（docs/04 §19 提案，作者已定）。
 - 提案中给 docs/05（s46）、docs/06（A7.1–A7.10）、docs/07 §1.1 的条目，实现时按上述决定修订后并入对应文档，标「作者定 10-15」。
+
+## 0.7.3 外部评测补充（分支 `0.7.3-review-fixes`，10-18）
+
+- **`--trusted` 点到会导航的目标**：探针回读失败不再一律按 `cdp` / `not-delivered` 失败。按下后如果标签的导航记录变了（`Page.frameNavigated` / 同文档导航的 epoch，或 URL 变化），这次点击算已送达：`delivered:{pointerdown:"unknown",mousedown:"unknown",reason:"navigated"}`、`eventShape:"full"`，随后照普通导航路径等就绪并给 `effect:"navigation"` 与 `url`；没有导航记录才报 `not-delivered`。双击同此。等待上限 2 s，只在回读失败后发生。
+- **无 role 的全屏 mask 包住对话框**（`src/daemon/adapters/overlay/page.js`）：固定层覆盖 ≥ 90% 视口、内部有一个可见块面积 ≤ 60% 视口、该块有不透明背景（alpha ≥ 0.5）或有可见边框 / 阴影、且含按钮或表单控件 → 当作 `dialog`；evidence 加 `"full-viewport wrapper"` 与 `"buttons in an inner block"`。层自身文字 > 500 字不按此判，避免把铺满视口的应用根容器当遮挡层；普通固定页头 / 底栏面积小，不是候选。普通 `click` 的 `overlayCheck` 在分类器之后还在目标中心做一次 `elementFromPoint`：命中的不是目标 / 其后代 / 其可点击祖先容器就报 `covered`（`next` 保留「先关遮罩」的建议），与 `--trusted` 的判定一致。

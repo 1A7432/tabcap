@@ -291,7 +291,8 @@
 - **规则**：名字属于敏感头集合或命中名字规则的头，整值换成 `<redacted:头名小写>`；`cookie` / `set-cookie` 保留 cookie 名和属性，每个值都换（§8 的 state 规则：全部值）；`location` / `referer` / `content-location` 头与各处 URL 只换名字敏感的 query 参数，其余逐字不变（fragment 不动）；请求体：JSON（对象 / 数组）里任意深度名字敏感的键（有改动才紧凑重排，否则原文），表单体逐字段。值规则（邮箱、手机号等）不用在实时输出上。
 - **库里的秘密**：整值是库里已知秘密的，仍显示 `<secret:<站点>.<字段>>`（§8.1 的替换照常作用于所有输出，`--reveal` 也不例外）。
 - **`--reveal`**：上述命令都收（`POST /fetch` 收 `reveal: true`），打印录到的原值；只在人要求时用。
-- **不变**：证据包照原样记录（请求事件不改，它就是证据），HAR 导出照旧打码，`analyze` 系列命令读包、不受影响；例外（0.7-E，待作者审）：`analyze chain --text` 的步骤 URL 按本节的 URL 规则显示（如 `access_token=<redacted:access_token>`），它的 JSON 仍是录到的 URL（`replay export-python` 读它）。
+- **离线分析的输出（0.7.3）**：`analyze diff`（JSON 与 `--text`）、`analyze deps`、`analyze chain`、`analyze recon` 也按同一套名字规则脱敏——cookie 值、`authorization` / `set-cookie` / 名字敏感的请求头、名字命中 `(token|secret|passw|session|sid|auth|api[-_]?key)` 或 `pass` / `pwd` 一字的 query / JSON / form 值显示成 `<redacted:<sha256 前 8 位>>`；同一个值在整份回答里是同一个占位符，所以 `diff` 的对照仍成立。分类 / 依赖计算仍读原值，只换输出层；`--reveal`（这几个子命令）打印原值。`analyze shape` 本来只出类型、格式与非敏感字段的枚举字面量，没有值可换。
+- **不变**：证据包照原样记录（请求事件不改，它就是证据），HAR 导出照旧打码；`analyze` 系列命令的内部计算读原包，只有上面列出的输出层被换。
 - 验证：`test/unit/liveredact.test.ts`（规则表）、`test/e2e/v06e.e2e.test.ts`（`05` s07 token 变体：`x-csrf` 原样，`sid` cookie、`Authorization`、URL 的 `token` 参数打码，`--reveal` 还原，包里是原值）。
 
 ## 9. 与 HAR 互转
@@ -423,6 +424,7 @@
 - **`net wait` 的回看窗口**：默认回看到最近一条**动作类**命令（navigate / click / fill / type / press / go / reload / evaluate）的开始时刻，跳过只读命令（wait / snapshot / find / screenshot / console / net list / tabs）；另加 `--since <c-id>|start` 指定起点、`--fresh` 只等新的。超时的 `next` 要列出「更早已完成的匹配」。
 - **包内文件权限**：`events.jsonl`、`manifest.json`、`blobs/` 一律 0600，目录 0700，与 `raw/` 一致。
 - **弹窗归属**：opener 是本会话 owned 标签的弹窗也算 owned；`session stop` 关掉它们；借来的仍不关。
+- **关标签后的 current（0.7.3）**：`tab close` 关的是当前标签时，自动把最近成为 current 的 owned 标签设为 current（没有记录就取最后打开的 owned）；借来的（非 owned）标签不参与，会话没有别的 owned 标签时 `current:null`、后续动作命令仍报 `no-tab`。回答里 `current` 是新值。
 
 ## 17. 0.2-D 裁决（10-15）
 

@@ -8,6 +8,26 @@
 
 - README 新增「安装」一节（npm、release 包、源码）。Homebrew：`packaging/homebrew/tabcap.rb` 改为 formula 模板，`scripts/homebrew-formula.ts` 用 release 的 `SHA256SUMS` 填充，新的 `homebrew.yml` 工作流在 GitHub Release 发布时把 `Formula/tabcap.rb` 推到 tap `1A7432/homebrew-tabcap`（secret `HOMEBREW_TAP_TOKEN`；没有就只渲染不推）。tap 由作者建好后生效。Scoop 清单填了真实 hash（还没有 bucket）。
 
+### 输入保真：会导航的 `--trusted` 点击
+
+- `click --trusted` 点站内链接不再在页面导航后报 `cdp` / `Runtime.callFunctionOn: Cannot find context with specified id`。投递探针回读失败时，如果按下之后标签的已提交导航记录（或 URL）变了，这次点击算已送达：`delivered:{pointerdown:"unknown",mousedown:"unknown",reason:"navigated"}`、`eventShape:"full"`，随后走普通导航等待并给 `effect:"navigation"` 与 `url`；没有导航记录仍是 `not-delivered`。双击同此。
+
+### 遮挡：无 role 的全屏 mask 包着对话框
+
+- 遮挡分类器现在把覆盖至少 90% 视口的固定层当作 `dialog`：只要内部有一个更小的块（面积 ≤ 60% 视口，不透明背景或有边框 / 阴影）含按钮或表单控件，没有 `role="dialog"` 也算；evidence 写 `full-viewport wrapper` 与 `buttons in an inner block`。文字超过 500 字、没有样式化内块的全屏应用根容器不会被误判。普通 `click` 在分类器之后还会在目标中心做一次命中测试，被遮住时与 `--trusted` 一样报 `covered`，不再穿透；`snapshot` 会列出这个 dialog。
+
+### 回放客户端：不读环境里的代理
+
+- 生成的 Python 客户端（`_runtime.py` 的 `Session`、`_tabcap_session.client`）构造 `httpx.Client` 时用 `trust_env=False`，`http_proxy` / `https_proxy` / `NO_PROXY`（Clash 风格的 `NO_PROXY="[::1],…"` 以前会让 httpx 崩）不再影响它。代理只来自 `proxy=` 或 `TABCAP_PROXY_URL`（参数优先）；生成的 README 写明这一点。
+
+### 分析输出：默认脱敏
+
+- `analyze diff`（JSON 与 `--text`）、`analyze deps`、`analyze chain`、`analyze recon` 默认把 cookie 值、`authorization` / `set-cookie` / 名字敏感的请求头、名字命中敏感词的 query / JSON / form 值显示成 `<redacted:<hash>>`（同值同占位符）；分类与依赖计算仍读原值。`--reveal` 打原值。`analyze diff` 的常量 / 会话 / 变化分类保持可比。
+
+### 标签：关闭当前标签
+
+- `tab close` 关当前标签时自动切到最近成为 current 的 owned 标签（没有记录就取最后打开的 owned），回答里的 `current` 是新值；借来的标签不参与。关非当前标签时 `current` 不变；关掉最后一个 owned 标签时 `current:null`，后续动作命令仍报 `no-tab`。
+
 ## 0.7.2（2026-10-18）
 
 ### tabcap update
