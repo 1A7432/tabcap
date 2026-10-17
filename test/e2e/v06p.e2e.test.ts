@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { S60_COOKIE, S60_ME, S60_NEED_COOKIE, S60_PRIVATE, S60_TOKEN, S60_WILD, startCredSite, type CredSite } from "./site.ts";
+import { daemonRequest } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -46,11 +47,9 @@ async function ok(...args: string[]): Promise<Record<string, unknown>> {
   return e.data;
 }
 
-/** POST /fetch on the daemon's Unix socket (what _tabcap_fetch.py does with httpx). */
-async function endpoint(body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const info = rec(JSON.parse(readFileSync(join(home, "config", "daemon.json"), "utf8")));
-  const res = await fetch("http://localhost/fetch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), unix: s(info["socket"]) });
-  return rec(await res.json());
+/** POST /fetch on the daemon's socket, or its port + token on Windows (what _tabcap_fetch.py does with httpx). */
+function endpoint(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return daemonRequest(home, "/fetch", body);
 }
 
 function events(): Record<string, unknown>[] {

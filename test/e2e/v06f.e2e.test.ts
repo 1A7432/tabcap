@@ -202,7 +202,7 @@ describe.skipIf(!enabled)("tabcap 0.6-F L2 (session export --for requests / http
       const r = await runInPackageAsync(pkg, ["python", "-c", script, srv.url]);
       expect(r.err).toBe("");
       expect(r.code).toBe(0);
-      expect(r.out.trim().split("\n")).toEqual([`replay 200 ${srcId}`, "range 200 data-ok", "helper 200 data-ok"]);
+      expect(r.out.trim().split(/\r?\n/)).toEqual([`replay 200 ${srcId}`, "range 200 data-ok", "helper 200 data-ok"]); // CRLF on Windows
     } finally {
       await srv.stop();
     }

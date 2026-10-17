@@ -1,0 +1,24 @@
+// A script's view of the daemon API, for the e2e tests that talk to the daemon
+// without the CLI (POST /fetch as _tabcap_fetch.py does, the test-only
+// e2e.human-input action). It resolves the endpoint the way src/cli/client.ts
+// does: the Unix socket recorded in config/daemon.json, or on Windows the
+// loopback port with the bearer token from the same file (0.7.3: the three
+// callers used `unix:` only, which was every Windows e2e failure).
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { isRecord } from "../../src/shared/json.ts";
+
+const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
+
+export async function daemonRequest(home: string, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const info = rec(JSON.parse(readFileSync(join(home, "config", "daemon.json"), "utf8")));
+  const init: BunFetchRequestInit = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+  let res: Response;
+  if (info["listener"] === "tcp") {
+    const host = typeof info["host"] === "string" ? info["host"] : "127.0.0.1";
+    res = await fetch(`http://${host}:${String(info["port"])}${path}`, { ...init, headers: { ...init.headers, authorization: `Bearer ${String(info["token"])}` } });
+  } else {
+    res = await fetch(`http://localhost${path}`, { ...init, unix: String(info["socket"]) });
+  }
+  return rec(await res.json());
+}

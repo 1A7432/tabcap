@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { S62_BTN, S62_PING, startTakeoverSite, type TakeoverSite } from "./site.ts";
+import { daemonRequest } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -53,12 +54,9 @@ async function ok(home: string, ...args: string[]): Promise<Record<string, unkno
   return e.data;
 }
 
-/** The test-only daemon action, straight to the daemon socket (no CLI command exists for it). */
+/** The test-only daemon action, straight to the daemon's socket or Windows port (no CLI command exists for it). */
 async function inject(home: string, session: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-  const info = JSON.parse(readFileSync(join(home, "config", "daemon.json"), "utf8"));
-  const socket = isRecord(info) && typeof info["socket"] === "string" ? info["socket"] : "";
-  const r = await fetch("http://localhost/command", { unix: socket, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "e2e.human-input", args, session }) });
-  const env = rec(await r.json());
+  const env = await daemonRequest(home, "/command", { action: "e2e.human-input", args, session });
   if (env["ok"] !== true) throw new Error(`e2e.human-input failed: ${JSON.stringify(env)}`);
   return rec(env["data"]);
 }
