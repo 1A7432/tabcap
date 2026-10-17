@@ -52,7 +52,7 @@
 
 0.7-C 按此表改过的回答字段（落盘格式未动）：`net list` 行与 `--kind ws` 行、`net body`（预览与 `--pretty`）、`net wait`、`net show`（`request.postData`、`response.body`、帧与 `payload`）的 `size` → `bytes`；`analyze find` 的 `hints.suspectEncrypted[].size` → `bytes`；`replay check` 的 `diffs.body.recordedSize` / `gotSize` → `recordedBytes` / `gotBytes`；`net grep` 的行与 `skipped[]` 的 `request` → `id`；`analyze chain` 的 `steps[].request` → `id`（`todo[]` / `inputs[]` 是某个请求的输入，仍叫 `request`）；`analyze diff` 的 `groups[].requests[]` 从 `{bundle:<序号>, ref}` 改为 `{bundle:"<short>", id}`，`bundles[]` 多 `short`；`analyze schema-diff` 多 `bundles`；`click --trusted` / `hover` 的 `trajectory.ms` → `plannedMs`（与同一对象里的 `actualMs` 对齐）；`net show` 的 `timing.total` → `timing.totalMs`。
 
-留着没改的（NOTES 0.7-C 有清单）：落盘或直接透传落盘字段的（`ts`、blob 引用与事件里的 `size`、`net show` 的 `timing.start` / `end` 单调时钟）；与 `at` 已有别的含义冲突的（`console list` 的 `at` 是 `url:line:col`，`click` 的 `at` 是坐标，`net body --at` 是行列），所以 `console list` / ws 行的墙钟时刻仍叫 `ts`，`since` / `startedAt` / `savedAt` / `generatedAt` 等具名时刻也未改；`analyze find` 的 `hits[].ref`（console 命中时为 null，`where` / `find` 文档都以 `ref` 描述）；`wait` 块与 `fetch` 的 `timing.ms`（字段名本身就是 `ms`）；`session list` 的 `tabs`（数组）与 `status` 的 `tabs`（个数）。
+留着没改的（NOTES 0.7-C 有清单）：落盘或直接透传落盘字段的（`ts`、blob 引用与事件里的 `size`、`net show` 的 `timing.start` / `end` 单调时钟）；与 `at` 已有别的含义冲突的（`console list` 的 `at` 是 `url:line:col`，`click` 的 `at` 是坐标，`net body --at` 是行列），所以 `console list` / ws 行的墙钟时刻仍叫 `ts`，`since` / `startedAt` / `savedAt` / `generatedAt` 等具名时刻也未改；`analyze find` 的 `hits[].ref`（console 命中时为 null，`where` / `find` 文档都以 `ref` 描述）；`wait` 块的 `ms`（字段名本身就是 `ms`；`fetch` 的 `timing.ms` 在 0.7-E 改成了 `timing.totalMs`，§36）；`session list` 的 `tabs`（数组）与 `status` 的 `tabs`（个数）。
 
 ## 3. 事件信封
 
@@ -247,7 +247,7 @@
 - 触发：`tabcap bundle export har` 默认开，`--no-redact` 关；`tabcap bundle redact <in> <out>` 生成脱敏副本。原包永不原地改。
 - 规则来源：`redaction.json`（可改），默认规则：
   - 请求/响应头：`cookie`、`set-cookie`、`authorization`、`proxy-authorization`、`x-api-key`，以及名字含 `token` / `secret` / `session` / `auth` 的头。
-  - query、表单、JSON 字段：名字含 `(token|secret|passw|session|sid|auth|api[-_]?key)`，或有一段正好是 `pass` / `pwd`（按非字母数字、驼峰、字母数字交界切段：`user_pass`、`userPass`、`login-pwd`、`Pwd2` 算，`bypass`、`passport`、`compass`、`passenger` 不算；规则 `default@2`，0.4 作者定）。
+  - query、表单、JSON 字段：名字含 `(token|secret|passw|session|sid|auth|api[-_]?key)`，或有一段正好是 `pass` / `pwd` / `ticket`（按非字母数字、驼峰、字母数字交界切段：`user_pass`、`userPass`、`login-pwd`、`Pwd2`、`serviceTicket` 算，`bypass`、`passport`、`compass`、`passenger`、`tickets` 不算；`pass` / `pwd` 为 `default@2`，0.4 作者定；`ticket`（CAS 登录回跳 URL 里的一次性票据）为 `default@3`，0.7-E 加，待作者审）。
   - 值模式：18 位身份证、11 位手机号、邮箱、JWT（`xxx.yyy.zzz` 且 base64url）。
   - `state` 事件（cookies / storage）整体打码。
 - 占位符：`«r:<类别>:<sha256(salt+值) 前 8 位>»`。同一个值在整包里映射到同一个占位符，所以 `diff` 的「会话值 / 常量」分类在脱敏副本上不变。salt 只存在本地原包的 `exports/<name>.salt`，不进副本。
@@ -284,13 +284,13 @@
 
 ### 8.3 实时输出脱敏（0.6-E，10-16 作者定；细节按实现定案，待作者审）
 
-真实项目试用里 `net show` 明文打出 `access-token`、`Authorization: Bearer …` 和会话 cookie，`net list` 打出 URL 里的 token；只有 HAR 导出打了码。现在守护进程的实时输出也按 §8 的名字规则（`default@2`）显示成 `<redacted:<名字>>`：
+真实项目试用里 `net show` 明文打出 `access-token`、`Authorization: Bearer …` 和会话 cookie，`net list` 打出 URL 里的 token；只有 HAR 导出打了码。现在守护进程的实时输出也按 §8 的名字规则（`default@2`，0.7-E 起 `default@3`）显示成 `<redacted:<名字>>`：
 
 - **范围**：`net show`（URL、请求 / 响应头、postData 的内联文本与 blob 的 `head`；超过 2 KB 的内联正文落成 `exports/post/<id>.redacted.txt`；`bytes` 仍是录到的字节数，0.7-C 前叫 `size`）、`net list`（每行的 `url`，`--kind ws` 的帧 URL）、`net body`（答案里的 `url`；它不输出头）、`fetch` 与 `POST /fetch`（信封里选出的响应头；`location` 按 URL 规则）、`recon`（答案与 `exports/dossier.json` / `.md` 里的页面 URL、guard 检测的 URL）、`trace list`（每行的脚本 URL；行里不带参数值）。
 - **规则**：名字属于敏感头集合或命中名字规则的头，整值换成 `<redacted:头名小写>`；`cookie` / `set-cookie` 保留 cookie 名和属性，每个值都换（§8 的 state 规则：全部值）；`location` / `referer` / `content-location` 头与各处 URL 只换名字敏感的 query 参数，其余逐字不变（fragment 不动）；请求体：JSON（对象 / 数组）里任意深度名字敏感的键（有改动才紧凑重排，否则原文），表单体逐字段。值规则（邮箱、手机号等）不用在实时输出上。
 - **库里的秘密**：整值是库里已知秘密的，仍显示 `<secret:<站点>.<字段>>`（§8.1 的替换照常作用于所有输出，`--reveal` 也不例外）。
 - **`--reveal`**：上述命令都收（`POST /fetch` 收 `reveal: true`），打印录到的原值；只在人要求时用。
-- **不变**：证据包照原样记录（请求事件不改，它就是证据），HAR 导出照旧打码，`analyze` 系列命令读包、不受影响。
+- **不变**：证据包照原样记录（请求事件不改，它就是证据），HAR 导出照旧打码，`analyze` 系列命令读包、不受影响；例外（0.7-E，待作者审）：`analyze chain --text` 的步骤 URL 按本节的 URL 规则显示（`ticket=<redacted:ticket>`），它的 JSON 仍是录到的 URL（`replay export-python` 读它）。
 - 验证：`test/unit/liveredact.test.ts`（规则表）、`test/e2e/v06e.e2e.test.ts`（`05` s07 token 变体：`x-csrf` 原样，`sid` cookie、`Authorization`、URL 的 `token` 参数打码，`--reveal` 还原，包里是原值）。
 
 ## 9. 与 HAR 互转
@@ -404,11 +404,12 @@
 - **导入包的解码链**：`manifest.imported` 存在时，`wireEncoding` 作为链前缀（DevTools 已解压的正文也一样）；自录的包链为 `[]`。
 - **`find --save` 的 grade**：有命中记「实测」，0 命中记「推断」，actor 固定 `ai`；未收尾的包拒绝 `--save`。
 - **`finding.evidence`** 的联合类型加 `{console: seq}`。
-- **looks-signature** 按字面：hex 或 base64 字符集且长度 32 / 40 / 64 / 128，与 looks-random 互斥。
+- **looks-signature** 按字面：hex 或 base64 字符集且长度 32 / 40 / 64 / 128，与 looks-random 互斥。0.7-E（待作者审）：形如业务编号的值不算——全是数字、前面最多 4 个字母、字母与数字之间最多一个 `-` / `_`（`^[A-Za-z]{0,4}[-_]?\d+$`，如 `AB` + 30 位数字）；真实站点把这样的长编号当成了签名【实测：上手验收，站点匿名】。looks-random 未改。
+- **无值的 query 键（0.7-E）**：`?queryList&id=1` 里没有 `=` 的 `queryList` 不是参数（它在 URL 里点名方法或视图，没有值）：`analyze diff` / `deps` / `chain` 都不把它当输入，`replay export-python` 把它原样留在 URL 字面量里（生成的 `_send` 在 URL 已带 query 时把参数接在后面，不让 httpx 改写成 `queryList=`）。【实测 单测 `test/unit/diff.test.ts`、`test/unit/replay-chain.test.ts`】
 - **`analyze deps` 的类（0.6-E 补，10-16 作者定；表与值形状按实现定案，待作者审）**：有来源的类 = 来源种类（`set-cookie` > `response` > `action` > `request` > `constant` > `timestamp`）；没有来源时按顺序判：cookie 是 `unrecorded`；**`caller-input`**（调用方自己选的值）= 不是 cookie、没有 `looks-signature` / `looks-random` 提示、名字不敏感（§8 的名字规则与头规则），且名字在下表里，或这组请求录到的每个值都是「普通值」（< 6 位的数字、`true` / `false`、`yyyy-mm[-dd]` 或 `yyyy/mm[/dd]` 日期（可带 `Thh:mm[:ss]`）、一个 ≤ 24 字符的单词：字母开头，只含字母、`_`、`-`）；其余 `computed-in-page`。名字表（比较时转小写、去掉 `_` `-` `.`，去掉 `[n]`）：`page pageno pagenum pageindex pagesize perpage size limit offset count from to since until startdate enddate date period interval year month week day groupby sort sortby order orderby q query keyword search lang locale`。`caller-input` 不进 `unresolved`、不写 finding；`analyze chain` 把它列在 `inputs`（不在 `todo`）；`analyze chain` 的默认目标「最后一条有数据的 xhr / fetch / document」指**开始时间最晚**的那条（`timing.start`，没有就用 `mono`；事件顺序只在并列或缺时间时兜底；0.6-E：请求编号在响应写入时才分配，登录 POST 可能排在数据请求之后）；`replay export-python` 的链模式把它生成为普通参数、默认值是录到的第一个样本的值（JSON 叶子保留类型），没有 TODO。
 - **带前缀的头值（0.6-E）**：`x-*` / `authorization` 头的值与响应叶子直接比不上时，去掉开头的 `Bearer ` / `Basic ` / `Token ` / `JWT `（大小写不限，后跟空格或制表符）和成对的首尾引号（`"` 或 `'`）再比；这样的来源多 `prefix`（去掉的开头，含引号）与 `suffix`（去掉的结尾引号，没有时不写），`analyze chain` 的 `provides` 同样带上。`--write-findings` 去掉前后缀后复读叶子，一致记「实测」。`export-python` 的参数是去掉前后缀的值，发送时拼回（`"Bearer " + authorization`），`verify()` 照旧从上一步答复的路径取。
 - **`export-python` 的请求头（0.6-E）**：默认只发 `content-type`、`authorization`、非 Chrome 默认值的 `accept`（默认值 = `*/*`、导航的 `text/html,application/xhtml+xml,…`、图片的 `image/avif,…`、样式的 `text/css,*/*;q=0.1`）、源与请求不同的 `referer`，以及不在浏览器默认头表（§8.2 `session export` 的那张：禁止请求头、`sec-*`、客户端提示、缓存与条件请求头等）里的头；被去掉的头也不生成参数。`--browser-headers` 照录到的全部发送（0.6-E 之前的行为）。
-- **链的默认目标（0.6-E 定规则，0.6-C 统一）**：`analyze chain` 不给 `--request` 时，与 `replay export-python` 的链模式用**同一条规则**（`src/analyze/chain.ts` `latestTarget`）：有数据的 xhr / fetch / document 请求（2xx、录到非空正文）里**开始时间最晚**的那条（`timing.start`，没有用 `mono`；事件顺序只在开始时间相同或缺失时兜底），都没有就取这几类里有响应、开始最晚的。`export-python` 只在 `--include` / `--exclude` 选中的请求里挑；事件顺序与开始时间相反时两者选同一条（`test/unit/replay-chain.test.ts`）。
+- **链的默认目标（0.6-E 定规则，0.6-C 统一）**：`analyze chain` 不给 `--request` 时，与 `replay export-python` 的链模式用**同一条规则**（`src/analyze/chain.ts` `latestTarget`）：有数据的 xhr / fetch / document 请求（2xx、录到非空正文）里**开始时间最晚**的那条（`timing.start`，没有用 `mono`；事件顺序只在开始时间相同或缺失时兜底），都没有就取这几类里有响应、开始最晚的。`export-python` 只在 `--include` / `--exclude` 选中的请求里挑；事件顺序与开始时间相反时两者选同一条（`test/unit/replay-chain.test.ts`）。0.7-E：`export-python --request r-N` 与 `analyze chain --request` 同义（隐含链模式；目标不在导出的请求里时 `not-found` 并说原因，与 `--no-chain` 同用是用法错误）。
 
 代码待改（排进 0.2-C）：
 1. `types.ts` 的 `CmdEvent` 改为 start / end 两种形状；`reader.ts` 不再把 `status:null` 读成 0；HAR 导出对 `cmd` 对与 `console` 的处理（列入 dropped）。
@@ -482,7 +483,7 @@
 爬虫的请求由会话里已登录的标签发出并录进包：`tabcap fetch <url> …`（agent 用，`--batch <file.jsonl>` 按序跑多条）与守护进程的 `POST /fetch`（脚本用，`templates/python/_tabcap_fetch.py`）。机制（标记头、Request 阶段剥离、发起栈兜底）见 `07` §8。包格式只多 `request.fetchId`（§5.1）、`cmd` 结束事件的 `outputSummary.requests`（§4.1）与 `guard` 的 `fetch-stop`（§4.2），0.6-P 再加 `request.fetchCredentials` 与 `cmd` 开始事件 `input.credentials`（§34），不加新 kind。
 
 - **前提**：会话正在录制（`net start`），否则 `not-found`、什么都不发。请求在会话当前标签（或 `--tab`）主帧的 tabcap 隔离世界里用 `fetch(url, {credentials:"include", …})` 发出（0.6-P：`--credentials include|same-origin|omit` 换掉这个值，默认仍是 `include`，§34）：同源、cookie、CORS 规则都和页面自己的请求一样；相对 URL 按标签当前页面解析，只收 http(s)。请求体按页面 POST 的样子明文录下（§8.1，设计如此）。
-- **成功信封** `data`：`{id:"r-N", fetchId, status, statusText, mime, bytes, headers, body?|bodyFile?|bodyBase64?, bodyMissing?, timing:{startMono, endMono, ms}, waitedMs, stopped?}`。`headers` 只取 `content-type`、`content-length`、`content-encoding`、`content-disposition`、`location`、`cache-control`、`etag`、`last-modified`、`retry-after`（不带 `set-cookie`），值过秘密值替换、每个截到 1000 字符。正文：文本（按 `net body` 的规则解码）且 ≤ 8 KB 时内联 `body`（已脱敏）；更大或二进制写 `bodyFile`（与 `net body --file` 同一处 `exports/bodies/<r-N>.<ext>`，文本已脱敏、二进制原样）；`--out <file>` 改写到给定路径（同样脱敏）；`--raw` / `rawBody:true` 回 `bodyBase64`（文本是脱敏后 UTF-8 的 base64，二进制原样，≤ 16 MB，超过则落 `bodyFile` 并带 `note`）。没存正文（204、HEAD 等）时 `bytes:0` 加 `bodyMissing:<原因>`。`timing` 取自录下的 `request` 事件（CDP 单调毫秒）；`waitedMs` 是排队等本主机轮次的毫秒数。整个信封受 CLI 的输出预算约束（§24），按上面的上限不会超。
+- **成功信封** `data`：`{id:"r-N", fetchId, status, statusText, mime, bytes, headers, body?|bodyFile?|bodyBase64?, bodyMissing?, timing:{startMono, endMono, totalMs}, waitedMs, stopped?}（0.7-E 前 `totalMs` 叫 `ms`）`。`headers` 只取 `content-type`、`content-length`、`content-encoding`、`content-disposition`、`location`、`cache-control`、`etag`、`last-modified`、`retry-after`（不带 `set-cookie`），值过秘密值替换、每个截到 1000 字符。正文：文本（按 `net body` 的规则解码）且 ≤ 8 KB 时内联 `body`（已脱敏）；更大或二进制写 `bodyFile`（与 `net body --file` 同一处 `exports/bodies/<r-N>.<ext>`，文本已脱敏、二进制原样）；`--out <file>` 改写到给定路径（同样脱敏）；`--raw` / `rawBody:true` 回 `bodyBase64`（文本是脱敏后 UTF-8 的 base64，二进制原样，≤ 16 MB，超过则落 `bodyFile` 并带 `note`）。没存正文（204、HEAD 等）时 `bytes:0` 加 `bodyMissing:<原因>`。`timing` 取自录下的 `request` 事件（CDP 单调毫秒）；`waitedMs` 是排队等本主机轮次的毫秒数。整个信封受 CLI 的输出预算约束（§24），按上面的上限不会超。
 - **限速**（`config.json`）：`fetch:{minIntervalMs:3000, concurrency:1, stopOn:[]}`，`sites.<站点名>.fetch` 按键覆盖（给了 `stopOn` 就替换全局的）。按 URL 的主机（含端口）排队，先到先发；一条请求在「在飞的少于 `concurrency`」且「距该主机上一条请求开始或结束（取较晚者）已过 `minIntervalMs`」时才发，`concurrency:1` 即上一条结束到下一条开始至少 3 s。命令行没有绕过它的开关（作者红线）。`--timeout`（默认 30000，最大 600000）包含排队时间：轮次会晚于时限时直接回 `timeout`，什么都不发。
 - **站点**：URL 属于哪个库站点——先看会话绑定的站点（`session start --site`），再看其余站点；入口网址的主机或 `domains` 里的域（含子域）命中即是；都不中时用 URL 的主机（`host:port`）当站点键。限速配置、停手状态、`guard resume --site` 都按这个键。
 - **停手规则**（`--stop-on` 可重复，加在 `fetch.stopOn` 之后，按序取第一条命中的）：`empty-body`（无正文、0 字节或只有空白）、`status>=<n>`、`status=<n>`、`json:<$.路径>=<值>`、`json:<$.路径>!=<值>`（路径 `$` 加 `.键` / `[下标]`；值能按 JSON 解析就按 JSON 比，否则按字符串；正文不是 JSON 或路径上没有值，算「无值」，与任何值都不相等）、`text:<正则>`（u 标志，≤ 256 字符，对脱敏后的文本）。命中时：响应照常录下；命令回 `ok:false`、`error.code:"fetch.stopped"`，带 `site`、`rule`、`detail`、`request`、`fetchId` 与完整信封 `result`（含 `stopped:{rule, detail}`）；写 `guard` breaker（§4.2）；此后该站点的 `fetch`（命令行与端点）一律 `guard.stopped`，直到 `tabcap guard resume --site <站点>`，或该会话恰在 `waiting` 时由 `handoff continue` 一并解除。会话不会因此自动进 `waiting`；停手状态只在守护进程内存里，重启守护进程即清。0.6-I 起站点另有自己的停手规则（`sites.<名>.guard`，对全部流量、命中进 `waiting`，见 §18 后的 0.6-I 段）；`--stop-on` 是对它的每次调用覆盖：给了 `--stop-on`，这次响应不跑站点的 `stopOn`。
@@ -559,6 +560,8 @@
               "decoded": {"by":"xor-decode","version":"1","direction":"response","mime":"application/json","blob":"sha256:…","bytes":37,"ok":true} }
 // 解不了：{"by","version","direction","mime":null,"blob":null,"bytes":null,"ok":false,"error":"…"}；插件回答带 note 时多一个 "note"
 ```
+
+**录制中启用 / 停用（0.7-E，待作者审）**：录制器每个正文都重读已启用的解码插件（只在 `enabled.json` 或插件目录变了时重读，每次两个 stat），所以录制中 `plugin enable` 从下一个正文起生效、`plugin disable` 从下一个正文起停；之前写下的正文不补视图（录完后 `bundle decode` 补）。`tabcap status` 的 `recording.decodePlugins` 是这份录制到目前为止用过的插件（开始时启用的加上之后启用过的）。以前插件表在 `net start` 时定下，录制中启用的插件对这份录制无效【实测：上手验收 B1；v06b 新增一条：录制中 enable、reload 后出视图，之前的正文没有】。
 
 没有插件匹配的一侧没有 `decoded` 字段。`net list` 的索引项带响应视图的 `decoded:{by, version, mime, blob, bytes}`；`net show` 两侧各列 `decoded`（by、version、ok、mime、bytes、path / blob 或 error）。
 
@@ -753,6 +756,8 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 
 **`bundle export har --rules <file>`**：只把每条请求所符合规则的 `ignoreQuery` 参数从 `request.url` 与 `queryString` 里去掉，让按 HAR 回放的工具键对得上；HAR 别的一个字节都不变。回答多 `rules`。
 
+`replay export-python` 的链目标（0.7-E）：`--request r-N` 与 `analyze chain --request` 同义；`verify()` 从答复里取链上推得出的输入（§36）。
+
 0.6-S 的 `prefer` 与预检只有单测（`test/unit/offline06s.test.ts`：一个键先 403 后 200、一个键两条 200、一个键只有 500 / 502、一条预检；`serve` 的头与路由、`check` 的 `notPreferred`、夹具的选择与编号、预检的跳过与 `serve` 的回答），没有加靶场页【实测 10-17，单测】。
 
 **靶场**：不加新页，复用 s06（t / nonce / sig）、s07（表单登录）、s42（加密正文，`xor-decode`）；夹具插件 `test/e2e/plugins/fixture-harness/`（Bun 脚本，每个夹具出一个 `cases/<r-N>.json`）。【实测 10-16，本机 CfT：`test/e2e/v06c.e2e.test.ts` 7/7；`test/unit/replay-rules.test.ts`、`test/unit/fixtures-export.test.ts`】
@@ -935,16 +940,32 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **回答**（`schema:"tabcap-status/0"`）：
   - `daemon`：`{running, pid, version, listener, socket, port?, startedAt}`（没在跑：`{running:false, listener}`）；
   - `browser`：`{running, pid, mode:"direct"|"ext"|null, tabs}`（未关闭的标签数）；
-  - `sessions[]`：每个会话 `{session, site, account, tabSite, tabs, current, recording, state, reason, screenshot, trace, guardStops}`。会话取浏览器的会话表，再并上有录制、有 trace、有站点绑定、在 `waiting`、或停过 fetch 的名字（浏览器没了也列得出来）。`account` 只给用户名；`tabSite` 只给未绑定的会话：当前标签 URL 落在哪个库内站点（`fetch` 同一套 `siteOf`），否则 `null`；`recording` 是 `{bundle, since, entries, decodePlugins}` 或 `null`（`entries` = 已写的请求条数，`decodePlugins` = 这份录制在 `net start` 时定下的解码插件）；`state` 是 `running` | `waiting`，`waiting` 时 `reason`（`verify-page` / `stop-rule`）与 `screenshot` 有值；`trace` 是 `{state:"off"|"on"|"paused", decode, weakRows}`（`weakRows` 只在观察模式下是数，= 已归档的 `link:"weak"` 行）；`guardStops[]` 是落在本会话的 fetch 停手 `{site, rule, since, reason:"fetch-stop"|"stop-rule", by, request}`——由本会话触发、或站点等于本会话绑定的站点 / 当前标签所在站点 / 交接记下的站点；
+  - `sessions[]`：每个会话 `{session, site, account, tabSite, tabs, current, recording, state, reason, screenshot, trace, guardStops}`。会话取浏览器的会话表，再并上有录制、有 trace、有站点绑定、在 `waiting`、或停过 fetch 的名字（浏览器没了也列得出来）。`account` 只给用户名；`tabSite` 只给未绑定的会话：当前标签 URL 落在哪个库内站点（`fetch` 同一套 `siteOf`），否则 `null`；`url`（0.7-E）是当前标签（没有就是会话第一个标签）的 URL，没有标签为 `null`；`recording` 是 `{bundle, since, entries, decodePlugins}` 或 `null`（`entries` = 已写的请求条数，`decodePlugins` = 这份录制到目前为止用过的解码插件，0.7-E 前是 `net start` 时定下的）；`state` 是 `running` | `waiting`，`waiting` 时 `reason`（`verify-page` / `stop-rule`）与 `screenshot` 有值（截图还在拍时 `status` 等它，最多 5 s，§36）；`trace` 是 `{state:"off"|"on"|"paused", decode, weakRows}`（`weakRows` 只在观察模式下是数，= 已归档的 `link:"weak"` 行）；`guardStops[]` 是落在本会话的 fetch 停手 `{site, rule, since, reason:"fetch-stop"|"stop-rule", by, request}`——由本会话触发、或站点等于本会话绑定的站点 / 当前标签所在站点 / 交接记下的站点；
   - `plugins`：已启用的 `{decode:[名字], challenge:[名字]}`；
-  - `handoff[]`：在等人的会话 `{session, reason, site, since, screenshot}`；
-  - `conflicts[]`：`{code, session, message, next}`，规则按下列顺序生成（`src/daemon/tools/status.ts`，纯函数，输入是上面的事实）。
+  - `handoff[]`：在等人的会话 `{session, reason, site, url, since, screenshot}`（`url` 是 guard 交接时的那条请求，0.7-E）；
+  - `conflicts[]`：`{code, session, message, next}`，规则按下列顺序生成（`src/daemon/tools/status.ts`，纯函数，输入是上面的事实）；
+  - `next`（0.7-E，待作者审）：先做什么。有会话在 `waiting` 时每个这样的会话一句「告诉用户（附截图路径），人在浏览器里做完后 `tabcap handoff continue --session <s>`」，`; ` 连接；否则第一条冲突的 `next`；都没有为 `null`。
 - **规则**（`next` 一律写成可直接执行的命令，带 `--session`）：
   - (a) `waiting-and-fetch-stop`：会话在 `waiting`，且有 fetch 停手落在它身上；`guard resume --site` 只解停手、不结束等待（例外：等待与停手出自本会话同一条站点停手规则时 `guard resume` 两个都解，此时不报）。`next`：人在浏览器里做完后 `tabcap handoff continue --session <s>`；停手由别的会话触发时再加 `tabcap guard resume --site <site>`（`handoff continue` 只解本会话触发的）。
-  - (b) `decode-plugin-outranks-page`：会话在观察模式（`trace start --decode`）且有解码插件生效——有录制看录制自己的 `decodePlugins`，没录制看已启用的（下一次 `net start` 会用它们）；插件视图优先于 page 视图、插件解过的正文不再观察（§33 D4）。`next`：`tabcap plugin disable <name>`（一个插件写名字，多个写 `<name>`）；有录制时再加 `net stop` 与 `net start`（录制沿用开始时的插件）【实测：`net start` 时读插件表，`src/daemon/tools/net.ts`】。
+  - (b) `decode-plugin-outranks-page`：会话在观察模式（`trace start --decode`）且有已启用的解码插件（0.7-E 起录制每个正文都重读插件表，所以有没有录制都看已启用的）；插件视图优先于 page 视图、插件解过的正文不再观察（§33 D4）。`next`：`tabcap plugin disable <name>`（一个插件写名字，多个写 `<name>`）；有录制时注明「从下一个正文起生效，已解过的正文保留插件视图」。0.7-E 前有录制时还要 `net stop` 与 `net start`（录制沿用开始时的插件），已作废。
   - (c) `unbound-session`：会话有标签、没绑站点，且当前标签落在库内站点（`tabSite` 非空）；`fill --secret` 会被拒（0.6-R 的 `unboundSecretError`，`src/daemon/tools/input.ts`）。只浏览库外页面的会话（如普通的 `default`）不报（作者 10-17 定，收窄了最初「有标签没绑站点就报」的写法）。`next`：需要库内密钥时 `session stop`，再 `session start <s> --site <tabSite>`。
   - (d) `recording-without-browser`：会话还开着录制，但浏览器没在跑或会话没有打开的标签；什么都进不了包。`next`：`net stop` 收包；浏览器还在时也可 `navigate` 继续录。
   - (e) `trace-without-recording`：trace 开着、会话没录制；signal / observe 行进不了任何包，直到 `net start`。`next`：`net start`，再重新加载页面。
-- **`--text`**：一屏。首行守护进程、浏览器、已启用插件；每个会话一行（站点与账号、标签数与当前标签、录制条数与包路径、`WAITING <reason>` 与截图、trace、停手的站点与规则）；然后 `conflicts (n):`，每条一行 `- [code] message`、下一行 `  next: …`；没有冲突写 `conflicts: none`。
+- **`--text`**：一屏。首行守护进程、浏览器、已启用插件；每个会话一行（站点与账号、标签数与当前标签、录制条数与包路径、`WAITING <reason> at <url>` 与截图、trace、停手的站点与规则）；然后 `conflicts (n):`，每条一行 `- [code] message`、下一行 `  next: …`；没有冲突写 `conflicts: none`；最后一行 `next: …`（顶层 `next` 非空时）。
 - **MCP**：`tabcap_status` 进核心集，替下 `handoff status`（`status` 已列出等人的会话与原因；`handoff status` 仍可经 `tabcap_run`）；核心集仍 24 个工具，定义 9047 B【实测：`test/unit/mcp.test.ts` 打印】。
 - 验证：`test/unit/status07b.test.ts`（五条规则的正反例与顺序、(c) 不对普通浏览会话报、`--text`、无浏览器守护进程上的回答、无守护进程的回退）、`test/e2e/v07b.e2e.test.ts`（靶场 s07 / s15 与 `xor-decode`：绑定录制会话 + 标签在库内站点的未绑会话出 (c)，`data:` 页上的未绑会话不出；第 6 次 `fetch /api/limited --stop-on status>=400` 同时停 fetch 并进 `waiting` 出 (a)，`guard resume` 后 `handoff status` 仍是 `waiting`；`trace start --decode` 出 (b) 与 (e)，`net start` 后 (e) 消失、(b) 的 `next` 加上换录制）。
+
+## 36. 0.7-E 上手验收后的发布前修正（10-17 主循环定范围；细节按实现定案，待作者审）
+
+来源【实测】：邻近项目的 agent 只看 SKILL.md 与 `tabcap guide`，在一个真实站点和本地复刻上跑五个配方，结论「可以发布」，另有两处卡新人、几处小问题（站点匿名）。
+
+- **B1 录制中启用的解码插件**：改为立即生效（§28「录制中启用 / 停用」）。`encrypted-site` 配方改成 `plugin init` → `plugin enable` → `net start` → 打开页面 → `net body`，提醒里写明启用之前录下的正文没有视图（`reload` 重录，或录完 `bundle decode`）。【实测 v06b：录制中 enable，`reload` 后新请求有视图、旧请求没有，`status` 的 `recording.decodePlugins` 从 `[]` 变成 `["xor-decode"]`】
+- **B2 `offline-replay` 的 verify 在真实站点上过不去**：
+  - (a) `replay export-python --request r-N`（§15 链的默认目标那条）；配方写上它，默认目标（开始最晚的有数据请求）常是统计 / 埋点调用。
+  - (b) `verify()` 从上一步的答复里取链上能解析到来源的输入，名字敏感的也一样（`x-csrf-token`、`Authorization`），只对取不到的才要 `TABCAP_SECRET_*`。`verify_expected.json` 每步的 `derived[参数] = {from, as, path?, text?:{before, after}, plugin?:{name, dir, command, timeoutMs}}`：先（值来自解码插件视图时）把答复交给本机装着的那个插件（tabcap-decode/1，一行进一行出，环境与 tabcap 给插件的相同），再按 JSON 路径取（` -> ` 进入字符串里的 JSON，`json-unescape` / `json-string` / `json` 这几步可复现），否则按录到的值前后文本取（值在录到的答复文本里只出现一次时，前取 ≥ 12 字符、唯一的上文，后取不出现在值里的最短下文；HTML 里的 `<meta content="…">` 这类）。取不到的（`page` 观察模式视图、插件没装、值在文本里不唯一）进 `underived[参数] = 原因`，敏感的仍读 `TABCAP_SECRET_*`，失败信息带上原因。生成的 README 同步改写。【推断：验收里的 CSRF 值来自解码插件视图（同一包 `bundle decode` 解出 30/30），旧代码只接受无解码步骤的 JSON 路径，于是落到了环境变量；单测在 s42 合成包上复现了这条：不装插件时 `underived` 说明原因、args 是 `<secret:…>`，装了插件 verify 对 `replay serve` 全过】【实测 单测 `test/unit/replay-chain.test.ts`：JSON 叶子里的敏感头、HTML meta 里的令牌、插件明文里的令牌三种 verify 对 `replay serve` 都过，环境里没有任何 `TABCAP_SECRET_*`；换一个发新令牌的服务器，第二步发出的是新令牌】
+  - (c) 无值的 query 键与业务编号：§15 两条。
+- **`replay check --text`**：默认回 JSON 信封（与其它分析命令一致），`--text` 每条不是 `same` 的请求一行（id、方法、路径、状态、结果、哪里不同），最后一行合计；原来的 `--json` 去掉（默认表格 → 默认 JSON，未发布前不留兼容）。
+- **`fetch` 的 `timing.ms` → `timing.totalMs`**（`POST /fetch` 同一信封；`_tabcap_fetch.py` 不读它）。
+- **`ticket` 是敏感名**（§8，`default@3`）：HAR 导出、`bundle redact`、实时输出与 `analyze chain --text` 都把 `ticket=` 的值打码。
+- **`waiting` 的截图与 `status`**：guard 在交接后 0.4 s 才拍截图，而且要排在触发它的那条命令之后用标签，所以那条命令自己的 `waiting` 回答、紧跟着的 `status` / `handoff status` 都是 `screenshot: null`，约 0.5 s 后才有路径；截图本来就存在数据目录的 `shots/` 下，与有没有录制无关（`net stop` 之后 `status` 照样列出）【实测：复现脚本，`navigate` 到第 6 次的 403 验证页】。现在这三处都等正在拍的截图（最多 5 s）；`status` 的会话多 `url`、`handoff[]` 多 `url`、顶层多 `next`（§35）。验收报告里「没有录制时触发」与代码不符：guard 只看录制里的响应，没有录制不会进 `waiting`；当时看到的应是截图还没拍完【推断】。
+- 验证：`bun test test/unit`、`bunx tsc --noEmit -p .`、`bun run validate:skill`、`bun run gen:docs`；e2e v06b、v06a、v07b、v04a、v03b、v06c 与 `tabcap.e2e`（结果见 NOTES 0.7-E）。

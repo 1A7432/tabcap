@@ -6,6 +6,19 @@
 
 第一个公开版本。下面的 0.6.0 打过包、测过，但没有发布；它的全部内容随本版本一起发。
 
+### 上手验收后的发布前修正（0.7-E）
+
+邻近项目的 agent 只看 SKILL.md 和 `tabcap guide`，在一个真实站点和一个本地复刻上跑完五条配方。结论是「可以发布」，另外指出两处会卡住新人、几处小问题：
+
+- **录制中启用的解码插件立即生效**：录制器每个正文都重读已启用的解码插件，`plugin enable` / `plugin disable` 从下一个正文起生效；启用之前录下的正文没有视图（`net stop` 后用 `bundle decode` 补）。`status` 列出这份录制到目前为止用过的插件，`decode-plugin-outranks-page` 冲突不再要求 `net stop` + `net start`。`encrypted-site` 配方改为 `plugin init` → `plugin enable` → `net start` → 打开页面 → `net body`。
+- **`replay export-python --request r-N`**：指定链的目标，与 `analyze chain --request` 同义。不给时目标是开始最晚的有数据请求，在真实页面上常是统计调用。`offline-replay` 配方写上了这个旗标。
+- **`verify` 从答复里取链上推得出的输入**：链能追到上一步答复的输入，都从那份答复里取，名字敏感的也一样（`x-csrf-token`、`Authorization`）。取值方式有三种：按 JSON 路径取（字符串里的 JSON 也行），按录到的值前后文本取（如 HTML `<meta>` 里的令牌），或者在值来自解码插件明文时，用本机装着的插件解这份答复再取。只有 `verify` 复现不了的输入才要 `TABCAP_SECRET_*`，`verify_expected.json` 的 `underived` 写明原因。
+- **分析启发式**：没有值的 query 键（`?queryList&id=1`）算端点的一部分，不再是参数，生成的客户端照录到的原样发送。字母短前缀加一长串数字的业务编号不再算 `looks-signature`。
+- **`replay check --text`**：默认回 JSON 信封，与其它分析命令一致；`--text` 每条不是 `same` 的请求打一行，最后打合计。`--json` 去掉。
+- **`fetch`**（以及 `POST /fetch`）的耗时字段改名 `timing.totalMs`（原 `timing.ms`）。
+- **`ticket` 算敏感名**（脱敏规则 `default@3`）：登录回跳 URL 里的 CAS 票据在 HAR 导出、`bundle redact` 和实时输出里都打码；`analyze chain --text` 的步骤 URL 也把敏感 query 参数打码（JSON 仍是录到的 URL）。
+- **等人的会话**：撞上挑战的那条命令、`handoff status` 和 `status` 都会等正在拍的截图（最多 5 s），不再在约半秒内答 `screenshot: null`。`status` 的每个会话多出标签的 `url`，`handoff` 每条多出交接时的 URL，回答顶层多出 `next`：人做完后执行 `tabcap handoff continue --session <名字>`，没有等人的会话时取第一条冲突的 `next`。`--text` 显示 `WAITING <原因> at <url>`，最后一行是 `next:`。
+
 ### 任务配方（0.7-A）
 
 - **`tabcap guide [<id>]`**：按任务给入口。不带 id 列出配方（id、标题、何时用）；带 id 给出按顺序的命令（5–10 步、可直接粘贴、带 `--session`，每步写为什么）、容易漏的坑（含隐式状态）和该读的参考；`--text` 打成带 `# why` 注释的编号 shell 块。首批五条：`first-look`、`scrape-through-browser`、`encrypted-site`、`offline-replay`、`login-with-challenge`。这条命令在 `tabcap --help` 顶部新开 **Start here** 组。
@@ -16,7 +29,7 @@
 ### tabcap status（0.7-B）
 
 - **`tabcap status [--text]`**：原先散在 `daemon status`、`session list`、`trace status`、`plugin list`、`handoff status` 和 guard 输出里的状态，一个回答看全。`daemon`（pid、监听方式）、`browser`（是否在跑、pid、模式、标签数）、`sessions[]`（站点、账号名、标签数与当前标签、`recording` 的包路径 / 开始时间 / 条数 / 它用的解码插件、`state` running | waiting 及原因与截图、`trace` off | on | paused 及 `decode` 与 `weakRows`、落在它身上的 fetch 停手）、已启用的 `plugins`（decode / challenge）、`handoff`（在等人的会话与原因）和 `conflicts[]`。只读、全局：不在任何录制里开命令窗口，会话在等人时也照答；守护进程没在跑也回答（`daemon.running: false`）。
-- **`conflicts`**：规则对上述回答生成的句子，每条带 `code` 和 `next` 命令：会话在等人、同时该站点的 fetch 被停（`guard resume` 解不开等待，`handoff continue` 才行）；会话用 `trace start --decode` 观察页面时有解码插件生效（插件视图压过 page 视图；`plugin disable`，开着录制时再换一份录制）；会话的当前标签在库内站点上、却没绑该站点（`fill --secret` 会被拒；只浏览库外页面的会话不报；先 `session stop`，再 `session start --site`）；录制还开着但浏览器或标签没了；trace 开着却没录制（`net start` 之前什么行都进不了包）。
+- **`conflicts`**：规则对上述回答生成的句子，每条带 `code` 和 `next` 命令：会话在等人、同时该站点的 fetch 被停（`guard resume` 解不开等待，`handoff continue` 才行）；会话用 `trace start --decode` 观察页面时有解码插件生效（插件视图压过 page 视图；`plugin disable`，开着的录制从下一个正文起照办）；会话的当前标签在库内站点上、却没绑该站点（`fill --secret` 会被拒；只浏览库外页面的会话不报；先 `session stop`，再 `session start --site`）；录制还开着但浏览器或标签没了；trace 开着却没录制（`net start` 之前什么行都进不了包）。
 - `--text` 打一屏：每个会话一行，然后是冲突及其 `next`。
 - MCP：`tabcap_status` 进默认核心集，替下 `tabcap_handoff_status`（仍可经 `tabcap_run` 调）；核心集仍是 24 个工具。
 
