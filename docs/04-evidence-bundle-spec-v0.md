@@ -897,7 +897,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **规则**（`next` 一律写成可直接执行的命令，带 `--session`）：
   - (a) `waiting-and-fetch-stop`：会话在 `waiting`，且有 fetch 停手落在它身上；`guard resume --site` 只解停手、不结束等待（例外：等待与停手出自本会话同一条站点停手规则时 `guard resume` 两个都解，此时不报）。`next`：人在浏览器里做完后 `tabcap handoff continue --session <s>`；停手由别的会话触发时再加 `tabcap guard resume --site <site>`（`handoff continue` 只解本会话触发的）。
   - (b) `decode-plugin-outranks-page`：会话在观察模式（`trace start --decode`）且有解码插件生效——有录制看录制自己的 `decodePlugins`，没录制看已启用的（下一次 `net start` 会用它们）；插件视图优先于 page 视图、插件解过的正文不再观察（§33 D4）。`next`：`tabcap plugin disable <name>`（一个插件写名字，多个写 `<name>`）；有录制时再加 `net stop` 与 `net start`（录制沿用开始时的插件）【实测：`net start` 时读插件表，`src/daemon/tools/net.ts`】。
-  - (c) `unbound-session`：会话有标签、没绑站点；`fill --secret` 会被拒（§0.6-R `unboundSecretError`）。`next`：需要库内密钥时 `session stop`，再 `session start <s> --site <site>`（`tabSite` 有值就填它，否则 `<site>`）。
+  - (c) `unbound-session`：会话有标签、没绑站点；`fill --secret` 会被拒（0.6-R 的 `unboundSecretError`，`src/daemon/tools/input.ts`）。`next`：需要库内密钥时 `session stop`，再 `session start <s> --site <site>`（`tabSite` 有值就填它，否则 `<site>`）。
   - (d) `recording-without-browser`：会话还开着录制，但浏览器没在跑或会话没有打开的标签；什么都进不了包。`next`：`net stop` 收包；浏览器还在时也可 `navigate` 继续录。
   - (e) `trace-without-recording`：trace 开着、会话没录制；signal / observe 行进不了任何包，直到 `net start`。`next`：`net start`，再重新加载页面。
 - **`--text`**：一屏。首行守护进程、浏览器、已启用插件；每个会话一行（站点与账号、标签数与当前标签、录制条数与包路径、`WAITING <reason>` 与截图、trace、停手的站点与规则）；然后 `conflicts (n):`，每条一行 `- [code] message`、下一行 `  next: …`；没有冲突写 `conflicts: none`。
