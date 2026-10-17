@@ -491,3 +491,8 @@
 - 做了什么：评审五点逐条核实。(1) 干净检出 `bun run build` 失败【实测】：`src/wire/embedded.ts` 要 `native/dist/*/wireprint`，没有 Zig 编不出 → 派 0.7-G 做无 Zig 的降级构建；(2) docs/03 §5 模块表 `analyze`、`mcp` 各两行、内容不一致【实测】→ 合并成一行；README 命令一览标出*实验*组（诊断、recon、proxy），其余是日常在用、e2e 覆盖的；(3)「人在操作 AI 的标签就自动暂停」代码里没有实现【实测 grep】，docs/03 §4 原标【待验】→ 改成写明未实现、现有交接都由工具触发、0.7.1 候选做法；README 本来没有这个承诺；(4) 边界一节加「遵守站点条款与所在地法律、不是绕过保护的手段」一句；(5) 演示视频与分发渠道是作者的事，不在仓库里。
 - 卡在哪：0.7-G 的构建降级在跑；Windows 单测仍红（0.7-F 在修）。
 - 下一格从哪开始：0.7-F / 0.7-G 合入 → release.yml 干跑通过 → 作者推 v0.7.0 tag；0.7.1 候选：人接管识别（隔离世界被动输入监听，命令窗口外的 isTrusted 输入即等待）排在前面。
+
+## 2026-10-17 · 0.7-G · 源码构建缺原生组件时的明确提示（分支 0.7-G-build-without-zig）
+- 做了什么：作者 10-17 改范围：不做无 Zig 的降级构建，Zig 0.16 是源码构建的前置条件。`bun run build*` 先跑 `scripts/prebuild.ts`，`native/dist/<目标>/wireprint[.exe]` 缺任何一个就退出 1，打一句「the wire component is not built: install Zig 0.16.0 and run `bun scripts/native.ts build` first (release and npm packages include it)」加一行缺了哪些，代替 bun 的 `Could not resolve`；`test/unit/prebuild.test.ts` 4 个；docs/07 §6、packaging/npm/README.md §1、两份 CHANGELOG 写明前置条件。【实测】干净 detached worktree：`bun run build` 打出这句并退出 1、不产 dist；`bun scripts/native.ts build` 后 `bun run build` 退出 0，`./dist/tabcap wire version` 回 `source:"embedded"`、`wireprint 0.1.0`。单测 1248/1248，tsc、validate:skill、gen:docs 干净。
+- 卡在哪：README 两份的「从源码编」一句由主循环改（本分支不碰 README）；先前起草的 stub 降级代码已全部撤回，没有提交。
+- 下一格从哪开始：主循环贴 README 句子后合入；`scripts/release.ts` / `npm-pack.ts` 直接调 `bun build --compile`、不经 prebuild（它们先跑 `native.ts build`，缺 Zig 时由 native.ts 自己报 `zig not found`），作者认为需要时再统一。

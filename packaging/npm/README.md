@@ -19,7 +19,7 @@
 
 ## 1. 组装
 
-在仓库根目录：
+前置：Bun 1.4 以上、Zig 0.16.0（四个 wire 组件要用 Zig 交叉编译；`bun run build*` 在 `native/dist/` 缺组件时由 `scripts/prebuild.ts` 一句话拒绝，见 docs/07 §6「原生组件的调用」）。在仓库根目录：
 
 ```sh
 bun run npm:pack                        # 四个平台包 + tabcap

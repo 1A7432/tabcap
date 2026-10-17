@@ -8,6 +8,10 @@
 
 - `release.yml` 多一个 `npm` job：推 `v*` tag 后用编好的二进制组装五个 npm 包并按顺序发布（先平台包后 `tabcap`），已在 registry 上的版本跳过；认证用仓库 secret `NPM_TOKEN`，没有就走 npm trusted publishing（OIDC）；`workflow_dispatch` 勾 `npm_dry_run` 可以干跑到 `npm publish --dry-run`。GitHub Release 仍是草稿。
 
+### 源码构建：原生组件缺失时的明确提示（0.7-G）
+
+- 从源码构建除了 Bun 1.4 以上还要 Zig 0.16.0：先 `bun scripts/native.ts build`（tabcap 嵌入的四个 wire 组件），再 `bun run build`。每个 `bun run build*` 现在先跑 `scripts/prebuild.ts`，`native/dist/` 缺组件时退出 1 并用一句话说明，不再是 bun 的 `Could not resolve "../../native/dist/…"`。发布包与 npm 包已含组件。
+
 ## 0.7.0（2026-10-17）
 
 第一个公开版本。下面的 0.6.0 打过包、测过，但没有发布；它的全部内容随本版本一起发。
