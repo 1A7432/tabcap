@@ -4,6 +4,14 @@
 
 ## 未发布
 
+### 人接管识别（0.7.1-A）
+
+- **你一动 AI 的标签，AI 就停下。** 默认的 `direct` 模式下，tabcap 在会话拥有的每个标签上、自己的隔离世界里挂一个被动监听器。你在这个标签里点击、按键、滚动或触摸（可信的 `pointerdown` / `keydown` / `wheel` / `touchstart`），会话就进入 `waiting`，`reason: "human-takeover"`：动页面的命令一律回 `waiting`，只读命令照常，`tabcap status` / `handoff status` 能看到。只有 `tabcap handoff continue`（你说做完了再跑）才让 AI 继续；不会自动恢复，这种等待也不截图。
+- **tabcap 自己的输入不算。** tabcap 每发一条 CDP `Input.*`（`click --trusted`、`type`、`press-key`、`hover`）就在那个标签上开一个窗口，窗口内及其后 500 ms 到达的可信输入算 tabcap 自己的。页面自己合成的事件不可信，从不算。只移动鼠标也不算。
+- **隐私**：监听器只报事件种类和时刻，每种事件 250 ms 内至多一条；从不报键值、文本、坐标、目标元素，也不改页面。
+- **证据**：录制中，接管写一条 `handoff`（`reason: "human-takeover"`、`input: {event, at}`），任何等待期间人的每次输入写一条 `action`（`op: "input"`、`actor: "human"`、`cmd: null`）；人在操作等待中的会话时，录制里的其他事件也标 `actor: "human"`，请求的 actor 按它开始的时刻定。`manifest.mode.humanRecorder` 说明监听器开没开。
+- **开关**：`config.json` 写 `"handoff": {"detectTakeover": false}` 关掉（`browser start` 时读）。还没覆盖：跨进程 iframe 里的输入、`ext` 模式。真人的 OS 输入（鼠标、键盘、触控板、滚动条、自动填充、输入法）还没有人手实测；端到端测试用一条绕过 tabcap 窗口的 CDP 输入模拟人（测试专用的守护进程动作，`TABCAP_E2E_HUMAN=1`）。
+
 ### npm 由 CI 发布
 
 - `release.yml` 多一个 `npm` job：推 `v*` tag 后用编好的二进制组装五个 npm 包并按顺序发布（先平台包后 `tabcap`），已在 registry 上的版本跳过；认证用仓库 secret `NPM_TOKEN`，没有就走 npm trusted publishing（OIDC）；`workflow_dispatch` 勾 `npm_dry_run` 可以干跑到 `npm publish --dry-run`。GitHub Release 仍是草稿。

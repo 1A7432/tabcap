@@ -4,6 +4,14 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### Human take-over detection (0.7.1-A)
+
+- **The AI pauses when you use its tab.** In the default (`direct`) mode tabcap now keeps a passive listener in its own isolated world on every tab a session owns. When you click, press a key, scroll or touch in that tab (a trusted `pointerdown` / `keydown` / `wheel` / `touchstart`), the session goes to `waiting` with `reason: "human-takeover"`: every command that acts on the page answers `waiting`, read-only commands keep working, and `tabcap status` / `handoff status` show it. The AI goes on only after `tabcap handoff continue` (run when you say you are done); there is no automatic resume and no screenshot for this kind of wait.
+- **tabcap's own input does not count.** Each CDP `Input.*` command tabcap sends (`click --trusted`, `type`, `press-key`, `hover`) opens a window on its tab; trusted input arriving inside it, or up to 500 ms after, is tabcap's own. The page's own synthetic events are untrusted and never count. Moving the mouse alone does not count either.
+- **Privacy:** the listener reports only the kind of event and its time, at most one per kind per 250 ms; never keys, text, coordinates or targets. It changes nothing on the page.
+- **Evidence:** while recording, a take-over writes a `handoff` event (`reason: "human-takeover"`, `input: {event, at}`), and every human input during any wait is an `action` event (`op: "input"`, `actor: "human"`, `cmd: null`). While the human is operating a waiting session, the recording's other events are `actor: "human"` too; a request's actor is decided when it starts. `manifest.mode.humanRecorder` says whether the listener was on.
+- **Switch:** `config.json` `"handoff": {"detectTakeover": false}` turns it off (read at `browser start`). Not covered yet: input inside cross-process iframes; the `ext` mode. Real OS input (mouse, keyboard, trackpad, scrollbars, autofill, IME) has not been measured by hand yet; the end-to-end test simulates the human with one CDP input that bypasses tabcap's windows (a test-only daemon action, `TABCAP_E2E_HUMAN=1`).
+
 ### CI publishes npm
 
 - `release.yml` gains an `npm` job: on a `v*` tag it assembles the five npm packages from the built binaries and publishes them in order (platform packages, then `tabcap`), skipping versions already on the registry; auth by the `NPM_TOKEN` secret when set, else npm trusted publishing (OIDC); `workflow_dispatch` with `npm_dry_run` rehearses with `npm publish --dry-run`. The GitHub release stays a draft.
