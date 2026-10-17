@@ -2155,3 +2155,62 @@ export function startCredSite(): CredSite {
     },
   };
 }
+
+// ---------------------------------------------------------------- 0.7.1-A: s62 human take-over (docs/05 s62)
+// A button, a text box, a "ping" button (its click fetches /s62/ping, which the
+// server counts) and a 300-row list (the page scrolls). The page logs what
+// reaches its own handlers in window.__s62 ("btn:<isTrusted>", "key:<isTrusted>")
+// and, from load on, fires a round of untrusted events every 200 ms on the
+// button: dispatchEvent pointerdown / keydown / wheel / touchstart and
+// el.click() (rounds in window.__s62synth). The top-left corner (4, 4) is
+// empty page margin. Oracle: the page's own log and the server's ping count.
+export const S62_BTN = "S62 button";
+export const S62_PING = "S62 ping";
+
+const S62_PAGE = `<!doctype html><meta charset=utf-8><title>s62 take-over</title>
+<style>body{margin:0;padding:60px 20px 20px}#s62-list{margin-top:24px}</style>
+<h1>s62</h1>
+<button id=s62-btn type=button>${S62_BTN}</button>
+<input id=s62-in aria-label="s62 text" autocomplete=off>
+<button id=s62-ping type=button>${S62_PING}</button>
+<ul id=s62-list>${Array.from({ length: 300 }, (_, i) => `<li>s62 row ${i + 1}</li>`).join("")}</ul>
+<script>
+window.__s62 = [];
+window.__s62synth = 0;
+const btn = document.getElementById("s62-btn");
+btn.addEventListener("click", (e) => { if (window.__s62synthRunning !== true) window.__s62.push("btn:" + e.isTrusted); });
+document.getElementById("s62-in").addEventListener("keydown", (e) => window.__s62.push("key:" + e.isTrusted));
+document.getElementById("s62-ping").addEventListener("click", () => { fetch("/s62/ping", { cache: "no-store" }).then((r) => r.text()); });
+setInterval(() => {
+  window.__s62synthRunning = true;
+  btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  btn.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "x" }));
+  btn.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 10 }));
+  btn.dispatchEvent(new Event("touchstart", { bubbles: true }));
+  btn.click();
+  window.__s62synthRunning = false;
+  window.__s62synth++;
+}, 200);
+</script>`;
+
+export type TakeoverSite = Site & { pings: () => number };
+
+export function startTakeoverSite(): TakeoverSite {
+  let pings = 0;
+  const hits: string[] = [];
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      hits.push(`${req.method} ${u.pathname}`);
+      if (u.pathname === "/s62") return new Response(S62_PAGE, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      if (u.pathname === "/s62/ping") {
+        pings++;
+        return new Response(JSON.stringify({ ping: pings }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served: new Map(), hits, stop: () => server.stop(true), pings: () => pings };
+}
