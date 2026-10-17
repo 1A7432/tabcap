@@ -8,7 +8,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, createHmac } from "node:crypto";
-import { diff, pathTemplate, timestampMs, type DiffResult } from "../../src/analyze/diff.ts";
+import { diff, extractParams, looksSignature, pathTemplate, pkey, queryFlags, timestampMs, valuedQuery, type DiffResult } from "../../src/analyze/diff.ts";
 import { run } from "../../src/cli/main.ts";
 import { buildBundle, tmp } from "./_analyze.ts";
 import { SLOW_IO_MS } from "./_platform.ts";
@@ -184,5 +184,26 @@ describe("CLI: tabcap analyze diff", () => {
     expect(last.claim).toContain("session sid");
     expect(last.evidence.length).toBeGreaterThan(0);
     expect((await run(["analyze", "diff", dirs[0] ?? ""])).code).toBe(2);
+  });
+});
+
+// 0.7-E (onboarding acceptance): two shapes a real site sent that the heuristics misread.
+describe("0.7-E: value-less query keys and prefixed numeric ids", () => {
+  test("a query key without `=` is no parameter (it names the method); queryFlags keeps it as recorded", () => {
+    const m = extractParams({ id: "r-1", url: "http://h/api/list?queryZqzt&id=7&flag2", request: { headers: {}, postData: null } }, () => null, () => undefined);
+    expect([...m.keys()]).toEqual([pkey("query", "id")]);
+    expect(queryFlags("?queryZqzt&id=7&flag2")).toEqual(["queryZqzt", "flag2"]);
+    expect([...valuedQuery("?queryZqzt&id=7&e=")]).toEqual([["id", "7"], ["e", ""]]);
+  });
+
+  test("looks-signature does not fire on digits behind a short letter prefix; real signatures still do", () => {
+    const id = "AB" + "1234567890".repeat(3); // 32 characters, base64 alphabet
+    expect(id.length).toBe(32);
+    expect(looksSignature([id])).toBe(false);
+    expect(looksSignature(["AB-" + "1".repeat(29)])).toBe(false);
+    expect(looksSignature(["9".repeat(32)])).toBe(false);
+    expect(looksSignature([createHash("md5").update("x").digest("hex")])).toBe(true);
+    expect(looksSignature([createHash("sha256").update("x").digest("base64url").slice(0, 32)])).toBe(true);
+    expect(looksSignature(["ABCDE" + "1".repeat(27)])).toBe(true);
   });
 });

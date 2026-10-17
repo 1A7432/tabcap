@@ -121,6 +121,22 @@ function leafString(v: string | number | boolean | null): string {
   return typeof v === "string" ? v : JSON.stringify(v);
 }
 
+/**
+ * 0.7-E: the raw pairs of a query string without the value-less keys
+ * (`?queryList&id=1` -> `id=1`): a key without `=` names the method or the
+ * view, it carries no value, so it is part of the endpoint, never a parameter.
+ */
+export function valuedQuery(search: string): URLSearchParams {
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  return new URLSearchParams(raw.split("&").filter((p) => p.includes("=")).join("&"));
+}
+
+/** 0.7-E: the value-less keys of a query string, as recorded (raw, in order). */
+export function queryFlags(search: string): string[] {
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  return raw.split("&").filter((p) => p !== "" && !p.includes("="));
+}
+
 /** What parameter extraction reads from a request (a recorded `request` event, or a live one). */
 export type ParamSource = { id: string; url: string; request: { headers: Headers; postData: RequestEvent["request"]["postData"] } };
 
@@ -133,7 +149,7 @@ export function extractParams(r: ParamSource, readBlob: (ref: string) => Uint8Ar
   const m = new Map<string, string>();
   try {
     const u = new URL(r.url);
-    for (const [k, v] of u.searchParams) setUnique(m, "query", k, v);
+    for (const [k, v] of valuedQuery(u.search)) setUnique(m, "query", k, v);
   } catch {
     warn(`${r.id}: url is not parseable, query skipped`);
   }
@@ -209,8 +225,11 @@ const SIG_LENGTHS = new Set([32, 40, 64, 128]);
 const HEX = /^[0-9a-fA-F]+$/;
 const B64ISH = /^[A-Za-z0-9+/_-]+={0,2}$/;
 
+/** 0.7-E: a business id (digits, at most a 4-letter prefix and one `-` / `_`), e.g. `AB` + 30 digits; never a signature. */
+const PREFIXED_NUMBER = /^[A-Za-z]{0,4}[-_]?\d+$/;
+
 export function looksSignature(values: readonly string[]): boolean {
-  return values.every((v) => SIG_LENGTHS.has(v.length) && (HEX.test(v) || B64ISH.test(v))) && new Set(values).size === values.length;
+  return values.every((v) => SIG_LENGTHS.has(v.length) && (HEX.test(v) || B64ISH.test(v)) && !PREFIXED_NUMBER.test(v)) && new Set(values).size === values.length;
 }
 
 function looksRandom(values: readonly string[]): boolean {
