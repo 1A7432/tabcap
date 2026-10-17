@@ -38,7 +38,7 @@ import type { Tab, Tabs } from "../browser/targets.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../transport/types.ts";
 import { classifyPause, signalFields, TraceBook, type Aggregate, type BpInfo, type DocRef, type DocSummary, type PauseFrame, type ScriptInfo, type TraceLimits } from "./aggregate.ts";
 import { hashBulkData, INSTRUMENTATION_EVENTS, notRecorded, resolverExpression, SCRIPT_FIRST_STATEMENT, VALUE_INLINE_MAX, valueExpression, type SignalList } from "./signals.ts";
-import { addBounded, Armed, attribute, consoleSites, dropRawBody, evidenceFrames, frameScriptId, jsonParseLogpoint, OBJECT_PROBES, observeRow, OBSERVE_VERSION, PAGE_BY, pauseSite, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, settleOutcome, sha256Text, SINKS, suspectOf, suspectShas, SUSPECT_WINDOW_MS, takeLogged, TEXT_DECODER_CONDITION, utf8Bytes, type LoggedPlain, type PageEvidence, type PlainCandidate, type Settling, type SinkName } from "./observe.ts";
+import { addBounded, Armed, attribute, consoleSites, dropRawBody, evidenceFrames, frameScriptId, GRACE_MS, heldVerdict, heldWaits, HOLD_MAX, HOLD_MS, jsonParseLogpoint, passHeld, OBJECT_PROBES, observeRow, OBSERVE_VERSION, PAGE_BY, pauseSite, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, settleOutcome, sha256Text, SINKS, suspectOf, suspectShas, SUSPECT_WINDOW_MS, takeLogged, TEXT_DECODER_CONDITION, utf8Bytes, type LoggedPlain, type PageEvidence, type PlainCandidate, type Settling, type SinkName } from "./observe.ts";
 import type { NetEntry } from "../capture/recorder.ts";
 
 export const TRACE_NOTICE = "Trace mode installs debugger breakpoints in the page: scripts run slower and the timing is observable.";
@@ -213,11 +213,14 @@ export class Tracer {
    * spike: the plaintext pause lost the race). Held for `HOLD_MS` and matched
    * as soon as a suspect is armed; the attribution rules are unchanged —
    * only the timing gap is bridged. `consolePlain` is the log-point argument
-   * when the guard was in force.
+   * when the guard was in force. 0.6-W (owner decision A): every pause
+   * without a scope-string match is held, not only those that met no suspect
+   * — other suspects being live says nothing about whether this one's own has
+   * been armed yet (an XHR `onload` parses before the index push); it is
+   * decided after GRACE_MS against the suspects live then (`heldVerdict`).
+   * At most HOLD_MAX (256), HOLD_MS (10 s) before an orphan.
    */
   private held: Array<{ scopeShas: string[]; strings: string[]; byteCsvs: string[]; consolePlain: { text: string | null; oversize: boolean } | null; evFrames: PageEvidence["frames"]; at: number; textSha: string | null }> = [];
-  private static readonly HOLD_MS = 10_000;
-  private static readonly HOLD_MAX = 8;
   /** matchHeld runs one at a time (an arm during its awaits asks for another pass). */
   private matching: Promise<void> | null = null;
   private matchAgain = false;
@@ -568,8 +571,10 @@ export class Tracer {
     this.armed.expire(Date.now());
     this.expireHeld(Date.now());
     void this.settleFlush(false);
+    // 0.6-W: held pauses whose grace has elapsed are decided now.
+    void this.matchHeld();
     const live = this.armed.live();
-    const waits = [...live.map((x) => x.expiresAt), ...this.settle.map((s) => s.at + Tracer.SETTLE_MS), ...this.held.map((h) => h.at + Tracer.HOLD_MS)];
+    const waits = [...live.map((x) => x.expiresAt), ...this.settle.map((s) => s.at + Tracer.SETTLE_MS), ...heldWaits(this.held, Date.now())];
     if (waits.length === 0) return;
     this.sweepLater(Math.max(Math.min(...waits) - Date.now(), 0) + 50);
   }
@@ -577,7 +582,7 @@ export class Tracer {
   /** Held pauses whose window elapsed without a suspect are orphans (0.6-L2,
    * owner decision 10-16: count only, no row, `find` untouched). */
   private expireHeld(now: number): void {
-    const cut = now - Tracer.HOLD_MS;
+    const cut = now - HOLD_MS;
     const expired = this.held.filter((h) => h.at <= cut);
     if (expired.length > 0) this.drops.orphan += expired.length;
     this.held = this.held.filter((h) => h.at > cut);
@@ -714,15 +719,21 @@ export class Tracer {
       // list read before the walk would never be matched.
       this.armed.expire(Date.now());
       const live = this.armed.live();
-      if (live.length === 0) {
-        if (this.held.length >= Tracer.HOLD_MAX) this.held.shift();
-        const textSha = plaintext.best === null ? null : sha256Text(plaintext.best.text);
-        this.held.push({ scopeShas: w.scopeShas, strings: w.strings, byteCsvs: w.byteCsvs, consolePlain, evFrames, at: Date.now(), textSha });
-        return;
-      }
       const attribution = attribute(live, w.scopeShas, plaintext.best === null ? null : utf8Bytes(plaintext.best.text));
       log.debug("observe: paused", { sink, frames: frames.length, console: consolePlain !== null, shas: w.scopeShas.length, attribution: attribution.kind, live: live.length });
-      await this.decideRow(attribution, w.scopeShas, evFrames, plaintext, Date.now());
+      // 0.6-W: only a scope-string match (or a pause with nothing to file and
+      // suspects to tell it so) is decided now; anything else waits for its
+      // own arm — the page may have parsed before tabcap indexed the body —
+      // and is decided after GRACE_MS against the suspects live then.
+      const now = Date.now();
+      if (heldVerdict(attribution.kind, now, now, false, plaintext.best !== null) === "decide") {
+        await this.decideRow(attribution, w.scopeShas, evFrames, plaintext, now);
+        return;
+      }
+      if (this.held.length >= HOLD_MAX) this.held.shift();
+      const textSha = plaintext.best === null ? null : sha256Text(plaintext.best.text);
+      this.held.push({ scopeShas: w.scopeShas, strings: w.strings, byteCsvs: w.byteCsvs, consolePlain, evFrames, at: Date.now(), textSha });
+      this.sweepLater(GRACE_MS + 50);
     } catch (e) {
       log.debug("trace: observe pause failed", { error: String(e) });
     } finally {
@@ -878,24 +889,62 @@ export class Tracer {
     return this.matching;
   }
 
-  /** One pass over the held pauses; each is taken off the list before its
-   * decision's awaits, and the armed list is re-read per pause (a row just
-   * filed forgot its suspect). */
-  private async matchHeldOnce(): Promise<void> {
-    if (this.held.length === 0 || this.stopped) return;
+  /** One pass over the held pauses (`passHeld`); each is taken off the list
+   * before its decision's awaits, and the armed list is re-read per pause (a
+   * row just filed forgot its suspect). 0.6-W: a scope-string match is decided
+   * at once, anything else only after its grace (`heldVerdict`); `force`
+   * (trace stop, recording stop) decides every pending pause — one that meets
+   * no live suspect then is an orphan. */
+  private async matchHeldOnce(force = false): Promise<void> {
+    if (this.held.length === 0 || (this.stopped && !force)) return;
     this.expireHeld(Date.now());
     const rec = this.opts.recorder();
-    if (rec === undefined || !rec.recording) return;
-    for (const h of [...this.held]) {
-      this.armed.expire(Date.now());
-      const live = this.armed.live();
-      if (live.length === 0) return;
-      const plaintext = this.plaintextFrom(h.consolePlain, { strings: h.strings, byteCsvs: h.byteCsvs });
-      const attribution = attribute(live, h.scopeShas, plaintext.best === null ? null : utf8Bytes(plaintext.best.text));
-      // No live suspect for this pause: keep it held for a later arm.
-      if (attribution.kind === "armed-empty") continue;
-      this.held = this.held.filter((x) => x !== h);
-      await this.decideRow(attribution, h.scopeShas, h.evFrames, plaintext, h.at);
+    if (rec === undefined || !rec.recording) {
+      // Unreachable in practice (a pause after the recording stopped is never
+      // held), but a forced pass must not leave pauses uncounted.
+      if (force) {
+        this.drops.afterStop += this.held.length;
+        this.held = [];
+      }
+      return;
+    }
+    await passHeld({
+      entries: [...this.held],
+      still: (h) => this.held.includes(h),
+      judge: (h) => {
+        this.armed.expire(Date.now());
+        const live = this.armed.live();
+        // No live suspect: no plaintext needed to say so.
+        if (live.length === 0) return { kind: "armed-empty" as const, hasPlaintext: false, ctx: null };
+        const plaintext = this.plaintextFrom(h.consolePlain, { strings: h.strings, byteCsvs: h.byteCsvs });
+        const attribution = attribute(live, h.scopeShas, plaintext.best === null ? null : utf8Bytes(plaintext.best.text));
+        return { kind: attribution.kind, hasPlaintext: plaintext.best !== null, ctx: { attribution, plaintext } };
+      },
+      take: (h) => {
+        this.held = this.held.filter((x) => x !== h);
+      },
+      decide: async (h, ctx) => {
+        if (ctx !== null) await this.decideRow(ctx.attribution, h.scopeShas, h.evFrames, ctx.plaintext, h.at);
+      },
+      orphan: () => {
+        this.drops.orphan++;
+      },
+      now: () => Date.now(),
+      force,
+    });
+  }
+
+  /** Trace stop / recording stop (0.6-W): after any pass in flight, decide
+   * every held pause now, so the weak and unattributed rows it makes join the
+   * settle queue the forced settle flush files next (the caller's next step). */
+  private async decideHeldNow(): Promise<void> {
+    while (this.matching !== null) await this.matching;
+    const job = this.matchHeldOnce(true);
+    this.matching = job;
+    try {
+      await job;
+    } finally {
+      if (this.matching === job) this.matching = null;
     }
   }
 
@@ -1212,6 +1261,8 @@ export class Tracer {
     if (this.opts.decode) {
       this.indexOff?.();
       this.indexOff = null;
+      // 0.6-W: pauses still in their grace are decided first, then filed.
+      await this.decideHeldNow();
       await this.settleFlush(true);
       this.drops.afterStop += this.armed.clear("recording stopped");
       this.held = [];
@@ -1269,6 +1320,8 @@ export class Tracer {
       this.sweepTimer = null;
       this.sweepDue = null;
     }
+    // 0.6-W: pauses still in their grace are decided first, then filed.
+    await this.decideHeldNow();
     await this.settleFlush(true);
     this.drops.afterStop += this.armed.clear("trace stopped");
     this.held = [];
@@ -1316,6 +1369,7 @@ export class Tracer {
             weakRows: this.opts.weakRows !== false,
             decode: {
               armed: this.armed.live().length,
+              held: this.held.length,
               rows: { attributed: this.attributedRows, weak: this.weakRows, unattributed: this.unattributedRows, unattributedKept: this.unattributedKept },
               evidenceHits: this.evidenceHits,
               recovered: { ...this.recovered },

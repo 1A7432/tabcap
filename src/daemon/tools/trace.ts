@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BundleReader } from "../../bundle/reader.ts";
 import { TabcapError } from "../../shared/envelope.ts";
+import { isRecord } from "../../shared/json.ts";
 import type { Daemon } from "../state.ts";
 import { DEFAULT_LIMITS, type TraceLimits } from "../trace/aggregate.ts";
 import { builtinSignalList, parseSignalList, sha256Text, type SignalList } from "../trace/signals.ts";
@@ -139,8 +140,13 @@ export async function traceStop(d: Daemon, _a: Args, session: string): Promise<u
   if (tr === undefined) throw new TabcapError("not-found", `trace mode is not on in session "${session}"`, "Run `tabcap trace start` first.");
   d.tracers.delete(session);
   const hits = tr.hits;
-  const decode = tr.status()["decode"];
+  // 0.6-W: the decode block is read after the stop, which decides the pauses
+  // still in their grace (their rows and drops count); `held` is how many were
+  // pending when the stop began.
+  const before = tr.status()["decode"];
   await tr.stop("trace stop");
+  const after = tr.status()["decode"];
+  const decode = isRecord(after) && isRecord(before) ? { ...after, held: before["held"] } : after;
   return withDecodePlugins({ session, stopped: true, hits, ...(decode === undefined ? {} : { decode }), bundle: d.recorders.get(session)?.dir ?? null }, d.paths.config);
 }
 

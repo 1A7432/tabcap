@@ -29,6 +29,13 @@
 // script (worker mode too — the worker posts the plaintext string back and
 // the main thread's onmessage parses it, test/e2e/site.ts s59Worker), whose
 // URL is the document URL.
+// 0.6-W (owner decision A 10-17): a pause without a scope-string match waits
+// a 1.5 s grace for its own arm before it is decided against the suspects
+// live then. s59 `mode=xhr` parses in an XMLHttpRequest onload (before tabcap
+// indexes the body); with `&linger=3` three encrypted responses the page never
+// parses are live suspects at that moment — before the fix the plaintext was
+// filed unattributed with those three as candidates; now it is strong. trace
+// stop's decode block is read after the stop (the forced decisions count).
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -448,7 +455,7 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     expect(await body(encId, S, "--decoded")).toEqual(live);
   }, 120_000);
 
-  test("s59 noise: a >= 1 KB localStorage parse under two small armed suspects is no row (noFit); both plaintexts still filed", async () => {
+  test("s59 noise: a >= 1 KB localStorage parse under two small armed suspects is no row (0.6-W: an orphan at trace stop); both plaintexts still filed", async () => {
     const S = ["--session", "s59n"];
     const { bundle, enc } = await runPage("s59n", "/s59?mode=noise", ["--decode"], ["noise&slot=1", "noise&slot=2"]);
     const bySlot = new Map(enc.map((e) => [e.query, e.id]));
@@ -466,7 +473,13 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     const { decode } = await stopBoth("s59n");
     expect(sidecarRows(bundle).some((row) => viewText(BundleReader.open(bundle), row.decoded) === S59_NOISE_LOCAL)).toBe(false);
     expect(decode?.["rows"]).toMatchObject({ attributed: 2, weak: 0, unattributed: 0 });
-    expect(Number(rec(decode?.["drops"])["noFit"] ?? 0)).toBeGreaterThanOrEqual(1);
+    // 0.6-W: the localStorage parse has no scope-string match, so it is held;
+    // both noise plaintexts are filed strong (their suspects forgotten) within
+    // its grace, so at its decision no suspect is live: trace stop forces it
+    // and counts an orphan. noFit stays for "suspects were live, none fit".
+    expect(Number(rec(decode?.["drops"])["orphan"] ?? 0)).toBeGreaterThanOrEqual(1);
+    expect(rec(decode?.["drops"])["noFit"]).toBe(0);
+    expect(typeof decode?.["held"]).toBe("number");
   }, 120_000);
 
   test("s59 race: envelopes parsed as soon as they arrive are never a row; the three plaintexts are filed strong", async () => {

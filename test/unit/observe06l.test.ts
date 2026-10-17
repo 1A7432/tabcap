@@ -21,6 +21,12 @@
 // `settleOutcome` "weak" → drops.weak), and the evidence frames' url (CDP Debugger.CallFrame: `url`
 // and `location.scriptId`, no top-level scriptId — the 0.6-L reader looked
 // for one, so every frame url was "").
+// 0.6-W (owner decision A 10-17, after a neighbouring project's XHR replica
+// went 0/40 strong with three unclaimed suspects live): a pause without a
+// scope-string match is held for GRACE_MS and decided against the suspects
+// live then; trace / recording stop force the pending ones (no live suspect
+// then: an orphan). `heldVerdict` / `heldWaits` / `passHeld` pinned here;
+// the e2e oracle is s59 `mode=xhr&linger=3`.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -61,7 +67,7 @@ import {
   type PageEvidence,
 } from "../../src/daemon/trace/observe.ts";
 import { latestViews, overlayEvent, parseSidecarText } from "../../src/bundle/decoded.ts";
-import { dropRawBody, evidenceFrames, fits, formsOf, frameScriptId, settleOutcome, tokenBound, tokenCore, utf8Bytes, type Settling } from "../../src/daemon/trace/observe.ts";
+import { dropRawBody, evidenceFrames, fits, formsOf, frameScriptId, GRACE_MS, heldVerdict, heldWaits, HOLD_MAX, HOLD_MS, passHeld, settleOutcome, tokenBound, tokenCore, utf8Bytes, type Settling } from "../../src/daemon/trace/observe.ts";
 import { decodedEntry, noDecodedView } from "../../src/daemon/tools/net.ts";
 
 const sha = (s: string): string => createHash("sha256").update(s, "utf8").digest("hex");
@@ -639,5 +645,135 @@ describe("0.6-V: weak rows can be turned off; evidence frames carry the script U
       { url: "https://t/app.js", line: 4, column: 4, function: "d" },
       { url: "https://t/app.js", line: 5, column: 4, function: "e" },
     ]);
+  });
+});
+
+describe("0.6-W: hold without a scope-string match, decide after the grace", () => {
+  const T = 1_000_000;
+  test("the constants: grace 1.5 s, hold 10 s, at most 256 held", () => {
+    expect([GRACE_MS, HOLD_MS, HOLD_MAX]).toEqual([1500, 10_000, 256]);
+  });
+  test("heldVerdict: scope-string at once; others after the grace; no suspect waits; force decides, no suspect is an orphan", () => {
+    for (const force of [false, true]) expect(heldVerdict("scope-string", T, T, force, true)).toBe("decide");
+    for (const kind of ["single-suspect", "unattributed", "no-fit"] as const) {
+      expect([kind, heldVerdict(kind, T, T, false, true)]).toEqual([kind, "wait"]);
+      expect([kind, heldVerdict(kind, T, T + GRACE_MS - 1, false, true)]).toEqual([kind, "wait"]);
+      expect([kind, heldVerdict(kind, T, T + GRACE_MS, false, true)]).toEqual([kind, "decide"]);
+      expect([kind, heldVerdict(kind, T, T, true, true)]).toEqual([kind, "decide"]);
+      // nothing readable to file: the suspect it meets does not matter, no wait
+      expect([kind, heldVerdict(kind, T, T, false, false)]).toEqual([kind, "decide"]);
+    }
+    expect(heldVerdict("armed-empty", T, T + HOLD_MS, false, true)).toBe("wait");
+    expect(heldVerdict("armed-empty", T, T, true, true)).toBe("orphan");
+    expect(heldVerdict("armed-empty", T, T, true, false)).toBe("orphan");
+  });
+  test("heldWaits: each grace end still ahead, and each hold end", () => {
+    expect(heldWaits([{ at: T }, { at: T - 2000 }], T + 100)).toEqual([T + GRACE_MS, T + HOLD_MS, T - 2000 + HOLD_MS]);
+    expect(heldWaits([], T)).toEqual([]);
+  });
+
+  /** A held pause: the shas in its scope, its plaintext's size. */
+  type H = { name: string; at: number; scope: string[]; bytes: number };
+  const label = (h: H, a: Attribution): string => {
+    if (a.kind === "scope-string" || a.kind === "single-suspect") return h.name + ":" + a.kind + ":" + a.suspect.request;
+    if (a.kind === "unattributed") return h.name + ":" + a.kind + ":" + a.candidates.join("+");
+    return h.name + ":" + a.kind;
+  };
+  /** passHeld over an Armed list, the way the tracer runs it; what happened, in order. */
+  const run = async (held: H[], armed: Armed, now: number, force: boolean, onDecide?: (a: Attribution) => void) => {
+    const list = [...held];
+    const log: string[] = [];
+    await passHeld({
+      entries: [...list],
+      still: (h) => list.includes(h),
+      judge: (h) => {
+        armed.expire(now);
+        const a = attribute(armed.live(), h.scope, h.bytes);
+        return { kind: a.kind, hasPlaintext: true, ctx: a };
+      },
+      take: (h) => {
+        list.splice(list.indexOf(h), 1);
+      },
+      decide: async (h, a) => {
+        log.push(label(h, a));
+        onDecide?.(a);
+        await Promise.resolve();
+      },
+      orphan: (h) => {
+        log.push(h.name + ":orphan");
+      },
+      now: () => now,
+      force,
+    });
+    return { log, left: list.map((h) => h.name) };
+  };
+  const arm = (a: Armed, request: string, shas: string[], at: number, bound: number | null = 5000) => a.arm({ request, url: "https://t/api", at, hashes: raws(shas), bound });
+
+  test("the XHR race: three lingering suspects live, the pause waits; its own arm lands in the grace and decides it strong", async () => {
+    const armed = new Armed();
+    for (const n of [1, 2, 3]) arm(armed, "r-" + n, ["linger-" + n], T - 300);
+    const xhr: H = { name: "xhr", at: T, scope: ["xhr-data"], bytes: 600 };
+    // on the spot (before 0.6-W) this pause was unattributed r-1+r-2+r-3
+    expect(attribute(armed.live(), xhr.scope, xhr.bytes)).toEqual({ kind: "unattributed", candidates: ["r-1", "r-2", "r-3"] });
+    expect(await run([xhr], armed, T, false)).toEqual({ log: [], left: ["xhr"] });
+    // its own body is indexed 40 ms later: the arm's pass decides it strong
+    arm(armed, "r-4", ["xhr-data"], T + 40);
+    expect(await run([xhr], armed, T + 40, false)).toEqual({ log: ["xhr:scope-string:r-4"], left: [] });
+  });
+  test("no own arm within the grace: decided against the suspects live at the grace end (weak / no-fit as before)", async () => {
+    const armed = new Armed();
+    arm(armed, "r-1", ["a"], T, 5000);
+    arm(armed, "r-2", ["b"], T, 100);
+    const p: H = { name: "p", at: T, scope: [], bytes: 600 };
+    expect(await run([p], armed, T + GRACE_MS - 1, false)).toEqual({ log: [], left: ["p"] });
+    expect(await run([p], armed, T + GRACE_MS, false)).toEqual({ log: ["p:single-suspect:r-1"], left: [] });
+    const big: H = { name: "big", at: T, scope: [], bytes: 9000 };
+    expect(await run([big], armed, T + GRACE_MS, false)).toEqual({ log: ["big:no-fit"], left: [] });
+  });
+  test("oldest first, each judged against the suspects of its own turn (a filed row forgot its suspect)", async () => {
+    const armed = new Armed();
+    arm(armed, "r-1", ["a"], T);
+    arm(armed, "r-2", ["b"], T);
+    const first: H = { name: "first", at: T, scope: ["a"], bytes: 100 };
+    const second: H = { name: "second", at: T + 1, scope: [], bytes: 100 };
+    const out = await run([first, second], armed, T + GRACE_MS + 1, false, (a) => {
+      if (a.kind === "scope-string" || a.kind === "single-suspect") armed.forget(a.suspect.request);
+    });
+    expect(out).toEqual({ log: ["first:scope-string:r-1", "second:single-suspect:r-2"], left: [] });
+  });
+  test("an entry another path took meanwhile (raw-body drop, concurrent pass) is skipped", async () => {
+    const armed = new Armed();
+    arm(armed, "r-1", ["a"], T);
+    const a: H = { name: "a", at: T, scope: ["a"], bytes: 10 };
+    const b: H = { name: "b", at: T, scope: ["a"], bytes: 10 };
+    const list = [a, b];
+    const seen: string[] = [];
+    await passHeld({
+      entries: [...list],
+      still: (h) => list.includes(h),
+      judge: (h) => ({ kind: attribute(armed.live(), h.scope, h.bytes).kind, hasPlaintext: true, ctx: null }),
+      take: (h) => {
+        list.splice(list.indexOf(h), 1);
+        if (h === a) list.splice(list.indexOf(b), 1); // b is dropped while a is decided
+      },
+      decide: async (h) => {
+        seen.push(h.name);
+      },
+      orphan: () => undefined,
+      now: () => T,
+      force: false,
+    });
+    expect(seen).toEqual(["a"]);
+  });
+  test("forced (trace / recording stop): everything pending is decided; no live suspect then is an orphan (s59 noise's localStorage parse)", async () => {
+    const armed = new Armed();
+    arm(armed, "r-1", ["a"], T, 5000);
+    const inGrace: H = { name: "inGrace", at: T, scope: [], bytes: 100 };
+    expect(await run([inGrace], armed, T + 10, true)).toEqual({ log: ["inGrace:single-suspect:r-1"], left: [] });
+    // both noise suspects were filed strong (forgotten) before the grace ended: nothing left to meet
+    const local: H = { name: "local", at: T, scope: [], bytes: 1200 };
+    const empty = new Armed();
+    expect(await run([local], empty, T + GRACE_MS + 10, false)).toEqual({ log: [], left: ["local"] });
+    expect(await run([local], empty, T + GRACE_MS + 10, true)).toEqual({ log: ["local:orphan"], left: [] });
   });
 });

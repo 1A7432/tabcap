@@ -60,6 +60,15 @@
 // (the ciphertext itself is in scope). Unattributed rows settle like weak rows,
 // so an envelope parsed before its own body is indexed is still dropped.
 //
+// 0.6-W (owner decision A, 10-17; docs/04 §33 0.6-W): only a scope-string
+// match is decided when the pause happens. Any other pause is held — with the
+// suspects live then possibly not including its own, which a page parsing in
+// an XHR `onload` has not let tabcap index yet — and decided when its own arm
+// lands with a scope-string match, or after GRACE_MS against the suspects
+// live at that moment (`heldVerdict`, `passHeld`); trace stop and recording
+// stop force the pending ones first. Arming at the Fetch Response stage
+// (before the page sees the body, owner's option B) is the 0.7 follow-up.
+//
 // Unit tests decide attribution and expiry from synthetic state; the CDP side
 // is thin (three evaluates, getProperties, callFunctionOn).
 
@@ -659,4 +668,85 @@ export function evidenceFrames(frames: readonly Record<string, unknown>[], scrip
 export function dropRawBody<T extends { textSha: string | null }>(list: readonly T[], rawSha: string): { kept: T[]; dropped: number } {
   const kept = list.filter((x) => x.textSha !== rawSha);
   return { kept, dropped: list.length - kept.length };
+}
+
+// ------------------------------------------------------------ hold and grace (pure, 0.6-W)
+
+/** A held pause that never met a live suspect is an orphan after this long (0.6-L2). */
+export const HOLD_MS = 10_000;
+/** Held pauses kept at most (0.6-W: 8 → 256; an entry is a few shas, the
+ * plaintext and ≤ 5 frames); the oldest is dropped first. */
+export const HOLD_MAX = 256;
+/**
+ * 0.6-W (owner decision A, 10-17): a JSON.parse pause without a scope-string
+ * match waits this long for its own suspect before it is decided weak /
+ * unattributed / no-fit against the suspects live then. A page that parses in
+ * an XMLHttpRequest `onload` does so before tabcap has indexed (armed) that
+ * body; deciding on the spot against the other live suspects (responses the
+ * page fetched and never parses, concurrent requests) filed a wrong weak row
+ * or an unattributed row whose candidates miss the true request. Strong
+ * (scope-string) decisions are never delayed.
+ */
+export const GRACE_MS = 1500;
+
+/** What one pass does with a held pause: decide it now, keep it, or count it
+ * as an orphan (no live suspect at a forced decision). */
+export type HeldVerdict = "decide" | "wait" | "orphan";
+
+/**
+ * The grace rule (0.6-W): a scope-string match is decided at once; a pause
+ * with no live suspect waits for an arm (HOLD_MS later it is an orphan); any
+ * other attribution waits until `at + GRACE_MS`, then is decided against the
+ * suspects live at that moment. A pause without a readable plaintext is
+ * decided at once when any suspect is live — it files nothing whichever
+ * suspect it meets, so waiting changes nothing. `force` (trace stop, recording
+ * stop) decides everything still pending; a forced pause with no live suspect
+ * is an orphan (there is nothing it could be filed under).
+ */
+export function heldVerdict(kind: Attribution["kind"], at: number, now: number, force: boolean, hasPlaintext: boolean): HeldVerdict {
+  if (kind === "scope-string") return "decide";
+  if (kind === "armed-empty") return force ? "orphan" : "wait";
+  if (!hasPlaintext || force || now - at >= GRACE_MS) return "decide";
+  return "wait";
+}
+
+/** The sweep deadlines the held pauses ask for: each grace end still ahead,
+ * and each hold end (orphan expiry). */
+export function heldWaits(held: readonly { at: number }[], now: number): number[] {
+  const out: number[] = [];
+  for (const h of held) {
+    if (h.at + GRACE_MS > now) out.push(h.at + GRACE_MS);
+    out.push(h.at + HOLD_MS);
+  }
+  return out;
+}
+
+/**
+ * One pass over the held pauses (0.6-W), oldest first. Each pause is judged
+ * against the live suspects of its own turn (`judge` re-reads them: a row the
+ * previous turn filed forgot its suspect), taken off the list before its
+ * decision's awaits, and skipped when another path took it meanwhile (`still`:
+ * the raw-body drop, a concurrent pass). With `force` every pending pause is
+ * decided or counted — trace stop / recording stop run this before the forced
+ * settle flush, which then files the weak and unattributed rows it made.
+ */
+export async function passHeld<H extends { at: number }, C>(o: {
+  entries: readonly H[];
+  still: (h: H) => boolean;
+  judge: (h: H) => { kind: Attribution["kind"]; hasPlaintext: boolean; ctx: C };
+  take: (h: H) => void;
+  decide: (h: H, ctx: C) => Promise<void>;
+  orphan: (h: H) => void;
+  now: () => number;
+  force: boolean;
+}): Promise<void> {
+  for (const h of o.entries) {
+    if (!o.still(h)) continue;
+    const j = o.judge(h);
+    const v = heldVerdict(j.kind, h.at, o.now(), o.force, j.hasPlaintext);
+    if (v === "wait") continue;
+    o.take(h);
+    if (v === "orphan") o.orphan(h);
+    else await o.decide(h, j.ctx);
+  }
 }
