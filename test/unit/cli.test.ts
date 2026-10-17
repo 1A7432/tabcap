@@ -62,7 +62,7 @@ describe("tabcap bundle (JSON envelope)", () => {
     const red = join(tmp(), "red");
     expect((await run(["bundle", "redact", imported, red])).code).toBe(0);
     const info = await run(["bundle", "info", red]);
-    expect(info.envelope).toMatchObject({ ok: true, data: { events: 8, redaction: { rules: "default@3" } } });
+    expect(info.envelope).toMatchObject({ ok: true, data: { events: 8, redaction: { rules: "default@2" } } });
   });
 
   test("unfinished bundle with truncated tail: info warns", async () => {

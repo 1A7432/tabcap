@@ -16,7 +16,7 @@
 - **分析启发式**：没有值的 query 键（`?queryList&id=1`）算端点的一部分，不再是参数，生成的客户端照录到的原样发送。字母短前缀加一长串数字的业务编号不再算 `looks-signature`。
 - **`replay check --text`**：默认回 JSON 信封，与其它分析命令一致；`--text` 每条不是 `same` 的请求打一行，最后打合计。`--json` 去掉。
 - **`fetch`**（以及 `POST /fetch`）的耗时字段改名 `timing.totalMs`（原 `timing.ms`）。
-- **`ticket` 算敏感名**（脱敏规则 `default@3`）：登录回跳 URL 里的 CAS 票据在 HAR 导出、`bundle redact` 和实时输出里都打码；`analyze chain --text` 的步骤 URL 也把敏感 query 参数打码（JSON 仍是录到的 URL）。
+- **`analyze chain --text` 的步骤 URL 把敏感 query 参数打码**（JSON 仍是录到的 URL）。脱敏规则仍是 `default@2`：这一轮曾把 `ticket` 加进敏感名单，当天去掉——这张名单同时决定 export-python 把哪些输入当 secret，CAS 回跳 URL 里的票据对回放是录制时的常量。
 - **等人的会话**：撞上挑战的那条命令、`handoff status` 和 `status` 都会等正在拍的截图（最多 5 s），不再在约半秒内答 `screenshot: null`。`status` 的每个会话多出标签的 `url`，`handoff` 每条多出交接时的 URL，回答顶层多出 `next`：人做完后执行 `tabcap handoff continue --session <名字>`，没有等人的会话时取第一条冲突的 `next`。`--text` 显示 `WAITING <原因> at <url>`，最后一行是 `next:`。
 
 ### 任务配方（0.7-A）

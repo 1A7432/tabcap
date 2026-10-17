@@ -185,7 +185,7 @@ const label = (t: { location: string; name: string; path?: string }) => `${t.loc
 
 /**
  * `analyze chain --text`. 0.7-E: step URLs show sensitive query parameters as
- * `<redacted:name>` (the docs/04 §8.3 URL rule; a CAS `ticket=` in a login
+ * `<redacted:name>` (the docs/04 §8.3 URL rule, e.g. an `access_token=` in a
  * return URL); the JSON answer keeps the URLs as recorded (export-python reads it).
  */
 export function renderChainText(r: ChainResult): string {

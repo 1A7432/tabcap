@@ -2,16 +2,16 @@
 // bundle is never modified, except that the per-export salt is written to the
 // source's exports/<name>.salt (§8: the salt never goes into the copy).
 //
-// Rules "default@3" (default@1 + `pass` / `pwd` as name segments, owner 2026-10-16;
-// default@3 + `ticket` as a name segment, 0.7-E: a CAS service ticket in a login
-// return URL is a one-time credential):
+// Rules "default@2" (default@1 + `pass` / `pwd` as name segments, owner 2026-10-16).
+// `ticket` was added for one day (0.7-E) and removed again on the owner's
+// decision 2026-10-17: a CAS return URL's ticket is a constant of the
+// recording for replay, and the name list also classifies replay inputs.
 //   headers  cookie, set-cookie, authorization, proxy-authorization, x-api-key,
 //            and any header whose name contains token|secret|session|auth
 //   names    query / form / JSON keys containing (token|secret|passw|session|sid|auth|api[-_]?key),
-//            or with a word `pass` / `pwd` / `ticket` (words split at non-alphanumerics,
+//            or with a word `pass` / `pwd` (words split at non-alphanumerics,
 //            camelCase and letter / digit boundaries: user_pass, userPass, login-pwd,
-//            Pwd2, ticket, serviceTicket match; bypass, passport, compass, passenger,
-//            tickets do not)
+//            Pwd2 match; bypass, passport, compass, passenger do not)
 //   values   18-digit CN id, 11-digit CN mobile, email, JWT (anywhere in text)
 //   state    cookie / storage snapshots: every value
 // Placeholder: «r:<kind>:<first 8 hex of sha256(salt + value)>». The kind is
@@ -35,13 +35,13 @@ import { BundleReader, type BundleView } from "./reader.ts";
 import type { Headers, Manifest, RawEvent } from "./types.ts";
 import { BundleWriter } from "./writer.ts";
 
-export const RULES_VERSION = "default@3";
+export const RULES_VERSION = "default@2";
 
 const SENSITIVE_HEADERS = new Set(["cookie", "set-cookie", "authorization", "proxy-authorization", "x-api-key"]);
 const SENSITIVE_HEADER_PARTS = ["token", "secret", "session", "auth"];
 const SENSITIVE_NAME = /(token|secret|passw|session|sid|auth|api[-_]?key)/i;
 /** Words that are sensitive only as a whole name segment (substrings such as bypass or passport are not). */
-const SENSITIVE_WORDS: ReadonlySet<string> = new Set(["pass", "pwd", "ticket"]);
+const SENSITIVE_WORDS: ReadonlySet<string> = new Set(["pass", "pwd"]);
 const KNOWN_MIN_LENGTH = 6;
 
 type PatternKind = "jwt" | "email" | "cnid" | "mobile";

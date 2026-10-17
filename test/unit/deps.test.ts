@@ -282,11 +282,11 @@ describe("CLI", () => {
     expect(isRecord(cd) && cd["schema"]).toBe("tabcap-chain/0");
   });
 
-  test("0.7-E: chain --text shows a CAS return URL's ticket as <redacted:ticket>; the JSON keeps the recorded URL", () => {
-    const url = "https://sso.example.test/app/return?ticket=ST-77-secret&lang=zh";
+  test("0.7-E: chain --text shows a return URL's access_token as <redacted:access_token>; the JSON keeps the recorded URL", () => {
+    const url = "https://sso.example.test/app/return?access_token=ST-77-secret&lang=zh";
     const res = { schema: "tabcap-chain/0" as const, bundle: "./b", target: "r-2", steps: [{ id: "r-2", method: "GET", url, provides: [], needs: [] }], todo: [], inputs: [], warnings: [] };
     const text = renderChainText(res);
-    expect(text).toContain("r-2 GET https://sso.example.test/app/return?ticket=<redacted:ticket>&lang=zh");
+    expect(text).toContain("r-2 GET https://sso.example.test/app/return?access_token=<redacted:access_token>&lang=zh");
     expect(text).not.toContain("ST-77-secret");
     expect(res.steps[0]?.url).toBe(url);
   });

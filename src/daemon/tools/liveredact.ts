@@ -1,5 +1,5 @@
 // Live output redaction (0.6-E, docs/04 §8.3): the `bundle redact` name rule
-// (default@3, src/bundle/redact.ts) applied to what the daemon prints, not to
+// (default@2, src/bundle/redact.ts) applied to what the daemon prints, not to
 // what it records. The bundle stays the evidence (request events unchanged);
 // HAR export redacts as before. Shown as `<redacted:<name>>`:
 //   headers  the value of a header whose name matches the sensitive header set

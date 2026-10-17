@@ -247,7 +247,7 @@
 - 触发：`tabcap bundle export har` 默认开，`--no-redact` 关；`tabcap bundle redact <in> <out>` 生成脱敏副本。原包永不原地改。
 - 规则来源：`redaction.json`（可改），默认规则：
   - 请求/响应头：`cookie`、`set-cookie`、`authorization`、`proxy-authorization`、`x-api-key`，以及名字含 `token` / `secret` / `session` / `auth` 的头。
-  - query、表单、JSON 字段：名字含 `(token|secret|passw|session|sid|auth|api[-_]?key)`，或有一段正好是 `pass` / `pwd` / `ticket`（按非字母数字、驼峰、字母数字交界切段：`user_pass`、`userPass`、`login-pwd`、`Pwd2`、`serviceTicket` 算，`bypass`、`passport`、`compass`、`passenger`、`tickets` 不算；`pass` / `pwd` 为 `default@2`，0.4 作者定；`ticket`（CAS 登录回跳 URL 里的一次性票据）为 `default@3`，0.7-E 加，待作者审）。
+  - query、表单、JSON 字段：名字含 `(token|secret|passw|session|sid|auth|api[-_]?key)`，或有一段正好是 `pass` / `pwd`（按非字母数字、驼峰、字母数字交界切段：`user_pass`、`userPass`、`login-pwd`、`Pwd2` 算，`bypass`、`passport`、`compass`、`passenger` 不算；`pass` / `pwd` 为 `default@2`，0.4 作者定。`ticket` 曾在 0.7-E 加入一天，作者 10-17 定去掉：CAS 回跳 URL 里的票据对回放是录制时的常量，而这张名单同时决定 export-python 把哪些输入当 secret）。
   - 值模式：18 位身份证、11 位手机号、邮箱、JWT（`xxx.yyy.zzz` 且 base64url）。
   - `state` 事件（cookies / storage）整体打码。
 - 占位符：`«r:<类别>:<sha256(salt+值) 前 8 位>»`。同一个值在整包里映射到同一个占位符，所以 `diff` 的「会话值 / 常量」分类在脱敏副本上不变。salt 只存在本地原包的 `exports/<name>.salt`，不进副本。
@@ -290,7 +290,7 @@
 - **规则**：名字属于敏感头集合或命中名字规则的头，整值换成 `<redacted:头名小写>`；`cookie` / `set-cookie` 保留 cookie 名和属性，每个值都换（§8 的 state 规则：全部值）；`location` / `referer` / `content-location` 头与各处 URL 只换名字敏感的 query 参数，其余逐字不变（fragment 不动）；请求体：JSON（对象 / 数组）里任意深度名字敏感的键（有改动才紧凑重排，否则原文），表单体逐字段。值规则（邮箱、手机号等）不用在实时输出上。
 - **库里的秘密**：整值是库里已知秘密的，仍显示 `<secret:<站点>.<字段>>`（§8.1 的替换照常作用于所有输出，`--reveal` 也不例外）。
 - **`--reveal`**：上述命令都收（`POST /fetch` 收 `reveal: true`），打印录到的原值；只在人要求时用。
-- **不变**：证据包照原样记录（请求事件不改，它就是证据），HAR 导出照旧打码，`analyze` 系列命令读包、不受影响；例外（0.7-E，待作者审）：`analyze chain --text` 的步骤 URL 按本节的 URL 规则显示（`ticket=<redacted:ticket>`），它的 JSON 仍是录到的 URL（`replay export-python` 读它）。
+- **不变**：证据包照原样记录（请求事件不改，它就是证据），HAR 导出照旧打码，`analyze` 系列命令读包、不受影响；例外（0.7-E，待作者审）：`analyze chain --text` 的步骤 URL 按本节的 URL 规则显示（如 `access_token=<redacted:access_token>`），它的 JSON 仍是录到的 URL（`replay export-python` 读它）。
 - 验证：`test/unit/liveredact.test.ts`（规则表）、`test/e2e/v06e.e2e.test.ts`（`05` s07 token 变体：`x-csrf` 原样，`sid` cookie、`Authorization`、URL 的 `token` 参数打码，`--reveal` 还原，包里是原值）。
 
 ## 9. 与 HAR 互转
@@ -966,6 +966,6 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   - (c) 无值的 query 键与业务编号：§15 两条。
 - **`replay check --text`**：默认回 JSON 信封（与其它分析命令一致），`--text` 每条不是 `same` 的请求一行（id、方法、路径、状态、结果、哪里不同），最后一行合计；原来的 `--json` 去掉（默认表格 → 默认 JSON，未发布前不留兼容）。
 - **`fetch` 的 `timing.ms` → `timing.totalMs`**（`POST /fetch` 同一信封；`_tabcap_fetch.py` 不读它）。
-- **`ticket` 是敏感名**（§8，`default@3`）：HAR 导出、`bundle redact`、实时输出与 `analyze chain --text` 都把 `ticket=` 的值打码。
+- **`ticket` 不是敏感名**（作者 10-17 定，规则仍为 `default@2`）：0.7-E 曾把它加进名单，因为同一张名单也决定 export-python 的 secret 输入，CAS 回跳 URL 里的票据会从常量变成要人填的值，当天去掉；`analyze chain --text` 的步骤 URL 仍按 §8.3 规则打码其它敏感参数。
 - **`waiting` 的截图与 `status`**：guard 在交接后 0.4 s 才拍截图，而且要排在触发它的那条命令之后用标签，所以那条命令自己的 `waiting` 回答、紧跟着的 `status` / `handoff status` 都是 `screenshot: null`，约 0.5 s 后才有路径；截图本来就存在数据目录的 `shots/` 下，与有没有录制无关（`net stop` 之后 `status` 照样列出）【实测：复现脚本，`navigate` 到第 6 次的 403 验证页】。现在这三处都等正在拍的截图（最多 5 s）；`status` 的会话多 `url`、`handoff[]` 多 `url`、顶层多 `next`（§35）。验收报告里「没有录制时触发」与代码不符：guard 只看录制里的响应，没有录制不会进 `waiting`；当时看到的应是截图还没拍完【推断】。
 - 验证：`bun test test/unit`、`bunx tsc --noEmit -p .`、`bun run validate:skill`、`bun run gen:docs`；e2e v06b、v06a、v07b、v04a、v03b、v06c 与 `tabcap.e2e`（结果见 NOTES 0.7-E）。

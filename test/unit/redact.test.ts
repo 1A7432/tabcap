@@ -37,7 +37,7 @@ async function redactedRich() {
   return { src, out, res, salt, before, copy: BundleReader.open(out), orig: BundleReader.open(src) };
 }
 
-describe("sensitive names (default@3, owner 2026-10-16)", () => {
+describe("sensitive names (default@2, owner 2026-10-16)", () => {
   test("pass / pwd match as a name segment only; the default@1 substrings keep matching anywhere", () => {
     for (const n of ["pass", "user_pass", "userPass", "login-pwd", "pwd", "Pwd2", "PASS", "user.pass", "USER_PWD", "loginPwd"]) expect([n, isSensitiveName(n)]).toEqual([n, true]);
     for (const n of ["bypass", "passport", "compass", "passenger", "pwds", "q", "page", "user"]) expect([n, isSensitiveName(n)]).toEqual([n, false]);
@@ -45,19 +45,17 @@ describe("sensitive names (default@3, owner 2026-10-16)", () => {
     expect(nameWords("XMLPass2go")).toEqual(["XML", "Pass", "2", "go"]);
   });
 
-  test("default@3 (0.7-E): `ticket` as a name segment (a CAS service ticket); tickets / ticketing do not match", () => {
-    for (const n of ["ticket", "TICKET", "serviceTicket", "service_ticket", "cas-ticket", "ticket2"]) expect([n, isSensitiveName(n)]).toEqual([n, true]);
-    for (const n of ["tickets", "ticketing", "pticket"]) expect([n, isSensitiveName(n)]).toEqual([n, false]);
+  test("`ticket` is not a sensitive name (owner 2026-10-17: the name list also classifies replay inputs)", () => {
+    for (const n of ["ticket", "serviceTicket", "cas-ticket", "tickets"]) expect([n, isSensitiveName(n)]).toEqual([n, false]);
   });
 
-  test("default@3: a HAR export masks the ticket of a CAS return URL", async () => {
+  test("default@2: a HAR export keeps the ticket of a CAS return URL (not a sensitive name)", async () => {
     const src = tmp("tabcap-ticket-");
     await buildBundle(src, { name: "cas", created: 1760500000000, seed: 7 }, async (b) => {
       await b.request({ url: "http://127.0.0.1:4310/cas/return?ticket=ST-12345-abcdefXYZ&lang=zh", type: "document", mime: "text/html", body: "<p>ok</p>", ts: 1760500000001 });
     });
     const har = JSON.stringify(exportHar(BundleReader.open(src), { redact: { salt: "s" } }).har);
-    expect(har).not.toContain("ST-12345-abcdefXYZ");
-    expect(har).toContain(`ticket=${placeholder("secret", "s", "ST-12345-abcdefXYZ")}&lang=zh`);
+    expect(har).toContain("ticket=ST-12345-abcdefXYZ&lang=zh");
   });
 });
 
@@ -105,7 +103,7 @@ describe("redaction (docs/04 §8)", () => {
 
   test("copy has manifest.redaction and recomputed counts; source unchanged; salt only in source exports/", async () => {
     const { src, out, res, salt, before, copy, orig } = await redactedRich();
-    expect(copy.manifest.redaction).toEqual({ rules: "default@3", applied: 1760500999000 });
+    expect(copy.manifest.redaction).toEqual({ rules: "default@2", applied: 1760500999000 });
     expect(orig.manifest.redaction).toBeNull();
     expect(copy.manifest.counts.events).toBe(orig.events.length);
     expect(copy.manifest.counts.requests).toBe(orig.manifest.counts.requests);
