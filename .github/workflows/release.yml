@@ -206,7 +206,10 @@ jobs:
           order+=("dist/npm/$main-$version.tgz")
           for f in "${order[@]}"; do
             name="$(tar -xOzf "$f" package/package.json | jq -r .name)"
-            if [ -z "$DRY_RUN" ] && npm view "$name@$version" version --registry "$NPM_REGISTRY" >/dev/null 2>&1; then
+            # A version already on the registry is skipped in both modes (npm refuses to
+            # publish over it, dry run included): rerunning the job after a partial failure
+            # publishes only what is missing.
+            if npm view "$name@$version" version --registry "$NPM_REGISTRY" >/dev/null 2>&1; then
               echo "skip $name@$version: already on the registry"
               continue
             fi
