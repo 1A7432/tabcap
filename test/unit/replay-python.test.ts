@@ -61,7 +61,9 @@ describe("generated package", () => {
     expect(pyproject).toContain('[dependency-groups]\ntest = ["pytest>=8"]');
     expect(pyproject).not.toContain("optional-dependencies");
     expect(readFileSync(join(out, ".gitignore"), "utf8")).toBe(".venv/\n__pycache__/\n");
-    expect(readFileSync(join(out, "client.py"), "utf8")).toMatch(/httpx\.Client\(timeout=timeout, follow_redirects=False, http2=True, proxy=effective_proxy, trust_env=False\)/);
+    expect(readFileSync(join(out, "client.py"), "utf8")).toMatch(/httpx\.Client\(timeout=timeout, follow_redirects=False, http2=True, proxy=effective_proxy, verify=effective_verify, trust_env=False\)/);
+    expect(readFileSync(join(out, "client.py"), "utf8")).toContain('effective_verify = verify if verify is not None else (os.environ.get("SSL_CERT_FILE") or True)');
+    expect(readFileSync(join(out, "client.py"), "utf8")).toContain("with Session(verify=str(ca)) as session:");
     expect(readFileSync(join(out, "client.py"), "utf8")).toContain("proxy: str | None = None");
     expect(readFileSync(join(out, "client.py"), "utf8")).toContain("effective_proxy = proxy if proxy is not None else (os.environ.get(\"TABCAP_PROXY_URL\") or None)");
     expect(readFileSync(join(out, "README.md"), "utf8")).toContain("do **not** read `http_proxy` / `https_proxy` / `NO_PROXY`");

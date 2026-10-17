@@ -18,7 +18,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ### Replay client: no proxy from the environment
 
-- The generated Python client (`Session` in `_runtime.py`, `_tabcap_session.client`) builds `httpx.Client` with `trust_env=False`, so `http_proxy` / `https_proxy` / `NO_PROXY` (a Clash-style `NO_PROXY="[::1],…"` used to crash httpx) never affect it. A proxy comes from `proxy=` or `TABCAP_PROXY_URL` (argument first); the generated README says so.
+- The generated Python client (`Session` in `_runtime.py`, `_tabcap_session.client`) builds `httpx.Client` with `trust_env=False`, so `http_proxy` / `https_proxy` / `NO_PROXY` (a Clash-style `NO_PROXY="[::1],…"` used to crash httpx) never affect it. A proxy comes from `proxy=` or `TABCAP_PROXY_URL` (argument first); the generated README says so. The CA bundle comes from `verify=` or `SSL_CERT_FILE` (`trust_env=False` would otherwise drop it; `wire-report` passes the echo's CA explicitly, which the first full e2e run of this branch caught).
 
 ### Analysis output: values redacted by default
 

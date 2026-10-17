@@ -18,7 +18,7 @@
 
 ### 回放客户端：不读环境里的代理
 
-- 生成的 Python 客户端（`_runtime.py` 的 `Session`、`_tabcap_session.client`）构造 `httpx.Client` 时用 `trust_env=False`，`http_proxy` / `https_proxy` / `NO_PROXY`（Clash 风格的 `NO_PROXY="[::1],…"` 以前会让 httpx 崩）不再影响它。代理只来自 `proxy=` 或 `TABCAP_PROXY_URL`（参数优先）；生成的 README 写明这一点。
+- 生成的 Python 客户端（`_runtime.py` 的 `Session`、`_tabcap_session.client`）构造 `httpx.Client` 时用 `trust_env=False`，`http_proxy` / `https_proxy` / `NO_PROXY`（Clash 风格的 `NO_PROXY="[::1],…"` 以前会让 httpx 崩）不再影响它。代理只来自 `proxy=` 或 `TABCAP_PROXY_URL`（参数优先）；生成的 README 写明这一点。 CA 证书来自 `verify=` 或 `SSL_CERT_FILE`（`trust_env=False` 本来会把它也丢掉；`wire-report` 现在显式传 echo 的 CA，这个回归是本分支第一次跑全套 e2e 时发现的）。
 
 ### 分析输出：默认脱敏
 

@@ -19,6 +19,8 @@ class Session:
     The client never reads ``http_proxy`` / ``https_proxy`` / ``NO_PROXY``
     (``trust_env=False``): a proxy comes from ``proxy=`` or from
     ``TABCAP_PROXY_URL`` only (``replay export-python --proxy-env`` writes it).
+    The CA bundle comes from ``verify=`` or ``SSL_CERT_FILE`` (``wire_report``
+    passes the echo's CA that way); otherwise the system / certifi store.
     """
 
     def __init__(
@@ -27,22 +29,25 @@ class Session:
         values: dict[str, str] | None = None,
         timeout: float = 30.0,
         proxy: str | None = None,
+        verify: str | bool | None = None,
     ) -> None:
         self.values: dict[str, str] = dict(values or {})
         # Priority: proxy argument > TABCAP_PROXY_URL > no proxy. The environment's
         # http_proxy / NO_PROXY are deliberately ignored (httpx's NO_PROXY parser
         # chokes on Clash-style "[::1]" and would fail Client construction).
         effective_proxy = proxy if proxy is not None else (os.environ.get("TABCAP_PROXY_URL") or None)
-        self.client = httpx.Client(timeout=timeout, follow_redirects=False, http2=True, proxy=effective_proxy, trust_env=False)
+        # trust_env=False also stops httpx reading SSL_CERT_FILE, so the CA bundle is passed explicitly.
+        effective_verify = verify if verify is not None else (os.environ.get("SSL_CERT_FILE") or True)
+        self.client = httpx.Client(timeout=timeout, follow_redirects=False, http2=True, proxy=effective_proxy, verify=effective_verify, trust_env=False)
         for c in cookies or []:
             if isinstance(c, dict) and isinstance(c.get("name"), str) and isinstance(c.get("value"), str):
                 self.client.cookies.set(c["name"], c["value"], domain=str(c.get("domain", "")), path=str(c.get("path", "/")))
 
     @classmethod
-    def from_storage_state(cls, path: str | Path, values: dict[str, str] | None = None, proxy: str | None = None) -> Session:
+    def from_storage_state(cls, path: str | Path, values: dict[str, str] | None = None, proxy: str | None = None, verify: str | bool | None = None) -> Session:
         data = json.loads(Path(path).read_text("utf-8"))
         cookies = data.get("cookies", []) if isinstance(data, dict) else []
-        return cls(cookies if isinstance(cookies, list) else [], values, proxy=proxy)
+        return cls(cookies if isinstance(cookies, list) else [], values, proxy=proxy, verify=verify)
 
     def cookie(self, name: str, default: str) -> str:
         """The stored cookie `name` (any domain), else the recorded value."""

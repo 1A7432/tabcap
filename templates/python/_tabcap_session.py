@@ -42,18 +42,21 @@ def cookie_jar(data: dict[str, Any]) -> httpx.Cookies:
     return jar
 
 
-def client(data: dict[str, Any], base_url: str | None = None, proxy: str | None = None, **kwargs: Any) -> httpx.Client:
+def client(data: dict[str, Any], base_url: str | None = None, proxy: str | None = None, verify: str | bool | None = None, **kwargs: Any) -> httpx.Client:
     """httpx.Client with the session's cookies and headers; base_url defaults to the exported origin.
 
     Proxy priority: ``proxy`` argument > ``TABCAP_PROXY_URL`` > no proxy. The
-    environment's http_proxy / NO_PROXY are ignored (trust_env=False).
+    environment's http_proxy / NO_PROXY are ignored (trust_env=False); the CA
+    bundle is ``verify`` or ``SSL_CERT_FILE``, else the default store.
     """
     effective_proxy = proxy if proxy is not None else (os.environ.get("TABCAP_PROXY_URL") or None)
+    effective_verify = verify if verify is not None else (os.environ.get("SSL_CERT_FILE") or True)
     return httpx.Client(
         base_url=base_url or data["origin"],
         cookies=cookie_jar(data),
         headers=dict(data.get("headers", {})),
         proxy=effective_proxy,
+        verify=effective_verify,
         trust_env=False,
         **kwargs,
     )
