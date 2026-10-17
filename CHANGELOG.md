@@ -4,12 +4,12 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+## 0.6.0 (2026-10-17)
+
 ### plugin init (0.7-D)
 
 - **`tabcap plugin init --kind decode [<dir>] [--name <n>] [--force]`** writes the Python decode plugin template, so nobody has to find where an install put `templates/plugins/decode-python/`. With `--name` alone it goes to `~/.config/tabcap/plugins/<name>/`, the only place plugins are loaded from; with a directory the name defaults to its basename, and outside the plugins directory the answer says to move it there. `manifest.json` gets the name (the rest as shipped); `plugin.py`, `runner.py`, `pyproject.toml` and `config.example.json` are written as shipped; `config.json` is created from the example only when absent (0600) and never overwritten. A non-empty directory is refused unless `--force`, which rewrites the template files and leaves `config.json` and other files alone. The answer lists `files` written, `kept` files and a `next` with the two steps (edit `plugin.py`, `config.json` and the manifest's `match`; then `tabcap plugin enable <name>`). `--kind` takes only `decode` for now.
 - The five template files are embedded into the binary at build time, so `plugin init` works from the release archive, npm and a source checkout alike; `templates/` stays the source and a unit test keeps the two identical.
-
-## 0.6.0 (2026-10-17)
 
 ### Observe mode: grace before deciding (0.6-W)
 
