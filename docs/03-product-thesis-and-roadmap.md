@@ -34,7 +34,7 @@
 | 6. 复现 | AI | 生成独立客户端，重放请求，与录到的响应逐项比对 |
 | 7. 落地 | AI + 人 | 导出离线 fixture 和测试；回归多份样本；定时重放，检测接口变化 |
 
-人可以随时接管：工具发现人正在操作 AI 的标签，AI 就暂停【待验：能否可靠识别】。
+人可以随时接管：目前的交还都由工具触发（验证页、站点停手规则、`handoff`），「工具发现人正在操作 AI 的标签就自动暂停」**还没有实现**（0.7.1 候选：隔离世界的被动输入监听器在 tabcap 自己的命令窗口之外看到 isTrusted 输入就进入等待；能否可靠识别仍【待验】）。在它做实之前，人接手前先让 AI 停下，或用 `tabcap handoff` 显式交接。
 
 ## 4. 这个工具体现的工作方式
 
@@ -58,8 +58,7 @@
 | `bundle` | 证据包格式：一个目录 + manifest，可导出为标准 HAR；导出时自动打码 cookie、token、证件号 | — |
 | `store` | 站点与账号库：站点名、入口网址、域名列表、账号与密码、登录配方、最近会话 cookie、guard 计数、证据包索引；0.4 起加代理池 `proxies`（名字、scheme、host、port、用户名、密码、bypass、健康状态、连续失败数、上次检查 / 成功时间、延迟、重查时间）与账号池列（`accounts` 加 `proxy`、`state`、`cool_until`、`last_used_at`、`fail_streak`；`guard_counters` 加账号维度：站点、账号、小时窗口、请求数、登录数）。`bun:sqlite` 单文件 `~/.config/<名>/state.db`，0600，零安装【实测】。推荐人手动录入（CLI 交互或扩展表单），也可以由人把值交给 AI 一次、经 `--password-stdin` 存入（`04` §8.1，10-16 作者定），不在人登录时自动抓密码。AI 只见站点名、入口网址、账号名和 `<secret:站点.password>` 引用；守护进程把所有输出里出现的已知秘密值替换成引用 | DrissionPage 的 d/s 模式、私有笔记 |
 | `sample` | 挑战样本包。把一次保护挑战**黑盒**录成可离线分析的样本：页面加载的脚本原样（含内联、顺序、响应头）、环境快照（navigator/screen/时区/语言/UA 等可读属性）、挑战请求/响应全文、观察到的输入→输出、时序与复现元数据。交给用户或作者自己的离线分析项目；**工具只录不析**（见 §6、§10.8） | — |
-| `analyze` | `find`（用页面文字反查接口，自动解压、解码）、`diff`（多次录制对比，给参数分类）、`deps`（值依赖链）、`trace`（从调用栈定位 JS 函数）、`shape`（0.6-G：按端点推断响应 / 请求形状，类型树 + 格式 + 出现次数，不含值）、`schema-diff`（0.6-G：两次录制按端点比字段增删与类型变化，漂移时退出码 1） | Integuru 的依赖图思路、`04` §32 |
-| `analyze` | `find`（用页面文字反查接口，自动解压、解码）、`diff`（多次录制对比，给参数分类）、`deps`（值依赖链）、`trace`（从调用栈定位 JS 函数；`trace start --decode` 观察模式 0.6-L / L2：站点把响应体加密时，借页面自己的解密，log-point 取 `JSON.parse` 实参按密文 sha256 归属（关联分 strong / weak）、作为 `decoded` 视图 `by:"page"` 归档，上限 16 MiB，开着时不装签名断点，`04` §33） | Integuru 的依赖图思路 |
+| `analyze` | `find`（用页面文字反查接口，自动解压、解码）、`diff`（多次录制对比，给参数分类）、`deps`（值依赖链）、`shape`（0.6-G：按端点推断响应 / 请求形状，类型树 + 格式 + 出现次数，不含值）、`schema-diff`（0.6-G：两次录制按端点比字段增删与类型变化，漂移时退出码 1）、`trace`（从调用栈定位 JS 函数；`trace start --decode` 观察模式 0.6-L / L2 / Q / W：站点把响应体加密时，借页面自己的解密，log-point 取 `JSON.parse` 实参按密文 sha256 归属（关联分 strong / weak，无命中先等 1.5 s grace）、作为 `decoded` 视图 `by:"page"` 归档，上限 16 MiB，开着时不装签名断点，`04` §33） | Integuru 的依赖图思路、`04` §32 §33 |
 | `recon` | 站点侦查档案（`09` §1）。v0（0.4）只答四问：技术栈、数据通道清单与覆盖率、cookie 分类、防护识别（只识别）；只读已录证据和当前页面，不发请求，写进证据包 `exports/dossier.json` + `.md`；`--probe` 主动探测推 0.5 | — |
 | `handoff` | 人在回路：AI 卡住或拿不准时暂停，同时在浏览器（标签横条、扩展角标）和终端提示，不发系统通知；人处理完继续；确认题的答案写进证据，记为【人确认】 | 私有笔记 |
 | `fetch` | 爬虫的请求由已登录的标签发出并录下（0.6-A）：`tabcap fetch <url>` / `--batch`（agent）与守护进程 `POST /fetch`（脚本，附 Python 助手）；请求在 tabcap 隔离世界里用页面自己的 `fetch()` 发，带页面的 cookie、受页面的 CORS 规则；同源请求靠标记头确定地归到命令（上线前剥掉），跨源靠发起栈；按主机限速（默认请求间隔 3 s，命令行不能绕过）；停手规则命中即停该站点，等人或 agent 决定 `guard resume` | `04` §26、`07` §8 |
@@ -70,7 +69,6 @@
 | `status` | `tabcap status [--text]`（0.7-B）：一个回答看全守护进程、浏览器、各会话（站点与账号、录制、等人、trace、fetch 停手）、已启用插件和等人的会话，外加 `conflicts`——纯函数规则对这些事实生成的句子，每条带 `code` 和可直接执行的 `next`（等人又停手、解码插件压过观察模式、标签在库内站点却未绑定的会话、浏览器没了的录制、没录制的 trace）；只读，不进录制 | `04` §35 |
 | 接口 | 命令行统一 JSON 信封；同时提供 MCP 和 skill；报错写成「下一步该做什么」 | 私有笔记 |
 | `guide` | 任务配方（0.7-A）：`tabcap guide [<id>]` 按任务给入口，每条配方 = 何时用、5–10 步可直接粘贴的命令（带 `--session`）及每步为什么、容易漏的坑（含隐式状态）、该读哪些参考；首批五条 `first-look`、`scrape-through-browser`、`encrypted-site`、`offline-replay`、`login-with-challenge`。唯一真源是二进制里的注册表 `src/cli/guides.ts`：`--text` 打成带 `# why` 注释的编号 shell 块，MCP 走 `tabcap_help {guide}`，`bun run gen:docs` 生成 `skills/tabcap/references/guides.md`，SKILL.md 按任务各留三四行、以 `tabcap guide <id>` 收尾；单测用命令注册表解析配方里每条 `tabcap …`，命令或旗标不存在即失败 | `src/cli/guides.ts` |
-| `mcp` | `tabcap mcp`（0.5-A）：stdio 上的 MCP 服务，手写 JSON-RPC 2.0（零依赖，MCP 2025-11-25 的 initialize 生命周期）；工具由命令注册表生成：默认 24 个核心工具（一行说明、裸 schema，约 8.5 KB）+ `tabcap_run` / `tabcap_help`，`--all-tools` 每条命令一个（约 58 KB）；`tools/call` 在进程内走 CLI 同一条 `run()`，返回同一个信封；`waiting` 不阻塞，另给 `tabcap_handoff_wait`；`--print-config <宿主>` 给六个宿主的配置 | `07` §7 |
 | `mcp` | `tabcap mcp`（0.5-A）：stdio 上的 MCP 服务，手写 JSON-RPC 2.0（零依赖，MCP 2025-11-25 的 initialize 生命周期）；工具由命令注册表生成：默认 24 个核心工具（一行说明、裸 schema，约 9 KB；0.7-B 起 `status` 替下 `handoff status`）+ `tabcap_run` / `tabcap_help`，`--all-tools` 每条命令一个（约 58 KB）；`tools/call` 在进程内走 CLI 同一条 `run()`，返回同一个信封；`waiting` 不阻塞，另给 `tabcap_handoff_wait`；`--print-config <宿主>` 给六个宿主的配置 | `07` §7 |
 | 插件 | 本地插件目录 `~/.config/tabcap/plugins/`（`tabcap plugin enable` 才生效）两类：**挑战处理程序**（guard 交人之前先问它，`04` §18）与**解码插件**（0.6-B：按站点 / 路径 / 内容类型匹配的进程外解码器，stdin / stdout 上的 JSON 行，明文作派生视图存在原正文旁，`find` / `where` / `deps` / `recon` / `replay check` 读它；密钥在插件自己的配置里；附 Python runner 模板，mitmproxy addon 的解密代码可少改复用；`04` §28），以及**夹具插件**（0.6-C：`bundle export fixtures --format <name>` 把每个夹具交给它，它回要写的文件，团队自己的测试格式归插件管；同一套 JSON 行；`04` §31）。另：hook 套件（fetch / XHR / crypto / WebSocket）、AST 反混淆、作者自己的 JS 分析研究项目；已有的 JS 分析类 MCP 能接就接。线路层（TLS / h2 指纹）诊断工具（复现被拒时指出是哪一层对不上）现在是本仓库的原生组件 `native/wireprint/`（Zig），不再是外部工具 | — |
 

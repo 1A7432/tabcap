@@ -486,3 +486,8 @@
 - 做了什么：作者手发了 npm 0.7.0 五个包（registry 上 `tabcap@0.7.0` 的 optionalDependencies 列出四个平台包【实测】）；目录挪到 `~/ClaudeCode/tabcap`，仓库转公开；按作者定的 a 方案给 `release.yml` 加 `npm` job（tag 即发；二进制作为 artifact 传给 ubuntu 上的 `npm:pack`；五包顺序发布、已发版本跳过、发完 `npm view` 核对；`NPM_TOKEN` 有则用，无则 trusted publishing；`npm_dry_run` 干跑），packaging/npm/README.md §3 改为 CI 流程、§3b 保留手动后备。
 - 卡在哪：job 没有在真实 tag 上跑过【待验】；trusted publishing 对五个包要作者在 npmjs.com 各配一次；YAML 只做了本地语法解析。
 - 下一格从哪开始：作者先用 `workflow_dispatch` + `npm_dry_run` 干跑一次；`git tag v0.7.0 73c14f9 && git push origin v0.7.0`（0.7.0 已在 registry，npm job 会全部跳过，只出草稿 Release）；0.7.1 待办见上一条。
+
+## 2026-10-17 · 公开后的第一份外部评审（主循环处理）
+- 做了什么：评审五点逐条核实。(1) 干净检出 `bun run build` 失败【实测】：`src/wire/embedded.ts` 要 `native/dist/*/wireprint`，没有 Zig 编不出 → 派 0.7-G 做无 Zig 的降级构建；(2) docs/03 §5 模块表 `analyze`、`mcp` 各两行、内容不一致【实测】→ 合并成一行；README 命令一览标出*实验*组（诊断、recon、proxy），其余是日常在用、e2e 覆盖的；(3)「人在操作 AI 的标签就自动暂停」代码里没有实现【实测 grep】，docs/03 §4 原标【待验】→ 改成写明未实现、现有交接都由工具触发、0.7.1 候选做法；README 本来没有这个承诺；(4) 边界一节加「遵守站点条款与所在地法律、不是绕过保护的手段」一句；(5) 演示视频与分发渠道是作者的事，不在仓库里。
+- 卡在哪：0.7-G 的构建降级在跑；Windows 单测仍红（0.7-F 在修）。
+- 下一格从哪开始：0.7-F / 0.7-G 合入 → release.yml 干跑通过 → 作者推 v0.7.0 tag；0.7.1 候选：人接管识别（隔离世界被动输入监听，命令窗口外的 isTrusted 输入即等待）排在前面。

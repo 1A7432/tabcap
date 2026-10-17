@@ -66,20 +66,20 @@ Every command prints one JSON envelope on stdout: `{"ok":true,"data":…}` or `{
 
 ## Commands
 
-The commands come in groups; `tabcap help <group>` lists one, for example `tabcap help network`.
+The commands come in groups; `tabcap help <group>` lists one, for example `tabcap help network`. The groups marked *experimental* may change or break between releases; the rest is used daily and covered by the end-to-end suite.
 
 | Group | Commands |
 |---|---|
 | Start here | `guide` (task recipes: the commands in order, why, the pitfalls), `status` (everything in one answer, with conflicts and what to do) |
 | Lifecycle | `setup`, `daemon start/stop/status`, `browser start/stop/status`, `mcp` |
-| Sites, sessions, tabs | `site`, `account`, `proxy`, `session start/stop/list/export`, `tab list/select/new/close` |
+| Sites, sessions, tabs | `site`, `account`, `proxy` (*experimental*), `session start/stop/list/export`, `tab list/select/new/close` |
 | Page | `navigate`, `go`, `reload`, `snapshot`, `outline`, `find`, `wait`, `html` |
 | Input | `click`, `hover`, `fill`, `type`, `press-key`, `upload`, `dialog` |
 | Page tools | `evaluate`, `screenshot`, `resize`, `emulate`, `console list/show` |
-| Network | `net start/stop/list/show/body/grep/wait`, `fetch`, `where`, `recon` |
+| Network | `net start/stop/list/show/body/grep/wait`, `fetch`, `where`, `recon` (*experimental*) |
 | Handoff | `handoff status/continue`, `guard resume`, `plugin init/list/enable/disable` |
 | Offline | `bundle export/import/redact/info/decode`, `analyze find/diff/deps/chain/shape/schema-diff/recon`, `replay serve/check/session/export-python`, `schema` |
-| Diagnostics | `trace`, `fingerprint`, `wire` |
+| Diagnostics (*experimental*) | `trace`, `fingerprint`, `wire` |
 
 The full reference with every option is [`skills/tabcap/references/commands.md`](skills/tabcap/references/commands.md); `tabcap schema --json` is the machine-readable form. Where the two overlap, names follow Chrome DevTools MCP (`press-key`, `tab list`, `console list`, `--page-size` …).
 
@@ -107,7 +107,7 @@ Several tools turn recorded browser traffic into something an agent can call: In
 
 - Not an unattended scraping platform and not a cloud browser.
 - Signature-like parameters and encrypted bodies are not reproduced. Generated clients mark them as TODOs; those requests stay in the real browser session.
-- Meant for analysing and debugging your own sessions on sites you are allowed to use. The repository's tests run only against local pages.
+- Meant for analysing and debugging your own sessions on sites you are allowed to use, within the site's terms and the law that applies to you; it is an analysis tool, not a way around a site's protections. The repository's tests run only against local pages.
 - The credential store is plain text protected by file permissions (a 0600 file in a 0700 directory, like `~/.netrc`). Prefer test accounts.
 
 ## Platforms

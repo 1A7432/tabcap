@@ -66,20 +66,20 @@ tabcap daemon stop
 
 ## 命令
 
-命令分组；`tabcap help <组>` 列一组，比如 `tabcap help network`。
+命令分组；`tabcap help <组>` 列一组，比如 `tabcap help network`。标了*实验*的组在版本之间可能变、可能坏；其余是日常在用、端到端套件覆盖的。
 
 | 组 | 命令 |
 |---|---|
 | 从这里开始 | `guide`（任务配方：命令顺序、为什么、坑）、`status`（一屏看全，含冲突和下一步） |
 | 生命周期 | `setup`、`daemon start/stop/status`、`browser start/stop/status`、`mcp` |
-| 站点、会话、标签 | `site`、`account`、`proxy`、`session start/stop/list/export`、`tab list/select/new/close` |
+| 站点、会话、标签 | `site`、`account`、`proxy`（*实验*）、`session start/stop/list/export`、`tab list/select/new/close` |
 | 页面 | `navigate`、`go`、`reload`、`snapshot`、`outline`、`find`、`wait`、`html` |
 | 输入 | `click`、`hover`、`fill`、`type`、`press-key`、`upload`、`dialog` |
 | 页面工具 | `evaluate`、`screenshot`、`resize`、`emulate`、`console list/show` |
-| 网络 | `net start/stop/list/show/body/grep/wait`、`fetch`、`where`、`recon` |
+| 网络 | `net start/stop/list/show/body/grep/wait`、`fetch`、`where`、`recon`（*实验*） |
 | 交接 | `handoff status/continue`、`guard resume`、`plugin init/list/enable/disable` |
 | 离线 | `bundle export/import/redact/info/decode`、`analyze find/diff/deps/chain/shape/schema-diff/recon`、`replay serve/check/session/export-python`、`schema` |
-| 诊断 | `trace`、`fingerprint`、`wire` |
+| 诊断（*实验*） | `trace`、`fingerprint`、`wire` |
 
 每个选项的完整参考在 [`skills/tabcap/references/commands.md`](skills/tabcap/references/commands.md)；`tabcap schema --json` 是机器可读版。命令名和参数名在重合处对齐 Chrome DevTools MCP（`press-key`、`tab list`、`console list`、`--page-size` …）。
 
@@ -107,7 +107,7 @@ tabcap daemon stop
 
 - 不是无人值守的采集平台，也不是云浏览器。
 - 类签名参数和加密正文不复现：生成的客户端把它们标成 TODO，这些请求留在真实浏览器会话里。
-- 用来分析和调试你自己在有权使用的站点上的会话；本仓库的测试只对本地页面跑。
+- 用来分析和调试你自己在有权使用的站点上的会话，并遵守站点条款和你所在地的法律；它是分析工具，不是绕过站点保护的手段。本仓库的测试只对本地页面跑。
 - 凭据库是明文，靠文件权限保护（0700 目录里的 0600 文件，和 `~/.netrc` 一样）；能用测试账号就用测试账号。
 
 ## 平台
