@@ -250,6 +250,23 @@ describe("chain", () => {
     expect(chainOf(g, dir).target).toBe(data?.id ?? "");
   });
 
+  test("0.7.3: steps follow the start clock, not the recording order: a login whose event was written late still comes first", async () => {
+    // planted (CI 2026-10-18, ubuntu): the login ended at mono X and the data call that needs its csrf
+    // started 1 ms later, but the recorder wrote the login event AFTER the data event (its body was
+    // stored later), so a seq-ordered chain called data before login.
+    const M = 7000;
+    const dir = await buildBundle(join(root, "step-order"), { name: "step-order", created: C, seed: 19 }, async (b) => {
+      await b.request({ url: "http://127.0.0.1:4310/api/data", type: "fetch", mime: "application/json", body: '{"data":"ok"}', ts: C + 400, reqHeaders: { "x-csrf": "c5f3a9d2e1b7c4a6" }, extra: { mono: M + 350, timing: { start: M + 300, responseStart: M + 340, end: M + 350, cdp: null } } });
+      await b.request({ url: "http://127.0.0.1:4310/api/login", method: "POST", type: "fetch", mime: "application/json", body: '{"ok":1,"csrf":"c5f3a9d2e1b7c4a6"}', postData: "user=u", ts: C + 500, extra: { mono: M + 200, timing: { start: M + 100, responseStart: M + 140, end: M + 200, cdp: null } } });
+    });
+    const g = DepsGraph.open(dir);
+    const [data, login] = g.requests;
+    expect((data?.seq ?? 0) < (login?.seq ?? 0)).toBe(true);
+    const c = chainOf(g, dir);
+    expect(c.target).toBe(data?.id ?? "");
+    expect(c.steps.map((x) => x.id)).toEqual([login?.id ?? "", data?.id ?? ""]);
+  });
+
   test("default target: the last data-bearing xhr / fetch / document request", () => {
     const g = DepsGraph.open(flows);
     expect(defaultTarget(g).id).toBe(id["search2"]);

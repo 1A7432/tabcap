@@ -157,10 +157,20 @@ export function chainOf(g: DepsGraph, bundle: string, opts: ChainOptions = {}): 
       needs.set(id, list);
     }
   }
+  // Steps in the order the requests STARTED (timing.start, else mono), seq only for ties or a
+  // missing clock: the recorder numbers a request when its body has been stored, so a login whose
+  // body arrives late gets a higher seq than the data request that depends on it (CI 0.7.3:
+  // login r-21 ended 1.2 ms before data r-20 started), and a seq-ordered chain or generated
+  // client would call data before login.
   const steps: ChainStep[] = [...inChain]
     .map((id) => g.byId.get(id))
     .filter((r): r is RequestEvent => r !== undefined)
-    .sort((a, b) => a.seq - b.seq)
+    .sort((a, b) => {
+      const ka = startKey(a);
+      const kb = startKey(b);
+      if (ka !== null && kb !== null && ka !== kb) return ka - kb;
+      return a.seq - b.seq;
+    })
     .map((r) => ({ id: r.id, method: r.method, url: r.url, provides: provides.get(r.id) ?? [], needs: needs.get(r.id) ?? [] }));
   const todo: ChainTodo[] = [];
   const inputs: ChainInput[] = [];

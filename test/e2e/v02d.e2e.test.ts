@@ -245,7 +245,9 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
   test("net show: postData over 2 KB as path + head, signature header, body path, timing, initiator", async () => {
     const nav = await ok("navigate", `${site.origin}/post`, "--session", S);
     await ok("wait", "--text", "posted", "--session", S);
-    const post = recs((await ok("net", "list", "--method", "POST", "--since", s(nav["cmd"]), "--session", S))["requests"]);
+    // The page says "posted" when its fetch resolves; the recorder lists the request once its body is
+    // stored, which can be a moment later on a slow runner (windows-latest listed 0 once).
+    const post = recs((await until("the POST", () => ok("net", "list", "--method", "POST", "--since", s(nav["cmd"]), "--session", S), (l) => recs(l["requests"]).length > 0))["requests"]);
     expect(post).toHaveLength(1);
     const d = await ok("net", "show", s(post[0]?.["id"]), "--session", S);
     expect(d).toMatchObject({ method: "POST", url: `${site.origin}/api/submit`, status: 200, outcome: "finished", tab: "t1", type: "fetch", actor: "ai" });

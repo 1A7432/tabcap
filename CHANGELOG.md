@@ -2,6 +2,12 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### analyze chain: steps in start order
+
+- `analyze chain` (and so the call order of `replay export-python`) orders its steps by when each request started (`timing.start`, else `mono`), with the recording sequence only for ties. The recorder numbers a request when its body has been stored, so a login whose body landed late could get a higher number than the data call that needs its csrf, and the chain called data before login (seen on CI).
+
 ## 0.7.3 (2026-10-18)
 
 ### Install channels

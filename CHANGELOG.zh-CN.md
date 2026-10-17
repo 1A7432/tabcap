@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### analyze chain：步骤按开始时间排
+
+- `analyze chain`（因而也是 `replay export-python` 的调用顺序）按每个请求的开始时刻排步骤（`timing.start`，否则 `mono`），录制序号只用来打平手。录制器在正文落盘时才给请求编号，登录的正文晚一点落盘，它的序号就会排在依赖它 csrf 的数据请求之后，链条就先调 data 再调 login（CI 上出现过）。
+
 ## 0.7.3（2026-10-18）
 
 ### 安装渠道
