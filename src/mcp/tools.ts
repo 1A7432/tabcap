@@ -20,6 +20,7 @@
 import { COMMANDS, COMMON_FLAGS, helpFor, matchCommand, schema, usageOf, type CommandSpec, type FlagSpec } from "../cli/commands.ts";
 import { TabcapError, fail, ok, toFail, type Envelope } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
+import { guideList, guideOf } from "../cli/guides.ts";
 
 /** Session and timeout of a daemon command that has no flag for them (main.ts `run`). */
 export type RunOptions = { session?: string; timeoutMs?: number };
@@ -191,8 +192,8 @@ const RUN_TOOL: Tool = {
 const HELP_TOOL: Tool = {
   def: {
     name: HELP,
-    description: 'list the commands, or one command\'s usage, options and schema (command: "net list")',
-    inputSchema: { type: "object", properties: { command: { type: "string" } }, additionalProperties: false },
+    description: 'list the commands, or one command\'s usage, options and schema (command: "net list"); task recipes: guide ("" lists)',
+    inputSchema: { type: "object", properties: { command: { type: "string" }, guide: { type: "string" } }, additionalProperties: false },
   },
   command: null,
   bindings: [],
@@ -230,16 +231,26 @@ export async function runArgv(run: RunFn, args: Record<string, unknown>): Promis
   return run(argv, {});
 }
 
-/** tabcap_help: the command list (name, usage, the tool that runs it), or one command's help text and schema entry. */
+/**
+ * tabcap_help: the command list (name, usage, the tool that runs it), or one
+ * command's help text and schema entry; with `guide` (0.7-A) the task guides
+ * as `tabcap guide` prints them: "" lists them, an id gives one.
+ */
 export function helpOf(args: Record<string, unknown>): Envelope<unknown> {
-  for (const k of Object.keys(args)) if (k !== "command") throw badArgs(HELP_TOOL, `unknown argument ${k}`);
+  for (const k of Object.keys(args)) if (k !== "command" && k !== "guide") throw badArgs(HELP_TOOL, `unknown argument ${k}`);
   const q = args["command"];
   if (q !== undefined && typeof q !== "string") throw badArgs(HELP_TOOL, "command must be a string");
+  const gq = args["guide"];
+  if (gq !== undefined) {
+    if (typeof gq !== "string") throw badArgs(HELP_TOOL, "guide must be a string");
+    if (q !== undefined) throw badArgs(HELP_TOOL, "give command or guide, not both");
+    return ok(gq.trim() === "" ? guideList() : guideOf(gq));
+  }
   const listed = COMMANDS.filter((c) => c.internal !== true);
   if (q === undefined || q.trim() === "") {
     return ok({
       commands: listed.map((c) => ({ name: c.path.join(" "), usage: usageOf(c, COMMON_FLAGS), via: viaOf(c) })),
-      note: `via: the tool that runs the command (${RUN} takes its argv); null: not available over MCP. Browser commands also take --session <name> and most --timeout <ms>. ${HELP} {command} gives one command in full.`,
+      note: `via: the tool that runs the command (${RUN} takes its argv); null: not available over MCP. Browser commands also take --session <name> and most --timeout <ms>. ${HELP} {command} gives one command in full; ${HELP} {guide: ""} lists the task recipes.`,
     });
   }
   const words = q.trim().replace(/^tabcap[ _]/, "").split(/[ _]+/);
