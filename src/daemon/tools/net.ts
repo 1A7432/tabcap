@@ -55,8 +55,15 @@ export async function netStart(d: Daemon, a: Args, session: string): Promise<unk
     };
   }
   tabs.ensureSession(session);
-  const dir = join(d.paths.bundles, `${session}-${compactStamp(nowMs())}`);
-  if (existsSync(dir)) throw new TabcapError("conflict", `bundle ${dir} already exists`, "Wait a second and run `tabcap net start` again.");
+  // Bundle names have second resolution: a second recording of the same session
+  // within one second gets a -2, -3 … suffix instead of a conflict (seen in e2e
+  // when a test starts a recording right after the previous one stopped).
+  const base = join(d.paths.bundles, `${session}-${compactStamp(nowMs())}`);
+  let dir = base;
+  for (let n = 2; existsSync(dir); n++) {
+    if (n > 99) throw new TabcapError("conflict", `bundle ${base} already exists (and 98 suffixed ones)`, "Wait a second and run `tabcap net start` again.");
+    dir = `${base}-${n}`;
+  }
   const bound = d.sites.get(session) ?? null;
   // 0.6-B: the enabled decode plugins; 0.7-E: read per body, so `plugin enable`
   // during the recording applies to the next body (not to bodies already written).
