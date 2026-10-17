@@ -7,15 +7,21 @@
 # Optional hook: todo_inputs.py next to this file with
 #   def fill(function: str, args: dict[str, Any]) -> dict[str, Any]
 # returns values for TODO parameters (what the page computes); without it the
-# recorded values are used. Secrets are never written: an argument recorded as
-# <secret:NAME> is read from the environment variable TABCAP_SECRET_<NAME>
-# (letters upper-cased, everything else "_").
+# recorded values are used. Arguments the chain takes from an earlier step's
+# reply ("derived") are read from that reply: a JSON path (" -> " enters JSON
+# held in a string leaf) and / or the text between two recorded anchors, after
+# the step's decode plugin turned the reply into plaintext when the value came
+# from a plugin's view (the plugin in the tabcap plugins directory is run once
+# per reply, tabcap-decode/1 on stdin / stdout). Secrets are never written: any
+# other argument recorded as <secret:NAME> is read from the environment
+# variable TABCAP_SECRET_<NAME> (letters upper-cased, everything else "_").
 
 import base64 as _base64
 import hashlib as _hashlib
 import importlib.util as _importlib_util
 import os as _os
 import re as _re
+import subprocess as _subprocess
 import sys as _sys
 from urllib.parse import urljoin as _urljoin
 from urllib.parse import urlsplit as _urlsplit
@@ -155,6 +161,80 @@ def _compare(expect: dict[str, Any], resp: httpx.Response, method: str) -> tuple
     return diffs, notes
 
 
+_PLUGIN_ENV = ("PATH", "HOME", "LANG", "SYSTEMROOT", "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "XDG_CACHE_HOME", "XDG_DATA_HOME")
+_WITHHELD = {"cookie", "set-cookie", "authorization", "proxy-authorization"}
+
+
+def _plugin_headers(headers: httpx.Headers) -> dict[str, Any]:
+    """Headers as a decode plugin gets them from tabcap: lower-case names, credentials withheld, repeats as a list."""
+    out: dict[str, Any] = {}
+    for k, v in headers.multi_items():
+        k = k.lower()
+        if k in _WITHHELD:
+            continue
+        if k in out:
+            out[k] = (out[k] if isinstance(out[k], list) else [out[k]]) + [v]
+        else:
+            out[k] = v
+    return out
+
+
+def _plugin_decode(plugin: dict[str, Any], request_id: str, resp: httpx.Response) -> bytes:
+    """One reply through the user's decode plugin (tabcap-decode/1, one line in, one line out); ValueError when it does not decode."""
+    req = resp.request
+    msg = {
+        "id": 1,
+        "op": "decode",
+        "direction": "response",
+        "request": {"id": request_id, "url": str(req.url), "method": req.method, "headers": _plugin_headers(req.headers)},
+        "response": {"status": resp.status_code, "headers": _plugin_headers(resp.headers)},
+        "body": {"encoding": "base64", "data": _base64.b64encode(resp.content).decode("ascii"), "mime": resp.headers.get("content-type")},
+    }
+    env = {k: _os.environ[k] for k in _PLUGIN_ENV if k in _os.environ}
+    env.update({k: v for k, v in _os.environ.items() if k.startswith("UV_")})
+    env.update({"TABCAP_PLUGIN_DIR": plugin["dir"], "TABCAP_DECODE_PROTOCOL": "tabcap-decode/1"})
+    try:
+        done = _subprocess.run(plugin["command"], cwd=plugin["dir"], input=json.dumps(msg) + "\n", capture_output=True, text=True, timeout=plugin["timeoutMs"] / 1000, env=env)
+    except (OSError, _subprocess.TimeoutExpired) as e:
+        raise ValueError(f"decode plugin {plugin['name']} did not answer: {e}") from e
+    line = next((x for x in done.stdout.splitlines() if x.strip()), "")
+    try:
+        ans = json.loads(line)
+    except ValueError as e:
+        raise ValueError(f"decode plugin {plugin['name']} gave no JSON answer") from e
+    if not isinstance(ans, dict) or ans.get("ok") is not True or not isinstance(ans.get("body"), dict):
+        why = ans.get("error") if isinstance(ans, dict) else None
+        raise ValueError(f"decode plugin {plugin['name']} did not decode the reply{f' ({why})' if why else ''}")
+    body = ans["body"]
+    data = body.get("data", "")
+    return data.encode("utf-8") if body.get("encoding") == "utf8" else _base64.b64decode(data)
+
+
+def _derive(d: dict[str, Any], src: httpx.Response) -> Any:
+    """The value of a derived argument in the reply it comes from; KeyError / ValueError when it is not there."""
+    data = _plugin_decode(d["plugin"], d["from"], src) if d.get("plugin") else src.content
+    text = data.decode("utf-8")
+    v: Any = text
+    if d.get("path"):
+        parts = d["path"].split(" -> ")
+        v = _json_at(json.loads(text), parts[0])
+        for part in parts[1:]:
+            v = _json_at(json.loads(v), part)
+    anchors = d.get("text")
+    if anchors:
+        hay = v if isinstance(v, str) else _as_text(v)
+        start = hay.find(anchors["before"]) if anchors["before"] else 0
+        if start < 0:
+            raise KeyError(f"text before the value ({anchors['before']!r})")
+        start += len(anchors["before"])
+        end = hay.find(anchors["after"], start) if anchors["after"] else len(hay)
+        if end < 0:
+            raise KeyError(f"text after the value ({anchors['after']!r})")
+        v = hay[start:end]
+        return json.loads(v) if d["as"] == "json" else v
+    return _as_text(v) if d["as"] == "text" else v
+
+
 def _arg_value(v: Any) -> Any:
     if isinstance(v, dict) and set(v) == {"$bytes_b64"}:
         return _base64.b64decode(v["$bytes_b64"])
@@ -175,10 +255,9 @@ def _run_step(step: dict[str, Any], session: Session, base_url: str, replies: di
         if src is None:
             return "fail", "-", f"{k}: step {d['from']} gave no reply"
         try:
-            v = _json_at(src.json(), d["path"])
-        except (KeyError, ValueError) as e:
-            return "fail", "-", f"{k}: the reply of {d['from']} has no {d['path']} ({e})"
-        args[k] = _as_text(v) if d["as"] == "text" else v
+            args[k] = _derive(d, src)
+        except (KeyError, ValueError, UnicodeDecodeError) as e:
+            return "fail", "-", f"{k}: not found in the reply of {d['from']} ({d.get('path') or 'text'}: {e})"
     if hook is not None:
         filled = hook(step["function"], dict(args)) or {}
         args.update(filled)
@@ -189,7 +268,8 @@ def _run_step(step: dict[str, Any], session: Session, base_url: str, replies: di
         if m is not None:
             env = _secret_env(m.group(1))
             if env not in _os.environ:
-                return "fail", "-", f"secret {k} not given: set {env}"
+                why = step.get("underived", {}).get(k)
+                return "fail", "-", f"secret {k} not given: set {env}" + (f" (verify cannot take it from the reply: {why})" if why else "")
             args[k] = _os.environ[env]
     try:
         reply = fn(session, base_url=base_url, **args)

@@ -154,7 +154,7 @@ describe("replay check against replay serve of the same bundle", () => {
   test("zero differences, exit 0; a changed bundle gives differences and exit 1", async () => {
     const s = await serve(bundle);
     try {
-      const r = await cli(["replay", "check", bundle, "--against", s.url, "--json"]);
+      const r = await cli(["replay", "check", bundle, "--against", s.url]);
       const env: unknown = JSON.parse(r.out);
       expect(env).toMatchObject({ ok: true, data: { totals: { requests: 16, same: 15, unverified: 1, different: 0, errors: 0, skipped: 1 } } });
       expect(r.code).toBe(0);
@@ -169,7 +169,7 @@ describe("replay check against replay serve of the same bundle", () => {
     });
     const s2 = await serve(other);
     try {
-      const r = await cli(["replay", "check", bundle, "--against", s2.url, "--filter", "/api/items"]);
+      const r = await cli(["replay", "check", bundle, "--against", s2.url, "--filter", "/api/items", "--text"]);
       expect(r.code).toBe(1);
       expect(r.out).toContain("different");
       expect(r.out).toContain("$.items");

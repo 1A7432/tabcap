@@ -126,7 +126,7 @@ export async function runReplay(argv: readonly string[]): Promise<Outcome> {
         const proxyEnv = str(a["proxyEnv"]);
         // 0.4-D: resolve the account's proxy first, so a bundle without one fails before anything is written.
         const ap = proxyEnv === undefined ? null : bundleAccountProxy(bundle);
-        const result = exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]), chain, browserHeaders: a["browserHeaders"] === true });
+        const result = exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]), chain, request: str(a["request"]), browserHeaders: a["browserHeaders"] === true, configDir: paths().config });
         return { code: 0, envelope: ok(proxyEnv === undefined || ap === null ? result : { ...result, proxyEnv: writeProxyEnv(proxyEnv, ap) }) };
       }
       case "check": {
@@ -146,8 +146,8 @@ export async function runReplay(argv: readonly string[]): Promise<Outcome> {
           ...preferArg(a["prefer"]),
         });
         const code = result.totals.different + result.totals.errors > 0 ? 1 : 0;
-        if (a["json"] === true) return { code, envelope: ok(result) };
-        return { code, envelope: ok(result), text: renderCheckText(result) };
+        if (a["text"] === true) return { code, envelope: ok(result), text: renderCheckText(result) };
+        return { code, envelope: ok(result) };
       }
     }
   } catch (e) {

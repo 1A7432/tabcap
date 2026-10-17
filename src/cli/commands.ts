@@ -1038,6 +1038,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--out", alias: "-o", key: "out", kind: "string", help: "directory for the generated package", required: true, metavar: "dir" },
       { flag: "--include", key: "include", kind: "string", help: "only paths matching these globs (* within a segment, ** across)", metavar: "glob,glob" },
       { flag: "--exclude", key: "exclude", kind: "string", help: "leave out paths matching these globs", metavar: "glob,glob" },
+      { flag: "--request", key: "request", kind: "string", help: "chain target, as analyze chain --request (default: the data-bearing xhr / fetch / document request that started last among the exported ones); implies --chain", metavar: "r-N" },
       { flag: "--chain", key: "chain", kind: "bool", help: "use the deps graph and the chain to the data-bearing request that started last (the analyze chain default): computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)" },
       { flag: "--no-chain", key: "noChain", kind: "bool", help: "0.3 behaviour: per-request heuristics only, no verify()" },
       {
@@ -1071,7 +1072,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--with-cookies", key: "withCookies", kind: "bool", help: "also send the recorded cookie header" },
       { flag: "--rules", key: "rules", kind: "string", help: "replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay", metavar: "file" },
       { flag: "--prefer", key: "prefer", kind: "string", help: "as replay serve --prefer: check only the recordings that answer each key; the others are listed in notPreferred and not sent", metavar: "recorded|2xx|latest" },
-      { flag: "--json", key: "json", kind: "bool", help: "print one JSON envelope instead of the table" },
+      { flag: "--text", key: "text", kind: "bool", help: "print one line per request that is not the same, then the totals, instead of JSON" },
     ],
     summary: "send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference",
     example: "tabcap replay check ./b --against http://127.0.0.1:4500",

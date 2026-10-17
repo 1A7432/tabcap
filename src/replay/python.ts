@@ -22,9 +22,17 @@
 // Everything read from the bundle is untrusted: names become identifiers by
 // a whitelist, values become literals through escaping functions, never by
 // pasting text into code.
+// Chain mode (0.7-E): `--request r-N` picks the chain target as `analyze
+// chain --request` does; verify() takes an input the chain resolves from an
+// earlier reply from that reply (JSON path, text anchors, a decode plugin's
+// plaintext through the installed plugin), sensitive names included; only
+// what it cannot reproduce (`underived`) falls back to TABCAP_SECRET_* /
+// the recorded value. A value-less query key (`?queryList`) is part of the
+// URL literal, never a parameter.
 // Oracle: the generated tests themselves run against `replay serve` of the
 // same bundle (recorded bytes); test/unit/replay-python.test.ts snapshots
-// client.py for a synthetic bundle and py_compiles the output.
+// client.py for a synthetic bundle and py_compiles the output;
+// test/unit/replay-chain.test.ts runs verify() against replay serve.
 
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -33,13 +41,16 @@ import { isSensitiveHeader, isSensitiveName } from "../bundle/redact.ts";
 import type { RequestEvent } from "../bundle/types.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
-import { classifyGroup, groupRequests, pkey, singleSampleParams, type DiffParam, type GroupAcc, type ParamLocation } from "../analyze/diff.ts";
+import { classifyGroup, groupRequests, pkey, queryFlags, singleSampleParams, valuedQuery, type DiffParam, type GroupAcc, type ParamLocation } from "../analyze/diff.ts";
 import { decodeBase64Strict, isBinaryMime, jsonPathIndex, jsonPathKey, parseJsonDoc, shannonEntropy, utf8 } from "../analyze/decoders.ts";
 import { looksEncrypted } from "../analyze/find.ts";
 import { flattenJson, globMatcher, headerJoined, HOP_BY_HOP, isBrowserHeader, replayableRequests, requestBodyBytes } from "./common.ts";
 import { DEFAULT_HEADERS, normHeader } from "./check.ts";
 import { DepsGraph, type ResolvedInput } from "../analyze/deps.ts";
 import { chainOf, latestTarget, type ChainResult } from "../analyze/chain.ts";
+import { decodedPayload } from "../analyze/views.ts";
+import { resolveDecodeCommand, type DecodePlugin } from "../daemon/hooks/decode.ts";
+import { asDecodePlugin, listPlugins } from "../daemon/hooks/plugins.ts";
 import RUNTIME from "../../templates/python/_runtime.py" with { type: "text" };
 import CHAIN_RUNTIME from "../../templates/python/_chain.py" with { type: "text" };
 import VERIFY from "../../templates/python/_verify.py" with { type: "text" };
@@ -307,8 +318,8 @@ export type ExportResult = {
   warnings: string[];
 };
 
-/** `browserHeaders`: send every recorded request header (--browser-headers), else only keptHeader ones. */
-type Ctx = { reader: BundleReader; cookieNames: Map<string, string>; warnings: string[]; browserHeaders: boolean };
+/** `browserHeaders`: send every recorded request header (--browser-headers), else only keptHeader ones; `plugins`: installed decode plugins (verify derivations). */
+type Ctx = { reader: BundleReader; cookieNames: Map<string, string>; warnings: string[]; browserHeaders: boolean; plugins: readonly DecodePlugin[] };
 
 function firstSampleValue(g: GroupAcc, loc: ParamLocation, name: string): string | null {
   return g.samples[0]?.params.get(pkey(loc, name)) ?? null;
@@ -525,12 +536,15 @@ function planFunction(
       pathParts.push(a.py);
     } else literal += prefix + seg;
   });
+  // 0.7-E: value-less query keys (`?queryList`) are part of the endpoint: sent as recorded, never parameters
+  const flags = queryFlags(u.search);
+  if (flags.length > 0) literal += `?${flags.join("&")}`;
   if (literal !== "" || pathParts.length === 0) pathParts.push(pyStr(literal));
 
   // query: first sample order, then parameters only later samples carried
   const qNames: string[] = [];
   const qSeen = new Map<string, number>();
-  for (const [k] of new URLSearchParams(u.search)) {
+  for (const [k] of valuedQuery(u.search)) {
     const i = qSeen.get(k) ?? 0;
     qSeen.set(k, i + 1);
     qNames.push(i === 0 ? k : `${k}[${i}]`);
@@ -756,6 +770,20 @@ type VerifyBody =
   | { kind: "empty" }
   | { kind: "unverified"; reason: string };
 
+/**
+ * How verify() takes an argument from an earlier step's reply (0.7-E): the reply body, decoded by
+ * `plugin` first when the value came from a decode plugin's view, then the JSON `path` (" -> "
+ * enters a JSON document held in a string leaf), then the text between `text.before` and
+ * `text.after` (a value inside text / HTML, or inside a leaf); `as` json keeps the JSON type.
+ */
+type Derivation = {
+  from: string;
+  as: "text" | "json";
+  path?: string;
+  text?: { before: string; after: string };
+  plugin?: { name: string; dir: string; command: string[]; timeoutMs: number };
+};
+
 type VerifyStep = {
   request: string;
   method: string;
@@ -763,10 +791,74 @@ type VerifyStep = {
   function: string | null;
   skip: string | null;
   args: Record<string, unknown>;
-  derived: Record<string, { from: string; path: string; as: "text" | "json" }>;
+  derived: Record<string, Derivation>;
+  /** 0.7-E: arguments the chain takes from an earlier reply that verify() cannot reproduce, and why. */
+  underived: Record<string, string>;
   notes: string[];
   expect: { status: number | null; headers: Record<string, string>; body: VerifyBody };
 };
+
+/** Decode steps verify() reproduces on a JSON path: parsing (json-unescape is part of it) and JSON held in a string leaf. */
+const PATH_STEPS = new Set(["json", "json-unescape", "json-string"]);
+const ANCHOR_MIN = 12;
+const ANCHOR_MAX = 64;
+
+/** Context around the only occurrence of `value` in `text` that finds it again in a reply whose value differs; null when there is none. */
+export function textAnchors(text: string, value: string): { before: string; after: string } | null {
+  if (value === "") return null;
+  const at = text.indexOf(value);
+  if (at < 0 || text.indexOf(value, at + 1) >= 0) return null;
+  let before = "";
+  for (let n = Math.min(ANCHOR_MIN, at); ; n = Math.min(n * 2, at)) {
+    before = text.slice(at - n, at);
+    if (text.indexOf(before) === at - n) break;
+    if (n >= at || n >= ANCHOR_MAX) return null;
+  }
+  const end = at + value.length;
+  if (end === text.length) return { before, after: "" };
+  // the shortest closing context that the value itself does not contain (a quote, `<`, `&` …)
+  for (let n = 1; n <= 8 && end + n <= text.length; n++) {
+    const after = text.slice(end, end + n);
+    if (!value.includes(after)) return { before, after };
+  }
+  return null;
+}
+
+/** How verify() derives one argument from its producer's reply, or why it cannot (0.7-E). */
+function derivationOf(
+  rp: { request: string; path?: string; decode?: readonly string[]; match?: "exact" | "embedded" },
+  producer: RequestEvent | undefined,
+  as: "text" | "json",
+  value: unknown,
+  ctx: Ctx,
+): Derivation | string {
+  const steps = [...(rp.decode ?? [])];
+  const where = `${rp.request} response ${rp.path ?? "(text)"}`;
+  if (steps.includes("page")) return `${where} was decoded by the page (trace observe mode); verify cannot reproduce that`;
+  let plugin: Derivation["plugin"];
+  const first = steps[0];
+  if (first !== undefined && first.startsWith("plugin:")) {
+    const name = first.slice("plugin:".length);
+    const p = ctx.plugins.find((x) => x.name === name);
+    if (p === undefined) return `${where} was decoded by decode plugin ${name}, which is not installed here (tabcap plugin list)`;
+    try {
+      plugin = { name, dir: p.dir, command: resolveDecodeCommand(p.dir, p.command), timeoutMs: p.timeoutMs };
+    } catch (e) {
+      return `${where}: decode plugin ${name} cannot be started (${e instanceof Error ? e.message : String(e)})`;
+    }
+    steps.shift();
+  }
+  const base = { from: rp.request, as, ...(plugin === undefined ? {} : { plugin }) };
+  const nested = steps.filter((x) => x === "json-string").length;
+  if (rp.path !== undefined && rp.match === "exact" && steps.every((x) => PATH_STEPS.has(x)) && rp.path.split(" -> ").length === nested + 1) return { ...base, path: rp.path };
+  // anything else: the text around the value in the reply (raw, or the plugin's plaintext)
+  if (typeof value !== "string" && typeof value !== "number") return `${where} (decode ${steps.join(",") || "none"}) is not a plain value verify can find again`;
+  const bytes = producer === undefined ? null : plugin !== undefined ? (decodedPayload(ctx.reader, producer.response?.decoded)?.bytes ?? null) : producer.response?.body ? ctx.reader.readBlob(producer.response.body.blob) : null;
+  const text = bytes === null ? null : utf8(bytes);
+  const anchors = text === null ? null : textAnchors(text, String(value));
+  if (anchors === null) return `${where} (decode ${steps.join(",") || "none"}): the value has no unique place in the recorded reply text`;
+  return { ...base, as: typeof value === "string" ? "text" : "json", text: anchors };
+}
 
 /** What the recording answered, in the terms of replay check (status, selected headers, body per path / hash). */
 function expectOf(r: RequestEvent, ctx: Ctx): VerifyStep["expect"] {
@@ -827,35 +919,40 @@ function verifyExpected(
     const base = { request: r.id, method: r.method, path: (() => { try { const u = new URL(r.url); return u.pathname + u.search; } catch { return r.url; } })() };
     if (p === undefined) {
       const why = skipped.find((x) => x.id === r.id)?.reason ?? "not generated";
-      steps.push({ ...base, function: null, skip: why, args: {}, derived: {}, notes: [], expect: expectOf(r, ctx) });
+      steps.push({ ...base, function: null, skip: why, args: {}, derived: {}, underived: {}, notes: [], expect: expectOf(r, ctx) });
       continue;
     }
     const params = p.group.samples.find((smp) => smp.ref === r.id)?.params ?? new Map<string, string>();
     const inputs = graph.inputs(r.id);
     const args: Record<string, unknown> = {};
     const derived: VerifyStep["derived"] = {};
+    const underived: VerifyStep["underived"] = {};
     const notes: string[] = [];
     for (const a of p.fn.args) {
+      const v = argValueIn(a, r, params, ctx);
       if (a.source.kind === "param") {
         const k = pkey(a.source.location, a.source.name);
         const di = inputs.find((i) => i.key === k);
         if (di !== undefined) {
           const rp = graph.root(r.id, di).input.primary;
           if (rp?.kind === "response" && rp.request !== undefined) {
-            const simple = rp.match === "exact" && rp.path !== undefined && !rp.path.includes(" -> ") && (rp.decode ?? []).every((d) => d === "json-unescape");
-            if (simple && inChain.has(rp.request) && rp.path !== undefined) {
-              derived[a.py] = { from: rp.request, path: rp.path, as: a.source.location === "json" ? "json" : "text" };
+            // 0.7-E: every input the chain resolves from an earlier reply is taken from that reply when verify can reproduce how
+            const d = inChain.has(rp.request)
+              ? derivationOf({ ...rp, request: rp.request }, byRef.get(rp.request) ?? graph.byId.get(rp.request), a.source.location === "json" ? "json" : "text", unwrapValue(v.value, a.wrap), ctx)
+              : `${rp.request} is not a step of the chain`;
+            if (typeof d !== "string") {
+              derived[a.py] = d;
               continue;
             }
-            notes.push(`${a.py}: from ${rp.request} response ${rp.path ?? "(text)"} not derived automatically (${simple ? "producer not in the chain" : "decoded or embedded value"}); the recorded value is used`);
+            underived[a.py] = d;
+            notes.push(`${a.py}: not taken from the reply (${d}); ${a.secret === true ? `read from TABCAP_SECRET_*` : "the recorded value is used"}`);
           }
         }
       }
-      const v = argValueIn(a, r, params, ctx);
       if (!v.has) continue;
       args[a.py] = a.secret === true ? `<secret:${p.fn.name}.${a.py}>` : unwrapValue(v.value, a.wrap);
     }
-    steps.push({ ...base, function: p.fn.name, skip: null, args, derived, notes, expect: expectOf(r, ctx) });
+    steps.push({ ...base, function: p.fn.name, skip: null, args, derived, underived, notes, expect: expectOf(r, ctx) });
   }
   const redacted = ctx.reader.manifest.redaction !== null;
   return {
@@ -865,7 +962,7 @@ function verifyExpected(
     redacted,
     note: redacted
       ? "--redacted: the bundle is a redacted copy (tabcap bundle redact); recorded values are «r:…» placeholders, so verify passes only against replay serve of this same copy."
-      : "Recorded values are real data of the recording (file mode 0600; do not commit). Sensitive-named inputs are <secret:…> placeholders read from TABCAP_SECRET_* at run time. To share, export from a redacted copy: tabcap bundle redact <bundle> <copy> (--redacted note).",
+      : "Recorded values are real data of the recording (file mode 0600; do not commit). Inputs taken from an earlier step's reply (derived) are read from that reply; other sensitive-named inputs are <secret:…> placeholders read from TABCAP_SECRET_* at run time. To share, export from a redacted copy: tabcap bundle redact <bundle> <copy> (--redacted note).",
     headers: [...DEFAULT_HEADERS],
     todo: chain.todo,
     steps,
@@ -888,7 +985,7 @@ function chainReadme(chain: ChainResult, redacted: boolean): string {
     "3. Start the replay server `tabcap replay serve <bundle> --port 4500` and run `uv run client.py verify --base-url http://127.0.0.1:4500`: it replays the chain step by step, compares each answer with the recording the way `tabcap replay check` does (status, selected response headers, body path by path), prints pass / fail per step and exits non-zero on a failure. Without `todo_inputs.py` the recorded values are used; with it, the computed values must equal the recorded ones to pass, which is the check that the TODOs are filled correctly.",
     "4. Only then run against the real site (`--base-url` set to its origin; think about the account risk first, docs/03 §4).",
     "",
-    "Inputs whose names look like passwords or tokens (the same rule as `tabcap bundle redact`) are never written into a generated file: `verify_expected.json` holds `<secret:function.parameter>`, read at run time from the environment variable `TABCAP_SECRET_<FUNCTION_PARAMETER>`.",
+    "`verify()` takes every input the chain resolves from an earlier step's reply from that reply (`derived` in `verify_expected.json`: a JSON path, the text around the value in HTML / text, and, when the value came from a decode plugin's plaintext, through that plugin from the tabcap plugins directory), tokens and CSRF values included. Other inputs whose names look like passwords or tokens (the same rule as `tabcap bundle redact`) are never written into a generated file: `verify_expected.json` holds `<secret:function.parameter>`, read at run time from the environment variable `TABCAP_SECRET_<FUNCTION_PARAMETER>`; `underived` says why such an input could not be taken from a reply.",
     "",
     redacted
       ? "`verify_expected.json` (0600) comes from a redacted copy (--redacted): its values are «r:…» placeholders, so verify passes only against `replay serve` of this same copy."
@@ -900,8 +997,21 @@ function chainReadme(chain: ChainResult, redacted: boolean): string {
   ].join("\n");
 }
 
-/** `chain`: true / false forces chain mode on / off; undefined = on when the deps graph links a request to an earlier response. */
-export type ExportOptions = { bundle: string; out: string; include?: string | undefined; exclude?: string | undefined; chain?: boolean | undefined; browserHeaders?: boolean | undefined };
+/**
+ * `chain`: true / false forces chain mode on / off; undefined = on when the deps graph links a request to an earlier response.
+ * `request` (0.7-E): the chain target, as `analyze chain --request` (implies chain mode). `configDir`: where the
+ * installed decode plugins are, for verify() derivations through a plugin's plaintext (none when absent).
+ */
+export type ExportOptions = {
+  bundle: string;
+  out: string;
+  include?: string | undefined;
+  exclude?: string | undefined;
+  chain?: boolean | undefined;
+  request?: string | undefined;
+  browserHeaders?: boolean | undefined;
+  configDir?: string | undefined;
+};
 
 /** `todoRuntime`: the TODO sentinel and `_need` (chain mode, or any secret TODO parameter); `chainMode` adds verify(). */
 export function generateClientSource(fns: { code: string; types: string[] }[], header: string[], chainMode = false, todoRuntime = chainMode): string {
@@ -928,6 +1038,15 @@ export function generateClientSource(fns: { code: string; types: string[] }[], h
     .join("\n")
     .replace(/\n{3,}$/, "\n")
     .replace(/\n*$/, "\n");
+}
+
+/** The `--request` target: one of the exported requests, else a not-found that says why it is not. */
+function requestTarget(id: string, byRef: ReadonlyMap<string, RequestEvent>, graph: DepsGraph, skipped: readonly { id: string; reason: string }[]): RequestEvent {
+  const hit = byRef.get(id);
+  if (hit !== undefined) return hit;
+  if (!graph.byId.has(id)) throw new TabcapError("not-found", `no request ${id} in the bundle`, "Pick the id from `tabcap analyze chain <bundle>` or `tabcap net list`.");
+  const why = skipped.find((x) => x.id === id)?.reason ?? "not exported";
+  throw new TabcapError("not-found", `request ${id} is not exported (${why})`, "Only xhr / fetch / document requests with a recorded response are exported; widen --include / --exclude so the target is among them.");
 }
 
 export function exportPython(opts: ExportOptions): ExportResult {
@@ -961,7 +1080,8 @@ export function exportPython(opts: ExportOptions): ExportResult {
       }
     }
   }
-  const ctx: Ctx = { reader, cookieNames, warnings, browserHeaders: opts.browserHeaders === true };
+  const plugins = opts.configDir === undefined ? [] : listPlugins(opts.configDir).flatMap(asDecodePlugin);
+  const ctx: Ctx = { reader, cookieNames, warnings, browserHeaders: opts.browserHeaders === true, plugins };
 
   const ordered = [...groups.entries()].sort((a, b) => {
     const sa = byRef.get(a[1].samples[0]?.ref ?? "")?.seq ?? 0;
@@ -980,12 +1100,14 @@ export function exportPython(opts: ExportOptions): ExportResult {
 
   // Chain mode (0.4-A): the deps graph and the chain to the target analyze chain would pick
   // among the exported requests (latestTarget: the data-bearing one that started last, 0.6-C).
+  if (opts.request !== undefined && opts.chain === false) throw new TabcapError("usage", "--request picks the chain target; it cannot go with --no-chain", "Drop one of them.");
   const graph = opts.chain === false ? null : DepsGraph.of(reader);
   const linked = graph !== null && chosen.some((r) => graph.inputs(r.id).some((i) => i.primary !== null && (i.primary.kind === "set-cookie" || i.primary.kind === "response")));
-  const chainMode = graph !== null && (opts.chain === true || linked);
+  const chainMode = graph !== null && (opts.chain === true || opts.request !== undefined || linked);
   let chain: ChainResult | null = null;
   if (graph !== null && chainMode) {
-    const target = latestTarget(chosen) ?? chosen[chosen.length - 1];
+    // 0.7-E: --request names the target (as analyze chain --request); else the analyze chain default among the exported requests
+    const target = opts.request !== undefined ? requestTarget(opts.request, byRef, graph, skipped) : (latestTarget(chosen) ?? chosen[chosen.length - 1]);
     if (target !== undefined) chain = chainOf(graph, opts.bundle, { request: target.id });
     for (const w of graph.warnings) if (!warnings.includes(w)) warnings.push(w);
   }

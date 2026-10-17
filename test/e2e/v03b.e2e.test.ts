@@ -161,7 +161,7 @@ describe.skipIf(!enabled)("tabcap 0.3-B L2 (replay serve / check / export-python
   test("replay check against replay serve of the same bundle: zero differences", async () => {
     const srv = await serve(bundle);
     try {
-      const c = await tabcap(["replay", "check", bundle, "--against", srv.url, "--json"]);
+      const c = await tabcap(["replay", "check", bundle, "--against", srv.url]);
       expect(c.exit).toBe(0);
       const totals = c.data["totals"];
       expect(totals).toMatchObject({ different: 0, errors: 0 });

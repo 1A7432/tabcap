@@ -122,8 +122,8 @@ describe("target guard", () => {
   });
 });
 
-describe("text table", () => {
-  test("rows and totals", () => {
+describe("--text (0.7-E)", () => {
+  test("one line per row that is not same, then the totals", () => {
     const text = renderCheckText({
       bundle: "b",
       against: "http://127.0.0.1:4500/",
@@ -137,7 +137,10 @@ describe("text table", () => {
       skipped: [],
       warnings: [],
     });
-    expect(text).toContain("id   method  path  status   result\nr-1  GET     /a    200→200  same\nr-2  GET     /b    200→404  different  status 200 → 404\n");
-    expect(text).toContain("totals: 2 request(s), 1 same, 1 different, 0 error(s), 0 unverified, 0 skipped");
+    expect(text.split("\n")).toEqual([
+      "replay check b against http://127.0.0.1:4500/",
+      "r-2 GET /b 200→404 different: status 200 → 404",
+      "totals: 2 request(s), 1 same, 1 different, 0 error(s), 0 unverified, 0 skipped (not replayable)",
+    ]);
   });
 });

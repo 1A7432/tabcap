@@ -18,6 +18,12 @@ import { defaultTarget } from "../../src/analyze/chain.ts";
 import { ACCESS_TOKEN, CSRF, PASSWORD, QUOTED, SIGN_ONE, SIGN_ONE_SIG, USER, buildLogin, buildReport, buildSign, buildToken } from "./_deps.ts";
 import { SLOW_IO_MS, expectMode } from "./_platform.ts";
 import { need, packageReason, pyCompile, runInPackage, runInPackageAsync, skipWithout, syncPackage } from "./_python.ts";
+import { chain as analyzeChain } from "../../src/analyze/chain.ts";
+import { decodeBundle } from "../../src/bundle/decode.ts";
+import { DecodeHost, DecodeSession } from "../../src/daemon/hooks/decode.ts";
+import { decodePlugins } from "../../src/daemon/hooks/plugins.ts";
+import { installXor, s42Bundle } from "./_decode.ts";
+import { S42_TOKEN } from "../e2e/site.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const PY = packageReason();
@@ -281,4 +287,140 @@ describe("export-python and analyze chain pick the same target (0.6-C)", () => {
     expect(r.chain?.target).toBe(defaultTarget(g).id);
     expect(r.chain?.target).toBe(data?.id ?? "?");
   }, SLOW_IO_MS);
+});
+
+// 0.7-E (onboarding acceptance B2): the chain target by --request, and verify() takes every input the chain
+// resolves from an earlier reply from that reply (sensitive names too), also from HTML text and from a decode
+// plugin's plaintext. Oracle: the planted flows below (each value's source is known by construction).
+const C7 = 1760800000000;
+const O7 = "http://127.0.0.1:4310";
+const CSRF7 = "c5f1e2d3a4b5c6d7e8f90123";
+const META7 = "Zq9Xw3Lk7Pm2Rt5Vb8Nc";
+
+describe("export-python --request and derived inputs (0.7-E)", () => {
+  let csrf = "";
+  let meta = "";
+  let s42 = "";
+  let cfg = "";
+  beforeAll(async () => {
+    // csrf: a JSON leaf under a sensitive header name; the page's last request is a stats call that needs nothing
+    csrf = await buildBundle(join(root, "csrf7"), { name: "csrf7", created: C7, seed: 70 }, async (b) => {
+      await b.request({ url: `${O7}/api/csrf`, type: "fetch", mime: "application/json", body: JSON.stringify({ data: { csrfToken: { token: CSRF7 } } }), ts: C7 + 100 });
+      await b.request({ url: `${O7}/api/list?queryList&page=1`, method: "POST", type: "fetch", mime: "application/json", reqHeaders: { "x-csrf-token": CSRF7, "content-type": "application/json" }, postData: '{"a":1}', body: '{"rows":[1]}', ts: C7 + 200 });
+      await b.request({ url: `${O7}/api/stats`, type: "fetch", mime: "application/json", body: '{"ok":1}', ts: C7 + 300 });
+    });
+    // meta: the token sits in an HTML meta tag of the document (a text match, no JSON path)
+    meta = await buildBundle(join(root, "meta7"), { name: "meta7", created: C7, seed: 71 }, async (b) => {
+      await b.request({ url: `${O7}/page`, type: "document", mime: "text/html", body: `<!doctype html><meta name="csrf-token" content="${META7}"><p>hi</p>`, ts: C7 + 100 });
+      await b.request({ url: `${O7}/api/data`, method: "POST", type: "fetch", mime: "application/json", reqHeaders: { "x-csrf-token": META7, "content-type": "application/json" }, postData: '{"q":"x"}', body: '{"data":[1]}', ts: C7 + 200 });
+    });
+    // s42: the token only exists in a decode plugin's plaintext (views added by bundle decode)
+    cfg = join(root, "cfg7");
+    installXor(cfg);
+    s42 = await s42Bundle(join(root, "s42-7"));
+    const host = new DecodeHost();
+    try {
+      await decodeBundle(s42, new DecodeSession(host, decodePlugins(cfg)));
+    } finally {
+      host.close();
+    }
+  }, SLOW_IO_MS);
+
+  const expected = (out: string) => {
+    const v: unknown = JSON.parse(readFileSync(join(out, "verify_expected.json"), "utf8"));
+    return isRecord(v) && Array.isArray(v["steps"]) ? v["steps"].filter(isRecord) : [];
+  };
+
+  test("--request: the target and its chain are analyze chain --request's; errors for a target that is not exported, with --no-chain", async () => {
+    const out = join(root, "csrf7-req");
+    const r = exportPython({ bundle: csrf, out, request: "r-3" });
+    const ac = analyzeChain(csrf, { request: "r-3" });
+    expect(r.chain).toEqual({ target: "r-3", steps: ac.steps.map((x) => x.id), todo: ac.todo.length });
+    expect(r.chain?.steps).toEqual(["r-2", "r-3"]);
+    // default: the stats call (started last), a chain of one step
+    expect(exportPython({ bundle: csrf, out: join(root, "csrf7-def") }).chain?.steps).toEqual(["r-4"]);
+    const cli = await run(["replay", "export-python", csrf, "-o", join(root, "csrf7-cli"), "--request", "r-3"]);
+    expect(cli.code).toBe(0);
+    expect(cli.envelope).toMatchObject({ ok: true, data: { chain: { target: "r-3" } } });
+    const notExported = await run(["replay", "export-python", csrf, "-o", join(root, "csrf7-x"), "--request", "r-3", "--include", "/api/csrf"]);
+    expect([notExported.code, notExported.envelope]).toMatchObject([1, { ok: false, error: { code: "not-found", message: "request r-3 is not exported (not included)" } }]);
+    expect((await run(["replay", "export-python", csrf, "-o", join(root, "csrf7-y"), "--request", "r-99"])).envelope).toMatchObject({ ok: false, error: { code: "not-found" } });
+    expect((await run(["replay", "export-python", csrf, "-o", join(root, "csrf7-z"), "--request", "r-3", "--no-chain"])).code).toBe(2);
+  });
+
+  test("a sensitive header from a JSON leaf is derived, not a TABCAP_SECRET_* input; a value-less query key stays in the URL", () => {
+    const out = join(root, "csrf7-py");
+    exportPython({ bundle: csrf, out, request: "r-3" });
+    const steps = expected(out);
+    expect(steps[1]).toMatchObject({ request: "r-3", args: {}, derived: { x_csrf_token: { from: "r-2", path: "$.data.csrfToken.token", as: "text" } }, underived: {} });
+    const client = readFileSync(join(out, "client.py"), "utf8");
+    expect(client).toContain('url = (base_url or "http://127.0.0.1:4310") + "/api/list?queryList"');
+    expect(client).not.toContain("querylist");
+    expect(readFileSync(join(out, "verify_expected.json"), "utf8")).not.toMatch(/<secret:[a-z]/);
+  });
+
+  test("a token in HTML text: derived by the recorded text around it", () => {
+    const out = join(root, "meta7-py");
+    exportPython({ bundle: meta, out });
+    expect(expected(out)[1]?.["derived"]).toEqual({ x_csrf_token: { from: "r-2", as: "text", text: { before: 'n" content="', after: '"' } } });
+  });
+
+  test("a token in a decode plugin's plaintext: derived through the plugin; without the plugin installed it is underived and says why", () => {
+    const out = join(root, "s42-7-py");
+    exportPython({ bundle: s42, out, request: "r-4", configDir: cfg });
+    const step = expected(out)[1];
+    expect(step?.["derived"]).toEqual({ x_auth: { from: "r-3", as: "text", path: "$.token", plugin: { name: "xor-decode", dir: join(cfg, "plugins", "xor-decode"), command: ["bun", join(cfg, "plugins", "xor-decode", "decode.ts")], timeoutMs: 5000 } } });
+    expect(JSON.stringify(step?.["args"])).not.toContain(S42_TOKEN);
+    const bare = join(root, "s42-7-bare");
+    exportPython({ bundle: s42, out: bare, request: "r-4" });
+    const b = expected(bare)[1];
+    expect(b?.["derived"]).toEqual({});
+    expect(b?.["underived"]).toEqual({ x_auth: "r-3 response $.token was decoded by decode plugin xor-decode, which is not installed here (tabcap plugin list)" });
+    expect(b?.["args"]).toEqual({ x_auth: "<secret:get_s42_api_items.x_auth>" });
+  });
+
+  test.skipIf(SKIP_PY)("verify() against replay serve passes with no TABCAP_SECRET_* set: JSON leaf, HTML text, plugin plaintext", async () => {
+    for (const [bundle, out, opts] of [
+      [csrf, join(root, "csrf7-run"), { request: "r-3" }],
+      [meta, join(root, "meta7-run"), {}],
+      [s42, join(root, "s42-7-run"), { request: "r-4", configDir: cfg }],
+    ] as const) {
+      exportPython({ bundle, out, ...opts });
+      ready(out);
+      const sv = await serve(bundle);
+      try {
+        const env: Record<string, string> = {};
+        for (const k of Object.keys(process.env)) if (k.startsWith("TABCAP_SECRET_")) env[k] = "";
+        const ok = py(["python", "client.py", "verify", "--base-url", sv.url], out, env);
+        expect([out, ok.code, ok.out]).toEqual([out, 0, expect.stringContaining("verify: 2 step(s), 2 pass, 0 fail")]);
+      } finally {
+        await sv.stop();
+      }
+    }
+  }, 120_000);
+
+  test.skipIf(SKIP_PY)("the derived value is the reply's, not the recording's: a server with a fresh token gets the fresh one", async () => {
+    const out = join(root, "meta7-fresh");
+    exportPython({ bundle: meta, out });
+    ready(out);
+    const fresh = "Fresh0Token0Value0123";
+    const seen: (string | null)[] = [];
+    const srv = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(req) {
+        const u = new URL(req.url);
+        if (u.pathname === "/page") return new Response(`<!doctype html><meta name="csrf-token" content="${fresh}"><p>hi</p>`, { headers: { "content-type": "text/html" } });
+        seen.push(req.headers.get("x-csrf-token"));
+        return new Response('{"data":[1]}', { headers: { "content-type": "application/json" } });
+      },
+    });
+    try {
+      const r = await runInPackageAsync(out, ["python", "client.py", "verify", "--base-url", `http://127.0.0.1:${srv.port}`]);
+      expect(seen).toEqual([fresh]);
+      expect(r.out).toMatch(/^2\s+r-3\s+post_api_data\s+200->200\s+pass$/m);
+    } finally {
+      srv.stop(true);
+    }
+  }, 60_000);
 });

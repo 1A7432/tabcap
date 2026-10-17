@@ -225,7 +225,7 @@ describe.skipIf(!enabled)("tabcap 0.6-C L2 (replay rules and fixture export on s
   test("replay check --rules against replay serve --rules: zero differences; s42 bodies compared decoded", async () => {
     const srv = await serve(bundle, ["--rules", rulesFile]);
     try {
-      const c = await tabcap(["replay", "check", bundle, "--against", srv.url, "--rules", rulesFile, "--json"]);
+      const c = await tabcap(["replay", "check", bundle, "--against", srv.url, "--rules", rulesFile]);
       expect(c.exit).toBe(0);
       expect(c.data["totals"]).toMatchObject({ different: 0, errors: 0 });
       const rows = recs(c.data["rows"]);

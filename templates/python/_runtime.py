@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generic, NotRequired, TypedDict, TypeVar, cast
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 
 import httpx
 
@@ -93,4 +93,7 @@ def _form_bytes(pairs: list[tuple[str, str | None]]) -> bytes:
 def _send(session: Session, method: str, url: str, params: list[tuple[str, str | None]], headers: list[tuple[str, str | None]], content: bytes | None) -> httpx.Response:
     q = [(k, v) for k, v in params if v is not None]
     h = [(k, v) for k, v in headers if v is not None]
+    if "?" in url and q:
+        # the URL carries value-less keys as recorded (`?queryList`); httpx would rewrite them to `key=`
+        url, q = url + "&" + urlencode(q), []
     return session.client.request(method, url, params=q or None, headers=h, content=content)

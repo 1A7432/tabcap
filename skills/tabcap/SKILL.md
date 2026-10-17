@@ -36,7 +36,7 @@ Large things come back as **file paths** (screenshots, bodies, `snapshot --file-
 
 **Encrypted API bodies.** A decode plugin when the key is known (`tabcap plugin init --kind decode --name <n>` writes one), else observe the page's own decryption (a diagnostic mode that slows the page: tell the user first). Plugin views outrank page views; `net body` shows the decoded view, `--raw` the original. `tabcap guide encrypted-site`
 
-**Offline replay.** After `net stop`: `analyze chain <bundle> --request r-N` (where each input comes from), a rules file (`ignoreQuery`, `body`, `"prefer": "2xx"` when a key was 403 then 200) → `replay serve <bundle> --rules <file>`, `bundle export fixtures`, `replay export-python <bundle> --out ./client` → `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.** `tabcap guide offline-replay`
+**Offline replay.** After `net stop`: `analyze chain <bundle> --request r-N` (where each input comes from), a rules file (`ignoreQuery`, `body`, `"prefer": "2xx"` when a key was 403 then 200) → `replay serve <bundle> --rules <file>`, `bundle export fixtures`, `replay export-python <bundle> --request r-N --out ./client` → `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.** `tabcap guide offline-replay`
 
 **Login with a challenge.** Credentials by reference, the `waiting` hand-off (below); image captcha lines are advisory. `tabcap guide login-with-challenge`
 

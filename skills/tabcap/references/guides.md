@@ -108,34 +108,28 @@ Read: [recording.md](recording.md), [pools.md](pools.md), [replay.md](replay.md)
 When: Bodies look like `{"code":0,"data":"<base64>"}` or bare base64 / hex: a decode plugin when the key is known, else observe the page's own decryption.
 
 ```sh
-# 1. decoded views attach to recorded bodies, so record first
-tabcap net start --bodies api+script --session enc
-
-# 2. load the page that calls the encrypted API
-tabcap navigate https://example.com/orders --session enc
-
-# 3. the id from `net list --resource-types xhr,fetch`; without a view, an encrypted-looking body's error next names the observe mode
-tabcap net body r-12 --session enc
-
-# 4. road A, the key is known: writes the Python decode plugin template into the plugins dir (the answer prints it and a next); write decode(flow) in plugin.py, the key in config.json, the site in manifest.json match
+# 1. road A, the key is known: writes the Python decode plugin template into the plugins dir (the answer prints it and a next); write decode(flow) in plugin.py, the key in config.json, the site in manifest.json match
 tabcap plugin init --kind decode --name mydecode
 
-# 5. road A: installed is not enabled; tabcap plugin list shows what is installed and enabled
+# 2. road A: installed is not enabled, so enable before recording; tabcap plugin list shows what is installed and enabled
 tabcap plugin enable mydecode
 
-# 6. road B, only the page can decrypt: observe mode files the plaintext the page passes to JSON.parse; tell the user first, it slows the page
+# 3. decoded views attach to the bodies recorded from now on
+tabcap net start --bodies api+script --session enc
+
+# 4. road B, only the page can decrypt: observe mode files the plaintext the page passes to JSON.parse; tell the user first, it slows the page
 tabcap trace start --decode --session enc
 
-# 7. both roads: reproduce the request so the new response gets its view
-tabcap reload --session enc
+# 5. load the page that calls the encrypted API (`tabcap reload --session enc` when it is already open)
+tabcap navigate https://example.com/orders --session enc
 
-# 8. the decoded view by default (decoded.by: mydecode or page; a page view has decoded.link strong / weak); --raw for the original bytes
-tabcap net body r-15 --session enc
+# 6. the id from `net list --resource-types xhr,fetch`; the decoded view by default (decoded.by: mydecode or page; a page view has decoded.link strong / weak); --raw for the original bytes
+tabcap net body r-12 --session enc
 
-# 9. road B: turn the observe mode off right after the recording
+# 7. road B: turn the observe mode off right after the recording
 tabcap trace stop --session enc
 
-# 10. where, find, deps, recon and replay check search the decoded views too
+# 8. where, find, deps, recon and replay check search the decoded views too
 tabcap where e12 --session enc
 ```
 
@@ -144,7 +138,8 @@ Watch:
 - An enabled decode plugin's view outranks the page's, and a body a plugin already decoded is not observed: `trace start --decode` names them in `decodePlugins`; `tabcap plugin disable mydecode` to observe the page instead.
 - Observe mode pauses on every `JSON.parse` of 32+ characters: run it for one recording, then `tabcap trace stop --session enc`; not for a long crawl.
 - A `weak` row (`decoded.link: "weak"`, and `"link":"weak"` on find hits) was attributed by timing: check it before relying on it.
-- A plugin written after the recording: `tabcap bundle decode ./b --plugin mydecode` adds its views to a finished bundle (not to one still recording).
+- A body recorded before `plugin enable` keeps no view: the recording applies the plugin from the next body on (`tabcap reload --session enc` to record the response again), and `tabcap bundle decode ./b --plugin mydecode` adds views to the earlier bodies once the bundle is finished (not to one still recording).
+- Without a view, an encrypted-looking body's `net body` error next names the observe mode (road B).
 - Keys stay in the plugin's own config.json (created 0600, never overwritten, also not by `tabcap plugin init --kind decode --name mydecode --force`), never in tabcap's store or the bundle.
 - A plugin directory outside the plugins dir is never loaded: give `plugin init` only `--name`, or move the directory there as its answer says.
 - Observe mode does not see request-side encryption, SSE / chunked decrypts, or plaintext that never goes through JSON.parse (structured-clone worker messages, WASM, protobuf).
@@ -168,16 +163,16 @@ printf '%s\n' '{"schema":"tabcap-replay-rules/0","rules":[{"match":{"path":"/api
 # 4. a foreground server on 127.0.0.1 until Ctrl-C (run it in a second terminal); x-tabcap-replay names the recording and rule that answered
 tabcap replay serve ./b --rules replay-rules.json --port 4500
 
-# 5. every recorded request sent to the replay and compared field by field; exit 1 on a difference
-tabcap replay check ./b --against http://127.0.0.1:4500 --rules replay-rules.json
+# 5. every recorded request sent to the replay and compared field by field; --text prints one line per difference and the totals; exit 1 on a difference
+tabcap replay check ./b --against http://127.0.0.1:4500 --rules replay-rules.json --text
 
 # 6. one JSON fixture per exchange plus index.json, redacted like a HAR export
 tabcap bundle export fixtures ./b --rules replay-rules.json --out ./fixtures
 
-# 7. an httpx client, fixtures and a pytest suite; signature-like or encrypted inputs become TODOs
-tabcap replay export-python ./b --out ./client
+# 7. an httpx client, fixtures and a pytest suite whose chain ends at the request you analyzed (without --request: the data-bearing request that started last); signature-like or encrypted inputs become TODOs
+tabcap replay export-python ./b --request r-12 --out ./client
 
-# 8. the generated client replays the chain against replay serve and must match the recording
+# 8. the generated client replays the chain against replay serve and must match the recording; inputs from earlier replies (tokens, CSRF) are taken from those replies
 (cd ./client && uv run client.py verify --base-url http://127.0.0.1:4500)
 ```
 
@@ -188,7 +183,8 @@ Watch:
 - The first matching rule wins; no match means the plain key (method, path, sorted query, body sha256); a 404 lists the nearest recordings and what differs.
 - Never point `replay check` at the real site (`--live`) without the user asking for it.
 - Do not try to reproduce signature or encrypted values in export-python TODOs; fill them in `todo_inputs.py` only when the user asks, and `verify` must still pass.
-- A rule that names a decode plugin (`decodeWith`) needs it installed, not enabled.
+- A rule that names a decode plugin (`decodeWith`) needs it installed, not enabled; so does a verify input taken from a plugin's plaintext.
+- `verify` asks for `TABCAP_SECRET_…` only for a sensitive input it cannot take from a reply (`underived` in verify_expected.json says why); ask the user for the value, never invent one.
 
 Read: [replay.md](replay.md), [analysis.md](analysis.md)
 

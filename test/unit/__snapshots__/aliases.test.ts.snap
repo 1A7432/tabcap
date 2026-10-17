@@ -5256,6 +5256,17 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         },
         {
           "alias": null,
+          "default": null,
+          "flag": "--request",
+          "help": "chain target, as analyze chain --request (default: the data-bearing xhr / fetch / document request that started last among the exported ones); implies --chain",
+          "key": "request",
+          "repeatable": false,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
           "default": false,
           "flag": "--chain",
           "help": "use the deps graph and the chain to the data-bearing request that started last (the analyze chain default): computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response)",
@@ -5314,7 +5325,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         },
       ],
       "summary": "generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs",
-      "usage": "tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--browser-headers] [--proxy-env file]",
+      "usage": "tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--request r-N] [--chain] [--no-chain] [--browser-headers] [--proxy-env file]",
     },
     {
       "daemon": false,
@@ -5422,9 +5433,9 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         {
           "alias": null,
           "default": false,
-          "flag": "--json",
-          "help": "print one JSON envelope instead of the table",
-          "key": "json",
+          "flag": "--text",
+          "help": "print one line per request that is not the same, then the totals, instead of JSON",
+          "key": "text",
           "repeatable": false,
           "required": false,
           "type": "boolean",
@@ -5446,7 +5457,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         },
       ],
       "summary": "send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference",
-      "usage": "tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--rules file] [--prefer recorded|2xx|latest] [--json]",
+      "usage": "tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--rules file] [--prefer recorded|2xx|latest] [--text]",
     },
     {
       "daemon": false,

@@ -551,19 +551,21 @@ function detail(row: CheckRow): string {
   return parts.join("; ");
 }
 
+/**
+ * `replay check --text` (0.7-E, like the other analyze `--text` reports): one
+ * line per row that is not `same` (id, method, path, status, result, what
+ * differs), then the totals; the JSON envelope is the default.
+ */
 export function renderCheckText(r: CheckResult): string {
-  const lines: string[] = [`replay check ${r.bundle} against ${r.against}${r.live ? " (live)" : ""}`, ""];
-  const head = ["id", "method", "path", "status", "result"];
-  const table = r.rows.map((row) => [row.id, row.method, cut(row.path, 60), `${row.status.recorded ?? "-"}→${row.status.got ?? "-"}`, row.result]);
-  const widths = head.map((h, i) => Math.max(h.length, ...table.map((t) => (t[i] ?? "").length)));
-  const fmt = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i] ?? 0)).join("  ");
-  lines.push(fmt(head).trimEnd());
-  r.rows.forEach((row, i) => {
+  const lines: string[] = [`replay check ${r.bundle} against ${r.against}${r.live ? " (live)" : ""}`];
+  const notSame = r.rows.filter((row) => row.result !== "same");
+  for (const row of notSame) {
     const d = detail(row);
-    lines.push((fmt(table[i] ?? []) + (d === "" ? "" : `  ${d}`)).trimEnd());
-  });
+    lines.push(`${row.id} ${row.method} ${cut(row.path, 80)} ${row.status.recorded ?? "-"}→${row.status.got ?? "-"} ${row.result}${d === "" ? "" : `: ${d}`}`);
+  }
+  if (notSame.length === 0 && r.rows.length > 0) lines.push(`(all ${r.rows.length} checked request(s) same)`);
   const t = r.totals;
-  lines.push("", `totals: ${t.requests} request(s), ${t.same} same, ${t.different} different, ${t.errors} error(s), ${t.unverified} unverified, ${t.skipped} skipped (not replayable)`);
+  lines.push(`totals: ${t.requests} request(s), ${t.same} same, ${t.different} different, ${t.errors} error(s), ${t.unverified} unverified, ${t.skipped} skipped (not replayable)`);
   const ri = r.rules;
   if (ri !== undefined && ri.source !== "none") lines.push(`rules: ${ri.rules} from ${ri.source === "file" ? (ri.file ?? "") : `config.json${ri.site === null || ri.site === undefined ? "" : ` (site ${ri.site})`}`}`);
   const np = r.notPreferred ?? [];

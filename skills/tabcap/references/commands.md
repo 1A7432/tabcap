@@ -1139,7 +1139,7 @@ Example: `tabcap replay session ./b -o storage-state.json`
 generate an httpx client (one function per request group, TypedDict responses), fixtures and a pytest suite that runs against replay serve; with the chain, computed-in-page inputs are TODO parameters and verify() replays the chain; otherwise signature-like parameters and encrypted bodies become NotImplementedError TODOs
 
 ```
-tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--chain] [--no-chain] [--browser-headers] [--proxy-env file]
+tabcap replay export-python <bundle> --out <dir> [--include glob,glob] [--exclude glob,glob] [--request r-N] [--chain] [--no-chain] [--browser-headers] [--proxy-env file]
 ```
 
 Example: `tabcap replay export-python ./b -o ./client`
@@ -1149,6 +1149,7 @@ Example: `tabcap replay export-python ./b -o ./client`
 | `--out <dir>`, `-o <dir>` |  | directory for the generated package (required) |
 | `--include <glob,glob>` |  | only paths matching these globs (* within a segment, ** across) |
 | `--exclude <glob,glob>` |  | leave out paths matching these globs |
+| `--request <r-N>` |  | chain target, as analyze chain --request (default: the data-bearing xhr / fetch / document request that started last among the exported ones); implies --chain |
 | `--chain` |  | use the deps graph and the chain to the data-bearing request that started last (the analyze chain default): computed-in-page inputs become TODO parameters, caller-input ones parameters defaulting to the recorded value, values from earlier responses become arguments, plus verify() and verify_expected.json (default when the graph links any request to an earlier response) |
 | `--no-chain` |  | 0.3 behaviour: per-request heuristics only, no verify() |
 | `--browser-headers` |  | send every recorded request header (user-agent, accept-language, sec-ch-ua*, sec-fetch-* …); default: only content-type, authorization, a non-default accept, a cross-origin referer and headers the browser does not add itself (custom x-* …) |
@@ -1159,7 +1160,7 @@ Example: `tabcap replay export-python ./b -o ./client`
 send every recorded request again and compare status, headers and body field by field with the recording; exit 1 on any difference
 
 ```
-tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--rules file] [--prefer recorded|2xx|latest] [--json]
+tabcap replay check <bundle> [--against url] [--live] [--rate n] [--site site] [--filter glob,glob] [--headers h1,h2] [--with-cookies] [--rules file] [--prefer recorded|2xx|latest] [--text]
 ```
 
 Example: `tabcap replay check ./b --against http://127.0.0.1:4500`
@@ -1175,7 +1176,7 @@ Example: `tabcap replay check ./b --against http://127.0.0.1:4500`
 | `--with-cookies` |  | also send the recorded cookie header |
 | `--rules <file>` |  | replay rules file (schema tabcap-replay-rules/0, docs/04 §31); default: config.json sites.<bundle site>.replay, then replay |
 | `--prefer <recorded\|2xx\|latest>` |  | as replay serve --prefer: check only the recordings that answer each key; the others are listed in notPreferred and not sent |
-| `--json` |  | print one JSON envelope instead of the table |
+| `--text` |  | print one line per request that is not the same, then the totals, instead of JSON |
 
 ### `tabcap schema`
 
