@@ -15,6 +15,8 @@ tabcap click e5 --tab t2
 tabcap tab select t2             # or make it the current tab; `tabcap tab select t1` to go back
 ```
 
+When something looks stuck (a session that keeps answering `waiting`, a missing recording, `fill --secret` refused, few `by:"page"` rows), run `tabcap status --text` first: one line per session (site, recording, waiting, trace, fetch stops), then `conflicts` with the command that resolves each.
+
 ## Reading the page
 
 - `tabcap snapshot --interactive` lists controls only; plain `snapshot` the whole tree; `--verbose` keeps every wrapper and adds descriptions and capability flags; `--file-path <f>` writes the tree to a file. The tree is cut at 12000 characters per document by default; the answer then says `truncated` and how to get more (`--max-chars <n>`, `--interactive`, `--frame <path>`, `--file-path`). Lines look like `- button "Save" [e12] disabled` or `- textbox "Name" [e5] value="bob" focused`: role, name, ref, then attributes (`value="…"`, `level="2"`, `description="…"`) and states as bare words (`checked`, `expanded`, `collapsed`, `disabled`, `required`, `focused`).

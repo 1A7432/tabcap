@@ -881,3 +881,25 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **`session export --origin <url 或 host>`**（§8.2）：头取自录制里发往该源的最近一条带选中头的请求（不论哪个标签），cookie 加上该源的（`Network.getCookies` 带它的根 URL），与页面的并列；标签上没有该源的 frame 时 storage 读页面的。裸 host 的 scheme 取录制里的，没有用 `https`。
 - **不给 `--origin` 的回退**：照旧选页面源；选出的头里没有敏感头时，改取录到的「最近一条带敏感头的请求里敏感头最多」的 host（并列取更晚），`source.headers:{request, origin, auto:true}`，`note` 说明并建议 `--origin`；那个源的 cookie 也一并取（`--origin` 同理）【按实现定案，待作者审：需求只说回退头】。值永不打印（原规则）。
 - 验证：`test/unit/fetch06a.test.ts`（规格、CLI、helper、`cmd` 输入、提示规则、假浏览器上逐请求的 `fetchCredentials`）、`test/unit/session-export.test.ts`、`test/e2e/v06p.e2e.test.ts`（`05` s60）。
+
+## 35. 0.7-B `tabcap status` 与 conflicts（10-17 作者定需求；字段与规则文字按实现定案，待作者审）
+
+【实测】作者邻近项目 10-17 用 tabcap 跑真实站点的 agent，大半时间花在隐含状态上：会话卡在 `waiting`，`guard resume` 解不开；启用着的解码插件让观察模式的 page 视图排不上；`net start` 隐式造出的会话没绑站点，`fill --secret` 失败；忘了还开着的录制和 trace 窗口。这些状态原先散在 `daemon status`、`session list`、`trace status`、`plugin list`、`handoff status` 和 guard 输出里。作者接受 tabcap 用文字解释自己的状态（`conflicts`）。
+
+- **一条命令一个信封**：`tabcap status [--text]`（守护进程动作 `status`）。只读、全局：守护进程在命令路径之前回答它（与 `daemon status` 同），所以不在任何录制里开 `cmd` 窗口、会话在 `waiting` 时也不被拒、回答不带 `trace` / `handoff` 附加字段。数据全部读守护进程已有的对象（标签表、录制器、tracer、guard、插件目录），本身不存状态。守护进程没在跑时 CLI 仍回 `ok`：`daemon.running:false`、空会话、插件照读配置目录。
+- **回答**（`schema:"tabcap-status/0"`）：
+  - `daemon`：`{running, pid, version, listener, socket, port?, startedAt}`（没在跑：`{running:false, listener}`）；
+  - `browser`：`{running, pid, mode:"direct"|"ext"|null, tabs}`（未关闭的标签数）；
+  - `sessions[]`：每个会话 `{session, site, account, tabSite, tabs, current, recording, state, reason, screenshot, trace, guardStops}`。会话取浏览器的会话表，再并上有录制、有 trace、有站点绑定、在 `waiting`、或停过 fetch 的名字（浏览器没了也列得出来）。`account` 只给用户名；`tabSite` 只给未绑定的会话：当前标签 URL 落在哪个库内站点（`fetch` 同一套 `siteOf`），否则 `null`；`recording` 是 `{bundle, since, entries, decodePlugins}` 或 `null`（`entries` = 已写的请求条数，`decodePlugins` = 这份录制在 `net start` 时定下的解码插件）；`state` 是 `running` | `waiting`，`waiting` 时 `reason`（`verify-page` / `stop-rule`）与 `screenshot` 有值；`trace` 是 `{state:"off"|"on"|"paused", decode, weakRows}`（`weakRows` 只在观察模式下是数，= 已归档的 `link:"weak"` 行）；`guardStops[]` 是落在本会话的 fetch 停手 `{site, rule, since, reason:"fetch-stop"|"stop-rule", by, request}`——由本会话触发、或站点等于本会话绑定的站点 / 当前标签所在站点 / 交接记下的站点；
+  - `plugins`：已启用的 `{decode:[名字], challenge:[名字]}`；
+  - `handoff[]`：在等人的会话 `{session, reason, site, since, screenshot}`；
+  - `conflicts[]`：`{code, session, message, next}`，规则按下列顺序生成（`src/daemon/tools/status.ts`，纯函数，输入是上面的事实）。
+- **规则**（`next` 一律写成可直接执行的命令，带 `--session`）：
+  - (a) `waiting-and-fetch-stop`：会话在 `waiting`，且有 fetch 停手落在它身上；`guard resume --site` 只解停手、不结束等待（例外：等待与停手出自本会话同一条站点停手规则时 `guard resume` 两个都解，此时不报）。`next`：人在浏览器里做完后 `tabcap handoff continue --session <s>`；停手由别的会话触发时再加 `tabcap guard resume --site <site>`（`handoff continue` 只解本会话触发的）。
+  - (b) `decode-plugin-outranks-page`：会话在观察模式（`trace start --decode`）且有解码插件生效——有录制看录制自己的 `decodePlugins`，没录制看已启用的（下一次 `net start` 会用它们）；插件视图优先于 page 视图、插件解过的正文不再观察（§33 D4）。`next`：`tabcap plugin disable <name>`（一个插件写名字，多个写 `<name>`）；有录制时再加 `net stop` 与 `net start`（录制沿用开始时的插件）【实测：`net start` 时读插件表，`src/daemon/tools/net.ts`】。
+  - (c) `unbound-session`：会话有标签、没绑站点；`fill --secret` 会被拒（§0.6-R `unboundSecretError`）。`next`：需要库内密钥时 `session stop`，再 `session start <s> --site <site>`（`tabSite` 有值就填它，否则 `<site>`）。
+  - (d) `recording-without-browser`：会话还开着录制，但浏览器没在跑或会话没有打开的标签；什么都进不了包。`next`：`net stop` 收包；浏览器还在时也可 `navigate` 继续录。
+  - (e) `trace-without-recording`：trace 开着、会话没录制；signal / observe 行进不了任何包，直到 `net start`。`next`：`net start`，再重新加载页面。
+- **`--text`**：一屏。首行守护进程、浏览器、已启用插件；每个会话一行（站点与账号、标签数与当前标签、录制条数与包路径、`WAITING <reason>` 与截图、trace、停手的站点与规则）；然后 `conflicts (n):`，每条一行 `- [code] message`、下一行 `  next: …`；没有冲突写 `conflicts: none`。
+- **MCP**：`tabcap_status` 进核心集，替下 `handoff status`（`status` 已列出等人的会话与原因；`handoff status` 仍可经 `tabcap_run`）；核心集仍 24 个工具，定义 9047 B【实测：`test/unit/mcp.test.ts` 打印】。
+- 验证：`test/unit/status07b.test.ts`（五条规则的正反例与顺序、`--text`、无浏览器守护进程上的回答、无守护进程的回退）、`test/e2e/v07b.e2e.test.ts`（靶场 s07 / s15 与 `xor-decode`：绑定录制会话 + 未绑会话出 (c)；第 6 次 `fetch /api/limited --stop-on status>=400` 同时停 fetch 并进 `waiting` 出 (a)，`guard resume` 后 `handoff status` 仍是 `waiting`；`trace start --decode` 出 (b) 与 (e)，`net start` 后 (e) 消失、(b) 的 `next` 加上换录制）。

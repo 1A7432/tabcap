@@ -11,6 +11,13 @@
 - **MCP**：`tabcap_help` 多一个可选参数 `guide`（`""` 列出配方，id 给一条）；核心工具集的 instructions 指向它。
 - **SKILL.md 按任务重组**：「Record → analyse → replay」一节换成五个短任务，各以 `tabcap guide <id>` 收尾；Chrome DevTools MCP 的三处差异移到 `references/devtools-mcp.md`（SKILL.md 留一行指引）。SKILL.md 仍在 8 KB 以内（8163 字节）。
 
+### tabcap status（0.7-B）
+
+- **`tabcap status [--text]`**：原先散在 `daemon status`、`session list`、`trace status`、`plugin list`、`handoff status` 和 guard 输出里的状态，一个回答看全。`daemon`（pid、监听方式）、`browser`（是否在跑、pid、模式、标签数）、`sessions[]`（站点、账号名、标签数与当前标签、`recording` 的包路径 / 开始时间 / 条数 / 它用的解码插件、`state` running | waiting 及原因与截图、`trace` off | on | paused 及 `decode` 与 `weakRows`、落在它身上的 fetch 停手）、已启用的 `plugins`（decode / challenge）、`handoff`（在等人的会话与原因）和 `conflicts[]`。只读、全局：不在任何录制里开命令窗口，会话在等人时也照答；守护进程没在跑也回答（`daemon.running: false`）。
+- **`conflicts`**：规则对上述回答生成的句子，每条带 `code` 和 `next` 命令：会话在等人、同时该站点的 fetch 被停（`guard resume` 解不开等待，`handoff continue` 才行）；会话用 `trace start --decode` 观察页面时有解码插件生效（插件视图压过 page 视图；`plugin disable`，开着录制时再换一份录制）；会话有标签但没绑站点（`fill --secret` 会被拒；先 `session stop`，再 `session start --site`）；录制还开着但浏览器或标签没了；trace 开着却没录制（`net start` 之前什么行都进不了包）。
+- `--text` 打一屏：每个会话一行，然后是冲突及其 `next`。
+- MCP：`tabcap_status` 进默认核心集，替下 `tabcap_handoff_status`（仍可经 `tabcap_run` 调）；核心集仍是 24 个工具。
+
 ## 0.6.0（2026-10-17）
 
 ### plugin init（0.7-D）
