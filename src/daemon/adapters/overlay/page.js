@@ -56,9 +56,9 @@
      * a role (common framework markup). Thresholds (docs/10):
      * - the layer is fixed, pointer-reachable and covers >= 90% of the viewport
      *   (small fixed headers / footers never qualify);
-     * - one visible inner block covers <= 60% of the viewport, has an opaque
-     *   background or a visible border / shadow, and holds a button or form
-     *   control;
+     * - one visible inner block (a container, not a control itself; at least
+     *   160 x 60 px) covers <= 60% of the viewport, has an opaque background or
+     *   a visible border / shadow, and holds a button or form control;
      * - the layer's own text stays <= 500 characters, so a full-screen app root
      *   (scrolling content, lots of text, no mask) is not taken for a dialog.
      */
@@ -69,11 +69,16 @@
       for (let i = 0; i < all.length && i < 4000; i++) {
         const b = all[i];
         if (b === el) continue;
+        // The block is a container, never a control itself: a bare <input> has a
+        // border and is a control, and on a 988x605 viewport its box is 0.5% of
+        // the area (Windows CI, 0.7.3), so size is checked in pixels, not share.
+        if (b.matches(CONTROL)) continue;
         const bcs = getComputedStyle(b);
         const br = box(b, bcs);
         if (!br) continue;
+        if (br.width < 160 || br.height < 60) continue;
         const ba = vw * vh > 0 ? clipArea(br) / (vw * vh) : 0;
-        if (ba < 0.005 || ba > 0.6) continue;
+        if (ba > 0.6) continue;
         const bo = Number(bcs.opacity);
         const bbg = Math.round(alpha(bcs.backgroundColor) * (Number.isFinite(bo) ? bo : 1) * 100) / 100;
         const border = ["Top", "Right", "Bottom", "Left"].some((side) => {

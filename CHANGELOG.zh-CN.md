@@ -14,7 +14,7 @@
 
 ### 遮挡：无 role 的全屏 mask 包着对话框
 
-- 遮挡分类器现在把覆盖至少 90% 视口的固定层当作 `dialog`：只要内部有一个更小的块（面积 ≤ 60% 视口，不透明背景或有边框 / 阴影）含按钮或表单控件，没有 `role="dialog"` 也算；evidence 写 `full-viewport wrapper` 与 `buttons in an inner block`。文字超过 500 字、没有样式化内块的全屏应用根容器不会被误判。普通 `click` 在分类器之后还会在目标中心做一次命中测试，被遮住时与 `--trusted` 一样报 `covered`，不再穿透；`snapshot` 会列出这个 dialog。
+- 遮挡分类器现在把覆盖至少 90% 视口的固定层当作 `dialog`：只要内部有一个更小的块（容器而非控件本身，至少 160 × 60 px，面积 ≤ 60% 视口，不透明背景或有边框 / 阴影）含按钮或表单控件，没有 `role="dialog"` 也算；evidence 写 `full-viewport wrapper` 与 `buttons in an inner block`。文字超过 500 字、没有样式化内块的全屏应用根容器不会被误判。普通 `click` 在分类器之后还会在目标中心做一次命中测试，被遮住时与 `--trusted` 一样报 `covered`，不再穿透；`snapshot` 会列出这个 dialog。
 
 ### 回放客户端：不读环境里的代理
 

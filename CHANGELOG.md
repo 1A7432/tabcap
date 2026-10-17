@@ -14,7 +14,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ### Overlay: a role-less full-viewport mask around a dialog
 
-- The overlay classifier now treats a fixed layer covering at least 90% of the viewport as a `dialog` when a smaller inner block (at most 60% of the viewport, opaque background or border / shadow) holds a button or form control, even without `role="dialog"`. Evidence says `full-viewport wrapper` and `buttons in an inner block`; a full-screen app root (> 500 characters of text, no styled inner block) is not taken for one. A plain `click` now also hit-tests the target centre after the classifier and answers `covered` (same decision as `--trusted`) instead of clicking through the mask; `snapshot` lists the dialog.
+- The overlay classifier now treats a fixed layer covering at least 90% of the viewport as a `dialog` when a smaller inner block (a container, not a control itself, at least 160 × 60 px, at most 60% of the viewport, opaque background or border / shadow) holds a button or form control, even without `role="dialog"`. Evidence says `full-viewport wrapper` and `buttons in an inner block`; a full-screen app root (> 500 characters of text, no styled inner block) is not taken for one. A plain `click` now also hit-tests the target centre after the classifier and answers `covered` (same decision as `--trusted`) instead of clicking through the mask; `snapshot` lists the dialog.
 
 ### Replay client: no proxy from the environment
 

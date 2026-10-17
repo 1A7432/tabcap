@@ -221,8 +221,11 @@ describe.skipIf(!enabled)("tabcap 0.5-F L2 (in-command search: snapshot filters,
     expect(uaAt["line"]).toBe(1);
     expect(pfAt["line"]).toBe(2);
 
-    // --at on the external script: the raw line around the caller column
+    // --at on the external script: the raw line around the caller column. The recording
+    // of the script request can finish a moment after the page is ready on a slow runner
+    // (windows-latest once answered not-found here), so wait for it by URL first.
     const uaCol = Number(uaAt["col"]);
+    await until("the script request", () => ok("net", "list", "--filter", "/trace/min.js", ...S), (l) => recs(l["requests"]).length > 0);
     const raw = await ok("net", "body", "--url", scriptUrl, "--at", `1:${uaCol}`, "--context", "0", ...S);
     expect(raw).toMatchObject({ resolvedBy: "url", sameUrl: 1, pretty: false, lines: 1 });
     expect(rec(raw["at"])).toMatchObject({ line: 1, col: uaCol, text: SEARCH_MIN_JS });
