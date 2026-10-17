@@ -1,5 +1,5 @@
 {
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "The tabcap binary for macOS arm64. Installed by the tabcap package; not meant to be used directly.",
   "license": "Apache-2.0",
   "repository": {
