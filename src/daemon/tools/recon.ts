@@ -20,7 +20,7 @@ import { runDetect } from "../adapters/runtime.ts";
 import { rootDoc } from "../browser/worlds.ts";
 import type { Daemon } from "../state.ts";
 import type { Args } from "./args.ts";
-import { redactUrl, revealOf, type LiveCtx } from "./liveredact.ts";
+import { redactHeaderValue, redactUrl, revealOf, type LiveCtx } from "./liveredact.ts";
 import { timeoutOf } from "./navigate.ts";
 import { callResult, docIdentity } from "./snapshot.ts";
 
@@ -37,11 +37,12 @@ function docHeaders(reqs: readonly RequestEvent[], url: string): Record<string, 
   return out;
 }
 
-/** The dossier with the URLs it carries (page, guard detections) redacted by the live rule. */
+/** The dossier with the values it carries (page and guard URLs, stack header values) redacted by the live rule. */
 export function redactDossier(d: Dossier, c: LiveCtx): Dossier {
   return {
     ...d,
     page: { ...d.page, url: d.page.url === null ? null : redactUrl(d.page.url, c) },
+    stack: d.stack.map((s) => (s.source === "header" ? { ...s, value: redactHeaderValue(s.marker, s.value, c) } : s)),
     protection: d.protection.map((p) => (p.source === "guard" && p.url !== null ? { ...p, url: redactUrl(p.url, c) } : p)),
   };
 }

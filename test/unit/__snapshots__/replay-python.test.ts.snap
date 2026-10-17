@@ -24,21 +24,35 @@ T = TypeVar("T")
 
 
 class Session:
-    """Cookies of a recorded session (Playwright storageState file) plus overrides for other session values."""
+    """Cookies of a recorded session (Playwright storageState file) plus overrides for other session values.
 
-    def __init__(self, cookies: list[dict[str, Any]] | None = None, values: dict[str, str] | None = None, timeout: float = 30.0) -> None:
+    The client never reads \`\`http_proxy\`\` / \`\`https_proxy\`\` / \`\`NO_PROXY\`\`
+    (\`\`trust_env=False\`\`): a proxy comes from \`\`proxy=\`\` or from
+    \`\`TABCAP_PROXY_URL\`\` only (\`\`replay export-python --proxy-env\`\` writes it).
+    """
+
+    def __init__(
+        self,
+        cookies: list[dict[str, Any]] | None = None,
+        values: dict[str, str] | None = None,
+        timeout: float = 30.0,
+        proxy: str | None = None,
+    ) -> None:
         self.values: dict[str, str] = dict(values or {})
-        # TABCAP_PROXY_URL: the recording account's proxy (tabcap replay export-python --proxy-env), else no proxy.
-        self.client = httpx.Client(timeout=timeout, follow_redirects=False, http2=True, proxy=os.environ.get("TABCAP_PROXY_URL") or None)
+        # Priority: proxy argument > TABCAP_PROXY_URL > no proxy. The environment's
+        # http_proxy / NO_PROXY are deliberately ignored (httpx's NO_PROXY parser
+        # chokes on Clash-style "[::1]" and would fail Client construction).
+        effective_proxy = proxy if proxy is not None else (os.environ.get("TABCAP_PROXY_URL") or None)
+        self.client = httpx.Client(timeout=timeout, follow_redirects=False, http2=True, proxy=effective_proxy, trust_env=False)
         for c in cookies or []:
             if isinstance(c, dict) and isinstance(c.get("name"), str) and isinstance(c.get("value"), str):
                 self.client.cookies.set(c["name"], c["value"], domain=str(c.get("domain", "")), path=str(c.get("path", "/")))
 
     @classmethod
-    def from_storage_state(cls, path: str | Path, values: dict[str, str] | None = None) -> Session:
+    def from_storage_state(cls, path: str | Path, values: dict[str, str] | None = None, proxy: str | None = None) -> Session:
         data = json.loads(Path(path).read_text("utf-8"))
         cookies = data.get("cookies", []) if isinstance(data, dict) else []
-        return cls(cookies if isinstance(cookies, list) else [], values)
+        return cls(cookies if isinstance(cookies, list) else [], values, proxy=proxy)
 
     def cookie(self, name: str, default: str) -> str:
         """The stored cookie \`name\` (any domain), else the recorded value."""

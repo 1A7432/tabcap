@@ -282,13 +282,29 @@ describe("CLI", () => {
     expect(isRecord(cd) && cd["schema"]).toBe("tabcap-chain/0");
   });
 
-  test("0.7-E: chain --text shows a return URL's access_token as <redacted:access_token>; the JSON keeps the recorded URL", () => {
+  test("0.7-E / 0.7.3: chain text keeps <redacted:access_token>; JSON redacts the value too unless --reveal", async () => {
     const url = "https://sso.example.test/app/return?access_token=ST-77-secret&lang=zh";
     const res = { schema: "tabcap-chain/0" as const, bundle: "./b", target: "r-2", steps: [{ id: "r-2", method: "GET", url, provides: [], needs: [] }], todo: [], inputs: [], warnings: [] };
     const text = renderChainText(res);
     expect(text).toContain("r-2 GET https://sso.example.test/app/return?access_token=<redacted:access_token>&lang=zh");
     expect(text).not.toContain("ST-77-secret");
     expect(res.steps[0]?.url).toBe(url);
+
+    const b = await buildBundle(join(root, "chain-redact"), { name: "chain-redact", created: 1760600000000, seed: 31 }, async (bb) => {
+      await bb.request({ url, ts: 1760600000100, mime: "application/json", body: "{}" });
+    });
+    const plain = await run(["analyze", "chain", b]);
+    if (!plain.envelope.ok) throw new Error(plain.envelope.error.message);
+    const plainUrl = isRecord(plain.envelope.data) && Array.isArray(plain.envelope.data["steps"]) && isRecord(plain.envelope.data["steps"][0]) ? plain.envelope.data["steps"][0]["url"] : null;
+    expect(String(plainUrl)).toContain("access_token=<redacted:");
+    expect(JSON.stringify(plain.envelope.data).includes("ST-77-secret")).toBe(false);
+    const revealed = await run(["analyze", "chain", b, "--reveal"]);
+    expect(JSON.stringify(revealed.envelope)).toContain("ST-77-secret");
+    const depsPlain = await run(["analyze", "deps", b]);
+    expect(JSON.stringify(depsPlain.envelope).includes("ST-77-secret")).toBe(false);
+    expect(JSON.stringify(depsPlain.envelope)).toContain("access_token=<redacted:");
+    const depsRevealed = await run(["analyze", "deps", b, "--reveal"]);
+    expect(JSON.stringify(depsRevealed.envelope)).toContain("ST-77-secret");
   });
 
   test("the bundle is read-only unless --write-findings; findings: 实测 for re-read exact sources, 推断 otherwise, no values", async () => {

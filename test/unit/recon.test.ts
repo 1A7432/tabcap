@@ -364,6 +364,25 @@ describe("output", () => {
     expect(BundleReader.open(dir).events.some((e) => e.kind === "finding")).toBe(false);
   });
 
+  test("0.7.3: analyze recon redacts page / guard URLs by default and writes the redacted dossier; --reveal restores them", async () => {
+    const dir = tmp("tabcap-recon-");
+    const SECRET = "ST-77-recon-secret";
+    await buildBundle(dir, { name: "redact", created: C, seed: 34 }, async (b) => {
+      await b.request({ url: `${O}/orders?access_token=${SECRET}&lang=zh`, type: "document", mime: "text/html", body: "<!doctype html><title>Orders</title><p>hello world</p>", ts: C + 100 });
+    });
+    const plain = await runAnalyze(["analyze", "recon", dir]);
+    if (!plain.envelope.ok || !isRecord(plain.envelope.data)) throw new Error("analyze recon failed");
+    const page = isRecord(plain.envelope.data["page"]) ? plain.envelope.data["page"] : {};
+    expect(String(page["url"])).toContain("access_token=<redacted:");
+    expect(String(page["url"])).toContain("lang=zh");
+    expect(JSON.stringify(plain.envelope.data).includes(SECRET)).toBe(false);
+    expect(readFileSync(join(dir, "exports", "dossier.json"), "utf8").includes(SECRET)).toBe(false);
+    const revealed = await runAnalyze(["analyze", "recon", dir, "--reveal"]);
+    if (!revealed.envelope.ok || !isRecord(revealed.envelope.data)) throw new Error("analyze recon --reveal failed");
+    const rpage = isRecord(revealed.envelope.data["page"]) ? revealed.envelope.data["page"] : {};
+    expect(String(rpage["url"])).toContain(SECRET);
+  });
+
   test("the cmd end event keeps the receipt (docs/09 §13.3 draft)", () => {
     const s = summarize({ dossier: "/x/exports/dossier.json", markdown: "/x/exports/dossier.md", receipt: { dossier: "exports/dossier.json" }, summary: { channels: 3 }, warnings: [] });
     expect(s).toEqual({ dossier: "/x/exports/dossier.json", markdown: "/x/exports/dossier.md", receipt: { dossier: "exports/dossier.json" } });

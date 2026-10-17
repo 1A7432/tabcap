@@ -121,7 +121,9 @@ describe("typing plan against the Playwright type() oracle (s46)", () => {
 type Call = { method: string; params: CdpParams; timeoutMs: number | undefined };
 
 /** `frames`: the frame gap each paint check reports, in order (the last one repeats); default 16 ms. */
-function fakeChrome(o: { raf?: boolean; visibility?: string; moveTimeoutAt?: number; delivered?: boolean; frames?: Array<number | null> } = {}) {
+function fakeChrome(
+  o: { raf?: boolean; visibility?: string; moveTimeoutAt?: number; delivered?: boolean; frames?: Array<number | null>; probeReadFails?: boolean; onRelease?: () => void } = {},
+) {
   const calls: Call[] = [];
   let moves = 0;
   let checks = 0;
@@ -140,7 +142,11 @@ function fakeChrome(o: { raf?: boolean; visibility?: string; moveTimeoutAt?: num
         const fn = typeof params["functionDeclaration"] === "string" ? params["functionDeclaration"] : "";
         if (fn.includes("elementFromPoint")) return { result: { value: { ok: true, hit: "div#target" } } };
         if (fn.includes("addEventListener(\"pointerdown\"")) return { result: { objectId: "probe-1" } };
-        if (fn.includes("this.off()")) return { result: { value: { pointerdown: o.delivered ?? true, mousedown: o.delivered ?? true } } };
+        if (fn.includes("this.off()")) {
+          // A navigation committed: the old execution context is gone.
+          if (o.probeReadFails === true) throw new Error("Runtime.callFunctionOn: Cannot find context with specified id");
+          return { result: { value: { pointerdown: o.delivered ?? true, mousedown: o.delivered ?? true } } };
+        }
         if (fn.includes("el.click()")) return { result: { value: { ok: true, tag: "div" } } };
         return { result: { value: { ok: true } } };
       }
@@ -148,6 +154,7 @@ function fakeChrome(o: { raf?: boolean; visibility?: string; moveTimeoutAt?: num
         moves++;
         if (o.moveTimeoutAt !== undefined && moves >= o.moveTimeoutAt) throw new CdpTimeoutError(method, timeoutMs ?? 0);
       }
+      if (method === "Input.dispatchMouseEvent" && params["type"] === "mouseReleased") o.onRelease?.();
       return {};
     },
     onEvent: () => () => undefined,
@@ -174,6 +181,7 @@ function fakeTab(): Tab {
     url: "http://127.0.0.1:9/probe",
     title: "input probe",
     navType: null,
+    navEpoch: 0,
     pendingNavType: null,
     loading: false,
     refs: new RefTable(),
@@ -305,6 +313,30 @@ describe("click --trusted on a fake Chrome", () => {
     const { t, mouse } = fakeChrome({ delivered: false });
     const err = await pointerClick(t, "S1", "node-1", "e3", { x: 0, y: 0 }, { x: 10, y: 10 }, instantDeps(9)).catch((e: unknown) => e);
     expect(err instanceof TabcapError ? [err.code, err.next.includes("did not retry")] : String(err)).toEqual(["not-delivered", true]);
+    expect(mouse().filter((m) => m !== "mouseMoved")).toEqual(["mousePressed", "mouseReleased"]);
+  });
+
+  test("0.7.3: probe read fails after the press + the tab navigated → delivered unknown/navigated (no error)", async () => {
+    const tab = fakeTab();
+    const { t, mouse } = fakeChrome({
+      probeReadFails: true,
+      onRelease: () => {
+        // The navigation commit, as Page.frameNavigated records it.
+        tab.navEpoch++;
+        tab.url = "http://127.0.0.1:9/second";
+      },
+    });
+    const r = await trustedClickOn(t, tab, NODE, "e3", instantDeps(21));
+    if (r.kind !== "clicked") throw new Error("expected a click");
+    expect(r.result.delivered).toEqual({ pointerdown: "unknown", mousedown: "unknown", reason: "navigated" });
+    expect(mouse().filter((m) => m !== "mouseMoved")).toEqual(["mousePressed", "mouseReleased"]);
+  });
+
+  test("0.7.3: probe read fails and the tab did not navigate → not-delivered, no retry", async () => {
+    const { t, mouse } = fakeChrome({ probeReadFails: true });
+    const nav = { mark: () => ({ epoch: 0, url: "http://127.0.0.1:9/probe" }), navigated: () => false, wait: async () => false };
+    const err = await pointerClick(t, "S1", "node-1", "e3", { x: 0, y: 0 }, { x: 10, y: 10 }, instantDeps(22), () => undefined, 1, "S1", nav).catch((e: unknown) => e);
+    expect(err instanceof TabcapError ? [err.code, err.next.includes("did not retry"), err.message.includes("could not be read")] : String(err)).toEqual(["not-delivered", true, true]);
     expect(mouse().filter((m) => m !== "mouseMoved")).toEqual(["mousePressed", "mouseReleased"]);
   });
 });

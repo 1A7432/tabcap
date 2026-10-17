@@ -7,6 +7,7 @@ import { appendFinding, appendFindings, type SavedFinding, type SavedFindings } 
 import { diff, renderDiffText, type DiffResult } from "../analyze/diff.ts";
 import { DepsGraph, depsFindings, depsOf, renderDepsText } from "../analyze/deps.ts";
 import { chainOf, renderChainText } from "../analyze/chain.ts";
+import { redactChain, redactDeps, redactDiff, redactDossier } from "../analyze/redact.ts";
 import { buildDossier, reconOutput, recordedPage, renderDossierMd, writeDossier } from "../analyze/recon.ts";
 import { parseShapeTypes, renderSchemaDiffText, renderShapeText, schemaDiff, shape, writeShape } from "../analyze/shape.ts";
 import { BundleReader } from "../bundle/reader.ts";
@@ -101,7 +102,8 @@ function cmdDiff(argv: readonly string[]): Outcome {
   const usage = ANALYZE_USAGE[1] ?? "";
   const { pos, flags } = split(argv, flagNames(DIFF), usage);
   if (pos.length < 2) throw new TabcapError("usage", `expected at least two bundles, got ${pos.length}`, `Usage: ${usage}`);
-  const result = diff(pos);
+  const reveal = flags.has("--reveal");
+  const result = redactDiff(diff(pos), reveal);
   let saved: SavedFinding | null = null;
   const first = pos[0];
   if (flags.has("--save") && first !== undefined) {
@@ -134,9 +136,10 @@ function cmdDeps(argv: readonly string[]): Outcome {
   const a = parsed.args;
   const bundle = optStr(a["bundle"]) ?? "";
   const graph = DepsGraph.open(bundle);
-  const result = depsOf(graph, bundle, { session: optStr(a["bundleSession"]), request: optStr(a["request"]) });
+  const raw = depsOf(graph, bundle, { session: optStr(a["bundleSession"]), request: optStr(a["request"]) });
   let saved: SavedFindings | null = null;
-  if (a["writeFindings"] === true) saved = appendFindings(bundle, depsFindings(graph, result));
+  if (a["writeFindings"] === true) saved = appendFindings(bundle, depsFindings(graph, raw));
+  const result = redactDeps(raw, a["reveal"] === true);
   const data = { ...result, saved };
   if (a["text"] !== true) return { code: 0, envelope: ok(data) };
   const t = renderDepsText(result) + (saved === null ? "" : `\nwrote ${saved.seqs.length} finding event(s) to ${saved.bundle}`);
@@ -151,7 +154,7 @@ function cmdChain(argv: readonly string[]): Outcome {
   }
   const a = parsed.args;
   const bundle = optStr(a["bundle"]) ?? "";
-  const result = chainOf(DepsGraph.open(bundle), bundle, { request: optStr(a["request"]), session: optStr(a["bundleSession"]) });
+  const result = redactChain(chainOf(DepsGraph.open(bundle), bundle, { request: optStr(a["request"]), session: optStr(a["bundleSession"]) }), a["reveal"] === true);
   if (a["text"] !== true) return { code: 0, envelope: ok(result) };
   return { code: 0, envelope: ok(result), text: renderChainText(result) };
 }
@@ -164,7 +167,7 @@ function cmdRecon(argv: readonly string[]): Outcome {
   }
   const bundle = optStr(parsed.args["bundle"]) ?? "";
   const reader = BundleReader.open(bundle);
-  const dossier = buildDossier(reader, recordedPage(reader));
+  const dossier = redactDossier(buildDossier(reader, recordedPage(reader)), parsed.args["reveal"] === true);
   const out = reconOutput(dossier, writeDossier(bundle, dossier));
   if (parsed.args["text"] !== true) return { code: 0, envelope: ok(out) };
   return { code: 0, envelope: ok(out), text: renderDossierMd(dossier).trimEnd() };

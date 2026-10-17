@@ -32,6 +32,8 @@ export type Tab = {
   url: string;
   title: string;
   navType: NavType | null;
+  /** Monotonic count of committed navigations (root-frame `Page.frameNavigated` and same-document); 0 before the first. */
+  navEpoch: number;
   /** Set by go/reload so the next root commit gets the right nav type. */
   pendingNavType: NavType | null;
   loading: boolean;
@@ -46,7 +48,15 @@ export type Tab = {
   emulation: EmulationSettings;
 };
 
-export type Session = { name: string; tabs: string[]; current: string | null; created: number; lastClosed: string | null };
+export type Session = {
+  name: string;
+  tabs: string[];
+  current: string | null;
+  created: number;
+  lastClosed: string | null;
+  /** Tabs that were current, most recent first (0.7.3: fallback when the current tab closes). */
+  recentCurrent: string[];
+};
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 
@@ -125,7 +135,7 @@ export class Tabs {
   ensureSession(name: string): { session: Session; created: boolean } {
     const have = this.sessions.get(name);
     if (have !== undefined) return { session: have, created: false };
-    const s: Session = { name, tabs: [], current: null, created: Date.now(), lastClosed: null };
+    const s: Session = { name, tabs: [], current: null, created: Date.now(), lastClosed: null, recentCurrent: [] };
     this.sessions.set(name, s);
     return { session: s, created: true };
   }
@@ -165,8 +175,14 @@ export class Tabs {
   use(name: string, id: string): Tab {
     const tab = this.pick(name, id);
     const s = this.sessions.get(name);
-    if (s !== undefined) s.current = tab.id;
+    if (s !== undefined) this.setCurrent(s, tab.id);
     return tab;
+  }
+
+  /** Set the current tab and remember it: closing the current tab falls back to the most recent one still open. */
+  private setCurrent(s: Session, id: string): void {
+    s.current = id;
+    s.recentCurrent = [id, ...s.recentCurrent.filter((x) => x !== id)].slice(0, 64);
   }
 
   /** Open a new background tab for the session (about:blank, attached, domains enabled). */
@@ -179,7 +195,7 @@ export class Tabs {
     const attached = await this.t.waitAttached(targetId, 10_000);
     const tab = this.register(session.name, attached, true);
     await this.fireAdded(tab);
-    session.current = tab.id;
+    this.setCurrent(session, tab.id);
     return tab;
   }
 
@@ -198,6 +214,7 @@ export class Tabs {
       url: x.url,
       title: x.title,
       navType: null,
+      navEpoch: 0,
       pendingNavType: null,
       loading: false,
       refs: new RefTable(),
@@ -228,8 +245,14 @@ export class Tabs {
     if (s !== undefined) {
       s.tabs = s.tabs.filter((id) => id !== tab.id);
       if (s.current === tab.id) {
-        s.current = null;
         s.lastClosed = tab.id;
+        // 0.7.3: no `tab select` needed after closing the current tab. Borrowed
+        // tabs never become the fallback; among owned ones the most recently
+        // current wins, else the last opened (docs/04 §16).
+        const open = this.sessionTabs(tab.session).filter((x) => x.owned);
+        const recent = s.recentCurrent.find((id) => open.some((x) => x.id === id));
+        s.current = recent ?? open.at(-1)?.id ?? null;
+        if (s.current !== null) this.setCurrent(s, s.current);
       }
     }
   }
@@ -344,6 +367,7 @@ export class Tabs {
 
   private newNav(tab: Tab, type: NavType): void {
     tab.navType = type;
+    tab.navEpoch++;
   }
 
   private onEvent(e: CdpEvent): void {

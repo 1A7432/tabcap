@@ -61,7 +61,11 @@ describe("generated package", () => {
     expect(pyproject).toContain('[dependency-groups]\ntest = ["pytest>=8"]');
     expect(pyproject).not.toContain("optional-dependencies");
     expect(readFileSync(join(out, ".gitignore"), "utf8")).toBe(".venv/\n__pycache__/\n");
-    expect(readFileSync(join(out, "client.py"), "utf8")).toMatch(/httpx\.Client\(timeout=timeout, follow_redirects=False, http2=True, /);
+    expect(readFileSync(join(out, "client.py"), "utf8")).toMatch(/httpx\.Client\(timeout=timeout, follow_redirects=False, http2=True, proxy=effective_proxy, trust_env=False\)/);
+    expect(readFileSync(join(out, "client.py"), "utf8")).toContain("proxy: str | None = None");
+    expect(readFileSync(join(out, "client.py"), "utf8")).toContain("effective_proxy = proxy if proxy is not None else (os.environ.get(\"TABCAP_PROXY_URL\") or None)");
+    expect(readFileSync(join(out, "README.md"), "utf8")).toContain("do **not** read `http_proxy` / `https_proxy` / `NO_PROXY`");
+    expect(readFileSync(join(out, "_tabcap_session.py"), "utf8")).toContain("trust_env=False");
     expect(readFileSync(join(out, "README.md"), "utf8")).toContain("TABCAP_REPLAY=http://127.0.0.1:4500 uv run --group test pytest -q");
     writeFileSync(join(out, ".gitignore"), "mine\n");
     expect(exportPython({ bundle, out, chain: false }).files).not.toContain(".gitignore");

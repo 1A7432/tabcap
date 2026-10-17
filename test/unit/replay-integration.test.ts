@@ -195,7 +195,14 @@ describe("export-python against replay serve", () => {
     need(syncPackage(out));
     const s = await serve(bundle);
     try {
-      const p = await runInPackageAsync(out, ["pytest", "-q", "-p", "no:cacheprovider"], { TABCAP_REPLAY: s.url });
+      // A machine with a Clash-style NO_PROXY and a broken proxy must not affect
+      // the generated client: trust_env=False, so these are never read (0.7.3).
+      const p = await runInPackageAsync(out, ["pytest", "-q", "-p", "no:cacheprovider"], {
+        TABCAP_REPLAY: s.url,
+        NO_PROXY: "[::1],localhost",
+        http_proxy: "http://127.0.0.1:1",
+        https_proxy: "http://127.0.0.1:1",
+      });
       if (p.code !== 0) console.error(p.out, p.err);
       expect(p.code).toBe(0);
       expect(p.out).toMatch(/10 passed/);

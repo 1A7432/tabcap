@@ -236,6 +236,36 @@ describe.skipIf(!enabled)("tabcap 0.3-E L2 (input fidelity on s46, unreadByPage)
     expect(offenders).toEqual([]);
   }, 90_000);
 
+  test("0.7.3: click --trusted on an in-site link survives the lost delivery probe (navigation committed); --dbl-click on a button is unaffected", async () => {
+    await ok("navigate", `${probe.origin}/link`, ...P);
+    const link = await refOf("下一頁", P);
+    const c = await ok("click", link, "--trusted", ...P);
+    expect(c).toMatchObject({
+      level: 2,
+      trusted: true,
+      eventShape: "full",
+      delivered: { pointerdown: "unknown", mousedown: "unknown", reason: "navigated" },
+      effect: "navigation",
+    });
+    expect(s(c["url"])).toBe(`${probe.origin}/second`);
+    expect(probe.hits).toContain("GET /second");
+
+    // --no-wait: still a success, no effect claimed (the normal click's --no-wait rule)
+    await ok("navigate", `${probe.origin}/link`, ...P);
+    const nw = await ok("click", await refOf("下一頁", P), "--trusted", "--no-wait", ...P);
+    expect(nw).toMatchObject({ trusted: true, eventShape: "full", delivered: { reason: "navigated" } });
+    expect(nw["effect"]).toBeUndefined();
+    expect(s(nw["url"])).toBe(`${probe.origin}/second`);
+
+    // A double click on a plain button neither navigates nor changes the delivery proof.
+    await ok("navigate", `${probe.origin}/link`, ...P);
+    const plain = await refOf("普通按钮", P);
+    const dbl = await ok("click", plain, "--trusted", "--dbl-click", ...P);
+    expect(dbl).toMatchObject({ trusted: true, eventShape: "full", dblClick: true, delivered: { pointerdown: true, mousedown: true } });
+    expect(s(dbl["url"])).toBe(`${probe.origin}/link`);
+    expect(Number((await ok("evaluate", "window.__plain", ...P))["value"])).toBeGreaterThanOrEqual(1);
+  }, 60_000);
+
   test("docs/04 §5.2 rule 9: a fetch whose body the page never reads is in net list while recording — finished, unreadByPage, body from Fetch, end null", async () => {
     const S = ["--session", "unread"];
     await ok("net", "start", ...S);

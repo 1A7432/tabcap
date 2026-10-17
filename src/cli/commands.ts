@@ -105,6 +105,14 @@ const REVEAL: FlagSpec = {
   help: "print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>)",
 };
 
+/** 0.7.3: offline analyze / recon show recorded values as <redacted:<hash>> unless the human asks for them. */
+const REVEAL_ANALYZE: FlagSpec = {
+  flag: "--reveal",
+  key: "reveal",
+  kind: "bool",
+  help: "print recorded cookie / authorization / set-cookie / sensitive-named parameter values instead of <redacted:…> (only when the human asks)",
+};
+
 const NO_WAIT: FlagSpec = {
   flag: "--no-wait",
   key: "noWait",
@@ -329,7 +337,7 @@ export const COMMANDS: CommandSpec[] = [
     action: "navigate",
     fixed: { newTab: true },
   },
-  { path: ["tab", "close"], pos: ["tab"], flags: [SESSION], summary: "close one of the session's tabs", example: "tabcap tab close t2", action: "tab.close" },
+  { path: ["tab", "close"], pos: ["tab"], flags: [SESSION], summary: "close one of the session's tabs; closing the current tab switches to the most recently current owned tab (else the last opened), answered as current (null when none is left)", example: "tabcap tab close t2", action: "tab.close" },
   { path: ["go"], pos: ["direction"], choices: { direction: ["back", "forward"] }, flags: [...TT, NO_WAIT], summary: "history back / forward, waits until ready and the DOM is quiet", example: "tabcap go back", action: "go" },
   {
     path: ["reload"],
@@ -947,8 +955,9 @@ export const COMMANDS: CommandSpec[] = [
     flags: [
       { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON" },
       { flag: "--save", key: "save", kind: "bool", help: "append the result as a finding event to the first bundle" },
+      REVEAL_ANALYZE,
     ],
-    summary: "compare recordings of the same action: which parameters are constant, per session, timestamps or varying",
+    summary: "compare recordings of the same action: which parameters are constant, per session, timestamps or varying; values print as <redacted:…> unless --reveal",
     example: "tabcap analyze diff ./b1 ./b2",
   },
   {
@@ -959,9 +968,10 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--request", key: "request", kind: "string", help: "only this request (sources are still searched in the whole bundle)", metavar: "r-N" },
       { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON (the envelope's data is schema tabcap-deps/0)" },
       { flag: "--write-findings", key: "writeFindings", kind: "bool", help: "append finding events (tool deps) to the bundle (finished bundles only); default: the bundle is only read" },
+      REVEAL_ANALYZE,
     ],
     summary:
-      "value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else caller-input (paging, periods, search terms the caller picks) / computed-in-page / unrecorded; exact matches only (a header also without its Bearer / Basic / Token / JWT prefix or quotes), never guessed",
+      "value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else caller-input (paging, periods, search terms the caller picks) / computed-in-page / unrecorded; exact matches only (a header also without its Bearer / Basic / Token / JWT prefix or quotes), never guessed; request URLs print sensitive query values as <redacted:…> unless --reveal",
     example: "tabcap analyze deps ./b --request r-12",
   },
   {
@@ -971,16 +981,17 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--request", key: "request", kind: "string", help: "target request (default: the data-bearing xhr / fetch / document request that started last)", metavar: "r-N" },
       { flag: "--session", key: "bundleSession", kind: "string", help: "pick the default target among requests of this session name", metavar: "name" },
       { flag: "--text", key: "text", kind: "bool", help: "print a text report instead of JSON (the envelope's data is schema tabcap-chain/0)" },
+      REVEAL_ANALYZE,
     ],
-    summary: "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input; caller-input values listed apart under inputs)",
+    summary: "the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input; caller-input values listed apart under inputs); step URLs print sensitive query values as <redacted:…> unless --reveal",
     example: "tabcap analyze chain ./b --request r-12",
   },
   {
     path: ["analyze", "recon"],
     pos: ["bundle"],
-    flags: [{ flag: "--text", key: "text", kind: "bool", help: "print the Markdown dossier instead of the JSON envelope" }],
+    flags: [{ flag: "--text", key: "text", kind: "bool", help: "print the Markdown dossier instead of the JSON envelope" }, REVEAL_ANALYZE],
     summary:
-      "the recon dossier offline (as `tabcap recon`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); writes exports/dossier.json and exports/dossier.md",
+      "the recon dossier offline (as `tabcap recon`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); page / guard URLs and stack header values print as <redacted:…> unless --reveal; writes exports/dossier.json and exports/dossier.md",
     example: "tabcap analyze recon ./b --text",
   },
   {
@@ -992,9 +1003,10 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--text", key: "text", kind: "bool", help: "print one line per field instead of JSON (the envelope's data is schema tabcap-shape/0)" },
       { flag: "--write", key: "write", kind: "bool", help: "also store the result as exports/shape.json in the bundle" },
       { flag: "--types", key: "types", kind: "string", help: "only exchanges of these resource types, or all; default: xhr, fetch, document and any response with a JSON content type", metavar: "xhr,fetch|all" },
+      REVEAL_ANALYZE,
     ],
     summary:
-      "response and request shape per endpoint (method + path template, all its exchanges): a type tree of the decoded JSON bodies (kinds, unions, formats date / datetime / int / float / id / url / email, presence counts, optional, ≤ 8 enum literals of non-sensitive fields) plus query names and request body fields; never values",
+      "response and request shape per endpoint (method + path template, all its exchanges): a type tree of the decoded JSON bodies (kinds, unions, formats date / datetime / int / float / id / url / email, presence counts, optional, ≤ 8 enum literals of non-sensitive fields) plus query names and request body fields; values never print (enum literals only under non-sensitive names), so --reveal changes nothing",
     example: "tabcap analyze shape ./b --template 'GET /api/list' --text",
   },
   {

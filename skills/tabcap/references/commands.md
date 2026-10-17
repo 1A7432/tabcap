@@ -278,7 +278,7 @@ Example: `tabcap tab new http://127.0.0.1:8080/`
 
 ### `tabcap tab close`
 
-close one of the session's tabs
+close one of the session's tabs; closing the current tab switches to the most recently current owned tab (else the last opened), answered as current (null when none is left)
 
 ```
 tabcap tab close <tab> [--session name]
@@ -1017,10 +1017,10 @@ Example: `tabcap analyze find ./b 'Order placed'`
 
 ### `tabcap analyze diff`
 
-compare recordings of the same action: which parameters are constant, per session, timestamps or varying
+compare recordings of the same action: which parameters are constant, per session, timestamps or varying; values print as <redacted:…> unless --reveal
 
 ```
-tabcap analyze diff <bundle1> <bundle2> [<bundles>...] [--text] [--save]
+tabcap analyze diff <bundle1> <bundle2> [<bundles>...] [--text] [--save] [--reveal]
 ```
 
 Example: `tabcap analyze diff ./b1 ./b2`
@@ -1029,13 +1029,14 @@ Example: `tabcap analyze diff ./b1 ./b2`
 |---|---|---|
 | `--text` |  | print a text report instead of JSON |
 | `--save` |  | append the result as a finding event to the first bundle |
+| `--reveal` |  | print recorded cookie / authorization / set-cookie / sensitive-named parameter values instead of <redacted:…> (only when the human asks) |
 
 ### `tabcap analyze deps`
 
-value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else caller-input (paging, periods, search terms the caller picks) / computed-in-page / unrecorded; exact matches only (a header also without its Bearer / Basic / Token / JWT prefix or quotes), never guessed
+value-flow dependency graph: for every request input (query, body leaves, x-* / authorization headers, cookies) its source in earlier events (set-cookie, response body path, recorded fill / type, earlier request, constant, timestamp), else caller-input (paging, periods, search terms the caller picks) / computed-in-page / unrecorded; exact matches only (a header also without its Bearer / Basic / Token / JWT prefix or quotes), never guessed; request URLs print sensitive query values as <redacted:…> unless --reveal
 
 ```
-tabcap analyze deps <bundle> [--session name] [--request r-N] [--text] [--write-findings]
+tabcap analyze deps <bundle> [--session name] [--request r-N] [--text] [--write-findings] [--reveal]
 ```
 
 Example: `tabcap analyze deps ./b --request r-12`
@@ -1046,13 +1047,14 @@ Example: `tabcap analyze deps ./b --request r-12`
 | `--request <r-N>` |  | only this request (sources are still searched in the whole bundle) |
 | `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-deps/0) |
 | `--write-findings` |  | append finding events (tool deps) to the bundle (finished bundles only); default: the bundle is only read |
+| `--reveal` |  | print recorded cookie / authorization / set-cookie / sensitive-named parameter values instead of <redacted:…> (only when the human asks) |
 
 ### `tabcap analyze chain`
 
-the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input; caller-input values listed apart under inputs)
+the requests needed to reproduce one request, from the deps graph, in recording order: what each step provides to later ones and what it still needs from the caller (computed-in-page, unrecorded, user input; caller-input values listed apart under inputs); step URLs print sensitive query values as <redacted:…> unless --reveal
 
 ```
-tabcap analyze chain <bundle> [--request r-N] [--session name] [--text]
+tabcap analyze chain <bundle> [--request r-N] [--session name] [--text] [--reveal]
 ```
 
 Example: `tabcap analyze chain ./b --request r-12`
@@ -1062,13 +1064,14 @@ Example: `tabcap analyze chain ./b --request r-12`
 | `--request <r-N>` |  | target request (default: the data-bearing xhr / fetch / document request that started last) |
 | `--session <name>` |  | pick the default target among requests of this session name |
 | `--text` |  | print a text report instead of JSON (the envelope's data is schema tabcap-chain/0) |
+| `--reveal` |  | print recorded cookie / authorization / set-cookie / sensitive-named parameter values instead of <redacted:…> (only when the human asks) |
 
 ### `tabcap analyze recon`
 
-the recon dossier offline (as `tabcap recon`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); writes exports/dossier.json and exports/dossier.md
+the recon dossier offline (as `tabcap recon`), with the bundle's last recorded document standing in for the page (its HTML text, no adapter detection); page / guard URLs and stack header values print as <redacted:…> unless --reveal; writes exports/dossier.json and exports/dossier.md
 
 ```
-tabcap analyze recon <bundle> [--text]
+tabcap analyze recon <bundle> [--text] [--reveal]
 ```
 
 Example: `tabcap analyze recon ./b --text`
@@ -1076,13 +1079,14 @@ Example: `tabcap analyze recon ./b --text`
 | Option | Default | Meaning |
 |---|---|---|
 | `--text` |  | print the Markdown dossier instead of the JSON envelope |
+| `--reveal` |  | print recorded cookie / authorization / set-cookie / sensitive-named parameter values instead of <redacted:…> (only when the human asks) |
 
 ### `tabcap analyze shape`
 
-response and request shape per endpoint (method + path template, all its exchanges): a type tree of the decoded JSON bodies (kinds, unions, formats date / datetime / int / float / id / url / email, presence counts, optional, ≤ 8 enum literals of non-sensitive fields) plus query names and request body fields; never values
+response and request shape per endpoint (method + path template, all its exchanges): a type tree of the decoded JSON bodies (kinds, unions, formats date / datetime / int / float / id / url / email, presence counts, optional, ≤ 8 enum literals of non-sensitive fields) plus query names and request body fields; values never print (enum literals only under non-sensitive names), so --reveal changes nothing
 
 ```
-tabcap analyze shape <bundle> [--request r-N] [--template 'GET /path'] [--text] [--write] [--types xhr,fetch|all]
+tabcap analyze shape <bundle> [--request r-N] [--template 'GET /path'] [--text] [--write] [--types xhr,fetch|all] [--reveal]
 ```
 
 Example: `tabcap analyze shape ./b --template 'GET /api/list' --text`
@@ -1094,6 +1098,7 @@ Example: `tabcap analyze shape ./b --template 'GET /api/list' --text`
 | `--text` |  | print one line per field instead of JSON (the envelope's data is schema tabcap-shape/0) |
 | `--write` |  | also store the result as exports/shape.json in the bundle |
 | `--types <xhr,fetch\|all>` |  | only exchanges of these resource types, or all; default: xhr, fetch, document and any response with a JSON content type |
+| `--reveal` |  | print recorded cookie / authorization / set-cookie / sensitive-named parameter values instead of <redacted:…> (only when the human asks) |
 
 ### `tabcap analyze schema-diff`
 

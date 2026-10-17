@@ -125,6 +125,7 @@ function fakeTab(emulation: Tab["emulation"] = {}): Tab {
     url: "about:blank",
     title: "",
     navType: null,
+    navEpoch: 0,
     pendingNavType: null,
     loading: false,
     refs: new RefTable(),

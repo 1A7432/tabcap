@@ -341,4 +341,26 @@ describe.skipIf(!enabled)("tabcap 0.3-F L2 (aligned names, new commands, post-ac
     expect(existsSync(old)).toBe(false);
     expect((await tabcap("screenshot", "--ref", "e1", "--full-page", ...S)).error?.["code"]).toBe("usage");
   }, 60_000);
+
+  test("0.7.3: tab close — closing the current tab switches to the most recently current owned one, closing a non-current tab keeps current, the last close answers null", async () => {
+    const first = s((await ok("tab", "list", ...S))["current"]);
+    const t2 = await ok("tab", "new", `${origin}/inner`, ...S);
+    const t2id = s(t2["tab"]);
+    // non-current close: t2 was current, select first again, then close t2
+    await ok("tab", "select", first, ...S);
+    expect(await ok("tab", "close", t2id, ...S)).toMatchObject({ closed: t2id, current: first });
+
+    // current close: t3 is current, the session remembers first as the one before it
+    const t3 = await ok("tab", "new", `${origin}/inner`, ...S);
+    const t3id = s(t3["tab"]);
+    await ok("tab", "select", first, ...S);
+    await ok("tab", "select", t3id, ...S);
+    expect(await ok("tab", "close", t3id, ...S)).toMatchObject({ closed: t3id, current: first });
+    expect(await ok("snapshot", ...S)).toBeDefined(); // no `tab select` needed
+
+    // the last owned tab: current null, and later commands still say no-tab
+    expect(await ok("tab", "close", first, ...S)).toMatchObject({ closed: first, current: null });
+    expect((await tabcap("snapshot", ...S)).error?.["code"]).toBe("no-tab");
+    await ok("tab", "new", `${origin}/`, ...S);
+  }, 60_000);
 });

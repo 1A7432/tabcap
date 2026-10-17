@@ -719,6 +719,20 @@ const OV_CONSENT = OV_BASE(
   `for (const id of ["accept", "reject"]) document.getElementById(id).addEventListener("click", () => hide("cookie-banner"));`,
 );
 
+// 0.7.3: a role-less full-viewport mask wrapping its dialog (common framework
+// markup). The inner block is opaque with a border and a shadow; "Buy now" sits
+// under the mask and must be reported covered, never clicked through.
+const OV_WRAPPED = OV_BASE(
+  "ov wrapped",
+  `<button id=buy type=button style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1">Buy now</button>
+<div id=mask style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
+  <div id=dialog style="margin:15vh auto 0;width:340px;background:#fff;border:1px solid #888;box-shadow:0 4px 20px rgba(0,0,0,.3);padding:16px;box-sizing:border-box">
+    <p>Continue to the next page?</p><button id=accept class=close type=button>Accept</button>
+  </div>
+</div>`,
+  `document.getElementById("accept").addEventListener("click", () => hide("mask"));`,
+);
+
 // Negative: the whole app lives in a full-viewport fixed container (common app
 // shell layout) and a closed dialog sits hidden in the DOM. No overlay.
 const OV_SHELL = `<!doctype html><meta charset=utf-8><title>ov shell</title>
@@ -745,6 +759,7 @@ export function startOverlaySite(): Site {
     "/ov/layer-content": OV_LAYER_CONTENT,
     "/ov/timeout": OV_TIMEOUT,
     "/ov/consent": OV_CONSENT,
+    "/ov/wrapped": OV_WRAPPED,
     "/ov/shell": OV_SHELL,
     "/ov/popup": OV_POPUP,
     "/ov/popup-target": OV_POPUP_TARGET,
@@ -774,6 +789,12 @@ export const PROBE_FIXTURE = join(import.meta.dir, "..", "..", "fixtures", "prob
 
 export type ProbeSite = Site & { reports: Map<string, Record<string, unknown>> };
 
+/** 0.7.3: the trusted-click navigation page (a plain in-site link and a button). */
+const PROBE_LINK = `<!doctype html><meta charset=utf-8><title>probe link</title>
+<main><h1>link page</h1><p><a id=next href="/second">下一頁</a></p>
+<p><button id=plain type=button onclick="window.__plain = (window.__plain || 0) + 1">普通按钮</button></p></main>`;
+const PROBE_SECOND = `<!doctype html><meta charset=utf-8><title>probe second</title><main><h1>second page</h1><p>到了第二页。</p></main>`;
+
 export function startProbeSite(): ProbeSite {
   const served = new Map<string, string>();
   const hits: string[] = [];
@@ -788,6 +809,11 @@ export function startProbeSite(): ProbeSite {
       if (p === "/probe") {
         served.set(p, createHash("sha256").update(page).digest("hex"));
         return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
+      if (p === "/link" || p === "/second") {
+        const body = p === "/link" ? PROBE_LINK : PROBE_SECOND;
+        served.set(p, createHash("sha256").update(body).digest("hex"));
+        return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
       }
       if (p === "/report" && req.method === "POST") {
         const v: unknown = await req.json().catch(() => null);

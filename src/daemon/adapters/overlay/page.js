@@ -50,6 +50,44 @@
       return h ? clean(h.textContent, 60) : "";
     };
     const BTN = "button, a[href], [role=button], input[type=button], input[type=submit], input[type=reset], [onclick], [class*=close], [class*=Close]";
+    const CONTROL = "button, input:not([type=hidden]), select, textarea, a[href], [role=button]";
+    /**
+     * 0.7.3: a full-viewport fixed layer that wraps a dialog without giving it
+     * a role (common framework markup). Thresholds (docs/10):
+     * - the layer is fixed, pointer-reachable and covers >= 90% of the viewport
+     *   (small fixed headers / footers never qualify);
+     * - one visible inner block covers <= 60% of the viewport, has an opaque
+     *   background or a visible border / shadow, and holds a button or form
+     *   control;
+     * - the layer's own text stays <= 500 characters, so a full-screen app root
+     *   (scrolling content, lots of text, no mask) is not taken for a dialog.
+     */
+    const innerDialog = (el, c) => {
+      if (!c.fixed || c.area < 0.9 || !c.pointer) return null;
+      if (String(el.innerText || "").trim().length > 500) return null;
+      const all = el.querySelectorAll("body *");
+      for (let i = 0; i < all.length && i < 4000; i++) {
+        const b = all[i];
+        if (b === el) continue;
+        const bcs = getComputedStyle(b);
+        const br = box(b, bcs);
+        if (!br) continue;
+        const ba = vw * vh > 0 ? clipArea(br) / (vw * vh) : 0;
+        if (ba < 0.005 || ba > 0.6) continue;
+        const bo = Number(bcs.opacity);
+        const bbg = Math.round(alpha(bcs.backgroundColor) * (Number.isFinite(bo) ? bo : 1) * 100) / 100;
+        const border = ["Top", "Right", "Bottom", "Left"].some((side) => {
+          const w = parseFloat(bcs["border" + side + "Width"] || "0");
+          return w > 0 && bcs["border" + side + "Style"] !== "none" && alpha(bcs["border" + side + "Color"]) > 0;
+        });
+        const shadow = typeof bcs.boxShadow === "string" && bcs.boxShadow !== "none" && bcs.boxShadow.trim() !== "";
+        if (bbg < 0.5 && !border && !shadow) continue;
+        const control = b.matches(CONTROL) || [...b.querySelectorAll(CONTROL)].some((x) => box(x, getComputedStyle(x)) !== null);
+        if (!control) continue;
+        return { name: clean(b.getAttribute("aria-label") || b.innerText || "", 60) };
+      }
+      return null;
+    };
     const cands = [];
     const candOf = new Map();
     const all = document.querySelectorAll("body *");
@@ -98,9 +136,19 @@
         buttons,
         parent: -1,
         hits: 0,
+        innerBlock: false,
+        innerName: "",
       };
       candOf.set(el, cands.length);
       cands.push(c);
+    }
+    for (const c of cands) {
+      if (!c.fixed || c.area < 0.9) continue;
+      const inner = innerDialog(nodes[c.n], c);
+      if (inner !== null) {
+        c.innerBlock = true;
+        c.innerName = inner.name;
+      }
     }
     for (const c of cands) {
       for (let up = nodes[c.n].parentElement; up; up = up.parentElement) {
@@ -140,6 +188,8 @@
     const TIMEOUT = /(会话|登录|登陆|session).{0,10}(超时|过期|失效|expir|time[ds]? ?out)|即将(超时|退出|过期)|自动(退出|登出|注销)|长时间未操作|还在吗|are you still there|still there\?|inactiv/i;
     const kindOf = (c) => {
       if (c.ariaModal || c.nativeModal || c.dialogRole) return "dialog";
+      // 0.7.3: a role-less full-viewport mask wrapping a smaller dialog block.
+      if (c.fixed && c.area >= 0.9 && c.innerBlock) return "dialog";
       if (!c.fixed) return null;
       if (c.iframes.length > 0 && c.area < 0.9) return "iframe-layer";
       if (c.area >= 0.9 && c.bg > 0 && c.textLen <= 40 && c.buttons.length === 0 && c.pointer) return "mask";
@@ -168,6 +218,11 @@
       if (kind === "consent" || (kind === "dialog" && (CONSENT.test(c.text) || CONSENT_ID.test(c.idcls)))) { kind = "consent"; evidence.push("cookie / consent text"); }
       if (kind !== "consent" && TIMEOUT.test(text)) { kind = "timeout-prompt"; evidence.push("session-timeout text"); }
       if (root !== k) evidence.push("full-viewport wrapper");
+      // 0.7.3: the role-less wrapper case (the layer itself is the dialog candidate).
+      if (kind === "dialog" && c.fixed && c.area >= 0.9 && c.innerBlock) {
+        if (!evidence.includes("full-viewport wrapper")) evidence.push("full-viewport wrapper");
+        evidence.push("buttons in an inner block");
+      }
       return { k, root, kind, inner, evidence, modal: c.ariaModal || c.nativeModal || inner.some((j) => C[j].ariaModal) || (C[root].area >= 0.9 && C[root].hits >= 5) };
     });
     // Masks outside every primary go to the primary drawn above them, else stand alone.
@@ -192,7 +247,7 @@
       if (o.kind === "consent") choices = buttons.filter((b) => b.text || b.label);
       else if (o.kind === "timeout-prompt") { close = buttons.filter(strictClose); choices = buttons.filter((b) => !strictClose(b) && (b.text || b.label)); }
       else { close = buttons.filter(isClose); choices = buttons.filter((b) => !isClose(b) && (b.text || b.label)); }
-      const name = c.name || o.inner.map((j) => C[j].name).find((x) => x) || c.text.slice(0, 30);
+      const name = c.name || o.inner.map((j) => C[j].name).find((x) => x) || c.innerName || c.text.slice(0, 30);
       const iframe = [c, ...o.inner.map((j) => C[j])].flatMap((x) => x.iframes)[0];
       out.push({
         n: c.n,

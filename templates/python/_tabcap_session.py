@@ -8,11 +8,15 @@ keep it out of the repository. Needs only the standard library and httpx, not ta
     with client(s) as c:
         print(c.get("/api/data").status_code)
     token = s["storage"]["localStorage"].get("access_token")
+
+The client does not read http_proxy / https_proxy / NO_PROXY (trust_env=False):
+pass proxy=... or set TABCAP_PROXY_URL (replay export-python --proxy-env writes it).
 """
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +42,18 @@ def cookie_jar(data: dict[str, Any]) -> httpx.Cookies:
     return jar
 
 
-def client(data: dict[str, Any], base_url: str | None = None, **kwargs: Any) -> httpx.Client:
-    """httpx.Client with the session's cookies and headers; base_url defaults to the exported origin."""
-    return httpx.Client(base_url=base_url or data["origin"], cookies=cookie_jar(data), headers=dict(data.get("headers", {})), **kwargs)
+def client(data: dict[str, Any], base_url: str | None = None, proxy: str | None = None, **kwargs: Any) -> httpx.Client:
+    """httpx.Client with the session's cookies and headers; base_url defaults to the exported origin.
+
+    Proxy priority: ``proxy`` argument > ``TABCAP_PROXY_URL`` > no proxy. The
+    environment's http_proxy / NO_PROXY are ignored (trust_env=False).
+    """
+    effective_proxy = proxy if proxy is not None else (os.environ.get("TABCAP_PROXY_URL") or None)
+    return httpx.Client(
+        base_url=base_url or data["origin"],
+        cookies=cookie_jar(data),
+        headers=dict(data.get("headers", {})),
+        proxy=effective_proxy,
+        trust_env=False,
+        **kwargs,
+    )

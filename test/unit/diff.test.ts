@@ -170,7 +170,9 @@ describe("s06-like classification (A4)", () => {
 describe("CLI: tabcap analyze diff", () => {
   test("--text snapshot and --save appends a finding to the first bundle", async () => {
     const dirs = await Promise.all([0, 1, 2].map((i) => recording(i, tmp(`tabcap-s06cli-${i}-`))));
-    const t = await run(["analyze", "diff", ...dirs, "--text"]);
+    // --reveal keeps this classification snapshot on the recorded values
+    // (0.7.3: the default output redacts sensitive values; see the next test).
+    const t = await run(["analyze", "diff", ...dirs, "--text", "--reveal"]);
     expect(t.code).toBe(0);
     let text = t.text ?? "";
     dirs.forEach((d, i) => (text = text.split(d).join(`<b${i + 1}>`)));
@@ -184,6 +186,31 @@ describe("CLI: tabcap analyze diff", () => {
     expect(last.claim).toContain("session sid");
     expect(last.evidence.length).toBeGreaterThan(0);
     expect((await run(["analyze", "diff", dirs[0] ?? ""])).code).toBe(2);
+  });
+
+  test("0.7.3: default JSON and --text redact cookie / sensitive query / sensitive JSON values, keep the classes; --reveal prints them", async () => {
+    const dirs = await Promise.all([0, 1, 2].map((i) => recording(i, tmp(`tabcap-s06red-${i}-`))));
+    const json = await run(["analyze", "diff", ...dirs]);
+    if (!json.envelope.ok) throw new Error(json.envelope.error.message);
+    const raw = JSON.stringify(json.envelope.data);
+    for (const v of [...SID, ...SESS_ID]) expect(raw.includes(v)).toBe(false);
+    expect(raw).toContain("<redacted:");
+    const data = json.envelope.data as DiffResult;
+    expect(table(data)).toEqual(table(diff(dirs)));
+    const sid = data.groups.find((g) => g.key === SEARCH)?.params.find((p) => p.name === "sid");
+    expect(sid?.values.every((v) => v.startsWith("<redacted:"))).toBe(true);
+    const sessionId = data.groups.find((g) => g.key === LOG)?.params.find((p) => p.name === "$.sessionId");
+    expect(sessionId?.values.every((v) => v.startsWith("<redacted:"))).toBe(true);
+    // non-sensitive values stay readable
+    expect(data.groups.find((g) => g.key === SEARCH)?.params.find((p) => p.name === "q")?.values).toEqual(Q);
+
+    const text = (await run(["analyze", "diff", ...dirs, "--text"])).text ?? "";
+    for (const v of [...SID, ...SESS_ID]) expect(text.includes(v)).toBe(false);
+    const revealed = (await run(["analyze", "diff", ...dirs, "--text", "--reveal"])).text ?? "";
+    for (const v of [...SID, ...SESS_ID]) expect(revealed.includes(v)).toBe(true);
+    const revealedJson = await run(["analyze", "diff", ...dirs, "--reveal"]);
+    if (!revealedJson.envelope.ok) throw new Error(revealedJson.envelope.error.message);
+    for (const v of [...SID, ...SESS_ID]) expect(JSON.stringify(revealedJson.envelope.data).includes(v)).toBe(true);
   });
 });
 

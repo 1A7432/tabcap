@@ -139,6 +139,38 @@ describe.skipIf(!enabled)("tabcap 0.3-D L2 (overlay adapter)", () => {
     expect((await ok("evaluate", "document.getElementById('q').value", ...S))["value"]).toBe("");
   }, 60_000);
 
+  test("0.7.3: a role-less full-viewport mask around a dialog is listed, blocks a plain click, and both click paths work after Accept", async () => {
+    await ok("navigate", `${site.origin}/ov/wrapped`, ...S);
+    const snap = await ok("snapshot", "--interactive", ...S);
+    const overlays = recs(snap["overlays"]);
+    expect(overlays).toHaveLength(1);
+    const o = overlays[0] ?? {};
+    expect(o).toMatchObject({ id: "o1", kind: "dialog", coverage: 100, modal: true });
+    expect(Array.isArray(o["evidence"]) ? o["evidence"].map((x) => s(x)) : []).toEqual(expect.arrayContaining(["full-viewport wrapper", "buttons in an inner block"]));
+    expect(s(snap["tree"]).startsWith("overlays  o1 dialog")).toBe(true);
+    const close = recs(o["close"]).map((b) => s(b["ref"]));
+    expect(close).toHaveLength(1);
+    expect(close[0]).toBe(await refOf("Accept"));
+
+    // The plain click must not pierce the mask.
+    const buy = await refOf("Buy now");
+    const covered = await tabcap("click", buy, ...S);
+    expect(covered.ok).toBe(false);
+    expect(covered.error?.["code"]).toBe("covered");
+    expect(rec(covered.error?.["overlay"])).toMatchObject({ kind: "dialog" });
+    expect(s(covered.error?.["next"])).toContain(close[0] ?? "");
+    expect((await hits())["buy"]).toBeUndefined();
+
+    // Accept is the close button tabcap listed; after it, both click paths work.
+    await ok("click", close[0] ?? "", ...S);
+    expect((await hits())["accept"]).toBe(1);
+    expect((await ok("outline", ...S))["overlays"]).toEqual([]);
+    expect(await ok("click", buy, ...S)).toMatchObject({ overlayCheck: "clear" });
+    expect((await hits())["buy"]).toBe(1);
+    expect(await ok("click", buy, "--trusted", ...S)).toMatchObject({ trusted: true, delivered: { pointerdown: true, mousedown: true } });
+    expect((await hits())["buy"]).toBe(2);
+  }, 60_000);
+
   test("negative: app shell + hidden dialog → overlays none, click works", async () => {
     await ok("navigate", `${site.origin}/ov/shell`, ...S);
     const out = await ok("outline", ...S);

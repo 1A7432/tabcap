@@ -83,6 +83,7 @@ function tabOf(session: string, id = "t1"): Tab {
     url: "http://127.0.0.1:9/s62",
     title: "s62",
     navType: "navigation",
+    navEpoch: 1,
     pendingNavType: null,
     loading: false,
     refs: new RefTable(),

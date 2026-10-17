@@ -55,6 +55,50 @@ describe("overlay describe on recorded range pages", () => {
     expect(describeFixture("shell")).toEqual([]);
   });
 
+  // 0.7.3: the collect() side marks the inner block; classify() is pure, so the
+  // threshold decision is tested here with the fields collect() provides.
+  test("0.7.3: a role-less full-viewport mask with an inner dialog block is a dialog; no inner block is not", () => {
+    const cand = (over: Record<string, unknown> = {}) => ({
+      n: 0,
+      tag: "div",
+      role: "",
+      idcls: "mask",
+      ariaModal: false,
+      nativeModal: false,
+      dialogRole: false,
+      fixed: true,
+      x: 0,
+      y: 0,
+      w: 1000,
+      h: 800,
+      area: 1,
+      z: 100,
+      bg: 0.4,
+      pointer: true,
+      touchTop: true,
+      touchBottom: true,
+      name: "",
+      text: "Continue to the next page? Accept",
+      textLen: 32,
+      iframes: [],
+      buttons: [{ n: 1, tag: "button", text: "Accept", label: "", cls: "close" }],
+      parent: -1,
+      hits: 9,
+      innerBlock: true,
+      innerName: "Continue to the next page? Accept",
+      ...over,
+    });
+    const data = (c: Record<string, unknown>) => ({ vw: 1000, vh: 800, cands: [c], landmarks: [], nodes: [] });
+    const wrapped = classify(data(cand())) as { overlays: Overlay[] };
+    expect(wrapped.overlays).toHaveLength(1);
+    expect(wrapped.overlays[0]).toMatchObject({ kind: "dialog", coverage: 100, modal: true, evidence: ["full-viewport wrapper", "buttons in an inner block"] });
+    expect(wrapped.overlays[0]?.close.map((b) => b.label)).toEqual(["Accept"]);
+    // the app shell: same full-viewport fixed layer, but collect() found no styled inner block
+    expect((classify(data(cand({ innerBlock: false, innerName: "", bg: 1, text: "整个应用……", textLen: 5000 }))) as { overlays: Overlay[] }).overlays).toEqual([]);
+    // a small fixed header is not even a candidate for this rule
+    expect((classify(data(cand({ area: 0.2, h: 160, innerBlock: true }))) as { overlays: Overlay[] }).overlays).toEqual([]);
+  });
+
   test("the script never runs at load: unknown act ops answer an error, not an action", () => {
     if (!isRecord(script) || typeof script["act"] !== "function") throw new Error("no act()");
     expect((script["act"] as (op: string) => unknown).call(script, "close")).toEqual({ data: { error: "unknown op close" }, nodes: [] });

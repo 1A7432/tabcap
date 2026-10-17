@@ -66,6 +66,35 @@ const OCCLUSION_FN = `function (x, y) { ${ELEMENT}
   return { ok, hit: d(hit) };
 }`;
 
+// 0.7.3: the same point test for a plain click, after the overlay classifier.
+// An ancestor of the target that is a clickable container (the target is its
+// label / icon) still counts; anything else on top is `covered`.
+const HIT_FN = `function (px, py) { ${ELEMENT} ${LIVE}
+  const d = (n) => n ? n.tagName.toLowerCase() + (n.id ? "#" + n.id : "") + (n.className && typeof n.className === "string" ? "." + n.className.trim().split(/\\s+/).join(".") : "") : null;
+  const clickable = (n) => {
+    if (!n || n.nodeType !== 1) return false;
+    if (n.matches("a[href], button, label, summary, [role=button], [role=link], [onclick], input, select, textarea")) return true;
+    return getComputedStyle(n).cursor === "pointer";
+  };
+  let x = typeof px === "number" ? px : null, y = typeof py === "number" ? py : null;
+  if (x === null || y === null) {
+    el.scrollIntoView({ block: "center", inline: "center" });
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return { skip: true };
+    x = r.left + r.width / 2;
+    y = r.top + r.height / 2;
+  }
+  const hit = document.elementFromPoint(x, y);
+  let ok = hit !== null && (hit === el || el.contains(hit));
+  if (!ok && hit !== null && hit.contains(el)) {
+    for (let n = el.parentElement; n; n = n.parentElement) {
+      if (clickable(n)) { ok = true; break; }
+      if (n === hit) break;
+    }
+  }
+  return { ok, hit: d(hit), x: Math.round(x), y: Math.round(y) };
+}`;
+
 // Capture-phase probe: did pointerdown / mousedown reach this element?
 const PROBE_FN = `function () { ${ELEMENT}
   const st = { pd: false, md: false };
@@ -239,8 +268,11 @@ export function liveOrStale(v: Record<string, unknown>, ref: string): Record<str
  * covers it (docs/09 §2.3). Covered → `covered` error naming the overlay and its
  * close-button refs; tabcap never closes overlays itself. If the check itself
  * fails the action goes on as before and the output says `overlayCheck: "skipped"`.
+ * `deep` (a plain click, 0.7.3): after the classifier, also hit-test the target's
+ * centre like the trusted path does, so an overlay the classifier missed still
+ * fails as `covered` instead of clicking through it.
  */
-async function overlayGate(t: Transport, tab: Tab, node: InputNode, ref: string): Promise<"clear" | "skipped"> {
+async function overlayGate(t: Transport, tab: Tab, node: InputNode, ref: string, deep = false): Promise<"clear" | "skipped"> {
   liveOrStale(rec(callResult(await call(t, sessionOf(tab, node), node.objectId, SCROLL_FN))), ref);
   let cover;
   try {
@@ -262,7 +294,48 @@ async function overlayGate(t: Transport, tab: Tab, node: InputNode, ref: string)
     return "skipped";
   }
   if (cover !== null) throw coveredError(ref, cover);
+  if (deep) await hitGate(t, tab, node, ref);
   return "clear";
+}
+
+/** The `covered` error of the point test: same shape as the trusted path, same "close the overlay first" next step. */
+function hitError(ref: string, hit: string | null, x: number, y: number, where = ""): TabcapError {
+  return new TabcapError(
+    "covered",
+    `ref ${ref} is covered at (${x}, ${y}) by ${hit ?? "nothing"}${where}`,
+    "Close the overlay first (snapshot to find it), then retry; tabcap never closes overlays on its own.",
+  );
+}
+
+/**
+ * 0.7.3: hit-test the target's centre (and, for a frame ref, the owner element in
+ * every ancestor document) before a plain click. A hit on the target, its
+ * descendant, or a clickable ancestor container is clear; anything else is
+ * `covered`, exactly the decision the trusted path's targetPoint makes.
+ */
+async function hitGate(t: Transport, tab: Tab, node: InputNode, ref: string): Promise<void> {
+  const sid = sessionOf(tab, node);
+  const v = liveOrStale(rec(callResult(await call(t, sid, node.objectId, HIT_FN))), ref);
+  if (v["skip"] === true) return; // no box: the DOM click can still act (zero-size / contents)
+  const x = num(v, "x") ?? 0;
+  const y = num(v, "y") ?? 0;
+  if (v["ok"] !== true) throw hitError(ref, str(v, "hit"), Math.round(x), Math.round(y));
+  const f = frameOf(node);
+  if (f === null) return;
+  const place = await placeOf(t, tab, node, ref);
+  const to = { x: x + place.space.x, y: y + place.space.y };
+  for (const a of [...place.ancestors].reverse()) {
+    const r = await t.send("DOM.resolveNode", { backendNodeId: a.owner }, a.doc.sessionId, 5000).catch(() => null);
+    const obj = r !== null && isRecord(r["object"]) ? r["object"] : null;
+    const oid = obj === null ? null : str(obj, "objectId");
+    if (oid === null) throw new TabcapError("stale-ref", `ref ${ref} expired: its frame's owner element is gone`, "run snapshot again (`tabcap snapshot --frames`) and use the new ref.");
+    const at = { x: Math.round(to.x - a.origin.x), y: Math.round(to.y - a.origin.y) };
+    const hit = rec(callResult(await call(t, a.doc.sessionId, oid, HIT_FN, [at.x, at.y])));
+    if (hit["ok"] !== true) {
+      const where = a.binding === null ? " in the root document" : ` in frame ${a.binding.path}`;
+      throw hitError(ref, str(hit, "hit"), at.x, at.y, where);
+    }
+  }
 }
 
 /** Centre of the node's content box, after scrolling it into view: CSS px in the viewport of the session's local root (the tab for the root document and same-process frames). */
@@ -380,6 +453,44 @@ export async function holdFrames(t: Transport, sessionId: string): Promise<Paint
 export type PointerDeps = { rng: Rng; sleep: (ms: number) => Promise<unknown>; now: () => number; moveTimeoutMs: number };
 const DEFAULT_DEPS: PointerDeps = { rng: Math.random, sleep: (ms) => Bun.sleep(ms), now: () => performance.now(), moveTimeoutMs: MOVE_TIMEOUT_MS };
 
+/**
+ * How long a lost delivery probe waits for the navigation it may have caused.
+ * A link click commits in a few frames; the old execution context disappears at
+ * that commit, so the Page.frameNavigated record (tab.navEpoch) normally arrives
+ * while the failed probe read is still in flight. The wait only runs after a
+ * probe read error, never on the normal path.
+ */
+export const NAVIGATED_PROBE_WAIT_MS = 2000;
+
+export type NavMark = { epoch: number; url: string };
+
+/**
+ * Navigation evidence after the press: the tab's committed-navigation counter
+ * (`Page.frameNavigated` / same-document, browser/targets.ts) and its URL.
+ * Checks the record, never a guess about what the click should do.
+ */
+export type NavigationProbe = {
+  mark: () => NavMark;
+  navigated: (mark: NavMark) => boolean;
+  wait: (mark: NavMark, timeoutMs: number) => Promise<boolean>;
+};
+
+export function tabNavigationProbe(tab: Tab, sleep: (ms: number) => Promise<unknown> = (ms) => Bun.sleep(ms)): NavigationProbe {
+  const navigated = (mark: NavMark): boolean => tab.navEpoch !== mark.epoch || tab.url !== mark.url;
+  return {
+    mark: () => ({ epoch: tab.navEpoch, url: tab.url }),
+    navigated,
+    wait: async (mark, timeoutMs) => {
+      const until = Date.now() + timeoutMs;
+      while (!navigated(mark)) {
+        if (Date.now() >= until) return false;
+        await sleep(25);
+      }
+      return true;
+    },
+  };
+}
+
 export type PointerResult = { plan: ClickPlan; actualMs: number; delivered: Record<string, unknown> };
 
 /**
@@ -437,12 +548,15 @@ export async function pointerClick(
   clicks: 1 | 2 = 1,
   /** Session of the target's document for the delivery probe (a frame's); mouse events always go to the tab's session. */
   probeSessionId: string = sessionId,
+  /** Navigation record to consult when the probe read fails (see NAVIGATED_PROBE_WAIT_MS). */
+  nav: NavigationProbe | null = null,
 ): Promise<PointerResult> {
   const plan = planClick(from, to, deps.rng);
   const probe = await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: PROBE_FN, arguments: [], returnByValue: false, userGesture: true }, probeSessionId);
   callResult(probe);
   const probeId = isRecord(probe["result"]) ? str(probe["result"], "objectId") : null;
   const actualMs = await movePath(t, sessionId, ref, plan, deps, onMove);
+  const navMark = nav?.mark() ?? null;
   for (let clickCount = 1; clickCount <= clicks; clickCount++) {
     if (clickCount > 1) await deps.sleep(plan.pressGapMs);
     // Playwright's pressure while a button is down (force 0.5) gives pointerdown.pressure 0.5 (s46 oracle).
@@ -451,18 +565,37 @@ export async function pointerClick(
     await t.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: to.x, y: to.y, button: "left", buttons: 0, clickCount, modifiers: 0 }, sessionId, PRESS_TIMEOUT_MS);
   }
   let got: Record<string, unknown> = {};
+  let probeError: unknown = null;
   if (probeId !== null) {
-    const r = await t.send("Runtime.callFunctionOn", { objectId: probeId, functionDeclaration: PROBE_READ_FN, arguments: [], returnByValue: true, userGesture: true }, probeSessionId);
-    got = rec(callResult(r));
+    try {
+      const r = await t.send("Runtime.callFunctionOn", { objectId: probeId, functionDeclaration: PROBE_READ_FN, arguments: [], returnByValue: true, userGesture: true }, probeSessionId);
+      got = rec(callResult(r));
+    } catch (e) {
+      probeError = e;
+    }
   }
-  if (got["pointerdown"] !== true && got["mousedown"] !== true) {
-    throw new TabcapError(
-      "not-delivered",
-      `the trusted click on ${ref} did not reach the page (no pointerdown / mousedown)`,
-      "tabcap did not retry. Look at the page first (`tabcap snapshot` / `tabcap screenshot`), then decide whether to click again; plain `tabcap click <ref>` is a DOM click.",
-    );
+  if (probeError !== null) {
+    // The click took the old execution context away (a navigation committed):
+    // reading the probe is impossible, but the page did receive the press.
+    // Only a recorded navigation makes this delivered; otherwise it stays a
+    // failure exactly as before.
+    if (nav !== null && navMark !== null && (nav.navigated(navMark) || (await nav.wait(navMark, NAVIGATED_PROBE_WAIT_MS)))) {
+      return { plan, actualMs, delivered: { pointerdown: "unknown", mousedown: "unknown", reason: "navigated" } };
+    }
+    throw notDelivered(ref, probeError);
   }
+  if (got["pointerdown"] !== true && got["mousedown"] !== true) throw notDelivered(ref, null);
   return { plan, actualMs, delivered: got };
+}
+
+/** The failure of a trusted click that left no delivery evidence; tabcap never retries it. */
+function notDelivered(ref: string, probeError: unknown): TabcapError {
+  const why = probeError instanceof Error ? `; the delivery probe could not be read (${probeError.message})` : "";
+  return new TabcapError(
+    "not-delivered",
+    `the trusted click on ${ref} did not reach the page (no pointerdown / mousedown${why})`,
+    "tabcap did not retry. Look at the page first (`tabcap snapshot` / `tabcap screenshot`), then decide whether to click again; plain `tabcap click <ref>` is a DOM click.",
+  );
 }
 
 /**
@@ -525,6 +658,7 @@ export async function trustedClickOn(t: Transport, tab: Tab, node: InputNode, re
         },
         clicks,
         sid,
+        tabNavigationProbe(tab),
       );
       return { kind: "clicked", from, to, result, held };
     } finally {
@@ -555,7 +689,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
       const watched: { w: EffectWatch | null } = { w: null };
       const clicked = withPostWait(t, tab, noWait, async (): Promise<Record<string, unknown>> => {
         const node = await resolveRef(t, tab, ref);
-        const overlayCheck = await overlayGate(t, tab, node, ref);
+        const overlayCheck = await overlayGate(t, tab, node, ref, !trusted);
         // 0.6-D: an image captcha on the target's form is an advisory in the output (looked at before the click).
         const challenge = await actionChallenge(d, t, tab, node);
         // 0.6-J: land on the element that listens (browser/landing.ts); read only, the same choice for --trusted.
@@ -610,7 +744,10 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
         throw e;
       });
       const w = watched.w;
-      const effect = w === null ? {} : classifyEffect(await w.stop(wait?.dialog === true));
+      // 0.7.3: a trusted click that navigated reports the navigation even though
+      // the trusted path has no DOM effect watch (the probe can be lost to it).
+      const probeNavigated = isRecord(result["delivered"]) && result["delivered"]["reason"] === "navigated";
+      const effect = w !== null ? classifyEffect(await w.stop(wait?.dialog === true)) : !noWait && (wait?.navigated === true || probeNavigated) ? ({ effect: "navigation" } as const) : {};
       // url / nav read after the wait: the click may have navigated.
       return { ...result, ...effect, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
     },
