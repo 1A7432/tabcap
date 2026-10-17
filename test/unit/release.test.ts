@@ -99,7 +99,7 @@ describe("release packaging with a stand-in binary", () => {
         const sums = writeSums(releaseDir, "9.9.9");
         expect(sums.lines).toEqual([`${r.sha256}  ${plan.archive}`]);
         expect(readFileSync(sums.file, "utf8")).toBe(`${r.sha256}  ${plan.archive}\n`);
-        expect(readFileSync(join(r.dir, "README.md"), "utf8").startsWith("# tabcap 9.9.9\n\n## Quick start\n")).toBe(true);
+        expect(readFileSync(join(r.dir, "README.md"), "utf8").startsWith("# tabcap 9.9.9\n\n## Install\n")).toBe(true);
       } finally {
         rmSync(tmp, { recursive: true, force: true });
       }
