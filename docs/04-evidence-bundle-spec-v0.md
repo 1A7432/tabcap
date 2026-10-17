@@ -564,6 +564,8 @@
 
 【实测 10-17：`test/unit/decode-plugins.test.ts` 的 0.6-V 五条（`decodeSkip`、录制路径、`bundle decode` 的 `skipped`、失败 → 放弃 → 无视图 / `appended 1` / `superseded 1` / 重跑 0、读者的 rank 规则）；e2e `v06b` 5/5 未受影响】
 
+**脚手架 `tabcap plugin init --kind decode [<dir>] [--name <n>] [--force]`**（0.7-D，按实现定案，待作者审）：模板五个文件在构建时用 `import … with { type: "text" }` 嵌进二进制（`src/cli/plugin-init.ts`），发布包、npm、源码三种装法都能用，不必知道模板落在哪；`templates/plugins/decode-python/` 仍是源，单测断言嵌入的文本与磁盘上的文件逐字节相同。插件只从 `<config>/plugins/<name>/`（真目录，不认符号链接，目录名等于 `name`）发现，所以只给 `--name` 时直接写到那里；给了 `<dir>` 就写到 `<dir>`（相对调用者的工作目录），`name` 默认取目录名，不在插件目录里时回答的 `next` 先说把目录挪过去。写 `manifest.json`（只把 `name` 换成插件名，其余与模板逐字相同）、`plugin.py`、`runner.py`、`pyproject.toml`、`config.example.json`；`config.json` 只在不存在时从样板建（0600），**任何时候都不覆盖**。目录非空时拒绝（`conflict`），`--force` 改写五个模板文件、不碰 `config.json` 与其它文件；新建的目录 0700。回答 `{name, kind:"decode", dir, installed, files, kept, next}`：`installed` 表示已在插件目录，`files` 是本次写的文件，`kept` 是保留未动的（`config.json`），`next` 两步：改 `plugin.py`、`config.json` 与 `manifest.json` 的 `match`（模板匹配的是靶场 `127.0.0.1` `/s42/api/*`），然后 `tabcap plugin enable <name>`。`--kind` 必填，目前只认 `decode`（挑战处理程序没有模板），其它值报 `usage`。装上不等于启用，`plugin init` 不启用。【实测 10-17：`test/unit/plugin-init.test.ts` 7/7，含经插件注册表 `listPlugins` / `setEnabled` / `decodePlugins` 加载、用 `uv run` 跑生成的插件解 s42 正文；`bun run build` 后把 `dist/tabcap` 拷到仓库外运行 `plugin init`，五个文件与模板相同（`manifest.json` 只差 `name`），`plugin list` 看到它且无错误】
+
 **靶场**：s42（`docs/05`），插件 `test/e2e/plugins/xor-decode/`（Bun 脚本，密钥在它自己的 `config.json`）。【实测 10-16，本机 CfT 155：`test/e2e/v06b.e2e.test.ts` 5/5；`test/unit/decode-*.test.ts`，含 `uv run` 跑 Python runner】
 
 ## 29. 0.6-J 点击落点（10-16 作者定设计；字段按实现定案，待作者审）

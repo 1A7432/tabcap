@@ -2,6 +2,13 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### plugin init（0.7-D）
+
+- **`tabcap plugin init --kind decode [<dir>] [--name <n>] [--force]`** 写出 Python 解码插件模板，不必再去找安装把 `templates/plugins/decode-python/` 放在哪。只给 `--name` 时写到 `~/.config/tabcap/plugins/<name>/`——插件只从这里加载；给目录时名字默认取目录名，目录不在插件目录里时回答会说把它挪过去。`manifest.json` 填上名字（其余照模板），`plugin.py`、`runner.py`、`pyproject.toml`、`config.example.json` 照模板写；`config.json` 只在不存在时从样板建（0600），从不覆盖。目录非空时拒绝，除非 `--force`：改写模板文件，`config.json` 与其它文件不动。回答列出写了的 `files`、保留的 `kept`，`next` 给两步（改 `plugin.py`、`config.json` 与清单的 `match`；然后 `tabcap plugin enable <name>`）。`--kind` 目前只认 `decode`。
+- 五个模板文件在构建时嵌进二进制，发布包、npm、源码三种装法的 `plugin init` 都能用；`templates/` 仍是源，单测保证两者一致。
+
 ## 0.6.0（2026-10-17）
 
 ### 两轮真实站点后作者定的几处（0.6-V）
