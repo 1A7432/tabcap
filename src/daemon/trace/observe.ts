@@ -750,3 +750,49 @@ export async function passHeld<H extends { at: number }, C>(o: {
     else await o.decide(h, j.ctx);
   }
 }
+/** The observe mode's counters, as the tracer keeps them (`trace status` / `trace stop`). */
+export type DecodeCounters = {
+  /** The JSON.parse sinks are up and the trace runs: pauses are being observed. */
+  on: boolean;
+  /** config.json `trace.weakRows`: single-suspect rows are filed (true) or counted as `drops.weak`. */
+  weakRows: boolean;
+  armed: number;
+  held: number;
+  settling: number;
+  attributed: number;
+  weak: number;
+  unattributed: number;
+  unattributedKept: number;
+  evidenceHits: number;
+  recovered: { console: number; scope: number };
+  walks: number;
+  sinks: { resolved: number; skipped: number; on: boolean };
+  drops: Record<string, number>;
+};
+
+/**
+ * The `decode` block of `trace status` / `trace stop` (0.7-C, docs/04 §33):
+ * compact by default — `{on, weakRows, rows: {strong, weak, unattributed},
+ * pending, dropped}`, where `strong` = attributed − weak, `pending` = held +
+ * settling, `dropped` = the sum of every drop counter — and with `verbose`
+ * the counters behind it too (armed, held, settling, rows.attributed,
+ * unattributedKept, evidenceHits, recovered, walks, sinks, drops by reason).
+ */
+export function decodeBlock(c: DecodeCounters, verbose: boolean): Record<string, unknown> {
+  const rows = { strong: Math.max(0, c.attributed - c.weak), weak: c.weak, unattributed: c.unattributed };
+  const compact = { on: c.on, weakRows: c.weakRows, rows, pending: c.held + c.settling, dropped: Object.values(c.drops).reduce((n, v) => n + v, 0) };
+  if (!verbose) return compact;
+  return {
+    ...compact,
+    rows: { ...rows, attributed: c.attributed },
+    armed: c.armed,
+    held: c.held,
+    settling: c.settling,
+    unattributedKept: c.unattributedKept,
+    evidenceHits: c.evidenceHits,
+    recovered: { ...c.recovered },
+    walks: c.walks,
+    sinks: { ...c.sinks },
+    drops: { ...c.drops },
+  };
+}

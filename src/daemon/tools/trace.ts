@@ -15,7 +15,9 @@
 // enabled one is enough. 0.6-V: `trace status` and `trace stop` answer the
 // same two fields while decode is on, and every `--decode` answer says
 // `weakRows` (config.json `trace.weakRows`, default true; false: single-suspect
-// rows are counted as `drops.weak`, not filed).
+// rows are counted as `drops.weak`, not filed). 0.7-C: the `decode` block is
+// compact (`decodeBlock`: on, weakRows, rows, pending, dropped); `--verbose`
+// on status / stop adds the counters behind it.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -123,7 +125,7 @@ export async function traceStart(d: Daemon, a: Args, session: string): Promise<u
     notice: TRACE_NOTICE,
     ...statusLite(tr),
     recording,
-    ...(decode ? { decode: tr.status()["decode"], weakRows: cfg.weakRows, decodeNotice: decodeNotice(cfg.weakRows), ...decodePluginsFields(d.paths.config) } : {}),
+    ...(decode ? { decode: tr.decodeStatus(), decodeNotice: decodeNotice(cfg.weakRows), ...decodePluginsFields(d.paths.config) } : {}),
     ...(recording === null
       ? { warning: decode ? "the session is not recording: observe rows reach a bundle only while `tabcap net start` records" : "the session is not recording: signal events reach a bundle only while `tabcap net start` records; trace status still counts reads" }
       : {}),
@@ -135,25 +137,25 @@ function statusLite(tr: Tracer): Record<string, unknown> {
   return { settings: s["settings"], requested: s["requested"], active: s["active"], skipped: s["skipped"], warnings: s["warnings"] };
 }
 
-export async function traceStop(d: Daemon, _a: Args, session: string): Promise<unknown> {
+export async function traceStop(d: Daemon, a: Args, session: string): Promise<unknown> {
   const tr = d.tracers.get(session);
   if (tr === undefined) throw new TabcapError("not-found", `trace mode is not on in session "${session}"`, "Run `tabcap trace start` first.");
   d.tracers.delete(session);
   const hits = tr.hits;
-  // 0.6-W: the decode block is read after the stop, which decides the pauses
-  // still in their grace (their rows and drops count); `held` is how many were
-  // pending when the stop began.
-  const before = tr.status()["decode"];
+  // 0.6-W: the decode block is read after the stop, which decides every parse
+  // still pending first (its row or its drop counts). 0.7-C: `pending` is then
+  // 0, and `decidedAtStop` says how many the stop decided.
+  const decidedAtStop = tr.pendingParses;
   await tr.stop("trace stop");
-  const after = tr.status()["decode"];
-  const decode = isRecord(after) && isRecord(before) ? { ...after, held: before["held"] } : after;
-  return withDecodePlugins({ session, stopped: true, hits, ...(decode === undefined ? {} : { decode }), bundle: d.recorders.get(session)?.dir ?? null }, d.paths.config);
+  const after = tr.decodeStatus(optBool(a, "verbose"));
+  const decode = after === null ? null : { ...after, decidedAtStop };
+  return withDecodePlugins({ session, stopped: true, hits, ...(decode === null ? {} : { decode }), bundle: d.recorders.get(session)?.dir ?? null }, d.paths.config);
 }
 
-export function traceStatus(d: Daemon, _a: Args, session: string): unknown {
+export function traceStatus(d: Daemon, a: Args, session: string): unknown {
   const tr = d.tracers.get(session);
   if (tr === undefined) return { session, trace: "off" };
-  return withDecodePlugins(tr.status(), d.paths.config);
+  return withDecodePlugins(tr.status(optBool(a, "verbose")), d.paths.config);
 }
 
 /** Stop trace mode of a session (session stop), writing what it saw first. */

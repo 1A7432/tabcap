@@ -157,9 +157,10 @@ async function runPage(session: string, path: string, flags: string[] = [], quer
   return { bundle, enc, tr };
 }
 
+// 0.7-C: the detailed counters (drops by reason, evidenceHits, sinks …) come with --verbose.
 const stopBoth = async (session: string): Promise<{ decode: Record<string, unknown> | undefined }> => {
   const S = ["--session", session];
-  const stopped = await ok("trace", "stop", ...S);
+  const stopped = await ok("trace", "stop", "--verbose", ...S);
   await ok("net", "stop", ...S);
   return { decode: rec(stopped["decode"]) };
 };
@@ -187,6 +188,10 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     expect([tr["requested"], tr["active"]]).toEqual([0, []]);
     const st = await ok("trace", "status", ...S);
     expect(st["instrumentation"]).toEqual([]);
+    // 0.7-C: the compact decode block by default; the counters behind it only with --verbose.
+    expect(Object.keys(rec(st["decode"])).sort()).toEqual(["dropped", "on", "pending", "rows", "weakRows"]);
+    expect(rec(st["decode"])).toMatchObject({ on: true, weakRows: true });
+    expect(Object.keys(rec(rec(st["decode"])["rows"])).sort()).toEqual(["strong", "unattributed", "weak"]);
     expect(recs(st["targets"]).every((t) => t["breakpoints"] === 0)).toBe(true);
 
     // The sidecar: one attributed response row (docs/04 §33).
@@ -218,7 +223,8 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     expect(recs(w["candidates"])).toEqual([{ request: encId, path: "$.rows[0].id", chain: ["page"], match: "exact", score: 1 }]);
 
     const { decode } = await stopBoth("s59x");
-    expect(decode).toMatchObject({ armed: 0, rows: { attributed: 1, unattributed: 0, unattributedKept: 0 }, sinks: { on: true } });
+    expect(decode).toMatchObject({ on: false, pending: 0, armed: 0, rows: { strong: 1, weak: 0, attributed: 1, unattributed: 0 }, unattributedKept: 0, sinks: { on: true } });
+    expect(typeof decode?.["decidedAtStop"]).toBe("number");
 
     // The offline reader overlays the sidecar row; `find` searches it.
     const flat = async (v: string) => recs((await ok("analyze", "find", bundle, v))["hits"]).map((h) => ({ ref: h["ref"], part: h["part"], decode: h["decode"], path: h["path"] }));
@@ -355,7 +361,7 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
 
   test("s59 deferred: no ciphertext reachable from the parse — filed under the only armed suspect, link weak, and find says so (default trace.weakRows true)", async () => {
     const { bundle, enc, tr } = await runPage("s59d", "/s59?mode=deferred", ["--decode"]);
-    expect(tr["weakRows"]).toBe(true);
+    expect(rec(tr["decode"])["weakRows"]).toBe(true);
     const rows = await until("the deferred page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
     expect(rows.length).toBe(1);
     const r = rows[0] as SidecarRow;
@@ -376,11 +382,12 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     try {
       const S = ["--session", "s59dd"];
       const { bundle, tr } = await runPage("s59dd", "/s59?mode=deferred", ["--decode"]);
-      expect(tr["weakRows"]).toBe(false);
+      expect(rec(tr["decode"])["weakRows"]).toBe(false);
       expect(s(tr["decodeNotice"])).toContain("drops.weak");
       // the weak row settles (500 ms) and is then counted, not filed
-      const st = await until("drops.weak in trace status", () => ok("trace", "status", ...S), (v) => Number(rec(rec(v["decode"])["drops"])["weak"] ?? 0) >= 1);
-      expect(st["weakRows"]).toBe(false);
+      const st = await until("drops.weak in trace status", () => ok("trace", "status", "--verbose", ...S), (v) => Number(rec(rec(v["decode"])["drops"])["weak"] ?? 0) >= 1);
+      expect(rec(st["decode"])["weakRows"]).toBe(false);
+      expect(Number(rec(st["decode"])["dropped"])).toBeGreaterThanOrEqual(1);
       const { decode } = await stopBoth("s59dd");
       expect(rec(decode?.["drops"])["weak"]).toBe(1);
       expect(decode?.["rows"]).toMatchObject({ attributed: 0, weak: 0, unattributed: 0 });
@@ -480,6 +487,9 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     expect(Number(rec(decode?.["drops"])["orphan"] ?? 0)).toBeGreaterThanOrEqual(1);
     expect(rec(decode?.["drops"])["noFit"]).toBe(0);
     expect(typeof decode?.["held"]).toBe("number");
+    // 0.7-C: the stop decided it first, so the compact `dropped` counts it too.
+    expect(Number(decode?.["dropped"])).toBeGreaterThanOrEqual(1);
+    expect(decode?.["pending"]).toBe(0);
   }, 120_000);
 
   test("s59 race: envelopes parsed as soon as they arrive are never a row; the three plaintexts are filed strong", async () => {

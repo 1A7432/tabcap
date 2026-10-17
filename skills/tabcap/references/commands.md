@@ -1374,23 +1374,31 @@ Example: `tabcap trace start --decode`
 
 ### `tabcap trace stop`
 
-end trace mode: breakpoints removed, debugger off, open documents written to the recording
+end trace mode: breakpoints removed, debugger off, open documents written to the recording; with --decode on, the parses still pending are decided first and `decode` counts them (decidedAtStop)
 
 ```
-tabcap trace stop [--session name]
+tabcap trace stop [--session name] [--verbose]
 ```
 
 Example: `tabcap trace stop`
 
+| Option | Default | Meaning |
+|---|---|---|
+| `--verbose` |  | with --decode on: the counters behind the compact decode block too (armed, held, settling, rows.attributed, unattributedKept, evidenceHits, recovered, walks, sinks, drops by reason) |
+
 ### `tabcap trace status`
 
-trace mode state: on | paused (handoff) | off, active APIs, names skipped in this browser, per-document read counts
+trace mode state: on | paused (handoff) | off, active APIs, names skipped in this browser, per-document read counts; with --decode on, `decode` {on, weakRows, rows {strong, weak, unattributed}, pending, dropped}
 
 ```
-tabcap trace status [--session name]
+tabcap trace status [--session name] [--verbose]
 ```
 
 Example: `tabcap trace status`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--verbose` |  | with --decode on: the counters behind the compact decode block too (armed, held, settling, rows.attributed, unattributedKept, evidenceHits, recovered, walks, sinks, drops by reason) |
 
 ### `tabcap trace list`
 

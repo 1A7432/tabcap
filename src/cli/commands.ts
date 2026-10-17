@@ -112,6 +112,13 @@ const NO_WAIT: FlagSpec = {
   help: "return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling)",
 };
 /** Flags of the interactive commands (docs/08 §5): post-action wait control and the fresh snapshot. */
+/** `trace status` / `trace stop` (0.7-C): the observe mode's full counters, not only the compact `decode` block. */
+const DECODE_VERBOSE: FlagSpec = {
+  flag: "--verbose",
+  key: "verbose",
+  kind: "bool",
+  help: "with --decode on: the counters behind the compact decode block too (armed, held, settling, rows.attributed, unattributedKept, evidenceHits, recovered, walks, sinks, drops by reason)",
+};
 const INTERACT: FlagSpec[] = [NO_WAIT, { flag: "--snapshot", key: "snapshot", kind: "bool", help: "also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait" }];
 
 export const COMMANDS: CommandSpec[] = [
@@ -783,12 +790,19 @@ export const COMMANDS: CommandSpec[] = [
     action: "trace.start",
     localPaths: ["apis"],
   },
-  { path: ["trace", "stop"], pos: [], flags: [SESSION], summary: "end trace mode: breakpoints removed, debugger off, open documents written to the recording", example: "tabcap trace stop", action: "trace.stop" },
+  {
+    path: ["trace", "stop"],
+    pos: [],
+    flags: [SESSION, DECODE_VERBOSE],
+    summary: "end trace mode: breakpoints removed, debugger off, open documents written to the recording; with --decode on, the parses still pending are decided first and `decode` counts them (decidedAtStop)",
+    example: "tabcap trace stop",
+    action: "trace.stop",
+  },
   {
     path: ["trace", "status"],
     pos: [],
-    flags: [SESSION],
-    summary: "trace mode state: on | paused (handoff) | off, active APIs, names skipped in this browser, per-document read counts",
+    flags: [SESSION, DECODE_VERBOSE],
+    summary: "trace mode state: on | paused (handoff) | off, active APIs, names skipped in this browser, per-document read counts; with --decode on, `decode` {on, weakRows, rows {strong, weak, unattributed}, pending, dropped}",
     example: "tabcap trace status",
     action: "trace.status",
   },

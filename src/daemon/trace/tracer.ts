@@ -38,7 +38,7 @@ import type { Tab, Tabs } from "../browser/targets.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../transport/types.ts";
 import { classifyPause, signalFields, TraceBook, type Aggregate, type BpInfo, type DocRef, type DocSummary, type PauseFrame, type ScriptInfo, type TraceLimits } from "./aggregate.ts";
 import { hashBulkData, INSTRUMENTATION_EVENTS, notRecorded, resolverExpression, SCRIPT_FIRST_STATEMENT, VALUE_INLINE_MAX, valueExpression, type SignalList } from "./signals.ts";
-import { addBounded, Armed, attribute, consoleSites, dropRawBody, evidenceFrames, frameScriptId, GRACE_MS, heldVerdict, heldWaits, HOLD_MAX, HOLD_MS, jsonParseLogpoint, passHeld, OBJECT_PROBES, observeRow, OBSERVE_VERSION, PAGE_BY, pauseSite, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, settleOutcome, sha256Text, SINKS, suspectOf, suspectShas, SUSPECT_WINDOW_MS, takeLogged, TEXT_DECODER_CONDITION, utf8Bytes, type LoggedPlain, type PageEvidence, type PlainCandidate, type Settling, type SinkName } from "./observe.ts";
+import { addBounded, Armed, attribute, consoleSites, dropRawBody, evidenceFrames, frameScriptId, GRACE_MS, heldVerdict, heldWaits, HOLD_MAX, HOLD_MS, jsonParseLogpoint, passHeld, OBJECT_PROBES, observeRow, OBSERVE_VERSION, PAGE_BY, pauseSite, plaintextOf, PLAINTEXT_CAP, PLAINTEXT_MIN, rawBodyExcluded, SCOPE_FRAMES, SCOPE_PROPS, SCOPE_STRING_MIN, settleOutcome, decodeBlock, sha256Text, SINKS, suspectOf, suspectShas, SUSPECT_WINDOW_MS, takeLogged, TEXT_DECODER_CONDITION, utf8Bytes, type LoggedPlain, type PageEvidence, type PlainCandidate, type Settling, type SinkName } from "./observe.ts";
 import type { NetEntry } from "../capture/recorder.ts";
 
 export const TRACE_NOTICE = "Trace mode installs debugger breakpoints in the page: scripts run slower and the timing is observable.";
@@ -1358,9 +1358,39 @@ export class Tracer {
     return this.weakRows;
   }
 
-  status(): Record<string, unknown> {
+  /** Parses not decided yet (0.7-C `pending`): held pauses plus rows still settling. */
+  get pendingParses(): number {
+    return this.held.length + this.settle.length;
+  }
+
+  /** The observe mode's `decode` block (`decodeBlock`: compact, or with `verbose` the counters behind it); null without --decode. */
+  decodeStatus(verbose = false): Record<string, unknown> | null {
+    if (!this.opts.decode) return null;
+    this.armed.expire(Date.now());
+    return decodeBlock(
+      {
+        on: this.sinksOn && !this.stopped,
+        weakRows: this.opts.weakRows !== false,
+        armed: this.armed.live().length,
+        held: this.held.length,
+        settling: this.settle.length,
+        attributed: this.attributedRows,
+        weak: this.weakRows,
+        unattributed: this.unattributedRows,
+        unattributedKept: this.unattributedKept,
+        evidenceHits: this.evidenceHits,
+        recovered: this.recovered,
+        walks: this.walks,
+        sinks: { resolved: this.sinksInstalled, skipped: this.sinksSkipped, on: this.sinksOn },
+        drops: this.drops,
+      },
+      verbose,
+    );
+  }
+
+  status(verbose = false): Record<string, unknown> {
     const docs = this.book.summaries();
-    if (this.opts.decode) this.armed.expire(Date.now());
+    const decode = this.decodeStatus(verbose);
     return {
       session: this.session,
       trace: this.paused ? "paused" : "on",
@@ -1374,21 +1404,7 @@ export class Tracer {
       skippedInWorkers: [...this.skippedWorker.keys()],
       warnings: this.list.warnings,
       instrumentation: this.opts.decode ? [] : [...INSTRUMENTATION_EVENTS],
-      ...(this.opts.decode
-        ? {
-            weakRows: this.opts.weakRows !== false,
-            decode: {
-              armed: this.armed.live().length,
-              held: this.held.length,
-              rows: { attributed: this.attributedRows, weak: this.weakRows, unattributed: this.unattributedRows, unattributedKept: this.unattributedKept },
-              evidenceHits: this.evidenceHits,
-              recovered: { ...this.recovered },
-              walks: this.walks,
-              sinks: { resolved: this.sinksInstalled, skipped: this.sinksSkipped, on: this.sinksOn },
-              drops: { ...this.drops },
-            },
-          }
-        : {}),
+      ...(decode === null ? {} : { decode }),
       targets: [...this.sessions.values()].map((s) => ({ type: s.type, tab: s.tab.id, url: s.type === "page" ? s.tab.url : (s.target?.url ?? null), breakpoints: s.bps.size })),
       hits: this.hits,
       documents: docs,
