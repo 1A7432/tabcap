@@ -9,13 +9,14 @@
 // Oracle: the s42 plaintexts written by hand in test/e2e/site.ts.
 
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isRecord } from "../../src/shared/json.ts";
 import { join } from "node:path";
 import { DecodeHost, DecodeSession, type DecodeJob } from "../../src/daemon/hooks/decode.ts";
 import { asDecodePlugin, listPlugins } from "../../src/daemon/hooks/plugins.ts";
 import { S42_KEY, S42_ORDER_JSON, S42_POST_JSON, xorEncode } from "../e2e/site.ts";
 import { tmp } from "./_analyze.ts";
+import { removeTree } from "./_platform.ts";
 import { need, pythonReason, skipWithout } from "./_python.ts";
 
 const TEMPLATE = join(import.meta.dir, "..", "..", "templates", "plugins", "decode-python");
@@ -89,8 +90,8 @@ describe("Python decode runner template", () => {
         const m = await new DecodeSession(host, [mitm]).decode(job("response", xorEncode(S42_ORDER_JSON)));
         expect(m?.ok === true ? [m.mime, new TextDecoder().decode(m.body)] : m).toEqual(["application/json", S42_ORDER_JSON]);
       } finally {
-        host.close();
-        rmSync(root, { recursive: true, force: true });
+        await host.close(); // the plugin directory is the processes' cwd (Windows cannot remove it while they run)
+        await removeTree(root);
       }
     },
     120_000,

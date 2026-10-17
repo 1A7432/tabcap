@@ -6,7 +6,7 @@
 
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createHash, createHmac } from "node:crypto";
 import { diff, extractParams, looksSignature, pathTemplate, pkey, queryFlags, timestampMs, valuedQuery, type DiffResult } from "../../src/analyze/diff.ts";
 import { run } from "../../src/cli/main.ts";
@@ -148,7 +148,7 @@ describe("s06-like classification (A4)", () => {
     expect(q?.alsoIn).toEqual([`${LOG} json $.query`, `${TRACK} form kw`]);
     expect(r.warnings).toEqual([]);
     // 0.7-C: each bundle has a short name (its directory's basename); request rows name their bundle by it, ids stay r-N
-    const shorts = B.map((d) => d.split("/").pop() ?? "");
+    const shorts = B.map((d) => basename(d));
     expect(r.bundles.map((b) => [b.short, b.dir])).toEqual(B.map((d, i) => [shorts[i] ?? "", d]));
     const reqs = r.groups.find((g) => g.key === SEARCH)?.requests ?? [];
     expect(reqs.map((q) => q.bundle)).toEqual(shorts);

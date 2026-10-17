@@ -315,8 +315,8 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
     }
   } finally {
     guard?.store.close();
-    decoder.host.close();
-    decoder.plain?.close();
+    await decoder.host.close();
+    await decoder.plain?.close();
   }
   const totals: CheckTotals = { requests: rows.length, same: 0, different: 0, errors: 0, unverified: 0, skipped: skipped.length };
   for (const row of rows) {

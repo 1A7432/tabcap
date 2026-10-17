@@ -322,7 +322,7 @@ describe("export-python --request and derived inputs (0.7-E)", () => {
     try {
       await decodeBundle(s42, new DecodeSession(host, decodePlugins(cfg)));
     } finally {
-      host.close();
+      await host.close();
     }
   }, SLOW_IO_MS);
 

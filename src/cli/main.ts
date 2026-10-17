@@ -224,7 +224,7 @@ async function cmdDecode(p: Parsed): Promise<unknown> {
     const res = await decodeBundle(dir, session);
     return { ...res, plugins: plugins.map((x) => ({ name: x.name, version: x.version })), disabled };
   } finally {
-    host.close();
+    await host.close();
   }
 }
 

@@ -7,7 +7,7 @@
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { decodeBundle } from "../../src/bundle/decode.ts";
 import { DecodeHost, DecodeSession } from "../../src/daemon/hooks/decode.ts";
@@ -188,7 +188,7 @@ describe("analyze shape over a bundle", () => {
     try {
       await decodeBundle(decoded, new DecodeSession(host, decodePlugins(config)));
     } finally {
-      host.close();
+      await host.close();
     }
     // without the view nothing is JSON: the endpoints are only named
     const p = shape(plain);
@@ -305,7 +305,7 @@ describe("diff table", () => {
     const r = schemaDiff(a, b);
     expect(r.endpoints.map((e) => [e.key, e.verdict, e.removed])).toEqual([["GET /api/me", "drift", ["$:object", "$.user:object", "$.user.id:number(int)"]]]);
     // 0.7-C: the two bundles, old then new, by short name
-    expect(r.bundles).toEqual([{ short: a.split("/").pop() ?? "", dir: a }, { short: b.split("/").pop() ?? "", dir: b }]);
+    expect(r.bundles).toEqual([{ short: basename(a), dir: a }, { short: basename(b), dir: b }]);
     expect(schemaDiff(b, a).endpoints.map((e) => [e.verdict, e.added.length])).toEqual([["drift", 3]]);
   });
 

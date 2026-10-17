@@ -6,7 +6,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { BUDGET_EXEMPT, OUTPUT_LIMIT_DEFAULT, applyBudget, commandSlug, genericSummary, isBudgeted, outputLimit, summaryOf, writeOutputFile } from "../../src/shared/budget.ts";
 import { applyFilters, compileGrep, filterOptions, grepLines, parseFields, parsePath, projectFields, selectPath } from "../../src/shared/filter.ts";
 import { COMMAND_GROUPS, COMMANDS, COMMON_FLAGS, GROUP_SUMMARY_CHARS, SUGGEST_MAX, closestCommands, currentCommands, editDistance, groupSummary, groupedCommands, helpAll, helpFor, helpTopic, indexSummary, schema, specOf, usageOf, OUTPUT_FLAGS_NOT_ON } from "../../src/cli/commands.ts";
@@ -60,8 +60,9 @@ describe("applyBudget", () => {
     expect(out.truncated).toBe(true);
     expect(out.bytes).toBe(Buffer.byteLength(JSON.stringify(big)));
     expect(JSON.parse(readFileSync(out.file, "utf8"))).toEqual(big);
-    expect(out.file.startsWith(join(dir, "outputs") + "/")).toBe(true);
-    expect(out.file).toMatch(/\/\d{8}-\d{6}-analyze-find\.json$/);
+    // a native path (docs/04 §24): `\` on Windows, like every path in an answer
+    expect(dirname(out.file)).toBe(join(dir, "outputs"));
+    expect(basename(out.file)).toMatch(/^\d{8}-\d{6}-analyze-find\.json$/);
     if (process.platform !== "win32") expect(statSync(out.file).mode & 0o777).toBe(0o600);
     // generic summary: scalars kept, arrays / objects / long strings by their length; analyze find adds its own (0.7-C)
     expect(out.summary).toMatchObject({ schema: "x/0", bundle: "/b", ok: true, n: 3, items: 400, meta: 2, long: 500, hitCount: 0, hits: [] });

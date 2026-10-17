@@ -334,6 +334,6 @@ export async function exportFixtures(source: BundleView, opts: FixturesOptions):
     };
   } finally {
     runner?.close();
-    plain?.close();
+    await plain?.close();
   }
 }

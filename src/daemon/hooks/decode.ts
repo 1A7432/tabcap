@@ -380,13 +380,38 @@ export class PluginProcess {
   }
 
   kill(): void {
+    this.killed();
+  }
+
+  /** Kill the process (if any); the promise resolves when it has exited. */
+  private killed(): Promise<number> | null {
     const p = this.proc;
     this.proc = null;
-    if (p === null) return;
+    if (p === null) return null;
     try {
       p.kill("SIGKILL");
     } catch {
       // already gone
+    }
+    return p.exited;
+  }
+
+  /**
+   * Kill the process and resolve once it has exited (at most `waitMs`). On
+   * Windows a directory cannot be removed while a process runs in it, so
+   * whoever removes the plugin directory afterwards awaits this.
+   */
+  async stop(waitMs = 5000): Promise<void> {
+    const exited = this.killed();
+    if (exited === null) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const cap = new Promise<void>((res) => {
+      timer = setTimeout(res, waitMs);
+    });
+    try {
+      await Promise.race([exited.then(() => undefined), cap]);
+    } finally {
+      if (timer !== null) clearTimeout(timer);
     }
   }
 }
@@ -458,9 +483,11 @@ export class DecodeHost {
     return this.procs.get(name)?.proc.starts ?? 0;
   }
 
-  close(): void {
-    for (const s of this.procs.values()) s.proc.kill();
+  /** Kill every plugin process; resolves once they have exited (see PluginProcess.stop). */
+  close(): Promise<void> {
+    const stops = [...this.procs.values()].map((s) => s.proc.stop());
     this.procs.clear();
+    return Promise.all(stops).then(() => undefined);
   }
 }
 

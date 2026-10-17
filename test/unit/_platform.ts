@@ -7,7 +7,7 @@
 // only; what replaces them on Windows (ACLs) is 待验 (NOTES 0.3-G).
 
 import { expect } from "bun:test";
-import { statSync } from "node:fs";
+import { rmSync, statSync } from "node:fs";
 
 export const POSIX_MODES = process.platform !== "win32";
 
@@ -33,4 +33,26 @@ export const SLOW_IO_MS = 30_000;
  */
 export async function until(done: () => boolean, ms = 3000): Promise<void> {
   for (const end = Date.now() + ms; !done() && Date.now() < end; ) await Bun.sleep(10);
+}
+
+/**
+ * `rm -rf` for a directory a test's child processes used (their cwd: a plugin
+ * run with `uv run`). Await the processes' exit first (DecodeHost.close()); on
+ * Windows the directory can still refuse removal for a moment after that
+ * (measured 0.7-F: EPERM, no python.exe / uv.exe left running, removed on the
+ * retry 200 ms later), so EPERM / EBUSY / ENOTEMPTY are retried there for up to
+ * `ms`. Elsewhere, and for any other error, it is a plain rmSync.
+ */
+export async function removeTree(path: string, ms = 10_000): Promise<void> {
+  for (const end = Date.now() + ms; ; ) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      const code = e instanceof Error && "code" in e ? e.code : null;
+      const transient = process.platform === "win32" && (code === "EPERM" || code === "EBUSY" || code === "ENOTEMPTY");
+      if (!transient || Date.now() > end) throw e;
+      await Bun.sleep(100);
+    }
+  }
 }

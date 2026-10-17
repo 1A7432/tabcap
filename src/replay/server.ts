@@ -213,7 +213,7 @@ export async function startReplayServer(opts: ServeOptions): Promise<ReplayServe
     info,
     stop: () => {
       void server.stop(true);
-      plaintexts?.close();
+      void plaintexts?.close();
     },
     get served() {
       return served;

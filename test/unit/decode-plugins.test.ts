@@ -322,7 +322,7 @@ describe("recorder: decoded views beside the original bodies", () => {
     emit("Network.loadingFinished", { requestId: "R2", timestamp: 11.2 });
     await Bun.sleep(50);
     await rec.stop();
-    host.close();
+    await host.close();
 
     const reader = BundleReader.open(dir);
     // the page body is written first: the order waits for the plugin
@@ -368,7 +368,7 @@ describe("recorder: decoded views beside the original bodies", () => {
     }
     await Bun.sleep(50);
     await rec.stop();
-    host.close();
+    await host.close();
     const reader = BundleReader.open(dir);
     const declined = reader.requests().find((r) => r.url.endsWith("/api/R1"));
     const taken = reader.requests().find((r) => r.url.endsWith("/api/R2"));
@@ -396,7 +396,7 @@ describe("recorder: decoded views beside the original bodies", () => {
       await Bun.sleep(400);
     }
     await rec.stop();
-    host.close();
+    await host.close();
     const reader = BundleReader.open(dir);
     const views = reader.requests().map((r) => r.response?.decoded ?? null);
     expect(views.slice(0, MAX_FAILURES).map((v) => [v?.ok, v?.error])).toEqual(Array.from({ length: MAX_FAILURES }, () => [false, "exited with code 3"]));
@@ -442,7 +442,7 @@ describe("bundle decode: views for a bundle recorded before the plugin existed (
       expect([again.decoded, again.failed, again.declined, again.unchanged, again.appended]).toEqual([0, 0, 2, 2, 0]);
       expect(renderBundleDecodeText(again)).toContain("2 declined");
     } finally {
-      host.close();
+      await host.close();
       rmSync(root, { recursive: true, force: true });
     }
   }, 20_000);
@@ -493,7 +493,7 @@ describe("bundle decode: views for a bundle recorded before the plugin existed (
       expect(sidecarLines(dir).length).toBe(4);
       expect(readFileSync(join(dir, "events.jsonl")).equals(eventsBefore)).toBe(true);
     } finally {
-      host.close();
+      await host.close();
     }
     const open = join(root, "open");
     mkdirSync(open);
@@ -532,7 +532,7 @@ describe("bundle decode: views for a bundle recorded before the plugin existed (
       expect(torn.issues.map((i) => [i.kind, i.line])).toEqual([["bad-sidecar", 11]]);
       expect(torn.requests().find((r) => r.id === "r-3")?.response?.decoded?.version).toBe("2");
     } finally {
-      host.close();
+      await host.close();
       rmSync(root, { recursive: true, force: true });
     }
   }, 20_000);

@@ -320,7 +320,7 @@ describe("decoded bodies through the range plugin (s42, xor-decode)", () => {
     try {
       await decodeBundle(viewed, new DecodeSession(host, decodePlugins(join(root, "s42-enabled"))));
     } finally {
-      host.close();
+      await host.close();
     }
   }, 30_000);
 

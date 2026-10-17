@@ -57,7 +57,7 @@ export class Plaintexts {
     return { bytes: out.body, mime: out.mime };
   }
 
-  close(): void {
-    this.host.close();
+  close(): Promise<void> {
+    return this.host.close();
   }
 }

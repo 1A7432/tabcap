@@ -10,7 +10,7 @@
 // s42 plaintexts written by hand in test/e2e/site.ts.
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DECODE_TEMPLATE, pluginInit } from "../../src/cli/plugin-init.ts";
 import { run } from "../../src/cli/main.ts";
@@ -20,13 +20,14 @@ import { TabcapError } from "../../src/shared/envelope.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { S42_KEY, S42_ORDER_JSON, xorEncode } from "../e2e/site.ts";
 import { tmp } from "./_analyze.ts";
+import { removeTree } from "./_platform.ts";
 import { need, pythonReason, skipWithout } from "./_python.ts";
 
 const TEMPLATE = join(import.meta.dir, "..", "..", "templates", "plugins", "decode-python");
 const UV = Bun.which("uv");
 const roots: string[] = [];
-afterAll(() => {
-  for (const r of roots) rmSync(r, { recursive: true, force: true });
+afterAll(async () => {
+  for (const r of roots) await removeTree(r); // a uv-run plugin's cwd is in there (Windows, see removeTree)
 });
 function root(): { root: string; config: string; cwd: string } {
   const r = tmp("tabcap-pinit-");
@@ -175,7 +176,7 @@ describe("plugin init --kind decode", () => {
         });
         expect(out?.ok === true ? [out.mime, new TextDecoder().decode(out.body)] : out).toEqual(["application/json", S42_ORDER_JSON]);
       } finally {
-        host.close();
+        await host.close();
       }
     },
     120_000,

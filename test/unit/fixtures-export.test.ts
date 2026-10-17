@@ -128,7 +128,7 @@ describe("format json", () => {
     try {
       await decodeBundle(dir, new DecodeSession(host, decodePlugins(enabled)));
     } finally {
-      host.close();
+      await host.close();
     }
     const out = join(root, "out-s42");
     await exportFixtures(BundleReader.open(dir), { out, rules: set([{ match: { path: "/s42/api/order" }, key: { body: "decoded" } }]), format: "json", redact: false, configDir: enabled });

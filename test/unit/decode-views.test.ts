@@ -42,7 +42,7 @@ beforeAll(async () => {
   try {
     await decodeBundle(decoded, new DecodeSession(host, decodePlugins(config)));
   } finally {
-    host.close();
+    await host.close();
   }
 }, 20_000);
 afterAll(() => rmSync(root, { recursive: true, force: true }));
