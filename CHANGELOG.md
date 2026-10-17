@@ -20,6 +20,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 - Building from source needs Zig 0.16.0 besides Bun 1.4+: run `bun scripts/native.ts build` (the four wire binaries tabcap embeds), then `bun run build`. Every `bun run build*` now runs `scripts/prebuild.ts` first; when a binary is missing from `native/dist/` it exits 1 with one sentence saying so, instead of bun's `Could not resolve "../../native/dist/…"`. Release and npm packages already include the component.
 
+### Windows unit tests (0.7-F)
+
+- `unit (windows-latest)` is green again (red since 2026-10-16 in `ci.yml` and in `release.yml`'s `build (windows-x64)`). Product fixes: the blob store no longer fails when the same content is stored twice at once (Windows refused the second rename with EPERM; CI saw a decoded view go missing, bodies take the same path); `DecodeHost.close()` resolves once the plugin processes have exited. Test fixes: three tests assumed `/` in paths (the budget answer's `file` stays a native path, documented in docs/04 §24); the wire echo tests hand their result over outside the TLS socket's `end` callback, which made Bun 1.4.2 segfault on Windows now and then; directories used by `uv run` plugins are removed with a short retry on Windows.
+
 ## 0.7.0 (2026-10-17)
 
 First public release. 0.6.0 below was built and tested but never published; everything in it ships here.

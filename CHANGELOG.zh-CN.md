@@ -20,6 +20,10 @@
 
 - 从源码构建除了 Bun 1.4 以上还要 Zig 0.16.0：先 `bun scripts/native.ts build`（tabcap 嵌入的四个 wire 组件），再 `bun run build`。每个 `bun run build*` 现在先跑 `scripts/prebuild.ts`，`native/dist/` 缺组件时退出 1 并用一句话说明，不再是 bun 的 `Could not resolve "../../native/dist/…"`。发布包与 npm 包已含组件。
 
+### Windows 单测（0.7-F）
+
+- `unit (windows-latest)` 重新转绿（自 2026-10-16 起在 `ci.yml` 与 `release.yml` 的 `build (windows-x64)` 里一直红）。产品修正：同一份内容同时写两次时 blob 库不再报错（Windows 上第二次 rename 被 EPERM 拒绝；CI 里丢过一个解码视图，正文走同一条路）；`DecodeHost.close()` 等插件进程退出后才返回。测试修正：三个测试假定路径分隔符是 `/`（预算回答的 `file` 仍是平台原生路径，写进 docs/04 §24）；wire echo 的测试改在 TLS socket 的 `end` 回调之外交出结果，原写法让 Bun 1.4.2 在 Windows 上偶发段错误；`uv run` 插件用过的目录在 Windows 上删除时短暂重试。
+
 ## 0.7.0（2026-10-17）
 
 第一个公开版本。下面的 0.6.0 打过包、测过，但没有发布；它的全部内容随本版本一起发。
