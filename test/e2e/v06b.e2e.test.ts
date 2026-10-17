@@ -5,7 +5,8 @@
 // body) → net stop → request events carry `decoded` → find / deps / net body
 // read the plaintext → a second recording with the plugin disabled has no
 // views until `bundle decode`, which appends them to the decoded.jsonl
-// sidecar and leaves events.jsonl byte for byte as recorded.
+// sidecar and leaves events.jsonl byte for byte as recorded. 0.7-E: a plugin
+// enabled while a recording runs gives views from the next body on (reload).
 // Oracle: the range site (test/e2e/site.ts S42_*, plaintexts written by hand)
 // and the docs/04 §28 shapes.
 
@@ -186,5 +187,43 @@ describe.skipIf(!enabled)("tabcap 0.6-B L2 (decode plugins on docs/05 s42)", () 
     // net body of the session's last (finished) recording reads the view bundle decode added
     const dv = await ok("net", "body", items2, ...S);
     expect([dv["view"], dv["textPreview"]]).toEqual(["decoded", S42_ITEMS_JSON]);
+  });
+
+  test("0.7-E: plugin enable during a recording applies from the next body; earlier bodies keep none; status lists the plugin", async () => {
+    // the plugin is disabled (previous test)
+    const started = await ok("net", "start", ...S);
+    expect(started["decode"]).toBeUndefined();
+    await ok("navigate", `${site.origin}/s42`, ...S);
+    await ok("wait", "--text", "ready", ...S);
+    await ok("net", "wait", "--url", "/s42/api/items", ...S);
+    const itemsIds = async () =>
+      recs((await ok("net", "list", "--filter", "/s42/api/items", ...S))["requests"])
+        .filter((r) => typeof r["url"] === "string" && r["url"].endsWith("/s42/api/items"))
+        .map((r) => s(r["id"]));
+    const [before] = await itemsIds();
+    const statusRec = async () => {
+      const st = await ok("status");
+      const me = recs(st["sessions"]).find((x) => x["session"] === "s42");
+      return isRecord(me?.["recording"]) ? me["recording"]["decodePlugins"] : undefined;
+    };
+    expect(await statusRec()).toEqual([]);
+    expect((await ok("net", "body", s(before), ...S))["view"]).toBeUndefined();
+
+    expect(await ok("plugin", "enable", "xor-decode")).toMatchObject({ name: "xor-decode", enabled: true });
+    await ok("reload", ...S);
+    await ok("wait", "--text", "ready", ...S);
+    let ids = await itemsIds();
+    for (let i = 0; ids.length < 2 && i < 50; i++) {
+      await Bun.sleep(100);
+      ids = await itemsIds();
+    }
+    const after = ids[ids.length - 1] ?? "";
+    expect(after).not.toBe(before);
+    const dv = await ok("net", "body", after, ...S);
+    expect([dv["view"], dv["decoded"], dv["textPreview"]]).toEqual(["decoded", { by: "xor-decode", version: "1", mime: "application/json" }, S42_ITEMS_JSON]);
+    // the body recorded before enabling has no view (bundle decode adds it after net stop)
+    expect((await ok("net", "body", s(before), ...S))["view"]).toBeUndefined();
+    expect(await statusRec()).toEqual(["xor-decode"]);
+    await ok("net", "stop", ...S);
   });
 });
