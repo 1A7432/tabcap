@@ -2,7 +2,8 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { readConfig } from "../../shared/config.ts";
+import { readConfig, readHandoffConfig } from "../../shared/config.ts";
+import { TakeoverWatch, onHumanInput } from "../browser/takeover.ts";
 import { envVar } from "../../shared/env.ts";
 import { log } from "../../shared/log.ts";
 import { Tabs } from "../browser/targets.ts";
@@ -22,6 +23,8 @@ function extensionDir(): string | null {
 export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
   if (d.browser !== null) return { ...d.browser.info, alreadyRunning: true };
   const cfg = readConfig(d.paths.configFile);
+  // 0.7.1-A: a bad `handoff` value fails here, before anything starts (docs/04 §37).
+  const handoff = readHandoffConfig(d.paths.configFile);
   const exe = resolveExecutable({
     flag: optStr(a, "executablePath"),
     env: envVar("CHROME") ?? null,
@@ -45,10 +48,17 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     ...(cdpEnv === "pipe" || cdpEnv === "port" ? { cdp: cdpEnv } : {}),
   });
   const tabs = new Tabs(t, foreground);
+  // 0.7.1-A: the take-over listener on every owned tab (direct mode; off with handoff.detectTakeover:false).
+  const takeover = handoff.detectTakeover
+    ? new TakeoverWatch(t, tabs, (tab, r, at, inWindow) => {
+        onHumanInput({ guard: d.guard, recorder: (s) => d.recorders.get(s), navOf: (x) => d.navOf(x) }, tab, r, at, inWindow);
+      })
+    : null;
   d.browser = {
     t,
     tabs,
     console: new ConsoleLog(t, tabs),
+    takeover,
     info: {
       transport: "direct",
       channel: t.channel,
@@ -70,7 +80,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     log.warn("browser connection closed", { reason });
     await d.browserGone();
   });
-  return { ...d.browser.info, alreadyRunning: false, extension: extensionDir() };
+  return { ...d.browser.info, alreadyRunning: false, extension: extensionDir(), detectTakeover: takeover !== null };
 }
 
 export async function browserStop(d: Daemon): Promise<unknown> {
@@ -89,6 +99,7 @@ export async function browserStop(d: Daemon): Promise<unknown> {
   d.browser = null;
   b.tabs.dispose();
   b.console.dispose();
+  b.takeover?.dispose();
   d.pool.reset();
   await b.t.shutdown();
   return { stopped: true, pid: b.info.pid, bundles };
@@ -103,6 +114,7 @@ export function browserStatus(d: Daemon): unknown {
     sessions: b.tabs.sessions.size,
     tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length,
     refusedFocusCalls: b.t.refusedFocusCalls,
+    detectTakeover: b.takeover !== null,
     popupFocus: b.t.frontStats,
     recording: [...d.recorders.keys()],
   };

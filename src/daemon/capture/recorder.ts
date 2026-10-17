@@ -157,6 +157,8 @@ type Pending = {
   fetchCmd: string | null;
   /** 0.6-P: that fetch's credentials mode. */
   fetchCredentials: FetchCredentials | null;
+  /** 0.7.1-A: who sent it, decided when it started (a request the human's click sent stays theirs after `handoff continue`). */
+  actor: Actor;
 };
 
 /** Which `tabcap fetch` a request belongs to (0.6-A), and its credentials mode (0.6-P). */
@@ -193,6 +195,10 @@ export type RecorderOptions = {
   decode?: RecorderDecode | null;
   /** 0.6-I `net start --bodies`: which response bodies are stored (default all). */
   bodies?: BodiesMode;
+  /** 0.7.1-A docs/04 §16: true while the session's hand-off is in its human-active state (events become `actor:"human"`). */
+  humanActive?: () => boolean;
+  /** 0.7.1-A: the browser has the take-over listener on (manifest `mode.humanRecorder`). */
+  humanRecorder?: boolean;
 };
 
 /** What the recorder needs from the decode plugins (hooks/decode.ts DecodeSession). */
@@ -260,7 +266,7 @@ export class Recorder {
           platform: `${process.platform}-${process.arch}`,
         },
         session: { name: o.session, site: o.site?.site ?? null, account: o.site?.account ?? null, proxy: o.site?.proxy ?? null },
-        mode: { capture: "mixed", trace: false, raw: true, humanRecorder: false },
+        mode: { capture: "mixed", trace: false, raw: true, humanRecorder: o.humanRecorder === true },
       },
       ...(o.scrubOut === undefined ? {} : { scrubLine: o.scrubOut }),
     });
@@ -321,13 +327,14 @@ export class Recorder {
 
   /**
    * docs/04 §16: in `direct` mode the human only steps in at a handoff, so every
-   * event is the AI's unless a handoff is in its human-active state (there is no
-   * handoff yet). The old "outside a command window = human" rule mislabelled
-   * the requests a navigate leaves running. The `cmd` field still says which
-   * command window an event fell into.
+   * event is the AI's unless a handoff is in its human-active state (0.7.1-A:
+   * the session waits and the take-over listener saw the human's input since).
+   * The old "outside a command window = human" rule mislabelled the requests a
+   * navigate leaves running. The `cmd` field still says which command window
+   * an event fell into.
    */
   private actor(): Actor {
-    return "ai";
+    return this.opts.humanActive?.() === true ? "human" : "ai";
   }
 
   private async enableOn(x: { sessionId: string; type: string }): Promise<void> {
@@ -566,6 +573,7 @@ export class Recorder {
       fetchId: null,
       fetchCmd: null,
       fetchCredentials: null,
+      actor: this.actor(),
     };
     const missing: { reason: BodyMissingReason; detail: string | null } =
       missingReason !== null
@@ -742,6 +750,7 @@ export class Recorder {
       fetchId: fetch?.fetchId ?? null,
       fetchCmd: fetch?.cmd ?? null,
       fetchCredentials: fetch?.credentials ?? null,
+      actor: this.actor(),
     });
   }
 
@@ -1141,7 +1150,7 @@ export class Recorder {
       ts,
       mono: end,
       kind: "request",
-      actor: this.actor(),
+      actor: q.actor,
       tab: this.bundleTab.get(q.tab.id) ?? null,
       // 0.6-A: a `tabcap fetch` request belongs to its own command window, whatever else is open.
       cmd: q.fetchCmd ?? this.cmdRef(),
@@ -1344,7 +1353,7 @@ export class Recorder {
    * from `where --write-findings`, docs/04 §4.1) inside the current command
    * window. Returns its seq, or null when the bundle is closed.
    */
-  event(kind: "guard" | "handoff" | "finding" | "note", fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor } = {}): number | null {
+  event(kind: "guard" | "handoff" | "finding" | "note" | "action", fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor; cmd?: null } = {}): number | null {
     if (this.writerClosed || this.stopping) return null;
     const ev = this.writer.append({
       ts: nowMs(),
@@ -1352,7 +1361,8 @@ export class Recorder {
       kind,
       actor: o.actor ?? "system",
       tab: o.tab === undefined || o.tab === null ? null : (this.bundleTab.get(o.tab) ?? null),
-      cmd: this.cmdRef(),
+      // 0.7.1-A: a human's input is no AI command's doing, whatever command window is open (cmd: null).
+      cmd: o.cmd === null ? null : this.cmdRef(),
       ...fields,
     });
     return ev.seq;

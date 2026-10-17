@@ -3,7 +3,7 @@
 import { TabcapError } from "../../shared/envelope.ts";
 import { handoffView } from "../guard.ts";
 import type { Daemon } from "../state.ts";
-import { optStr, type Args } from "./args.ts";
+import { optNum, optStr, type Args } from "./args.ts";
 import { saveSiteSession } from "./session.ts";
 
 export async function handoffStatus(d: Daemon, _a: Args, session: string): Promise<unknown> {
@@ -47,6 +47,37 @@ export async function handoffContinue(d: Daemon, _a: Args, session: string): Pro
     ...(account === null ? {} : { account }),
     ...(fetchResumed.length === 0 ? {} : { fetchResumed }),
   };
+}
+
+/**
+ * 0.7.1-A test-only (docs/04 §37): one trusted input from outside every tabcap
+ * input window, as a human's would be. Refused unless the daemon was started
+ * with TABCAP_E2E_HUMAN=1; no CLI command, not in MCP. It goes straight to the
+ * CDP client (DirectTransport.send would open a window) under focus emulation
+ * (a background tab ignores CDP mouse input otherwise, docs/07 §1.1).
+ */
+export async function e2eHumanInput(d: Daemon, a: Args, session: string): Promise<unknown> {
+  if (!d.e2eHuman) throw new TabcapError("usage", "e2e.human-input is a test-only action", "It exists for the end-to-end tests: start the daemon with TABCAP_E2E_HUMAN=1.");
+  const { t, tabs } = d.need();
+  const tab = tabs.pick(session, optStr(a, "tab"));
+  const event = optStr(a, "event") ?? "pointerdown";
+  if (event !== "pointerdown" && event !== "keydown") throw new TabcapError("usage", `bad event ${JSON.stringify(event.slice(0, 40))}`, "Use pointerdown or keydown.");
+  const x = optNum(a, "x") ?? 4;
+  const y = optNum(a, "y") ?? 4;
+  const raw = (method: string, params: Record<string, unknown>) => t.cdp.send(method, params, tab.sessionId, 5000);
+  await raw("Emulation.setFocusEmulationEnabled", { enabled: true });
+  try {
+    if (event === "pointerdown") {
+      await raw("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+      await raw("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+    } else {
+      await raw("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 });
+      await raw("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 0 });
+    }
+  } finally {
+    await raw("Emulation.setFocusEmulationEnabled", { enabled: false }).catch(() => undefined);
+  }
+  return { injected: event, tab: tab.id, ...(event === "pointerdown" ? { x, y } : {}) };
 }
 
 /** `tabcap guard resume --site <s>` (0.6-A): fetches on the site go out again after a stop rule fired. */

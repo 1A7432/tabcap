@@ -6,7 +6,7 @@ import { browserStart, browserStatus, browserStop } from "./browser.ts";
 import { consoleList, consoleShow } from "./console.ts";
 import { emulate, resize } from "./device.ts";
 import { click, fill, hover, press, typeText, upload } from "./input.ts";
-import { guardResume, handoffContinue, handoffStatus } from "./handoff.ts";
+import { e2eHumanInput, guardResume, handoffContinue, handoffStatus } from "./handoff.ts";
 import { fetchTool, type ToolCtx } from "./fetch.ts";
 import { go, navigate, reload } from "./navigate.ts";
 import { netBody, netGrepTool, netList, netShow, netStart, netStop } from "./net.ts";
@@ -67,6 +67,8 @@ export const TOOLS: Record<string, Tool> = {
   "net.wait": netWait,
   "handoff.status": handoffStatus,
   "handoff.continue": handoffContinue,
+  // 0.7.1-A test-only: refused unless the daemon started with TABCAP_E2E_HUMAN=1 (docs/04 §37).
+  "e2e.human-input": e2eHumanInput,
   "guard.resume": guardResume,
   fetch: fetchTool,
   where,

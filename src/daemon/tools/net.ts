@@ -83,6 +83,9 @@ export async function netStart(d: Daemon, a: Args, session: string): Promise<unk
       if (d.store !== null && d.pool.contexts.has(session)) d.pool.saveSoon(d.store, t, session, () => d.refreshSecrets());
     },
     decode,
+    // 0.7.1-A: the human operating a waiting session's tab makes its events `actor:"human"` (docs/04 §16, §37).
+    humanActive: () => d.guard.isHumanActive(session),
+    humanRecorder: d.browser?.takeover !== null && d.browser?.takeover !== undefined,
   });
   rec = r;
   // 0.4-D: recorded requests count against the account's hourly budget (and the egress rotation trigger).

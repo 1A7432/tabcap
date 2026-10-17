@@ -12,6 +12,7 @@ import type { AttachHook, AttachedTarget, CdpEvent, CdpParams, CdpResult, Transp
 import { AutoAttacher } from "./attach.ts";
 import { CdpClient, CdpError } from "./cdp.ts";
 import { FrontGuard, type FrontStats } from "./front.ts";
+import { InputWindows } from "../inputwindows.ts";
 import {
   activateApp,
   activateAppAsync,
@@ -55,6 +56,8 @@ export class DirectTransport implements Transport {
   allowedFocusCalls = 0;
   /** Target.createTarget calls in flight: page targets appearing meanwhile are ours (background tabs, no focus change). */
   private ownCreates = 0;
+  /** 0.7.1-A: one window per `Input.*` command sent through `send` (docs/04 §37). */
+  readonly inputWindows = new InputWindows();
 
   private constructor(
     readonly cdp: CdpClient,
@@ -160,6 +163,11 @@ export class DirectTransport implements Transport {
       return this.cdp.send(method, params, sessionId, timeoutMs).finally(() => {
         setTimeout(() => this.ownCreates--, 500);
       });
+    }
+    if (method.startsWith("Input.")) {
+      // 0.7.1-A: tabcap's own input is trusted in the page; the take-over listener skips this window.
+      const w = this.inputWindows.begin(sessionId ?? "");
+      return this.cdp.send(method, params, sessionId, timeoutMs).finally(() => this.inputWindows.end(w));
     }
     return this.cdp.send(method, params, sessionId, timeoutMs);
   }

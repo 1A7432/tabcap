@@ -8,6 +8,7 @@ import type { Tracer } from "./trace/tracer.ts";
 import { Tabs, type Tab } from "./browser/targets.ts";
 import type { ConsoleLog } from "./capture/console.ts";
 import type { DirectTransport } from "./transport/direct/index.ts";
+import type { TakeoverWatch } from "./browser/takeover.ts";
 import { Guard } from "./guard.ts";
 import { Secrets } from "./secrets.ts";
 import type { Store } from "./store/db.ts";
@@ -43,7 +44,8 @@ export const ACTION_COMMANDS: ReadonlySet<string> = new Set(["navigate", "click"
 
 export type LastAction = { action: string; at: number; cmd: string | null };
 
-export type Running = { t: DirectTransport; tabs: Tabs; console: ConsoleLog; info: BrowserInfo };
+/** `takeover`: the 0.7.1-A take-over listener (null: `handoff.detectTakeover` is off). */
+export type Running = { t: DirectTransport; tabs: Tabs; console: ConsoleLog; info: BrowserInfo; takeover: TakeoverWatch | null };
 
 /** `proxy`: the pool proxy name the session goes out through (its own browser context), `system` / `none`, or null (unbound account). */
 export type SiteBinding = { site: string; account: string | null; proxy: string | null };
@@ -71,6 +73,8 @@ export class Daemon {
   /** Start of the most recent action command per session (net wait look-back, docs/04 §16). */
   private actions = new Map<string, LastAction>();
   readonly startedAt = Date.now();
+  /** 0.7.1-A test-only: TABCAP_E2E_HUMAN=1 at daemon start allows `e2e.human-input` (docs/04 §37). */
+  e2eHuman = false;
 
   constructor(
     readonly paths: Paths,
@@ -165,6 +169,7 @@ export class Daemon {
     this.tracers.clear();
     this.browser?.tabs.dispose();
     this.browser?.console.dispose();
+    this.browser?.takeover?.dispose();
     this.browser = null;
     this.pool.reset();
   }

@@ -68,8 +68,15 @@ export type StatusAnswer = StatusFacts & { conflicts: StatusConflict[]; next: st
 /** The top-level `next` of a status answer (pure). */
 export function nextOf(f: StatusFacts, conflicts: readonly StatusConflict[]): string | null {
   const waiting = f.sessions.filter((s) => s.state === "waiting");
-  if (waiting.length > 0) return waiting.map((s) => `session ${q(s.session)} waits for the human (${s.reason ?? "?"}): tell the user${s.screenshot === null ? "" : ` (screenshot ${s.screenshot})`}; after they finished in the browser: \`tabcap handoff continue ${S(s.session)}\``).join("; ");
+  if (waiting.length > 0) return waiting.map(waitingNext).join("; ");
   return conflicts[0]?.next ?? null;
+}
+
+/** One waiting session's clause of `next`; 0.7.1-A: on a take-over the user is already at the tab, so there is nobody to tell. */
+function waitingNext(s: StatusSession): string {
+  const go = `\`tabcap handoff continue ${S(s.session)}\``;
+  if (s.reason === "human-takeover") return `session ${q(s.session)}: the user took over its tab (human-takeover); do not act on the page; when they say they are done: ${go}`;
+  return `session ${q(s.session)} waits for the human (${s.reason ?? "?"}): tell the user${s.screenshot === null ? "" : ` (screenshot ${s.screenshot})`}; after they finished in the browser: ${go}`;
 }
 
 const q = (s: string) => JSON.stringify(s);

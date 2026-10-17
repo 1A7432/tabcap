@@ -10,6 +10,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, unlinkSync, 
 import { dirname } from "node:path";
 import { TOOL_VERSION } from "../bundle/manifest.ts";
 import { TabcapError, fail, ok, toFail, type Envelope, type FailEnvelope } from "../shared/envelope.ts";
+import { envVar } from "../shared/env.ts";
 import { isRecord } from "../shared/json.ts";
 import { log } from "../shared/log.ts";
 import type { Paths } from "../shared/paths.ts";
@@ -280,6 +281,8 @@ export async function runDaemon(paths: Paths): Promise<void> {
   const store = Store.open(paths.config);
   const d = new Daemon({ ...paths, socket, socketFallback: paths.newSocket !== paths.socket || paths.socketFallback }, { screenshot: guardShot, pageInfo });
   d.store = store;
+  // 0.7.1-A: the test-only `e2e.human-input` action, read once at start (docs/04 §37).
+  d.e2eHuman = envVar("E2E_HUMAN") === "1";
   d.refreshSecrets();
   setLogScrubber((line) => d.secrets.scrub(line));
   let stopping = false;

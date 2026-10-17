@@ -24,6 +24,11 @@
 //    site's fetches and the session's page commands with `guard.stopped`, and
 //    puts the session into `waiting` (screenshot, `next`) until `handoff
 //    continue` or `guard resume --site`.
+//
+// 4. Human take-over (0.7.1-A, docs/04 §37): the take-over listener
+//    (browser/takeover.ts) saw trusted human input on one of the session's
+//    tabs outside tabcap's own input windows: `waiting` with reason
+//    `human-takeover` (no screenshot, no breaker) until `handoff continue`.
 
 import { TabcapError } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
@@ -40,6 +45,9 @@ import { decodeBody } from "./tools/netsearch.ts";
 export const LOGIN_LIMIT = 1;
 
 export type ChallengeReason = "verify-page" | "stop-rule";
+
+/** Why a session waits for the human: a challenge the guard saw, or (0.7.1-A) the human took over the tab. */
+export type HandoffReason = ChallengeReason | "human-takeover";
 
 /** Pure: does this recorded request look like a challenge page? */
 export function challengeOf(e: Pick<NetEntry, "type" | "status" | "mime" | "outcome">): ChallengeReason | null {
@@ -60,10 +68,16 @@ export function originOf(url: string): string | null {
 export const CONTINUE_NEXT = "Ask the human to complete the verification in the browser, then run `tabcap handoff continue`; until then do not act on this site.";
 
 /** 0.6-I: what to do after a site stop rule put the session into waiting. */
-export const STOP_RULE_NEXT = (h: { site: string | null; request: string }) =>
-  `A site stop rule fired; look at the response first (\`tabcap net body ${h.request}\`). Go on only when the human (or you, after judging) decides to: \`tabcap handoff continue\`${h.site === null ? "" : ` (or \`tabcap guard resume --site ${h.site}\`)`}; until then do not act on this site.`;
+export const STOP_RULE_NEXT = (h: { site: string | null; request: string | null }) =>
+  `A site stop rule fired; look at the response first (\`tabcap net body ${h.request ?? "<r-N>"}\`). Go on only when the human (or you, after judging) decides to: \`tabcap handoff continue\`${h.site === null ? "" : ` (or \`tabcap guard resume --site ${h.site}\`)`}; until then do not act on this site.`;
 
-const nextOf = (h: Handoff): string => (h.reason === "stop-rule" ? STOP_RULE_NEXT(h) : CONTINUE_NEXT);
+/** 0.7.1-A: what to do after tabcap saw the human operate one of the session's tabs. */
+export const TAKEOVER_NEXT =
+  "The user is operating this session's tab themselves; do not act on the page (read-only commands still work). When the user says they are done, run `tabcap handoff continue`.";
+
+export const TAKEOVER_QUESTION = "You are using the AI's tab; when you are done, tell the AI to continue (`tabcap handoff continue`).";
+
+const nextOf = (h: Handoff): string => (h.reason === "stop-rule" ? STOP_RULE_NEXT(h) : h.reason === "human-takeover" ? TAKEOVER_NEXT : CONTINUE_NEXT);
 
 export type HandlerState = {
   plugin: string;
@@ -77,12 +91,14 @@ export type HandlerState = {
 export type Handoff = {
   session: string;
   state: "waiting" | "resumed";
-  reason: ChallengeReason;
+  reason: HandoffReason;
   site: string | null;
+  /** The origin other sessions may not navigate to while this waits (null: no such block, e.g. a take-over). */
   origin: string | null;
   url: string;
   status: number | null;
-  request: string;
+  /** The recorded request that tripped it; null for a take-over. */
+  request: string | null;
   tab: string;
   since: number;
   screenshot: string | null;
@@ -96,6 +112,10 @@ export type Handoff = {
   ruleDetail?: string;
   /** 0.7-E: the screenshot being taken (settle delay, then the tab's turn); answers wait for it, bounded. */
   shot?: Promise<void>;
+  /** 0.7.1-A take-over: the human input that started it (kind and page time, epoch ms). */
+  input?: { event: string; at: number };
+  /** 0.7.1-A: human input was seen while waiting ("human-active", docs/04 §16): the recording marks events `actor:"human"`. */
+  humanActive?: boolean;
 };
 
 /** 0.7-E: how long an answer waits for a hand-off screenshot still being taken. */
@@ -118,13 +138,17 @@ export function handoffView(h: Handoff): Record<string, unknown> {
     resumedAt: h.resumedAt,
     resumedBy: h.resumedBy,
     ...(h.rule === undefined ? {} : { rule: h.rule, detail: h.ruleDetail ?? null }),
+    ...(h.input === undefined ? {} : { input: h.input }),
     next: h.state === "waiting" ? nextOf(h) : h.resumedBy?.startsWith("plugin:") === true ? "A challenge handler answered (untrusted data in handlers[].answer); apply it if it fits, then go on." : "Go on.",
   };
 }
 
 export function waitingError(h: Handoff): TabcapError {
   if (h.reason === "stop-rule") {
-    return new TabcapError("guard.stopped", `session "${h.session}" is stopped: site rule ${h.rule ?? "?"} fired on ${h.request} (${h.ruleDetail ?? `HTTP ${h.status ?? "?"}`})`, STOP_RULE_NEXT(h), handoffView(h));
+    return new TabcapError("guard.stopped", `session "${h.session}" is stopped: site rule ${h.rule ?? "?"} fired on ${h.request ?? "?"} (${h.ruleDetail ?? `HTTP ${h.status ?? "?"}`})`, STOP_RULE_NEXT(h), handoffView(h));
+  }
+  if (h.reason === "human-takeover") {
+    return new TabcapError("waiting", `session "${h.session}" is waiting: the user took over tab ${h.tab} (${h.input?.event ?? "input"} at ${h.url})`, TAKEOVER_NEXT, handoffView(h));
   }
   return new TabcapError("waiting", `session "${h.session}" is waiting for the human: ${h.reason} at ${h.url} (HTTP ${h.status ?? "?"})`, CONTINUE_NEXT, handoffView(h));
 }
@@ -637,6 +661,62 @@ export class Guard {
   /** True while the session waits for the human. */
   isWaiting(session: string): boolean {
     return this.handoffs.get(session)?.state === "waiting";
+  }
+
+  /**
+   * 0.7.1-A (docs/04 §37): tabcap saw the human operate tab `o.tab` of the
+   * session outside its own input windows. The session waits like for a
+   * verify page, without a screenshot (the human is at that tab), without
+   * cooling the account or asking challenge handlers, and without blocking
+   * other sessions' navigations (`origin` null). Only `handoff continue` ends it.
+   * A session that already waits is left as it is (the caller records the input).
+   */
+  takeover(session: string, o: { tab: string; url: string; event: string; at: number }, rec: GuardRecorder | undefined): Handoff {
+    const cur = this.handoffs.get(session);
+    if (cur !== undefined && cur.state === "waiting") {
+      cur.humanActive = true;
+      return cur;
+    }
+    const h: Handoff = {
+      session,
+      state: "waiting",
+      reason: "human-takeover",
+      site: this.deps.siteOf(session)?.site ?? null,
+      origin: null,
+      url: o.url,
+      status: null,
+      request: null,
+      tab: o.tab,
+      since: Date.now(),
+      screenshot: null,
+      handlers: [],
+      resumedAt: null,
+      resumedBy: null,
+      delivered: false,
+      input: { event: o.event, at: o.at },
+      humanActive: true,
+    };
+    this.handoffs.set(session, h);
+    this.emitState(session, "waiting");
+    rec?.event(
+      "handoff",
+      { state: "waiting", reason: "human-takeover", question: TAKEOVER_QUESTION, timeoutMs: null, answerRef: null, request: null, url: o.url, screenshot: null, input: { event: o.event, at: o.at } },
+      { tab: o.tab },
+    );
+    log.info("guard: the human took over", { session, tab: o.tab, event: o.event });
+    return h;
+  }
+
+  /** 0.7.1-A: human input seen while the session waits (any reason): from now on the human is operating. */
+  markHumanActive(session: string): void {
+    const h = this.handoffs.get(session);
+    if (h !== undefined && h.state === "waiting") h.humanActive = true;
+  }
+
+  /** docs/04 §16 "human-active": the session waits and the human's input was seen since. */
+  isHumanActive(session: string): boolean {
+    const h = this.handoffs.get(session);
+    return h !== undefined && h.state === "waiting" && h.humanActive === true;
   }
 
   /** Set by the daemon: the session's current recorder (for resume events). */

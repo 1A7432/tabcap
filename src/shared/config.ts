@@ -270,3 +270,29 @@ export function parseTraceConfig(raw: unknown, base: TraceConfig = TRACE_DEFAULT
 export function readTraceConfig(file: string): TraceConfig {
   return parseTraceConfig(readRaw(file)["trace"]);
 }
+
+// ------------------------------------------------------------ handoff (0.7.1-A)
+
+/**
+ * `config.json` `handoff` (docs/04 §37): {detectTakeover: true}. `detectTakeover`
+ * arms the passive take-over listener on every owned tab in `direct` mode; it
+ * is read at `browser start`. A value that is not a boolean is an error.
+ */
+export type HandoffConfig = { detectTakeover: boolean };
+
+export const HANDOFF_DEFAULTS: HandoffConfig = { detectTakeover: true };
+
+export function parseHandoffConfig(raw: unknown): HandoffConfig {
+  const out: HandoffConfig = { ...HANDOFF_DEFAULTS };
+  if (raw === undefined || raw === null) return out;
+  if (!isRecord(raw)) throw new TabcapError("bad-input", "config.json handoff is invalid", "Set handoff to an object {detectTakeover: true|false}, or remove it.");
+  const v = raw["detectTakeover"];
+  if (v === undefined) return out;
+  if (typeof v !== "boolean") throw new TabcapError("bad-input", "config.json handoff.detectTakeover is invalid", "Set handoff.detectTakeover to true or false, or remove it.");
+  out.detectTakeover = v;
+  return out;
+}
+
+export function readHandoffConfig(file: string): HandoffConfig {
+  return parseHandoffConfig(readRaw(file)["handoff"]);
+}
