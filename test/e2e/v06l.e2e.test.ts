@@ -22,9 +22,9 @@
 // ≥ 1 KB localStorage parse is not filed under two small armed suspects
 // (`drops.noFit`), no row is an envelope the page parsed early; `net body`
 // reads the page view (default and --decoded, during and after recording).
-// 0.6-V (owner decisions 10-17): weak rows are off by default (config.json
-// `trace.weakRows`): s59 deferred files no row and counts `drops.weak: 1`;
-// with `trace.weakRows: true` it files the weak row as before. The evidence
+// 0.6-V (owner decisions 10-17): weak rows can be turned off (config.json
+// `trace.weakRows`, default true): by default s59 deferred files its weak row
+// as before; with `trace.weakRows: false` no row and `drops.weak: 1`. The evidence
 // frames carry the script URL: every s59 parse runs in the page's inline
 // script (worker mode too — the worker posts the plaintext string back and
 // the main thread's onmessage parses it, test/e2e/site.ts s59Worker), whose
@@ -345,42 +345,42 @@ describe.skipIf(!enabled)("tabcap 0.6-L L2 (in-page decoding, observe mode on do
     expect(recs((await ok("analyze", "find", bundle, S59_BIG_MARKER))["hits"]).some((h) => JSON.stringify(h["decode"] ?? []).includes("page"))).toBe(true);
   }, 180_000);
 
-  test("s59 deferred, trace.weakRows true: no ciphertext reachable from the parse — filed under the only armed suspect, link weak, and find says so", async () => {
-    writeConfig({ trace: { weakRows: true } });
+  test("s59 deferred: no ciphertext reachable from the parse — filed under the only armed suspect, link weak, and find says so (default trace.weakRows true)", async () => {
+    const { bundle, enc, tr } = await runPage("s59d", "/s59?mode=deferred", ["--decode"]);
+    expect(tr["weakRows"]).toBe(true);
+    const rows = await until("the deferred page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
+    expect(rows.length).toBe(1);
+    const r = rows[0] as SidecarRow;
+    expect(r.request).toBe(enc[0]?.id ?? "");
+    expect(viewText(BundleReader.open(bundle), r.decoded)).toBe(S59_PLAIN);
+    const ev = rec(r.decoded["evidence"]);
+    expect([ev["match"], ev["link"]]).toEqual([null, "weak"]);
+    expect(topFrameUrl(r.decoded)).toBe(`${site.origin}/s59?mode=deferred`);
+    const { decode } = await stopBoth("s59d");
+    expect(decode?.["rows"]).toMatchObject({ attributed: 1, weak: 1, unattributed: 0 });
+    expect(rec(decode?.["drops"])["weak"]).toBe(0);
+    const hits = recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"]);
+    expect(hits.map((h) => [h["ref"], h["decode"], h["link"]])).toEqual([[enc[0]?.id ?? "", ["page"], "weak"]]);
+  }, 120_000);
+
+  test("s59 deferred, trace.weakRows false (0.6-V): the weak plaintext files no row and is counted as drops.weak", async () => {
+    writeConfig({ trace: { weakRows: false } });
     try {
-      const { bundle, enc, tr } = await runPage("s59d", "/s59?mode=deferred", ["--decode"]);
-      expect(tr["weakRows"]).toBe(true);
-      const rows = await until("the deferred page row", () => Promise.resolve(sidecarRows(bundle)), (rs) => rs.length >= 1);
-      expect(rows.length).toBe(1);
-      const r = rows[0] as SidecarRow;
-      expect(r.request).toBe(enc[0]?.id ?? "");
-      expect(viewText(BundleReader.open(bundle), r.decoded)).toBe(S59_PLAIN);
-      const ev = rec(r.decoded["evidence"]);
-      expect([ev["match"], ev["link"]]).toEqual([null, "weak"]);
-      expect(topFrameUrl(r.decoded)).toBe(`${site.origin}/s59?mode=deferred`);
-      const { decode } = await stopBoth("s59d");
-      expect(decode?.["rows"]).toMatchObject({ attributed: 1, weak: 1, unattributed: 0 });
-      expect(rec(decode?.["drops"])["weak"]).toBe(0);
-      const hits = recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"]);
-      expect(hits.map((h) => [h["ref"], h["decode"], h["link"]])).toEqual([[enc[0]?.id ?? "", ["page"], "weak"]]);
+      const S = ["--session", "s59dd"];
+      const { bundle, tr } = await runPage("s59dd", "/s59?mode=deferred", ["--decode"]);
+      expect(tr["weakRows"]).toBe(false);
+      expect(s(tr["decodeNotice"])).toContain("drops.weak");
+      // the weak row settles (500 ms) and is then counted, not filed
+      const st = await until("drops.weak in trace status", () => ok("trace", "status", ...S), (v) => Number(rec(rec(v["decode"])["drops"])["weak"] ?? 0) >= 1);
+      expect(st["weakRows"]).toBe(false);
+      const { decode } = await stopBoth("s59dd");
+      expect(rec(decode?.["drops"])["weak"]).toBe(1);
+      expect(decode?.["rows"]).toMatchObject({ attributed: 0, weak: 0, unattributed: 0 });
+      expect(sidecarRows(bundle)).toEqual([]);
+      expect(recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"])).toEqual([]);
     } finally {
       writeConfig({});
     }
-  }, 120_000);
-
-  test("s59 deferred, default config (0.6-V): the weak plaintext files no row and is counted as drops.weak", async () => {
-    const S = ["--session", "s59dd"];
-    const { bundle, tr } = await runPage("s59dd", "/s59?mode=deferred", ["--decode"]);
-    expect(tr["weakRows"]).toBe(false);
-    expect(s(tr["decodeNotice"])).toContain("drops.weak");
-    // the weak row settles (500 ms) and is then counted, not filed
-    const st = await until("drops.weak in trace status", () => ok("trace", "status", ...S), (v) => Number(rec(rec(v["decode"])["drops"])["weak"] ?? 0) >= 1);
-    expect(st["weakRows"]).toBe(false);
-    const { decode } = await stopBoth("s59dd");
-    expect(rec(decode?.["drops"])["weak"]).toBe(1);
-    expect(decode?.["rows"]).toMatchObject({ attributed: 0, weak: 0, unattributed: 0 });
-    expect(sidecarRows(bundle)).toEqual([]);
-    expect(recs((await ok("analyze", "find", bundle, "S59-0001"))["hits"])).toEqual([]);
   }, 120_000);
 
   test("--decode with --apis is a usage error (the observe mode installs no signal breakpoints)", async () => {

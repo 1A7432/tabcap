@@ -58,7 +58,7 @@ describe("trace status / stop: the decode-plugin notice while decode is on (0.6-
   test("with a decode block: the fields are added; without one, or with no plugin enabled: unchanged", () => {
     const on = join(root, "status-on");
     installXor(on);
-    const status = { session: "s", trace: "on", decode: { armed: 0 }, weakRows: false };
+    const status = { session: "s", trace: "on", decode: { armed: 0 }, weakRows: true };
     const f = withDecodePlugins(status, on);
     expect(f["decodePlugins"]).toEqual(["xor-decode"]);
     expect(String(f["decodePluginsNotice"])).toContain("`tabcap plugin disable xor-decode`");
@@ -68,17 +68,18 @@ describe("trace status / stop: the decode-plugin notice while decode is on (0.6-
     expect(withDecodePlugins(status, join(root, "status-none"))).toEqual(status);
   });
 
-  test("config.json trace.weakRows: default false, a boolean or an error", () => {
-    expect(parseTraceConfig(undefined)).toEqual({ decode: false, weakRows: false });
-    expect(parseTraceConfig({ weakRows: true })).toEqual({ decode: false, weakRows: true });
+  test("config.json trace.weakRows: default true, a boolean or an error", () => {
+    expect(parseTraceConfig(undefined)).toEqual({ decode: false, weakRows: true });
+    expect(parseTraceConfig({})).toEqual({ decode: false, weakRows: true });
+    expect(parseTraceConfig({ weakRows: false })).toEqual({ decode: false, weakRows: false });
     expect(parseTraceConfig({ decode: true, weakRows: false })).toEqual({ decode: true, weakRows: false });
     expect(() => parseTraceConfig({ weakRows: "yes" })).toThrow("trace.weakRows is invalid");
   });
 
-  test("the --decode notice: weak rows counted, not filed, by default; named as weak when trace.weakRows is on", () => {
-    expect(decodeNotice(false)).toContain("drops.weak");
-    expect(decodeNotice(false)).toContain("trace.weakRows");
-    expect(decodeNotice(true)).toContain('evidence.link "weak"');
-    expect(decodeNotice(true)).not.toContain("drops.weak");
+  test("the --decode notice: weak rows named as such by default; counted, not filed, when trace.weakRows is false", () => {
+    expect(decodeNotice(true)).toContain('evidence.link "weak" means it was only the one armed suspect');
+    expect(decodeNotice(true)).toContain("trace.weakRows: false");
+    expect(decodeNotice(false)).toContain("counted as drops.weak, not filed");
+    expect(decodeNotice(false)).not.toContain('"weak" means');
   });
 });

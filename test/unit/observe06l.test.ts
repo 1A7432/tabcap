@@ -17,8 +17,8 @@
 // matched form, the per-suspect plaintext bound (no-fit), the settle of
 // unattributed rows and the raw-body drop of settling / held entries.
 // 0.6-V (owner decisions 10-17, after two real-site rounds where every weak
-// row was wrong): weak rows off by default (`settleOutcome` "weak" →
-// drops.weak), and the evidence frames' url (CDP Debugger.CallFrame: `url`
+// row was wrong): weak rows can be turned off (`trace.weakRows: false`;
+// `settleOutcome` "weak" → drops.weak), and the evidence frames' url (CDP Debugger.CallFrame: `url`
 // and `location.scriptId`, no top-level scriptId — the 0.6-L reader looked
 // for one, so every frame url was "").
 
@@ -609,11 +609,11 @@ describe("0.6-Q D: net body resolves the page view like analyze find (D4 rank, t
   });
 });
 
-describe("0.6-V: weak rows off by default; evidence frames carry the script URL", () => {
+describe("0.6-V: weak rows can be turned off; evidence frames carry the script URL", () => {
   const PLAIN = '{"rows":[{"id":"S59-0001","amount":12}],"total":1,"page":1}';
   const weak: Settling = { request: "r-7", candidates: null, text: PLAIN, textSha: sha(PLAIN), at: 1 };
   const none = new Set<string>();
-  test("settleOutcome: a weak row that would be filed is `weak` (drops.weak) unless weakRows is on", () => {
+  test("settleOutcome: a weak row that would be filed is `weak` (drops.weak) when weakRows is off", () => {
     expect(settleOutcome(weak, none, none, 0, false)).toBe("weak");
     expect(settleOutcome(weak, none, none, 0, true)).toBe("file");
     // only rows that would have been filed count as weak

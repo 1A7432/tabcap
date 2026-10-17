@@ -112,7 +112,7 @@ export type TracerOptions = {
   /** 0.6-L observe mode: arm the decode sinks on encrypted responses. */
   decode: boolean;
   /** 0.6-V: file single-suspect rows (`link: "weak"`); config.json
-   * `trace.weakRows`, default false (counted as `drops.weak` instead). */
+   * `trace.weakRows`; absent or true files them, false counts them as `drops.weak`. */
   weakRows?: boolean;
   /** 0.6-L2: register the observe log-point marker so the recorder's console
    * capture drops the plaintext it carries; returns an unregister callback. */
@@ -181,7 +181,7 @@ export class Tracer {
    * has no row yet. 0.6-Q: unattributed rows settle too (`request` null, their
    * candidates kept): an envelope parsed while other suspects are armed, before
    * its own body was indexed, is dropped once that body arrives (item C).
-   * 0.6-V: with `weakRows` off (the default) a single-suspect row still settles
+   * 0.6-V: with `weakRows` false a single-suspect row still settles
    * and is counted as `drops.weak` where it would have been filed.
    */
   private settle: Array<Settling & { from: PlainCandidate["from"]; frames: PageEvidence["frames"] }> = [];
@@ -831,7 +831,7 @@ export class Tracer {
     const due = all ? this.settle : this.settle.filter((s) => s.at <= cut);
     this.settle = all ? [] : this.settle.filter((s) => s.at > cut);
     for (const s of due) {
-      const out = settleOutcome(s, this.rawShas, this.filedRequests, this.unattributedKept, this.opts.weakRows === true);
+      const out = settleOutcome(s, this.rawShas, this.filedRequests, this.unattributedKept, this.opts.weakRows !== false);
       if (out === "filed") continue;
       if (out === "weak") {
         this.drops.weak++;
@@ -1313,7 +1313,7 @@ export class Tracer {
       instrumentation: this.opts.decode ? [] : [...INSTRUMENTATION_EVENTS],
       ...(this.opts.decode
         ? {
-            weakRows: this.opts.weakRows === true,
+            weakRows: this.opts.weakRows !== false,
             decode: {
               armed: this.armed.live().length,
               rows: { attributed: this.attributedRows, weak: this.weakRows, unattributed: this.unattributedRows, unattributedKept: this.unattributedKept },

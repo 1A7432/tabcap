@@ -14,7 +14,7 @@
 // Whether one matches the session's traffic is not knowable at start; an
 // enabled one is enough. 0.6-V: `trace status` and `trace stop` answer the
 // same two fields while decode is on, and every `--decode` answer says
-// `weakRows` (config.json `trace.weakRows`, default false: single-suspect
+// `weakRows` (config.json `trace.weakRows`, default true; false: single-suspect
 // rows are counted as `drops.weak`, not filed).
 
 import { existsSync, readFileSync } from "node:fs";
@@ -62,8 +62,8 @@ const DECODE_NOTICE_BASE =
 /** The `decodeNotice` of `trace start --decode` (0.6-V: says what happens to weak rows). */
 export function decodeNotice(weakRows: boolean): string {
   return weakRows
-    ? `${DECODE_NOTICE_BASE}; weakRows on: evidence.link "weak" means it was only the one armed suspect`
-    : `${DECODE_NOTICE_BASE} when the parsing frame can reach the ciphertext (evidence.link "strong"); a plaintext tied only by being the one armed suspect is counted as drops.weak, not filed (config.json trace.weakRows: true files it with link "weak")`;
+    ? `${DECODE_NOTICE_BASE}; evidence.link "weak" means it was only the one armed suspect (config.json trace.weakRows: false counts those instead of filing them)`
+    : `${DECODE_NOTICE_BASE} when the parsing frame can reach the ciphertext (evidence.link "strong"); config.json trace.weakRows is false, so a plaintext tied only by being the one armed suspect is counted as drops.weak, not filed`;
 }
 
 /** `trace start --decode` fields naming the enabled decode plugins (0.6-U), or {} when there is none.

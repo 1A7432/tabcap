@@ -20,10 +20,10 @@
 // row's `evidence.link` is "strong"; single-suspect — exactly one suspect
 // armed, no such string — `link` "weak"; otherwise the row is unattributed
 // (`request: null`) with the candidates it was confused with. Never by recency.
-// 0.6-V (owner decision 10-17): weak rows were wrong on every real-site
-// sample, so they are off by default (config.json `trace.weakRows`): a
-// single-suspect row still settles, and where it would have been filed it is
-// counted as `drops.weak` instead (`settleOutcome`).
+// 0.6-V (owner decisions 10-17): weak rows were wrong on every real-site
+// sample, so they can be turned off (config.json `trace.weakRows: false`;
+// default true): a single-suspect row still settles, and where it would have
+// been filed it is counted as `drops.weak` instead (`settleOutcome`).
 //
 // Reading the plaintext (spike-06l exp4, spike-06l2 E1-E10, CfT 155): a
 // function-call breakpoint pauses with only the caller frame — the callee's
@@ -527,7 +527,7 @@ export type PageEvidence = {
   matchForm?: MatchForm;
   /** 0.6-L2: how the row is tied to its request — "strong": a scope-string
    * match; "weak": the only armed suspect, nothing in the scope tied it
-   * (filed only with config.json `trace.weakRows`, 0.6-V). Absent on
+   * (not filed with config.json `trace.weakRows: false`, 0.6-V). Absent on
    * unattributed rows. */
   link?: "strong" | "weak";
   frames: Array<{ url: string; line: number; column: number; function: string }>;

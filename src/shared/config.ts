@@ -243,16 +243,16 @@ export function readSiteGuards(file: string): Map<string, SiteGuardConfig> {
 // ------------------------------------------------------------ trace (0.6-L)
 
 /**
- * `config.json` `trace` (docs/04 §33): {decode: false, weakRows: false}.
+ * `config.json` `trace` (docs/04 §33): {decode: false, weakRows: true}.
  * `decode` turns on the observe mode of `tabcap trace start` for every
  * session that does not pass an explicit `--decode` / `--no-decode`.
- * `weakRows` (0.6-V, owner decision 10-17): file single-suspect rows
- * (`evidence.link: "weak"`); off by default because on real sites every one
- * was wrong — they are counted as `drops.weak` instead.
+ * `weakRows` (0.6-V, owner decisions 10-17): file single-suspect rows
+ * (`evidence.link: "weak"`), the default; `false` turns them off — on real
+ * sites every one was wrong — and counts them as `drops.weak` instead.
  */
 export type TraceConfig = { decode: boolean; weakRows: boolean };
 
-export const TRACE_DEFAULTS: TraceConfig = { decode: false, weakRows: false };
+export const TRACE_DEFAULTS: TraceConfig = { decode: false, weakRows: true };
 
 export function parseTraceConfig(raw: unknown, base: TraceConfig = TRACE_DEFAULTS, where = "trace"): TraceConfig {
   const out: TraceConfig = { ...base };
