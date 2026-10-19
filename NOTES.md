@@ -566,3 +566,8 @@
 - 做了什么：一次 CI 约 12 分钟，几乎全是 e2e 串行（Windows 627 s、Ubuntu 432 s，按日志里每个文件的 group 头时间差算【实测 run 39224110445】）。e2e 每个系统拆 3 片、各占一台 runner，`scripts/e2e-shard.ts` 按 `test/e2e/timings.json`（两系统取大）最长优先贪心分配，三片各约 209 s；表里没有的新文件按中位数算，`--update <job log>` 刷新表。push / PR 只动 NOTES、两份 CHANGELOG、docs/（docs/04 除外，单测读它）时不跑 CI。探针只在第 1 片跑；wire 画像产物只由跑了 v04w 的那片上传，名字不变。
 - 卡在哪：实际总时长待这次推送的 CI 量【待验】。
 - 下一格从哪开始：e2e 文件增删较多后用 `--update` 刷新耗时表；接着发 0.7.4。
+
+## 2026-10-19 · 0.7.4 发布（主循环）
+- 做了什么：0.7.4（Homebrew 渠道的 `tabcap update`、命令沙箱里的报错、analyze chain 步骤顺序、CI 分片）。分片后 CI 4 分 39 秒全绿【实测 run 39226284879】；release run 一次全绿，五个 npm 包 0.7.4（本机 `npm view` 读到旧缓存，curl registry 为准）；草稿默认 prerelease，发布时要 `--prerelease=false` 再 `--latest`；Release 发布后 homebrew.yml 自动把 0.7.4 推进 tap【实测】。本机 `brew upgrade tabcap` 到 0.7.4，`tabcap update --check` 识别为 homebrew 渠道【实测】。Scoop 清单的 hash 自 0.7.2 起没跟版本更新，补成 0.7.4 的真实值。
+- 卡在哪：用 `tabcap update` 真正跑一次 `brew upgrade` 要等 0.7.5【待验】。
+- 下一格从哪开始：0.7.5 候选：Windows `npm.cmd` 路径、录屏（待作者定）、Linux 沙箱标志行实测。
