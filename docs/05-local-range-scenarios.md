@@ -329,3 +329,20 @@
 - 走法：`navigate /ov/wrapped` → `snapshot --interactive` → 读 overlays 与 close ref → 普通 `click <#buy 的 ref>` → `click <Accept 的 ref>` → 普通与 `--trusted` 各点一次 `#buy`。
 - expected：`snapshot --interactive` 的 `overlays` 恰一条 `o1`，`kind:"dialog"`、`coverage:100`、`modal:true`，`evidence` 含 `"full-viewport wrapper"` 与 `"buttons in an inner block"`，`close` 的 ref 就是 `find "Accept"` 给的那个；树的首行以 `overlays  o1 dialog` 开头。普通 `click` `#buy` 回 `ok:false`、`code:"covered"`、`error.overlay.kind:"dialog"`，`next` 含那个 close ref，`window.__hits.buy` 仍未定义（没有穿透）。点 Accept 后 `outline` 的 `overlays` 为空；随后普通 `click #buy` 与 `click #buy --trusted` 都成功（`overlayCheck:"clear"` / `trusted:true`、`delivered.pointerdown:true`），页面 `__hits.buy` 为 2。`/ov/shell` 仍 `overlays:[]`。
 - 阈值（与 `docs/10` 0.7.3 节一致）：固定层覆盖 ≥ 90% 视口；内块是容器而非控件本身、至少 160 × 60 px、面积 ≤ 60% 视口；内块不透明背景 alpha ≥ 0.5 或有可见边框 / 阴影；内块含按钮或表单控件；层自身文字 ≤ 500 字。普通固定页头 / 底栏面积小，不是候选。
+
+## 14. 0.7.5 列表结束与交接按条件结束（10-20，P1）
+
+### s64 list-end（P1；0.7.5-A，`04` §38）
+- 页面 `/s64`（`test/e2e/site.ts` 的 `startHandoffSite`）：按钮「下一页」（`#s64-next`）每点一次 `fetch("/s64/api?page=<n>")`（n 从 1 起递增）并读正文，把 `p<n>=<code>` 写进 `#s64-out`。`/s64/api?page=N`：N 为 1–3 回 HTTP 200 `{"code":0,"items":[…]}`，N ≥ 4 回 HTTP 200 `{"code":203,"msg":"no more"}`，`page=bad` 回 HTTP 200 `{"code":500,"msg":"boom"}`；服务器按到达顺序记每次的 `page` 与回了什么（oracle）。配置 `fetch.minIntervalMs: 0`；`sites.example.fetch.stopOn: ["json:$.code!=0"]`（只管 `tabcap fetch`）；`sites.example.guard: {stopOn:['text:"code":[1-9]'], endOn:["json:$.code=203"]}`（站点级规则对页面文档也求值，`json:$.code!=0` 会在 HTML 页面上命中——正文不是 JSON 即「无值」≠ 0【实测：第一版 s64 用它，`navigate /s64` 即 `guard.stopped`】，所以站点级用只看 JSON 文本的正则）；站点 `example` 入口 `/s64`。
+- 走法：`net start` → `navigate /s64` → `fetch /s64/api?page=1`、`=2`、`=3`、`=4` → `fetch ?page=1` → 点「下一页」四次（页面自己的请求，第 4 次是 203）→ `handoff status` → `fetch ?page=bad` → `guard resume --site example` → `fetch ?page=bad --end-on 'json:$.code=500'` → `net stop`。
+- expected：前三个 `fetch` 成功、没有 `end`；`page=4` 的 `fetch` 成功，`end.rule:"json:$.code=203"`、`end.detail` 含 `$.code is 203`，没有 `stopped`；之后 `fetch ?page=1` 成功（站点没停）；四次点击都成功、`#s64-out` 最后是 `p4=203`、`handoff status` 为 `running`；`page=bad` 回 `fetch.stopped`（`reason:"stop-rule"`、`rule:'text:"code":[1-9]'`，结束规则不挡真正的错误）；`guard resume` 后带 `--end-on 'json:$.code=500'` 的 `page=bad` 成功、`end.rule:"json:$.code=500"`。服务器收到的顺序与上面一致。包里 `guard` `end` 恰三条（`fetch` 的 page=4、点击的 page=4、带 `--end-on` 的 page=bad，`request` 各不相同），`breaker` 与 `resume` 各一条（`stop-rule`）。
+
+### s65 login-done（P1；0.7.5-B，`04` §39）
+- 页面 `/s65/login?k=<键>[&stay=1]`（同一个 `startHandoffSite`）：文字 `S65_LOGIN_PAGE`；按钮 `#s65-go`（文字 `S65_GO`）固定在视口左上角 `0,0` 起 240 × 80 px，所以 `e2e.human-input` 在 (4, 4) 的按下正好按在它上面。点它：没有 `stay=1` 时 1500 ms 后跳到 `/s65/done?k=<键>`；`stay=1` 时什么都不做。`/s65/done?k=<键>` 回 302、`Set-Cookie: s65_<键>=1; Path=/`、`Location: /s65/home?k=<键>`；`/s65/home` 显示 `S65_WELCOME`。服务器记每次 `/s65/done`（oracle）。
+- 走法与 expected（`test/e2e/v075b.e2e.test.ts`；守护进程以 `TABCAP_E2E_HUMAN=1` 启动）：
+  1. **URL 条件**：`net start` → `navigate /s65/login?k=a` → `e2e.human-input`（按在 `S65_GO` 上）→ `handoff status` 为 `waiting`、`human-takeover` → 立刻 `handoff wait --until-url /s65/home --timeout 15000`。expected：回 `state:"resumed"`、`by:"condition"`、`condition:{kind:"url", value:"/s65/home"}`；之后 `snapshot` 不带 `handoff`、`click` 可用；服务器收到一次 `/s65/done?k=a`。
+  2. **cookie 条件，人先做完**：`navigate /s65/login?k=b` → `e2e.human-input` → 等 4 s（跳转已完成，标签在 `/s65/home?k=b`）→ `handoff wait --until-cookie s65_b --timeout 5000`。expected：立刻回 `by:"condition"`、`condition:{kind:"cookie", value:"s65_b"}`（交接开始时的基线里没有这个名字）；回答与包里都不出现 cookie 值。
+  3. **一开始就成立**：`navigate /s65/login?k=c&stay=1` → `e2e.human-input` → `handoff wait --until-text S65_LOGIN_PAGE --timeout 10000`。expected：1 s 内回 `ok:false`、`code:"waiting"`，`message` 含 `already`，会话仍 `waiting`。
+  4. **人从别处继续**：接 3，后台跑 `handoff wait --until-url /never --timeout 15000`，1 s 后 `handoff continue`。expected：后台那条回 `state:"resumed"`、`by:"human"`。
+  - 包里（`net stop` 后）：`handoff` 的 `resumed` 依次是 `by:"condition"`（`condition.kind:"url"`）、`by:"condition"`（`condition.kind:"cookie"`）、`by:"human"`；任何事件里都没有字符串 `s65_b=1`。
+- 不在靶场里的【待验】：真人登录、跨域单点登录的 cookie（`04` §39 末条）。
