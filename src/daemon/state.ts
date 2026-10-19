@@ -67,6 +67,8 @@ export class Daemon {
   readonly sites = new Map<string, SiteBinding>();
   readonly guard: Guard;
   browser: Running | null = null;
+  /** Why the browser went away, when tabcap knows (0.7.4: Chrome's sandbox could not start); `need()` reports it. */
+  browserFailure: TabcapError | null = null;
   readonly recorders = new Map<string, Recorder>();
   /** Last finished recording per session, so `net list/body/show` keep working after `net stop`. */
   readonly lastBundles = new Map<string, Recorder>();
@@ -131,7 +133,7 @@ export class Daemon {
   }
 
   need(): Running {
-    if (this.browser === null) throw new TabcapError("not-running", "the browser is not running", "Run `tabcap browser start` first.");
+    if (this.browser === null) throw this.browserFailure ?? new TabcapError("not-running", "the browser is not running", "Run `tabcap browser start` first.");
     return this.browser;
   }
 

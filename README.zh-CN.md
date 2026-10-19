@@ -25,6 +25,8 @@ tabcap 就是这个循环的工作台：agent 探路、重复；你给凭据、�
 
 然后 `tabcap setup` 把 Chrome for Testing（约 180 MB）下载到 `~/.cache/tabcap`，别的都不用。
 
+**带命令沙箱的 agent**（Cursor 的 Auto-review 运行模式、Codex 的 `workspace-write`、开了 `/sandbox` 的 Claude Code、带 `--sandbox` 的 Gemini CLI）：Chrome 在它们的沙箱里建不起自己的沙箱，`tabcap browser start` 会直接报出来。让 tabcap 在沙箱外跑：把 `tabcap` 加进宿主的 allowlist 或排除命令，或者接成 MCP 服务器（`tabcap mcp --print-config <宿主>`；Claude Code 和 Codex 在沙箱外启动 MCP 服务器，Gemini CLI 在沙箱内）。不要用 `--no-sandbox`。
+
 ## 快速开始
 
 **1. 装浏览器，启动。**

@@ -4,6 +4,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### Inside an agent's command sandbox
+
+- When Chrome cannot create its own sandbox because the daemon runs inside another one (an agent host's command sandbox: Seatbelt on macOS, bubblewrap / Landlock on Linux), `tabcap browser start` now fails with `unsupported` and says so, instead of answering ok while the browser dies a moment later with SIGTRAP. Later commands repeat that error instead of "the browser is not running". tabcap reads the lines Chrome wrote to `browser.log` during this launch. `next` says to run tabcap outside the sandbox (allowlist or excluded commands, or `tabcap mcp`) and never to add `--no-sandbox`. README and skill: a short section on sandboxed agents.
+
 ### tabcap update: Homebrew channel
 
 - A Homebrew install (the binary resolves to `<prefix>/Cellar/tabcap/<version>/bin/tabcap`) is now channel `homebrew`: `tabcap update` runs `brew upgrade tabcap` with the brew of that prefix (else `brew` on `PATH`), brew's output on stderr. It answers `installed` when the keg for the registry's latest version exists afterwards, otherwise `formula-behind`: the tap follows a GitHub release a few minutes after npm has the version, so try `brew update && brew upgrade tabcap` later. `--check` only compares. `TABCAP_BREW` overrides the brew executable.

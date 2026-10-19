@@ -25,6 +25,8 @@ tabcap is the workbench for that loop. The agent explores and repeats; you provi
 
 Then `tabcap setup` downloads Chrome for Testing (about 180 MB) into `~/.cache/tabcap`; nothing else is needed.
 
+**Agents with a command sandbox** (Cursor's Auto-review run mode, Codex's `workspace-write`, Claude Code with `/sandbox`, Gemini CLI with `--sandbox`): Chrome cannot create its own sandbox inside theirs, and `tabcap browser start` says so. Let tabcap run outside it: put `tabcap` on the host's allowlist or excluded commands, or connect it as an MCP server (`tabcap mcp --print-config <host>`; Claude Code and Codex start MCP servers outside their sandbox, Gemini CLI inside it). Never `--no-sandbox`.
+
 ## Quick start
 
 **1. Get a browser and start.**

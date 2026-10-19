@@ -11,6 +11,7 @@ import { ConsoleLog } from "../capture/console.ts";
 import type { Daemon } from "../state.ts";
 import { DirectTransport } from "../transport/direct/index.ts";
 import { parseProxy, proxyLabel, resolveExecutable } from "../transport/direct/launcher.ts";
+import { logOffset, logSince, nestedSandboxError, sandboxFailed } from "../transport/direct/sandbox-check.ts";
 import { optBool, optStr, type Args } from "./args.ts";
 
 /** The UI extension directory, when this build has one (docs/07 §1); absent in the MVP. */
@@ -35,6 +36,12 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
   const foreground = optBool(a, "foreground");
   const profile = join(d.paths.profiles, "default");
   const cdpEnv = envVar("CDP");
+  d.browserFailure = null;
+  const logFile = d.paths.browserLog;
+  const offset = logOffset(logFile);
+  const failedSandbox = () => sandboxFailed(logSince(logFile, offset));
+  // Remembered, so later commands repeat the cause instead of "not running".
+  const sandboxError = () => (d.browserFailure = nestedSandboxError(logFile));
   const t = await DirectTransport.start({
     executable: exe.path,
     profileDir: profile,
@@ -46,7 +53,15 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     noStartupWindow: true,
     restoreFront: true,
     ...(cdpEnv === "pipe" || cdpEnv === "port" ? { cdp: cdpEnv } : {}),
+  }).catch((e: unknown) => {
+    throw failedSandbox() ? sandboxError() : e;
   });
+  // Inside another sandbox the helpers have already failed by now (measured: the
+  // log lines precede the CDP attach), while the browser process still answers.
+  if (failedSandbox()) {
+    await t.shutdown().catch(() => undefined);
+    throw sandboxError();
+  }
   const tabs = new Tabs(t, foreground);
   // 0.7.1-A: the take-over listener on every owned tab (direct mode; off with handoff.detectTakeover:false).
   const takeover = handoff.detectTakeover
@@ -78,6 +93,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
   void t.closed.then(async (reason) => {
     if (d.browser !== running) return;
     log.warn("browser connection closed", { reason });
+    if (failedSandbox()) sandboxError();
     await d.browserGone();
   });
   return { ...d.browser.info, alreadyRunning: false, extension: extensionDir(), detectTakeover: takeover !== null };

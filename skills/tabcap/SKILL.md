@@ -11,7 +11,7 @@ license: Apache-2.0
 
 Read more only when the task needs it: [task guides](references/guides.md), [recording](references/recording.md) (tabs, page reading, acting, waiting, `net`), [search](references/search.md) (snapshot grep / css / subtree, `html`, body lines, `net grep`), [analysis](references/analysis.md) (`where`, `recon`, `analyze`), [replay](references/replay.md), [pools](references/pools.md) (sites, accounts, proxies, plugins), [trace and probes](references/trace-and-probes.md), [MCP](references/mcp.md). Every option: [references/commands.md](references/commands.md), `tabcap help <command>`. [Coming from Chrome DevTools MCP](references/devtools-mcp.md): refs are not uids, `net list` hides failed and `data:` requests, `--snapshot` is optional.
 
-Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--proxy none` blocks everything but 127.0.0.1 / localhost). On `not-running`, run the two start commands. Then **`tabcap guide`** lists task recipes; `tabcap guide <id> --text` prints one: the commands in order, why, the pitfalls.
+Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--proxy none`: only 127.0.0.1 / localhost). On `not-running`, run the two start commands; never `--no-sandbox` or wrap Chrome. Then **`tabcap guide`** lists task recipes; `tabcap guide <id> --text` prints one: commands in order, why, pitfalls.
 
 ## Rules
 

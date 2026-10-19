@@ -4,6 +4,10 @@
 
 ## 未发布
 
+### 在 agent 的命令沙箱里
+
+- 守护进程跑在另一个沙箱里（agent 宿主的命令沙箱：macOS 的 Seatbelt，Linux 的 bubblewrap / Landlock）、Chrome 建不起自己的沙箱时，`tabcap browser start` 现在直接以 `unsupported` 失败并说明原因，不再先答成功、随后浏览器带 SIGTRAP 退出。之后的命令也重复这个错误，不再只说「浏览器没在运行」。判断依据是 Chrome 本次启动写进 `browser.log` 的行。`next` 说明要让 tabcap 在沙箱外跑（allowlist 或排除命令，或用 `tabcap mcp`），不要加 `--no-sandbox`。README 与 skill 各加一小段。
+
 ### tabcap update：Homebrew 渠道
 
 - Homebrew 安装的（二进制解析到 `<prefix>/Cellar/tabcap/<版本>/bin/tabcap`）现在是 `homebrew` 渠道：`tabcap update` 用该 prefix 的 brew（找不到就用 `PATH` 上的 `brew`）跑 `brew upgrade tabcap`，brew 的输出走 stderr。之后 registry 最新版本的 keg 存在就答 `installed`，否则答 `formula-behind`：tap 在 GitHub Release 发布后才更新，比 npm 晚几分钟，稍后再 `brew update && brew upgrade tabcap`。`--check` 只比较。`TABCAP_BREW` 改 brew 可执行文件。

@@ -556,3 +556,8 @@
 - 做了什么：二进制解析到 `<prefix>/Cellar/tabcap/<版本>/bin/tabcap` 即 `homebrew` 渠道，`tabcap update` 用该 prefix 的 brew 跑 `brew upgrade tabcap`；之后有 `Cellar/tabcap/<latest>` 才答 `installed`，否则 `formula-behind`（tap 比 npm 晚几分钟）；`TABCAP_BREW` 覆盖 brew；单测用假 brew 覆盖 check / installed / behind / 失败四种。本机 `/opt/homebrew/bin/tabcap` 符号链接经 realpath 识别为 homebrew【实测】；README、CHANGELOG 未发布节、formula caveats、命令帮助同步。
 - 卡在哪：真实 `brew upgrade` 要等 0.7.4 发布才能端到端走一遍【待验】。
 - 下一格从哪开始：0.7.4 发布后在本机 brew 那份上跑 `tabcap update` 验证；Windows `npm.cmd` 路径仍在候选里。
+
+## 2026-10-19 · agent 命令沙箱里的 Chrome（主循环）
+- 做了什么：Cursor agent 在 Auto-review 模式的 Seatbelt 沙箱里跑 tabcap，Chrome 子进程报 `sandbox initialization failed: Operation not permitted`、带 SIGTRAP 退出，它自己写了 `--no-sandbox` 包装脚本，排查时直接起的 Chrome 没带 `--use-mock-keychain` 弹了钥匙串【推断：钥匙串来源】。本机 `sandbox-exec`（只禁写家目录）复现：0.7.3 `browser start` 先答 ok、随后崩、之后只说 not-running【实测】。现在按本次启动写进 browser.log 的标志行判断，`browser start` 当场 `unsupported` 并给出路，之后的命令重复该错误；沙箱外启动与导航正常【实测】。各宿主：Claude Code / Codex 在沙箱外起 MCP 服务器，Gemini CLI 在沙箱内（官方文档 / 源码，子代理调研）；README、skill 只写一小段。
+- 卡在哪：Linux 的 `No usable sandbox!` 标志行只按 Chrome 源码字样匹配，没在 bubblewrap 里实测【待验】；沙箱内客户端能否连沙箱外守护进程的 socket 各家不同，文档只建议整个 tabcap 放沙箱外。
+- 下一格从哪开始：作者决定是否在 Cursor 改运行模式或 allowlist；0.7.4 候选照旧。
