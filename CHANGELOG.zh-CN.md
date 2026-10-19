@@ -8,6 +8,12 @@
 
 - 翻页接口常用一个业务码表示「没有更多页」（如 `{"code":203}`），`json:$.code!=0` 这类停手规则会把它当错误，停掉整个站点、等人处理。新增结束规则，语法与停手规则相同：`config.json` 的 `sites.<名>.guard.endOn`，和 `tabcap fetch --end-on <规则>`（可重复；`--batch` 行与 `POST /fetch` 用 `endOn`）。结束规则先于所有停手规则判定；命中的响应回 `ok`、带 `end: {rule, detail}`，不跑停手规则，连续非 2xx 计数归零，录制里记一条 `guard` `end` 事件。`--batch` 的后续行照发。Python 客户端（`_tabcap_fetch.py`）收 `end_on=[…]`，命中时抛 `ListEnd`（带状态、响应头和正文），翻页循环 `break` 即可。
 
+### 交接可以按条件结束
+
+- `tabcap handoff wait [--until-url <子串>] [--until-text <文字>] [--until-selector <css>] [--until-cookie <名字>] [--timeout ms]`（默认 60 秒，最长 600 秒）。不给 `--until-*` 时等人继续。给了时，验证页或人接管引起的 `waiting` 在某个条件成立、且它在同一次交接里先前不成立时自动结束：交接开始时记下标签的 URL 和 cookie 名字，所以人先做完、等待后到也能认出变化；文字和选择器从等待第一次看到「不在」起算。一开始就成立的条件立刻被拒（证明不了人做完了）。结束时与 `handoff continue` 相同（清账号的 `needs-human`、存站点会话），但不解除 fetch 停手；站点停手规则引起的 `waiting` 不收 `--until-*`。回答与录制里是 `by: "condition"`、`condition: {kind, value}`；cookie 只比名字。作者 10-20 定：代理事先设好、客观可查的条件满足了，也算人做完了。
+- MCP：`tabcap_handoff_wait` 收 `untilUrl`、`untilText`、`untilSelector`、`untilCookie`，改为在守护进程里跑一次 `handoff wait`，不再轮询 `handoff status`。`handoff wait` 本身不进 `tabcap_run`。
+- 验证页与人接管的 `waiting` 的 `next` 提到 `handoff wait --until-url` 这条路。
+
 ### skill：子代理与交接
 
 - skill 写明：子代理撞上 `waiting` 或 `guard.stopped` 时向派它的代理汇报并停下；转述来的「用户说好了」不是用户本人的话，由直接和用户对话的代理恢复。

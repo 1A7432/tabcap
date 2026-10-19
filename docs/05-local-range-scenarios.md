@@ -341,8 +341,8 @@
 - 页面 `/s65/login?k=<键>[&stay=1]`（同一个 `startHandoffSite`）：文字 `S65_LOGIN_PAGE`；按钮 `#s65-go`（文字 `S65_GO`）固定在视口左上角 `0,0` 起 240 × 80 px，所以 `e2e.human-input` 在 (4, 4) 的按下正好按在它上面。点它：没有 `stay=1` 时 1500 ms 后跳到 `/s65/done?k=<键>`；`stay=1` 时什么都不做。`/s65/done?k=<键>` 回 302、`Set-Cookie: s65_<键>=1; Path=/`、`Location: /s65/home?k=<键>`；`/s65/home` 显示 `S65_WELCOME`。服务器记每次 `/s65/done`（oracle）。
 - 走法与 expected（`test/e2e/v075b.e2e.test.ts`；守护进程以 `TABCAP_E2E_HUMAN=1` 启动）：
   1. **URL 条件**：`net start` → `navigate /s65/login?k=a` → `e2e.human-input`（按在 `S65_GO` 上）→ `handoff status` 为 `waiting`、`human-takeover` → 立刻 `handoff wait --until-url /s65/home --timeout 15000`。expected：回 `state:"resumed"`、`by:"condition"`、`condition:{kind:"url", value:"/s65/home"}`；之后 `snapshot` 不带 `handoff`、`click` 可用；服务器收到一次 `/s65/done?k=a`。
-  2. **cookie 条件，人先做完**：`navigate /s65/login?k=b` → `e2e.human-input` → 等 4 s（跳转已完成，标签在 `/s65/home?k=b`）→ `handoff wait --until-cookie s65_b --timeout 5000`。expected：立刻回 `by:"condition"`、`condition:{kind:"cookie", value:"s65_b"}`（交接开始时的基线里没有这个名字）；回答与包里都不出现 cookie 值。
+  2. **cookie 条件，人先做完**：`navigate /s65/login?k=b` → `e2e.human-input` → 等 4 s（跳转已完成，标签在 `/s65/home?k=b`）→ `handoff wait --until-cookie s65_b --timeout 5000`。expected：立刻回 `by:"condition"`、`condition:{kind:"cookie", value:"s65_b"}`（交接开始时的基线里没有这个名字）；回答与 `handoff` 事件里都不出现 cookie 值（录制本身照 `04` §4.1 记下响应头与 cookie 快照，那是录制的事，不是这条命令的输出）。
   3. **一开始就成立**：`navigate /s65/login?k=c&stay=1` → `e2e.human-input` → `handoff wait --until-text S65_LOGIN_PAGE --timeout 10000`。expected：1 s 内回 `ok:false`、`code:"waiting"`，`message` 含 `already`，会话仍 `waiting`。
   4. **人从别处继续**：接 3，后台跑 `handoff wait --until-url /never --timeout 15000`，1 s 后 `handoff continue`。expected：后台那条回 `state:"resumed"`、`by:"human"`。
-  - 包里（`net stop` 后）：`handoff` 的 `resumed` 依次是 `by:"condition"`（`condition.kind:"url"`）、`by:"condition"`（`condition.kind:"cookie"`）、`by:"human"`；任何事件里都没有字符串 `s65_b=1`。
+  - 包里（`net stop` 后）：`handoff` 的 `resumed` 依次是 `by:"condition"`（`condition.kind:"url"`）、`by:"condition"`（`condition.kind:"cookie"`）、`by:"human"`。
 - 不在靶场里的【待验】：真人登录、跨域单点登录的 cookie（`04` §39 末条）。

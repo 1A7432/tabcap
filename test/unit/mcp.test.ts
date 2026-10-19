@@ -14,7 +14,7 @@ import { fail, ok, type Envelope } from "../../src/shared/envelope.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { MCP_HOSTS } from "../../src/mcp/hosts.ts";
 import { LATEST_PROTOCOL_VERSION, LineFramer, McpServer, PROTOCOL_VERSIONS, type JsonRpcResponse } from "../../src/mcp/server.ts";
-import { CORE, EXCLUDED, HANDOFF_WAIT, HELP, RUN, argvFor, buildTools, callTool, type Clock, type RunOptions, type Tool } from "../../src/mcp/tools.ts";
+import { CORE, EXCLUDED, HANDOFF_WAIT, HELP, RUN, argvFor, buildTools, callTool, type RunOptions, type Tool } from "../../src/mcp/tools.ts";
 
 type Call = { argv: string[]; opts: RunOptions };
 
@@ -30,18 +30,6 @@ function fakeRun(answers: Envelope<unknown>[]) {
   return { fn, calls };
 }
 
-function fakeClock(): Clock & { t: number; sleeps: number[] } {
-  const c = {
-    t: 1_000_000,
-    sleeps: [] as number[],
-    now: () => c.t,
-    sleep: async (ms: number) => {
-      c.sleeps.push(ms);
-      c.t += ms;
-    },
-  };
-  return c;
-}
 
 /** The --all-tools set (one tool per command) and the default core set. */
 const TOOLS = buildTools("all");
@@ -54,7 +42,7 @@ const tool = (name: string): Tool => {
 
 function server(answers: Envelope<unknown>[] = [ok({})]) {
   const r = fakeRun(answers);
-  return { s: new McpServer({ run: r.fn, clock: fakeClock() }), calls: r.calls };
+  return { s: new McpServer({ run: r.fn }), calls: r.calls };
 }
 
 const errOf = (r: JsonRpcResponse | null) => (r !== null && "error" in r ? r.error : null);
@@ -167,7 +155,7 @@ describe("tools/list: the default core set", () => {
     const init = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {} } };
     const core = resOf(await server().s.handle(init));
     expect(String(core["instructions"])).toContain("tabcap_run");
-    const all = resOf(await new McpServer({ run: fakeRun([ok({})]).fn, clock: fakeClock() }, TOOLS).handle(init));
+    const all = resOf(await new McpServer({ run: fakeRun([ok({})]).fn }, TOOLS).handle(init));
     expect(String(all["instructions"])).not.toContain("tabcap_run");
   });
 });
@@ -176,8 +164,8 @@ describe("tabcap_run and tabcap_help", () => {
   test("tabcap_run passes the argv to run() as is (a leading \"tabcap\" dropped) and returns its envelope", async () => {
     const env = ok({ nodes: 3 });
     const r = fakeRun([env]);
-    expect(await callTool(tool(RUN), { argv: ["analyze", "deps", "./b", "--request", "r-4"] }, r.fn, fakeClock())).toEqual(env);
-    expect(await callTool(tool(RUN), { argv: ["tabcap", "schema"] }, r.fn, fakeClock())).toEqual(env);
+    expect(await callTool(tool(RUN), { argv: ["analyze", "deps", "./b", "--request", "r-4"] }, r.fn)).toEqual(env);
+    expect(await callTool(tool(RUN), { argv: ["tabcap", "schema"] }, r.fn)).toEqual(env);
     expect(r.calls).toEqual([
       { argv: ["analyze", "deps", "./b", "--request", "r-4"], opts: {} },
       { argv: ["schema"], opts: {} },
@@ -187,7 +175,7 @@ describe("tabcap_run and tabcap_help", () => {
   test("tabcap_run refuses what would block or read the stdio channel, and malformed argv", async () => {
     for (const argv of [["mcp"], ["daemon", "run"], ["site", "add", "example", "--url", "http://127.0.0.1/", "--user", "alice"], ["proxy", "add", "p1"], ["account", "add", "example"], ["wire", "serve"], ["replay", "serve", "./b"], ["fingerprint", "serve"]]) {
       const r = fakeRun([ok({})]);
-      const env = await callTool(tool(RUN), { argv }, r.fn, fakeClock());
+      const env = await callTool(tool(RUN), { argv }, r.fn);
       expect(env).toMatchObject({ ok: false, error: { code: "usage" } });
       if (env.ok) throw new Error("expected failure");
       expect(env.error.message).toContain("is not available over MCP");
@@ -195,13 +183,13 @@ describe("tabcap_run and tabcap_help", () => {
     }
     for (const args of [{}, { argv: "net list" }, { argv: [] }, { argv: ["net", 1] }, { argv: ["net", "list"], x: 1 }]) {
       const r = fakeRun([ok({})]);
-      expect(await callTool(tool(RUN), args, r.fn, fakeClock())).toMatchObject({ ok: false, error: { code: "usage" } });
+      expect(await callTool(tool(RUN), args, r.fn)).toMatchObject({ ok: false, error: { code: "usage" } });
       expect(r.calls).toEqual([]);
     }
   });
 
   test("tabcap_help without a command: every command with its usage and the tool that runs it", async () => {
-    const env = await callTool(tool(HELP), {}, fakeRun([ok({})]).fn, fakeClock());
+    const env = await callTool(tool(HELP), {}, fakeRun([ok({})]).fn);
     if (!env.ok || !isRecord(env.data) || !Array.isArray(env.data["commands"])) throw new Error(JSON.stringify(env));
     const rows = env.data["commands"].filter(isRecord);
     expect(rows.length).toBe(COMMANDS.filter((c) => c.internal !== true).length);
@@ -213,11 +201,11 @@ describe("tabcap_run and tabcap_help", () => {
 
   test("tabcap_help {command}: the --help text and the schema entry; tool names work too; unknown → usage", async () => {
     for (const q of ["net list", "tabcap net list", "tabcap_net_list"]) {
-      const env = await callTool(tool(HELP), { command: q }, fakeRun([ok({})]).fn, fakeClock());
+      const env = await callTool(tool(HELP), { command: q }, fakeRun([ok({})]).fn);
       expect(env).toMatchObject({ ok: true, data: { name: "net list", via: "tabcap_net_list", help: helpFor(specOf("net list")), schema: { name: "net list" } } });
     }
-    expect(await callTool(tool(HELP), { command: "net lst" }, fakeRun([ok({})]).fn, fakeClock())).toMatchObject({ ok: false, error: { code: "usage", message: "unknown command: net lst" } });
-    expect(await callTool(tool(HELP), { command: 3 }, fakeRun([ok({})]).fn, fakeClock())).toMatchObject({ ok: false, error: { code: "usage" } });
+    expect(await callTool(tool(HELP), { command: "net lst" }, fakeRun([ok({})]).fn)).toMatchObject({ ok: false, error: { code: "usage", message: "unknown command: net lst" } });
+    expect(await callTool(tool(HELP), { command: 3 }, fakeRun([ok({})]).fn)).toMatchObject({ ok: false, error: { code: "usage" } });
   });
 });
 
@@ -232,7 +220,7 @@ describe("tools/list --all-tools: generated from the command table", () => {
   });
 
   test("one tool per command except the listed exclusions, plus tabcap_handoff_wait", () => {
-    expect(Object.keys(EXCLUDED).sort()).toEqual(["account add", "daemon run", "fingerprint serve", "mcp", "proxy add", "replay serve", "schema", "site add", "update", "wire serve"]);
+    expect(Object.keys(EXCLUDED).sort()).toEqual(["account add", "daemon run", "fingerprint serve", "handoff wait", "mcp", "proxy add", "replay serve", "schema", "site add", "update", "wire serve"]);
     for (const k of Object.keys(EXCLUDED)) expect(specOf(k).path.join(" ")).toBe(k);
     const expected = COMMANDS.filter((c) => EXCLUDED[c.path.join(" ")] === undefined).map((c) => `tabcap_${c.path.join("_")}`);
     expect(TOOLS.map((t) => t.def.name)).toEqual([...expected, HANDOFF_WAIT]);
@@ -328,7 +316,7 @@ describe("tool arguments → the CLI's argv", () => {
     ];
     for (const [name, args, message] of cases) {
       const r = fakeRun([ok({})]);
-      const env = await callTool(tool(name), args, r.fn, fakeClock());
+      const env = await callTool(tool(name), args, r.fn);
       expect(env).toMatchObject({ ok: false, error: { code: "usage", message } });
       expect(r.calls).toEqual([]);
     }
@@ -365,49 +353,37 @@ describe("tools/call: the envelope as one text item, isError when ok is false", 
   });
 });
 
-describe("tabcap_handoff_wait (fake clock)", () => {
-  const status = (state: string) => ok({ session: "s", state, handoff: state === "running" ? null : { state, reason: "captcha" }, others: [] });
-
-  test("returns as soon as the human has continued: polls once a second", async () => {
-    const r = fakeRun([status("waiting"), status("waiting"), status("resumed")]);
-    const clock = fakeClock();
-    const env = await callTool(tool(HANDOFF_WAIT), { session: "s", timeoutSeconds: 60 }, r.fn, clock);
-    expect(env).toEqual(status("resumed"));
-    expect(clock.sleeps).toEqual([1000, 1000]);
-    expect(r.calls.map((c) => c.argv)).toEqual([["handoff", "status", "--session=s"], ["handoff", "status", "--session=s"], ["handoff", "status", "--session=s"]]);
+describe("tabcap_handoff_wait (one `handoff wait`, the daemon waits)", () => {
+  test("arguments → argv: timeoutSeconds as --timeout ms (at least 100), session, the until* conditions in flag order", async () => {
+    const r = fakeRun([ok({ session: "s", state: "resumed", by: "condition" })]);
+    const env = await callTool(tool(HANDOFF_WAIT), { session: "s", timeoutSeconds: 60, untilCookie: "sid", untilUrl: "/home" }, r.fn);
+    expect(env).toEqual(ok({ session: "s", state: "resumed", by: "condition" }));
+    expect(r.calls).toEqual([{ argv: ["handoff", "wait", "--timeout=60000", "--session=s", "--until-url=/home", "--until-cookie=sid"], opts: {} }]);
+    const d = fakeRun([ok({ session: "default", state: "running", handoff: null })]);
+    await callTool(tool(HANDOFF_WAIT), {}, d.fn);
+    await callTool(tool(HANDOFF_WAIT), { timeoutSeconds: 0, untilText: "Welcome", untilSelector: "#me" }, d.fn);
+    expect(d.calls.map((c) => c.argv)).toEqual([
+      ["handoff", "wait", "--timeout=30000"],
+      ["handoff", "wait", "--timeout=100", "--until-text=Welcome", "--until-selector=#me"],
+    ]);
   });
 
-  test("not waiting at all: one status, no sleep", async () => {
-    const r = fakeRun([status("running")]);
-    const clock = fakeClock();
-    expect(await callTool(tool(HANDOFF_WAIT), {}, r.fn, clock)).toEqual(status("running"));
-    expect(clock.sleeps).toEqual([]);
-    expect(r.calls).toEqual([{ argv: ["handoff", "status"], opts: {} }]);
+  test("the daemon's answer comes back as is (waiting on timeout, not-running …)", async () => {
+    const waiting = fail("waiting", 'session "s" still waits for the user after 2500 ms', "Run `tabcap handoff wait` again (over MCP: tabcap_handoff_wait) …", { state: "waiting", waitedMs: 2500 });
+    expect(await callTool(tool(HANDOFF_WAIT), { session: "s", timeoutSeconds: 2.5 }, fakeRun([waiting]).fn)).toEqual(waiting);
+    const down = fail("not-running", "the tabcap daemon is not running", "Run `tabcap daemon start`.");
+    expect(await callTool(tool(HANDOFF_WAIT), { timeoutSeconds: 5 }, fakeRun([down]).fn)).toEqual(down);
   });
 
-  test("timeout: the waiting error again after timeoutSeconds", async () => {
-    const r = fakeRun([status("waiting")]);
-    const clock = fakeClock();
-    const env = await callTool(tool(HANDOFF_WAIT), { session: "s", timeoutSeconds: 2.5 }, r.fn, clock);
-    expect(env).toMatchObject({ ok: false, error: { code: "waiting", state: "waiting", waitedMs: 2500, handoff: { state: "waiting", reason: "captcha" } } });
-    expect(clock.sleeps).toEqual([1000, 1000, 500]);
-    expect(r.calls.length).toBe(4);
-    if (env.ok) throw new Error("expected failure");
-    expect(env.error.next).toContain(HANDOFF_WAIT);
-  });
-
-  test("timeoutSeconds is 0 … 300; a failing status is returned as is", async () => {
-    for (const t of [301, -1, "10"]) {
-      const r = fakeRun([status("waiting")]);
-      expect(await callTool(tool(HANDOFF_WAIT), { timeoutSeconds: t }, r.fn, fakeClock())).toMatchObject({ ok: false, error: { code: "usage" } });
+  test("bad arguments are usage before anything runs; the schema lists the until* strings", async () => {
+    for (const args of [{ timeoutSeconds: 301 }, { timeoutSeconds: -1 }, { timeoutSeconds: "10" }, { untilUrl: 3 }, { until: "/x" }, { session: 1 }]) {
+      const r = fakeRun([ok({})]);
+      expect(await callTool(tool(HANDOFF_WAIT), args, r.fn)).toMatchObject({ ok: false, error: { code: "usage" } });
       expect(r.calls).toEqual([]);
     }
-    const zero = fakeRun([status("waiting")]);
-    expect(await callTool(tool(HANDOFF_WAIT), { timeoutSeconds: 0 }, zero.fn, fakeClock())).toMatchObject({ ok: false, error: { code: "waiting", waitedMs: 0 } });
-    expect(zero.calls.length).toBe(1);
-    const down = fail("not-running", "the tabcap daemon is not running", "Run `tabcap daemon start`.");
-    expect(await callTool(tool(HANDOFF_WAIT), { timeoutSeconds: 5 }, fakeRun([down]).fn, fakeClock())).toEqual(down);
-    expect(tool(HANDOFF_WAIT).def.inputSchema.properties["timeoutSeconds"]).toMatchObject({ type: "number", minimum: 0, maximum: 300 });
+    const props = tool(HANDOFF_WAIT).def.inputSchema.properties;
+    expect(props["timeoutSeconds"]).toMatchObject({ type: "number", minimum: 0, maximum: 300 });
+    for (const k of ["untilUrl", "untilText", "untilSelector", "untilCookie"]) expect(props[k]).toEqual({ type: "string" });
   });
 });
 

@@ -23,7 +23,7 @@
 import { log } from "../shared/log.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
 import { isRecord } from "../shared/json.ts";
-import { RUN, buildTools, callTool, resultOf, type Clock, type RunFn, type Tool, type ToolSet } from "./tools.ts";
+import { RUN, buildTools, callTool, resultOf, type RunFn, type Tool, type ToolSet } from "./tools.ts";
 
 export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"] as const;
 export const LATEST_PROTOCOL_VERSION = PROTOCOL_VERSIONS[0];
@@ -89,7 +89,7 @@ export class LineFramer {
   }
 }
 
-export type ServerDeps = { run: RunFn; clock: Clock };
+export type ServerDeps = { run: RunFn };
 
 export class McpServer {
   readonly tools: Tool[];
@@ -171,7 +171,7 @@ export class McpServer {
     if (tool === undefined) return rpcError(id, INVALID_PARAMS, `Unknown tool: ${name}`);
     const args = p["arguments"];
     if (args !== undefined && !isRecord(args)) return rpcError(id, INVALID_PARAMS, "Invalid params: arguments must be an object");
-    const env = await callTool(tool, args ?? {}, this.deps.run, this.deps.clock);
+    const env = await callTool(tool, args ?? {}, this.deps.run);
     log.debug("mcp tools/call", { tool: name, ok: env.ok, ...(env.ok ? {} : { code: env.error.code }) });
     return { jsonrpc: "2.0", id, result: resultOf(env) };
   }
@@ -179,7 +179,7 @@ export class McpServer {
 
 /** Serve on stdin / stdout until stdin closes and every call has answered, then exit. */
 export async function serveStdio(run: RunFn, set: ToolSet = "core"): Promise<void> {
-  const server = new McpServer({ run, clock: { now: () => Date.now(), sleep: (ms) => Bun.sleep(ms) } }, buildTools(set));
+  const server = new McpServer({ run }, buildTools(set));
   const framer = new LineFramer();
   const decoder = new TextDecoder("utf-8");
   const pending = new Set<Promise<void>>();

@@ -845,6 +845,23 @@ tabcap handoff continue [--session name]
 
 Example: `tabcap handoff continue`
 
+### `tabcap handoff wait`
+
+wait until a waiting session goes on: the human continued, or (verify-page / human-takeover) one --until-* condition became true that was not when the handoff began, which ends it like handoff continue → state, by (human | condition | plugin:<n>), condition
+
+```
+tabcap handoff wait [--session name] [--timeout ms] [--until-url s] [--until-text text] [--until-selector css] [--until-cookie name]
+```
+
+Example: `tabcap handoff wait --until-url /dashboard --timeout 120000`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--until-url <s>` |  | end the handoff once the handoff tab's URL contains this (and did not when the handoff began) |
+| `--until-text <text>` |  | … once the tab shows this text (seen absent first) |
+| `--until-selector <css>` |  | … once a CSS selector matches in the tab (seen absent first) |
+| `--until-cookie <name>` |  | … once a cookie of this name is set for the tab's URL (absent when the handoff began; only the name is compared) |
+
 ### `tabcap guard resume`
 
 resume a site after a stop rule fired: `tabcap fetch` sends to it again, and a session a site rule (config.json sites.<s>.guard) put into waiting goes on (decide first: look at the stopped response)

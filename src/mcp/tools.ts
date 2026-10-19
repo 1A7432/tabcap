@@ -38,6 +38,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   "fingerprint serve": "a foreground server until Ctrl-C that prints to stdout",
   "wire serve": "a foreground server until Ctrl-C that prints to stdout",
   "replay serve": "a foreground server until Ctrl-C that prints to stdout",
+  "handoff wait": "use tabcap_handoff_wait",
 };
 
 /** `--text` / `--json` only change what the CLI prints; a tool always returns the envelope. (`html --text` is data: its key is textContent.) */
@@ -127,12 +128,16 @@ const HANDOFF_WAIT_TOOL: Tool = {
   def: {
     name: HANDOFF_WAIT,
     // One line like the core tools; the waiting error it returns says what to do next.
-    description: `wait until the human continued a waiting session, polling each second; timeoutSeconds 0-${HANDOFF_WAIT_MAX_S} (default ${HANDOFF_WAIT_DEFAULT_S})`,
+    description: `wait until a waiting session goes on (the human continued, or an until* condition became true); timeoutSeconds 0-${HANDOFF_WAIT_MAX_S}`,
     inputSchema: {
       type: "object",
       properties: {
         session: { type: "string" },
         timeoutSeconds: { type: "number", minimum: 0, maximum: HANDOFF_WAIT_MAX_S },
+        untilUrl: { type: "string" },
+        untilText: { type: "string" },
+        untilSelector: { type: "string" },
+        untilCookie: { type: "string" },
       },
       additionalProperties: false,
     },
@@ -312,44 +317,41 @@ export function resultOf(env: Envelope<unknown>): { content: { type: "text"; tex
   return { content: [{ type: "text", text: JSON.stringify(env, null, 2) }], isError: !env.ok };
 }
 
-export type Clock = { now: () => number; sleep: (ms: number) => Promise<void> };
+/** tabcap_handoff_wait's condition arguments → `handoff wait` flags (0.7.5-B, docs/04 §39). */
+const UNTIL_ARGS: ReadonlyArray<[string, string]> = [
+  ["untilUrl", "--until-url"],
+  ["untilText", "--until-text"],
+  ["untilSelector", "--until-selector"],
+  ["untilCookie", "--until-cookie"],
+];
 
 /**
- * tabcap_handoff_wait: poll `handoff status` once a second until the session
- * is no longer `waiting` (the human ran `handoff continue`, or a challenge
- * handler answered) or the time is up; then the `waiting` error again.
+ * tabcap_handoff_wait: one `tabcap handoff wait` (the daemon waits): until the
+ * session is no longer `waiting` (the human ran `handoff continue`, a
+ * challenge handler answered, or 0.7.5-B an until* condition held) or the time
+ * is up; then the `waiting` error again.
  */
-export async function handoffWait(run: RunFn, clock: Clock, args: Record<string, unknown>): Promise<Envelope<unknown>> {
-  for (const k of Object.keys(args)) if (k !== "session" && k !== "timeoutSeconds") throw badArgs(HANDOFF_WAIT_TOOL, `unknown argument ${k}`);
+export async function handoffWait(run: RunFn, args: Record<string, unknown>): Promise<Envelope<unknown>> {
+  const known = new Set(["session", "timeoutSeconds", ...UNTIL_ARGS.map(([k]) => k)]);
+  for (const k of Object.keys(args)) if (!known.has(k)) throw badArgs(HANDOFF_WAIT_TOOL, `unknown argument ${k}`);
   const session = args["session"];
   const t = args["timeoutSeconds"] ?? HANDOFF_WAIT_DEFAULT_S;
   if (session !== undefined && typeof session !== "string") throw badArgs(HANDOFF_WAIT_TOOL, "session must be a string");
   if (typeof t !== "number" || !Number.isFinite(t) || t < 0 || t > HANDOFF_WAIT_MAX_S) throw badArgs(HANDOFF_WAIT_TOOL, `timeoutSeconds must be a number from 0 to ${HANDOFF_WAIT_MAX_S}`);
-  const argv = ["handoff", "status", ...(session === undefined ? [] : [`--session=${session}`])];
-  const started = clock.now();
-  const deadline = started + t * 1000;
-  for (;;) {
-    const env = await run(argv, {});
-    if (!env.ok) return env;
-    const data = isRecord(env.data) ? env.data : {};
-    if (data["state"] !== "waiting") return env;
-    const left = deadline - clock.now();
-    if (left <= 0) {
-      const name = typeof data["session"] === "string" ? data["session"] : (session ?? "default");
-      return fail("waiting", `session "${name}" is still waiting for the human after ${t} s`, `The human has not continued yet: call ${HANDOFF_WAIT} again to keep waiting, or ask the human to complete the verification in the browser and run \`tabcap handoff continue\`; until then do not act on this site.`, {
-        state: "waiting",
-        waitedMs: clock.now() - started,
-        handoff: data["handoff"] ?? null,
-      });
-    }
-    await clock.sleep(Math.min(1000, left));
+  const until: string[] = [];
+  for (const [k, flag] of UNTIL_ARGS) {
+    const v = args[k];
+    if (v === undefined) continue;
+    if (typeof v !== "string") throw badArgs(HANDOFF_WAIT_TOOL, `${k} must be a string`);
+    until.push(`${flag}=${v}`);
   }
+  return await run(["handoff", "wait", `--timeout=${Math.max(100, Math.round(t * 1000))}`, ...(session === undefined ? [] : [`--session=${session}`]), ...until], {});
 }
 
 /** Run one tools/call: the envelope, never a throw. */
-export async function callTool(tool: Tool, args: Record<string, unknown>, run: RunFn, clock: Clock): Promise<Envelope<unknown>> {
+export async function callTool(tool: Tool, args: Record<string, unknown>, run: RunFn): Promise<Envelope<unknown>> {
   try {
-    if (tool.def.name === HANDOFF_WAIT) return await handoffWait(run, clock, args);
+    if (tool.def.name === HANDOFF_WAIT) return await handoffWait(run, args);
     if (tool.def.name === RUN) return await runArgv(run, args);
     if (tool.def.name === HELP) return helpOf(args);
     const { argv, opts } = argvFor(tool, args);

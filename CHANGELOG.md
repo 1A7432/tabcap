@@ -8,6 +8,12 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 - A paging API often answers a business code for "no more pages" (e.g. `{"code":203}`) that a stop rule like `json:$.code!=0` would catch, stopping the whole site and waiting for a human. New end rules, same syntax as stop rules: `config.json` `sites.<name>.guard.endOn` and `tabcap fetch --end-on <rule>` (repeatable; `endOn` in `--batch` lines and `POST /fetch`). They are checked before every stop rule; a matching response answers `ok` with `end: {rule, detail}`, no stop rule runs, the consecutive-non-2xx counter resets, and the recording gets one `guard` `end` event. A `--batch` keeps sending its later lines. The Python client (`_tabcap_fetch.py`) takes `end_on=[…]` and raises `ListEnd` (carrying status, headers and content) so a paging loop can `break`.
 
+### A handoff can end on a condition
+
+- `tabcap handoff wait [--until-url <s>] [--until-text <t>] [--until-selector <css>] [--until-cookie <name>] [--timeout ms]` (default 60 s, up to 600 s). Without `--until-*` it waits until the human continues. With them, a verify-page or take-over `waiting` ends by itself once one condition holds that did not hold earlier in the same handoff: the handoff reads its tab's URL and cookie names when it begins, so a wait that starts after the user finished still sees the change; text and selector count once the wait has seen them absent. A condition that already holds is refused at once (it cannot show the user is done). It ends the handoff like `handoff continue` (account `needs-human` cleared, site session saved) but leaves fetch stops alone, and refuses a stop-rule `waiting`. Answer and recording: `by: "condition"`, `condition: {kind, value}`; cookies are compared by name only. The owner decided (10-20) that a condition the agent sets beforehand and that can be checked counts as the human being done.
+- MCP: `tabcap_handoff_wait` takes `untilUrl`, `untilText`, `untilSelector`, `untilCookie` and is now one `handoff wait` in the daemon instead of polling `handoff status`. `handoff wait` itself is not in `tabcap_run`.
+- The `next` of a verify-page or take-over `waiting` names `handoff wait --until-url` as the other way out.
+
 ### Skill: sub-agents and handoffs
 
 - The skill tells a sub-agent that hits `waiting` or `guard.stopped` to report to the agent that started it and stop: a relayed "the user is done" is not the user's own word, so the agent talking to the user resumes.

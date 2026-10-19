@@ -21,16 +21,20 @@ export async function handoffStatus(d: Daemon, _a: Args, session: string): Promi
   };
 }
 
+/** 0.4-D: ending a handoff also clears the bound account's needs-human state; what was cleared, or null. */
+export function clearNeedsHuman(d: Daemon, session: string): { account: string; state: "active"; cleared: "needs-human" } | null {
+  const b = d.sites.get(session);
+  const cleared = b !== undefined && b.account !== null && d.store !== null && d.pool.clearNeedsHuman(d.store, b.site, b.account);
+  return cleared && b !== undefined && b.account !== null ? { account: `${b.site}.${b.account}`, state: "active", cleared: "needs-human" } : null;
+}
+
 /**
  * The human finished in the browser and told the AI to go on. A site-bound
  * session saves its cookies in the store now (the verification usually
  * renewed them), so `replay session --site` gets the fresh ones.
  */
 export async function handoffContinue(d: Daemon, _a: Args, session: string): Promise<unknown> {
-  // 0.4-D: `handoff continue` also clears the bound account's needs-human state.
-  const b = d.sites.get(session);
-  const cleared = b !== undefined && b.account !== null && d.store !== null && d.pool.clearNeedsHuman(d.store, b.site, b.account);
-  const account = cleared && b !== undefined ? { account: `${b.site}.${b.account}`, state: "active", cleared: "needs-human" } : null;
+  const account = clearNeedsHuman(d, session);
   const waiting = d.guard.get(session)?.state === "waiting";
   if (!waiting && account !== null) return { session, state: "running", handoff: null, account };
   const h = d.guard.resume(session, "human");

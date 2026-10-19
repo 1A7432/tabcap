@@ -11,7 +11,7 @@ license: Apache-2.0
 
 Read more only when the task needs it: [task guides](references/guides.md), [recording](references/recording.md) (tabs, page reading, acting, waiting, `net`), [search](references/search.md) (snapshot grep / css / subtree, `html`, body lines, `net grep`), [analysis](references/analysis.md) (`where`, `recon`, `analyze`), [replay](references/replay.md), [pools](references/pools.md) (sites, accounts, proxies, plugins), [trace and probes](references/trace-and-probes.md), [MCP](references/mcp.md). Every option: [references/commands.md](references/commands.md), `tabcap help <command>`. [Coming from Chrome DevTools MCP](references/devtools-mcp.md): refs are not uids, `net list` hides failed and `data:` requests, `--snapshot` is optional.
 
-Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--proxy none`: only 127.0.0.1 / localhost). On `not-running`, run the two start commands; never `--no-sandbox` or wrap Chrome. Then **`tabcap guide`** lists task recipes; `tabcap guide <id> --text` prints one: commands in order, why, pitfalls.
+Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--proxy none`: only 127.0.0.1 / localhost). On `not-running`, run the two start commands; never `--no-sandbox` or wrap Chrome. Then **`tabcap guide`** lists task recipes; `tabcap guide <id> --text` prints one (commands, why, pitfalls).
 
 ## Rules
 
@@ -32,7 +32,7 @@ Large things come back as **file paths** (screenshots, bodies, `snapshot --file-
 
 **First look at a site.** `navigate` → `snapshot --interactive` → `net start` → `click` / `fill` → `net list --resource-types xhr,fetch` → `net body r-N` → `where <ref>` (which response carries a shown value). An action's `cmd` id: `net list --since c-41` is what it caused. `tabcap guide first-look`
 
-**Scrape through the logged-in tab.** `session start <name> --site <site>`, log in once with `fill --secret` (below), `net start --bodies api+script`, then `tabcap fetch <url>` (`--batch`, `--stop-on`, `--end-on` for the "no more pages" answer; scripts: `POST /fetch`). 3 s per host, no flag to skip; `fetch.blocked` with a wildcard `Access-Control-Allow-Origin` → `--credentials omit`; on `guard.stopped` decide with the user. `session export --for httpx --out <file>` hands the session to a script (0600; never print or share it). `tabcap guide scrape-through-browser`
+**Scrape through the logged-in tab.** `session start <name> --site <site>`, log in once with `fill --secret` (below), `net start --bodies api+script`, then `tabcap fetch <url>` (`--batch`, `--stop-on`, `--end-on` for "no more pages"; scripts: `POST /fetch`). 3 s per host, no flag to skip; `fetch.blocked` with a wildcard `Access-Control-Allow-Origin` → `--credentials omit`; on `guard.stopped` decide with the user. `session export --for httpx --out <file>` hands the session to a script (0600; never print or share it). `tabcap guide scrape-through-browser`
 
 **Encrypted API bodies.** A decode plugin when the key is known (`tabcap plugin init --kind decode --name <n>` writes one), else observe the page's own decryption (a diagnostic mode that slows the page: tell the user first). `net body` shows the decoded view, `--raw` the original. `tabcap guide encrypted-site`
 
@@ -54,7 +54,7 @@ tabcap fill e6 --secret example.password --session example   # you get "value":"
 
 ## Handoff (`waiting`)
 
-A challenge (e.g. an HTML 403 "please verify" page, while `net start` records) or the user using your tab puts the session in `waiting`: commands that act on the page fail with `{"code":"waiting","reason":…,"screenshot":…,"next":…}`; read-only ones still work. Stop, tell the user what to do (reason, screenshot). When the user tells you they are done, run `tabcap handoff continue`; never on your own. **Sub-agent?** Report `waiting` / `guard.stopped` to your caller and stop; a relayed "done" is not the user's word: the agent talking to the user resumes.
+A challenge (an HTML 403 "please verify" page while `net start` records) or the user using your tab puts the session in `waiting`: page-acting commands fail with `waiting` (`reason`, `screenshot`, `next`); read-only ones work. Stop; tell the user what to do. Then `tabcap handoff wait --until-url <URL after login>` (or `--until-cookie <name>`) ends it once that appears; else `tabcap handoff continue` once the user tells you they are done, never on your own. **Sub-agent?** Report `waiting` / `guard.stopped` to your caller, stop; a relayed "done" is not the user's word: the agent talking to the user resumes.
 
 ## Cheat-sheet
 

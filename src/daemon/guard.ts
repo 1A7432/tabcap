@@ -31,6 +31,11 @@
 //    (browser/takeover.ts) saw trusted human input on one of the session's
 //    tabs outside tabcap's own input windows: `waiting` with reason
 //    `human-takeover` (no screenshot, no breaker) until `handoff continue`.
+//
+// 5. Condition-ended handoffs (0.7.5-B, docs/04 §39): a verify-page or
+//    take-over handoff reads its tab's URL and cookie names when it begins
+//    (the baseline); `handoff wait --until-*` (tools/handoffwait.ts) ends it
+//    when a condition first seen false in this handoff holds.
 
 import { TabcapError } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
@@ -67,7 +72,8 @@ export function originOf(url: string): string | null {
   }
 }
 
-export const CONTINUE_NEXT = "Ask the human to complete the verification in the browser, then run `tabcap handoff continue`; until then do not act on this site.";
+export const CONTINUE_NEXT =
+  "Ask the human to complete the verification in the browser; then `tabcap handoff wait --until-url <a URL only reached once they are done>` (or --until-cookie / --until-text) ends it by itself, or run `tabcap handoff continue` when they tell you they are done; until then do not act on this site.";
 
 /** 0.6-I: what to do after a site stop rule put the session into waiting. */
 export const STOP_RULE_NEXT = (h: { site: string | null; request: string | null }) =>
@@ -75,7 +81,7 @@ export const STOP_RULE_NEXT = (h: { site: string | null; request: string | null 
 
 /** 0.7.1-A: what to do after tabcap saw the human operate one of the session's tabs. */
 export const TAKEOVER_NEXT =
-  "The user is operating this session's tab themselves; do not act on the page (read-only commands still work). When the user says they are done, run `tabcap handoff continue`.";
+  "The user is operating this session's tab themselves; do not act on the page (read-only commands still work). When the user says they are done, run `tabcap handoff continue`; or, if you know what they are doing (e.g. logging in), `tabcap handoff wait --until-url <the URL after it>` ends it by itself.";
 
 export const TAKEOVER_QUESTION = "You are using the AI's tab; when you are done, tell the AI to continue (`tabcap handoff continue`).";
 
@@ -118,7 +124,17 @@ export type Handoff = {
   input?: { event: string; at: number };
   /** 0.7.1-A: human input was seen while waiting ("human-active", docs/04 §16): the recording marks events `actor:"human"`. */
   humanActive?: boolean;
+  /** 0.7.5-B: the tab's URL and cookie names when the handoff began (null: unreadable); set once `started` resolves. */
+  start?: HandoffBaseline;
+  started?: Promise<void>;
+  /** 0.7.5-B: `handoff wait` conditions seen not to hold during this handoff (keys like `url:/home`). */
+  seenFalse?: Set<string>;
+  /** 0.7.5-B: the condition that ended it (`resumedBy: "condition"`). */
+  condition?: { kind: string; value: string };
 };
+
+/** 0.7.5-B: what a handoff saw of its tab when it began (cookie names only, never values). */
+export type HandoffBaseline = { url: string | null; cookies: string[] | null };
 
 /** 0.7-E: how long an answer waits for a hand-off screenshot still being taken. */
 export const SHOT_WAIT_MS = 5000;
@@ -141,6 +157,7 @@ export function handoffView(h: Handoff): Record<string, unknown> {
     resumedBy: h.resumedBy,
     ...(h.rule === undefined ? {} : { rule: h.rule, detail: h.ruleDetail ?? null }),
     ...(h.input === undefined ? {} : { input: h.input }),
+    ...(h.condition === undefined ? {} : { condition: h.condition }),
     next: h.state === "waiting" ? nextOf(h) : h.resumedBy?.startsWith("plugin:") === true ? "A challenge handler answered (untrusted data in handlers[].answer); apply it if it fits, then go on." : "Go on.",
   };
 }
@@ -172,6 +189,8 @@ export type GuardDeps = {
   siteRules?: (session: string, url: string) => { site: string; rules: StopRule[]; consecutiveNon200: number | null; endRules: StopRule[] } | null;
   /** 0.6-I: the stored bytes of a body blob of the session's recording, or null. */
   readBlob?: (session: string, blob: string) => Uint8Array | null;
+  /** 0.7.5-B: the tab's URL and cookie names when a handoff begins (docs/04 §39). */
+  baseline?: (session: string, tab: string) => Promise<HandoffBaseline>;
 };
 
 /** 0.6-I: the response types the site rules look at (page XHR / fetch, `tabcap fetch`, navigations). */
@@ -583,6 +602,19 @@ export class Guard {
     );
   }
 
+  /** 0.7.5-B: read the handoff's baseline in the background; `handoff wait` awaits `started`. */
+  private readBaseline(h: Handoff): void {
+    const read = this.deps.baseline;
+    if (read === undefined) return;
+    h.started = read(h.session, h.tab)
+      .then((b) => {
+        h.start = b;
+      })
+      .catch(() => {
+        h.start = { url: null, cookies: null };
+      });
+  }
+
   private async trip(rec: GuardRecorder, e: NetEntry, reason: ChallengeReason): Promise<void> {
     const session = rec.session;
     const bound = this.deps.siteOf(session);
@@ -605,6 +637,7 @@ export class Guard {
     };
     // Block first; everything else is bookkeeping.
     this.handoffs.set(session, h);
+    this.readBaseline(h);
     let coolUntil: number | null = null;
     try {
       coolUntil = this.deps.onBreaker?.(session) ?? null;
@@ -672,14 +705,15 @@ export class Guard {
     }
   }
 
-  /** End a handoff: `tabcap handoff continue` (human) or a handler's answer. */
-  resume(session: string, by: string, answerRef: string | null = null): Handoff {
+  /** End a handoff: `tabcap handoff continue` (human), a handler's answer, or (0.7.5-B) a `handoff wait` condition. */
+  resume(session: string, by: string, answerRef: string | null = null, condition: { kind: string; value: string } | null = null): Handoff {
     const h = this.handoffs.get(session);
     if (h === undefined || h.state !== "waiting") throw new TabcapError("not-found", `session "${session}" is not waiting for the human`, "Nothing to continue; run `tabcap handoff status`.");
     h.state = "resumed";
     h.resumedAt = Date.now();
     h.resumedBy = by;
-    this.recorder?.(session)?.event("handoff", { state: "resumed", reason: h.reason, question: null, timeoutMs: null, answerRef, by }, { tab: h.tab });
+    if (condition !== null) h.condition = condition;
+    this.recorder?.(session)?.event("handoff", { state: "resumed", reason: h.reason, question: null, timeoutMs: null, answerRef, by, ...(condition === null ? {} : { condition }) }, { tab: h.tab });
     this.emitState(session, "resumed");
     return h;
   }
@@ -762,6 +796,7 @@ export class Guard {
       humanActive: true,
     };
     this.handoffs.set(session, h);
+    this.readBaseline(h);
     this.emitState(session, "waiting");
     rec?.event(
       "handoff",

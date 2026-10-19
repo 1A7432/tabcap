@@ -16,6 +16,7 @@ import { Pool } from "./pool/runtime.ts";
 import { HostLimiter } from "./fetch/limiter.ts";
 import { DecodeHost } from "./hooks/decode.ts";
 import { siteRulesFor } from "./siterules.ts";
+import { handoffBaseline } from "./tools/handoffwait.ts";
 import { BlobStore } from "../bundle/blobs.ts";
 import { readFileSync } from "node:fs";
 
@@ -91,6 +92,8 @@ export class Daemon {
       onBreaker: (s) => this.coolAccount(s),
       // 0.6-I site stop rules: config.json sites.<name>.guard, bodies read from the session's recording.
       siteRules: (s, url) => siteRulesFor(this, s, url),
+      // 0.7.5-B: the handoff tab's URL and cookie names when a handoff begins.
+      baseline: (s, tab) => handoffBaseline(this, s, tab),
       readBlob: (s, blob) => {
         const r = this.recorders.get(s);
         const path = r === undefined ? null : new BlobStore(r.dir).pathOf(blob);

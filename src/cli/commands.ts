@@ -788,6 +788,22 @@ export const COMMANDS: CommandSpec[] = [
     action: "handoff.continue",
   },
   {
+    path: ["handoff", "wait"],
+    pos: [],
+    flags: [
+      SESSION,
+      { flag: "--timeout", key: "timeoutMs", kind: "number", help: "give up after this many ms with error waiting (100 to 600000)", default: 60000, metavar: "ms" },
+      { flag: "--until-url", key: "untilUrl", kind: "string", help: "end the handoff once the handoff tab's URL contains this (and did not when the handoff began)", metavar: "s" },
+      { flag: "--until-text", key: "untilText", kind: "string", help: "… once the tab shows this text (seen absent first)", metavar: "text" },
+      { flag: "--until-selector", key: "untilSelector", kind: "string", help: "… once a CSS selector matches in the tab (seen absent first)", metavar: "css" },
+      { flag: "--until-cookie", key: "untilCookie", kind: "string", help: "… once a cookie of this name is set for the tab's URL (absent when the handoff began; only the name is compared)", metavar: "name" },
+    ],
+    summary:
+      "wait until a waiting session goes on: the human continued, or (verify-page / human-takeover) one --until-* condition became true that was not when the handoff began, which ends it like handoff continue → state, by (human | condition | plugin:<n>), condition",
+    example: "tabcap handoff wait --until-url /dashboard --timeout 120000",
+    action: "handoff.wait",
+  },
+  {
     path: ["guard", "resume"],
     pos: [],
     flags: [SESSION, { flag: "--site", key: "site", kind: "string", help: "the store site (or host) a stop rule stopped", required: true, metavar: "site" }],

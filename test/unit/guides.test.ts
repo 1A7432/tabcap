@@ -189,7 +189,7 @@ describe("MCP tabcap_help {guide}", () => {
   const help = buildTools("core").find((t) => t.def.name === HELP);
   const call = async (args: Record<string, unknown>) => {
     if (help === undefined) throw new Error("no tabcap_help");
-    return callTool(help, args, () => Promise.resolve(ok({})), { now: () => 0, sleep: () => Promise.resolve() });
+    return callTool(help, args, () => Promise.resolve(ok({})));
   };
 
   test('guide "" lists, an id gives the same guide as the CLI; bad arguments are usage errors', async () => {
