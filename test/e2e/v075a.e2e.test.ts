@@ -1,0 +1,132 @@
+// L2 for 0.7.5-A (Chrome for Testing, the real daemon, the range in site.ts):
+//   - s64 end rules: with config.json sites.example.fetch.stopOn
+//     ["json:$.code!=0"] and sites.example.guard {stopOn: ['text:"code":[1-9]'],
+//     endOn: ["json:$.code=203"]} (a site json rule would trip on the HTML
+//     page itself: no value != 0), the "no more pages"
+//     answer (code 203) of `tabcap fetch` and of the page's own request ends
+//     the list instead of stopping the site; a real error (code 500) still
+//     stops it; `fetch --end-on` adds a rule for one call. The codes are the
+//     range's own log (`api`).
+
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isRecord } from "../../src/shared/json.ts";
+import { S64_END_CODE, startHandoffSite, type HandoffSite } from "./site.ts";
+
+const CHROME = process.env["TABCAP_CHROME"] ?? "";
+const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
+const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
+const SITE = "example";
+const S = ["--session", "ex"];
+const STOP = 'text:"code":[1-9]';
+
+let home = "";
+let site: HandoffSite;
+
+type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown> | null; raw: string; exit: number };
+const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
+const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
+
+async function tabcap(args: string[], stdin?: string): Promise<Env> {
+  const p = Bun.spawn(["bun", MAIN, ...args], {
+    env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME },
+    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+  const exit = await p.exited;
+  let env: unknown = null;
+  try {
+    env = JSON.parse(out);
+  } catch {
+    return { ok: exit === 0, data: {}, error: null, raw: out, exit };
+  }
+  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
+  return { ok: env["ok"], data: rec(env["data"]), error: isRecord(env["error"]) ? env["error"] : null, raw: out, exit };
+}
+
+async function ok(...args: string[]): Promise<Record<string, unknown>> {
+  const e = await tabcap(args);
+  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
+  return e.data;
+}
+
+function refOf(tree: string, role: string, name: string): string {
+  const line = tree.split("\n").find((l) => l.includes(`${role} "${name}"`));
+  const m = /\[(e\d+)\]/.exec(line ?? "");
+  if (m === null || m[1] === undefined) throw new Error(`no ${role} "${name}" in:\n${tree}`);
+  return m[1];
+}
+
+function events(bundle: string): Record<string, unknown>[] {
+  return readFileSync(join(bundle, "events.jsonl"), "utf8").trim().split("\n").map((l): unknown => JSON.parse(l)).filter(isRecord);
+}
+
+describe.skipIf(!enabled)("tabcap 0.7.5-A L2 (end rules)", () => {
+  beforeAll(async () => {
+    home = mkdtempSync(join(tmpdir(), "tabcap-e2e075a-"));
+    site = startHandoffSite();
+    mkdirSync(join(home, "config"), { recursive: true, mode: 0o700 });
+    const config = { fetch: { minIntervalMs: 0 }, sites: { [SITE]: { fetch: { stopOn: ["json:$.code!=0"] }, guard: { stopOn: [STOP], endOn: [`json:$.code=${S64_END_CODE}`] } } } };
+    writeFileSync(join(home, "config", "config.json"), JSON.stringify(config, null, 2) + "\n");
+    const add = await tabcap(["site", "add", SITE, "--url", `${site.origin}/s64`, "--user", "s64-user", "--password-stdin"], "s64-Pa55word-e2e\n");
+    if (!add.ok) throw new Error(`site add failed: ${add.raw}`);
+    await ok("daemon", "start");
+    await ok("browser", "start", "--proxy", "none", "--executable-path", CHROME);
+    await ok("session", "start", "ex", "--site", SITE);
+  }, 90_000);
+
+  afterAll(async () => {
+    await tabcap(["daemon", "stop"]).catch(() => null);
+    site.stop();
+    if (process.env["V075A_KEEP"] === undefined) rmSync(home, { recursive: true, force: true });
+    else console.log(`[v075a] kept ${home}`);
+  });
+
+  test("s64: code 203 ends the list (fetch and page request), nothing stops; code 500 still stops; --end-on adds a rule for one call", async () => {
+    const bundle = s((await ok("net", "start", ...S))["bundle"]);
+    await ok("navigate", `${site.origin}/s64`, ...S);
+    for (const page of [1, 2, 3]) {
+      const r = await ok("fetch", `/s64/api?page=${page}`, ...S);
+      expect([r["status"], "end" in r, "stopped" in r]).toEqual([200, false, false]);
+    }
+    const last = await ok("fetch", "/s64/api?page=4", ...S);
+    expect(last["end"]).toEqual({ rule: "json:$.code=203", detail: "$.code is 203" });
+    expect("stopped" in last).toBe(false);
+    expect((await ok("fetch", "/s64/api?page=1", ...S))["status"]).toBe(200); // the site is not stopped
+    // the page's own requests: four clicks, the fourth answers 203
+    const next = refOf(s((await ok("snapshot", "--interactive", ...S))["tree"]), "button", "下一页");
+    for (const page of [1, 2, 3, 4]) {
+      await ok("click", next, ...S);
+      await ok("wait", "--text", `p${page}=`, ...S);
+    }
+    await ok("wait", "--text", "p4=203", ...S);
+    expect((await ok("handoff", "status", ...S))["state"]).toBe("running");
+    // a real error still stops the site
+    const bad = await tabcap(["fetch", "/s64/api?page=bad", ...S]);
+    expect(bad.error).toMatchObject({ code: "fetch.stopped", reason: "stop-rule", rule: STOP });
+    expect(await ok("guard", "resume", "--site", SITE, ...S)).toMatchObject({ resumed: true, reason: "stop-rule", handoffResumed: "ex" });
+    const own = await ok("fetch", "/s64/api?page=bad", "--end-on", "json:$.code=500", ...S);
+    expect(own["end"]).toEqual({ rule: "json:$.code=500", detail: "$.code is 500" });
+    await ok("net", "stop", ...S);
+    // the range's log (oracle): what was asked, in order, and what it answered
+    expect(site.api.map((a) => `${a.page}:${a.code}`)).toEqual(["1:0", "2:0", "3:0", "4:203", "1:0", "1:0", "2:0", "3:0", "4:203", "bad:500", "bad:500"]);
+    const evs = events(bundle);
+    const apiReqs = evs.filter((e) => e["kind"] === "request" && s(e["url"]).includes("/s64/api"));
+    const idOf = (i: number) => apiReqs[i]?.["id"];
+    const guard = evs.filter((e) => e["kind"] === "guard");
+    expect(guard.map((g) => [g["event"], g["site"], g["rule"], g["request"]])).toEqual([
+      ["end", SITE, "json:$.code=203", idOf(3)],
+      ["end", SITE, "json:$.code=203", idOf(8)],
+      ["breaker", SITE, STOP, idOf(9)],
+      ["resume", SITE, STOP, idOf(9)],
+      ["end", SITE, "json:$.code=500", idOf(10)],
+    ]);
+    expect(rec(guard[0]?.["detail"])).toMatchObject({ detail: "$.code is 203", status: 200 });
+    expect(typeof rec(guard[0]?.["detail"])["fetchId"]).toBe("string");
+    expect("fetchId" in rec(guard[1]?.["detail"])).toBe(false); // the page's own request
+  }, 90_000);
+});

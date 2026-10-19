@@ -770,7 +770,7 @@ Example: `tabcap net wait --url /api/search --method POST`
 send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) | bodyFile, timing, waitedMs}
 
 ```
-tabcap fetch [<url>] [--session name] [--timeout ms] [--tab t2] [--method M] [--header k:v]... [--body text|@file] [--json text|@file] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--out file] [--raw] [--batch file.jsonl] [--reveal]
+tabcap fetch [<url>] [--session name] [--timeout ms] [--tab t2] [--method M] [--header k:v]... [--body text|@file] [--json text|@file] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--end-on rule]... [--out file] [--raw] [--batch file.jsonl] [--reveal]
 ```
 
 Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
@@ -785,9 +785,10 @@ Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
 | `--form <k=v>` |  | form field of an application/x-www-form-urlencoded body (repeatable) |
 | `--credentials <include\|same-origin\|omit>` | `include` | the page fetch()'s credentials option: include (cookies on every origin) \| same-origin \| omit (no cookies; for an API that answers Access-Control-Allow-Origin: * and authenticates by a header); with --batch: for lines without their own |
 | `--stop-on <rule>` |  | stop rule, on top of config.json fetch.stopOn: empty-body \| status>=<n> \| status=<n> \| json:<$.path>=<v> \| json:<$.path>!=<v> \| text:<regex>; when one fires the site's fetches are refused until `tabcap guard resume --site` (repeatable) |
+| `--end-on <rule>` |  | end rule (the --stop-on syntax), on top of config.json sites.<s>.guard.endOn: the list has ended (e.g. json:$.code=203); checked before every stop rule, a match answers ok with end {rule, detail} and stops nothing (repeatable) |
 | `--out <file>` |  | write the body (text secret-scrubbed) to this file instead of inline / bodyFile |
 | `--raw` |  | the body as base64 inline (bodyBase64, up to 16 MB; text secret-scrubbed) instead of inline text / bodyFile |
-| `--batch <file.jsonl>` |  | JSON lines file, one request per line {url, method?, headers?, body?\|json?\|form?, credentials?, tab?, timeoutMs?, stopOn?}: sent in order under the same limits, one envelope printed per line |
+| `--batch <file.jsonl>` |  | JSON lines file, one request per line {url, method?, headers?, body?\|json?\|form?, credentials?, tab?, timeoutMs?, stopOn?, endOn?}: sent in order under the same limits, one envelope printed per line |
 | `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 
 ### `tabcap where`

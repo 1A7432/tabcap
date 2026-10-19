@@ -96,6 +96,7 @@ Watch:
 - Pacing: 3 s between requests to one host (config.json fetch.minIntervalMs), no flag to skip it; `--timeout` includes the wait (`waitedMs` says how long).
 - `fetch.blocked` whose reason names a wildcard `Access-Control-Allow-Origin` (or a bad Allow-Credentials): retry with `tabcap fetch https://api.example.com/v1/items --credentials omit --session scrape` (no cookies; fine when the API authenticates by a header).
 - `fetch.stopped` / `guard.stopped`: look first (`tabcap net body r-12 --session scrape`), decide with the user, then `tabcap guard resume --site example --session scrape`.
+- Paging: when the API answers a code for "no more pages" (e.g. `{"code":203}`) that your stop rule would catch, add `--end-on 'json:$.code=203'` (or `sites.example.guard.endOn` in config.json): that page answers ok with `end`, nothing stops; end your loop there.
 - A 403 verify page (or a site stop rule) can put the session in `waiting` with a screenshot: stop, tell the user; `tabcap handoff continue --session scrape` only after they say they are done.
 - Scripts send the same request with `POST /fetch` on the daemon's socket ({session, url, credentials?, …}); `replay export-python` writes `_tabcap_fetch.py` for it.
 - `session export` takes auth headers from recorded requests: when the page authenticates by a header, let it make a request after `net start` (`tabcap reload --session scrape`) before exporting.

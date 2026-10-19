@@ -76,6 +76,7 @@ const REQUEST_FLAGS: ReadonlyArray<[string, string]> = [
   ["json", "--json"],
   ["form", "--form"],
   ["stopOn", "--stop-on"],
+  ["endOn", "--end-on"],
   ["out", "--out"],
   ["rawBody", "--raw"],
   ["tab", "--tab"],
@@ -108,6 +109,8 @@ export function fetchArgs(a: Record<string, unknown>, cwd: string, read: ReadTex
   if (form.length > 0) out["form"] = form;
   const stopOn = list(a["stopOn"]);
   if (stopOn.length > 0) out["stopOn"] = stopOn;
+  const endOn = list(a["endOn"]);
+  if (endOn.length > 0) out["endOn"] = endOn;
   for (const k of ["tab", "out", "timeoutMs", "credentials"]) if (a[k] !== undefined) out[k] = a[k];
   if (a["rawBody"] === true) out["rawBody"] = true;
   if (a["reveal"] === true) out["reveal"] = true;

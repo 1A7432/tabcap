@@ -6,9 +6,14 @@ bundle (`tabcap net start` first), paced per host (config.json `fetch`, default 
 between requests) and checked against stop rules. Unix socket on macOS / Linux,
 loopback TCP + the daemon's bearer token on Windows (both read from daemon.json).
 
-    from _tabcap_fetch import TabcapFetch, Stopped
+    from _tabcap_fetch import TabcapFetch, Stopped, ListEnd
     tc = TabcapFetch(session="example")
     status, headers, body = tc.fetch("https://example.test/api/list?page=2", stop_on=["json:$.code!=0"])
+    for page in range(1, 1000):  # an end rule (config.json sites.<s>.guard.endOn, or end_on) ends the loop
+        try:
+            status, headers, body = tc.fetch(f"https://example.test/api/list?page={page}", end_on=["json:$.code=203"])
+        except ListEnd:
+            break
     status, headers, body = tc.fetch("https://api.example.test/v1/me", headers={"authorization": token}, credentials="omit")
 """
 import base64
@@ -22,6 +27,14 @@ import httpx
 
 class Stopped(Exception):
     """A stop rule fired (fetch.stopped) or the site is stopped (guard.stopped): `tabcap guard resume --site <s>`."""
+
+
+class ListEnd(Exception):
+    """An end rule matched (tabcap 0.7.5): the list has ended; the site is not stopped. Carries the response."""
+
+    def __init__(self, rule, detail, status, headers, content):
+        super().__init__(f"end rule {rule} matched ({detail})")
+        self.rule, self.detail, self.status, self.headers, self.content = rule, detail, status, headers, content
 
 
 def _config_dir() -> Path:
@@ -43,14 +56,15 @@ class TabcapFetch:
         else:
             self.client = httpx.Client(base_url="http://localhost", transport=httpx.HTTPTransport(uds=info["socket"]), timeout=timeout_s)
 
-    def fetch(self, url, method="GET", headers=None, body=None, json_body=None, form=None, stop_on=None, timeout_ms=None, credentials=None):
-        """-> (status, headers, bytes). Raises Stopped on fetch.stopped / guard.stopped, RuntimeError on other errors.
+    def fetch(self, url, method="GET", headers=None, body=None, json_body=None, form=None, stop_on=None, timeout_ms=None, credentials=None, end_on=None):
+        """-> (status, headers, bytes). Raises Stopped on fetch.stopped / guard.stopped, ListEnd when an end rule
+        (end_on, or config.json sites.<s>.guard.endOn) matched, RuntimeError on other errors.
 
         credentials: the page fetch()'s credentials mode, "include" (the daemon's default), "same-origin" or
         "omit" (no cookies: for an API that answers Access-Control-Allow-Origin: * and authenticates by a header).
         """
         req = {"session": self.session, "url": url, "method": method, "headers": headers or {}, "rawBody": True}
-        for key, value in (("tab", self.tab), ("body", body), ("form", form), ("stopOn", stop_on), ("timeoutMs", timeout_ms), ("credentials", credentials)):
+        for key, value in (("tab", self.tab), ("body", body), ("form", form), ("stopOn", stop_on), ("endOn", end_on), ("timeoutMs", timeout_ms), ("credentials", credentials)):
             if value is not None:
                 req[key] = value
         if json_body is not None:
@@ -68,4 +82,7 @@ class TabcapFetch:
             content = Path(data["bodyFile"]).read_bytes()
         else:
             content = data.get("body", "").encode("utf-8")
+        end = data.get("end")
+        if isinstance(end, dict):
+            raise ListEnd(end.get("rule"), end.get("detail"), data["status"], data.get("headers", {}), content)
         return data["status"], data.get("headers", {}), content

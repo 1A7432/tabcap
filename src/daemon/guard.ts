@@ -23,7 +23,9 @@
 //    `guard` {event:"breaker", reason:"stop-rule", rule, request}, refuses the
 //    site's fetches and the session's page commands with `guard.stopped`, and
 //    puts the session into `waiting` (screenshot, `next`) until `handoff
-//    continue` or `guard resume --site`.
+//    continue` or `guard resume --site`. 0.7.5-A: `guard.endOn` (and a
+//    fetch's `--end-on`) run first; a response they match is "the list has
+//    ended": a `guard` {event:"end"}, no stop rule, the counter resets.
 //
 // 4. Human take-over (0.7.1-A, docs/04 §37): the take-over listener
 //    (browser/takeover.ts) saw trusted human input on one of the session's
@@ -167,7 +169,7 @@ export type GuardDeps = {
   /** A breaker tripped in this session: the account starts cooling (0.4-D); returns coolUntil or null. */
   onBreaker?: (session: string) => number | null;
   /** 0.6-I: the store site rules a recorded response of the session falls under, or null. */
-  siteRules?: (session: string, url: string) => { site: string; rules: StopRule[]; consecutiveNon200: number | null } | null;
+  siteRules?: (session: string, url: string) => { site: string; rules: StopRule[]; consecutiveNon200: number | null; endRules: StopRule[] } | null;
   /** 0.6-I: the stored bytes of a body blob of the session's recording, or null. */
   readBlob?: (session: string, blob: string) => Uint8Array | null;
 };
@@ -285,6 +287,9 @@ export function fetchStoppedError(s: FetchStop): TabcapError {
   });
 }
 
+/** 0.7.5-A: end-rule hits remembered (for the fetch that sent the request and one event each); older ones go first. */
+const MAX_END_HITS = 4096;
+
 /** Advisory keys a session remembers (0.6-D: one `challenge` event per page); older ones go first. */
 const MAX_ADVISORIES = 256;
 
@@ -338,6 +343,52 @@ export class Guard {
   private arrivals = new Map<string, ArrivalMark[]>();
   /** 0.6-I: the stop-rule trip each request caused (for the fetch whose response tripped it). */
   private tripsByRequest = new Map<string, { site: string; rule: string; detail: string }>();
+
+  /** 0.7.5-A: a fetch's own --end-on rules, by fetchId (checked with the site's endOn, before any stop rule). */
+  private fetchEnds = new Map<string, StopRule[]>();
+  /** 0.7.5-A: the end rule each request matched, by `${session}|${id}` (one `guard` end event each). */
+  private endsByRequest = new Map<string, { site: string; rule: string; detail: string }>();
+
+  /** `tabcap fetch --end-on` given: the site rule check runs these on this fetch's responses too. */
+  fetchEndRules(fetchId: string, rules: StopRule[]): () => void {
+    this.fetchEnds.set(fetchId, rules);
+    return () => this.fetchEnds.delete(fetchId);
+  }
+
+  /** The end rule request `id` of `session` matched, or null. */
+  endHit(session: string, id: string): { site: string; rule: string; detail: string } | null {
+    return this.endsByRequest.get(`${session}|${id}`) ?? null;
+  }
+
+  /** 0.7.5-A (docs/04 §38): a response matched an end rule; write the `guard` end event once per request. */
+  noteEnd(
+    rec: GuardRecorder | undefined,
+    session: string,
+    e: { site: string; request: string; url: string; status: number | null; tab: string | null; fetchId: string | null },
+    hit: { rule: string; detail: string },
+  ): void {
+    const key = `${session}|${e.request}`;
+    if (this.endsByRequest.has(key)) return;
+    this.endsByRequest.set(key, { site: e.site, ...hit });
+    while (this.endsByRequest.size > MAX_END_HITS) {
+      const oldest = this.endsByRequest.keys().next().value;
+      if (oldest === undefined) break;
+      this.endsByRequest.delete(oldest);
+    }
+    rec?.event(
+      "guard",
+      {
+        event: "end",
+        site: e.site,
+        account: null,
+        rule: hit.rule,
+        request: e.request,
+        detail: { rule: hit.rule, detail: hit.detail, request: e.request, url: e.url, status: e.status, ...(e.fetchId === null ? {} : { fetchId: e.fetchId }) },
+      },
+      { tab: e.tab },
+    );
+    log.info("guard: end rule matched", { session, site: e.site, rule: hit.rule, request: e.request });
+  }
 
   /** `tabcap fetch --stop-on` given: this fetch's responses skip the site's stopOn (the counter still counts). */
   overrideSiteRules(fetchId: string): () => void {
@@ -430,32 +481,46 @@ export class Guard {
     const session = rec.session;
     const sr = this.deps.siteRules(session, e.url);
     if (sr === null) return;
+    const status = e.status;
     const rules = e.fetchId !== undefined && this.overrides.has(e.fetchId) ? [] : sr.rules;
-    let hit: { rule: string; detail: string } | null = null;
-    if (rules.length > 0) {
-      const resp = ev !== undefined && isRecord(ev["response"]) ? ev["response"] : {};
-      const charset = typeof resp["charset"] === "string" ? resp["charset"] : null;
-      const bytes = e.blob === null ? null : (this.deps.readBlob?.(session, e.blob) ?? null);
-      const facts = bodyFacts(e, bytes, (b) => {
-        const t = decodeBody(b, e.mime, () => charset);
-        return t === null ? null : this.deps.secrets.scrub(t);
-      });
-      const usable = facts === null ? rules.filter((r) => !BODY_RULES.has(r.kind)) : rules;
-      hit = firstStop(usable, { status: e.status, bytes: facts?.bytes ?? 0, text: facts?.text ?? null });
-    }
+    const ends = [...sr.endRules, ...(e.fetchId === undefined ? [] : (this.fetchEnds.get(e.fetchId) ?? []))];
+    let facts: { bytes: number; text: string | null } | null | undefined;
+    const check = (list: readonly StopRule[]): { rule: string; detail: string } | null => {
+      if (list.length === 0) return null;
+      if (facts === undefined) {
+        const resp = ev !== undefined && isRecord(ev["response"]) ? ev["response"] : {};
+        const charset = typeof resp["charset"] === "string" ? resp["charset"] : null;
+        const bytes = e.blob === null ? null : (this.deps.readBlob?.(session, e.blob) ?? null);
+        facts = bodyFacts(e, bytes, (b) => {
+          const t = decodeBody(b, e.mime, () => charset);
+          return t === null ? null : this.deps.secrets.scrub(t);
+        });
+      }
+      const usable = facts === null ? list.filter((r) => !BODY_RULES.has(r.kind)) : list;
+      return firstStop(usable, { status, bytes: facts?.bytes ?? 0, text: facts?.text ?? null });
+    };
+    // 0.7.5-A: an end rule first; its response is a normal answer (no stop rule, the counter resets).
+    const end = check(ends);
+    const hit = end === null ? check(rules) : null;
     const key = `${session}|${sr.site}`;
     let seq = this.arrivals.get(key);
     if (seq === undefined) {
       seq = [];
       this.arrivals.set(key, seq);
     }
-    const n = insertArrival(seq, { mono: arrivalMono(ev), bad: !(e.status >= 200 && e.status < 300) });
-    if (hit === null && sr.consecutiveNon200 !== null && n >= sr.consecutiveNon200) {
-      hit = { rule: `consecutiveNon200:${sr.consecutiveNon200}`, detail: `${n} responses in a row (by arrival) were not 2xx (this one: status ${e.status})` };
+    const n = insertArrival(seq, { mono: arrivalMono(ev), bad: end === null && !(status >= 200 && status < 300) });
+    if (end !== null) {
+      this.noteEnd(rec, session, { site: sr.site, request: e.id, url: e.url, status, tab: e.tab, fetchId: e.fetchId ?? null }, end);
+      return;
     }
-    if (hit === null) return;
+    const trip =
+      hit ??
+      (sr.consecutiveNon200 !== null && n >= sr.consecutiveNon200
+        ? { rule: `consecutiveNon200:${sr.consecutiveNon200}`, detail: `${n} responses in a row (by arrival) were not 2xx (this one: status ${status})` }
+        : null);
+    if (trip === null) return;
     this.arrivals.delete(key);
-    this.track(this.tripStopRule(rec, e, sr.site, hit));
+    this.track(this.tripStopRule(rec, e, sr.site, trip));
   }
 
   /** 0.6-I: a site stop rule fired. Blocking is synchronous; the screenshot follows. */

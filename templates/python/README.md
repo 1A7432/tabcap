@@ -44,13 +44,13 @@ which sends one GET with `Session()` exactly as generated, verifying the echo wi
 `_tabcap_fetch.py` is not used by `client.py`. It is for a scraper you already have: instead of sending its requests itself, it hands each one to the running tabcap daemon (`POST /fetch`), and the session's logged-in tab sends it (its cookies, its CORS rules) and records it into the session's bundle, paced per host (config.json `fetch.minIntervalMs`, default 3000 ms between requests) and checked against stop rules.
 
 ```python
-from _tabcap_fetch import TabcapFetch, Stopped
+from _tabcap_fetch import TabcapFetch, Stopped, ListEnd
 
 tc = TabcapFetch(session="example")          # `tabcap net start --session example` first
 status, headers, body = tc.fetch("https://example.test/api/list?page=2", stop_on=["json:$.code!=0"])
 ```
 
-`Stopped` means a stop rule fired (or had fired) on the site: look at the response, then `tabcap guard resume --site <site>` when you decide to go on. Afterwards `tabcap bundle export har` and `tabcap replay export-python` turn the recording into fixtures for offline replay.
+`Stopped` means a stop rule fired (or had fired) on the site: look at the response, then `tabcap guard resume --site <site>` when you decide to go on. `ListEnd` means an end rule matched (`end_on=[...]`, or `config.json` `sites.<site>.guard.endOn`, e.g. `json:$.code=203` for "no more pages"): the list has ended and nothing is stopped; it carries `status`, `headers` and `content`. Afterwards `tabcap bundle export har` and `tabcap replay export-python` turn the recording into fixtures for offline replay.
 
 ## What was not generated
 

@@ -185,7 +185,7 @@ function withoutResult(e: Record<string, unknown>): Record<string, unknown> {
 
 /** `POST /fetch` (0.6-A): one `tabcap fetch` for a script; same auth as /command, same envelope as the CLI. */
 export async function handleFetch(d: Daemon, body: unknown, shutdown: () => void): Promise<Envelope<unknown>> {
-  if (!isRecord(body)) return fail("usage", "POST /fetch needs a JSON object {session, url, method?, headers?, body?|json?|form?, credentials?, tab?, timeoutMs?, stopOn?, rawBody?, reveal?}", "See _tabcap_fetch.py (tabcap replay export-python ships it).");
+  if (!isRecord(body)) return fail("usage", "POST /fetch needs a JSON object {session, url, method?, headers?, body?|json?|form?, credentials?, tab?, timeoutMs?, stopOn?, endOn?, rawBody?, reveal?}", "See _tabcap_fetch.py (tabcap replay export-python ships it).");
   if ("batch" in body) return fail("usage", "POST /fetch takes one request", "Send one request per call, or use `tabcap fetch --batch <file.jsonl>`.");
   if ("out" in body) return fail("usage", "POST /fetch has no out: the body comes back inline (text up to 8 KB), as bodyFile, or base64 with rawBody", "Leave out `out`.");
   const args = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "session"));

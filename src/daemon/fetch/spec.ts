@@ -1,6 +1,6 @@
 // The request a `tabcap fetch` sends (0.6-A). One shape for the CLI and the
 // daemon's `POST /fetch` endpoint: {url, method?, headers?, body?|json?|form?,
-// credentials?, tab?, timeoutMs?, stopOn?, out?, rawBody?, reveal?}. Everything here is untrusted
+// credentials?, tab?, timeoutMs?, stopOn?, endOn?, out?, rawBody?, reveal?}. Everything here is untrusted
 // JSON (a script on the machine sends it): malformed input is a usage error,
 // never a crash.
 
@@ -21,7 +21,7 @@ export type FetchCredentials = (typeof FETCH_CREDENTIALS)[number];
 export const DEFAULT_FETCH_CREDENTIALS: FetchCredentials = "include";
 
 export const FETCH_USAGE =
-  "tabcap fetch <url> [--method M] [--header k:v]... [--body <text>|@<file>] [--json <text>|@<file>] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--out file] [--tab t2] [--timeout ms] | tabcap fetch --batch <file.jsonl>";
+  "tabcap fetch <url> [--method M] [--header k:v]... [--body <text>|@<file>] [--json <text>|@<file>] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--end-on rule]... [--out file] [--tab t2] [--timeout ms] | tabcap fetch --batch <file.jsonl>";
 
 export type FetchSpec = {
   url: string;
@@ -33,6 +33,8 @@ export type FetchSpec = {
   tab: string | null;
   timeoutMs: number;
   stopOn: string[];
+  /** 0.7.5-A: end rules ("the list has ended", docs/04 §38), checked before every stop rule. */
+  endOn: string[];
   out: string | null;
   rawBody: boolean;
   /** 0.6-E: print sensitive response header values as they are (docs/04 §8.3); default <redacted:name>. */
@@ -121,14 +123,8 @@ export function parseFetchSpec(a: unknown): FetchSpec {
   if (tab !== undefined && tab !== null && (typeof tab !== "string" || !/^t\d{1,6}$/.test(tab))) throw usage("tab must be a tab id like t2");
   const t = a["timeoutMs"];
   if (t !== undefined && t !== null && (typeof t !== "number" || !Number.isFinite(t) || t < 1 || t > MAX_FETCH_TIMEOUT_MS)) throw usage(`timeoutMs must be a number of ms between 1 and ${MAX_FETCH_TIMEOUT_MS}`);
-  const stop = a["stopOn"];
-  let stopOn: string[] = [];
-  if (stop !== undefined && stop !== null) {
-    if (typeof stop === "string") stopOn = [stop];
-    else if (Array.isArray(stop) && stop.every((x) => typeof x === "string")) stopOn = stop.filter((x): x is string => typeof x === "string");
-    else throw usage("stopOn must be a rule string or a list of them");
-    if (stopOn.length > 32) throw usage("at most 32 stop rules");
-  }
+  const stopOn = ruleList(a["stopOn"], "stopOn", "stop");
+  const endOn = ruleList(a["endOn"], "endOn", "end");
   const out = a["out"];
   if (out !== undefined && out !== null && (typeof out !== "string" || out === "")) throw usage("out must be a file path");
   const raw = a["rawBody"];
@@ -145,10 +141,22 @@ export function parseFetchSpec(a: unknown): FetchSpec {
     tab: typeof tab === "string" ? tab : null,
     timeoutMs: typeof t === "number" ? Math.round(t) : DEFAULT_FETCH_TIMEOUT_MS,
     stopOn,
+    endOn,
     out: typeof out === "string" ? out : null,
     rawBody: raw === true,
     reveal: reveal === true,
   };
+}
+
+/** `stopOn` / `endOn`: a rule string or a list of them, at most 32 (the syntax is checked when the fetch runs). */
+function ruleList(v: unknown, key: string, what: string): string[] {
+  if (v === undefined || v === null) return [];
+  let list: string[];
+  if (typeof v === "string") list = [v];
+  else if (Array.isArray(v) && v.every((x) => typeof x === "string")) list = v.filter((x): x is string => typeof x === "string");
+  else throw usage(`${key} must be a rule string or a list of them`);
+  if (list.length > 32) throw usage(`at most 32 ${what} rules`);
+  return list;
 }
 
 /** The target URL, resolved against the tab's page (relative URLs allowed); http(s) only. */

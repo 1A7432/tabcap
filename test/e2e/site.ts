@@ -2240,3 +2240,75 @@ export function startTakeoverSite(): TakeoverSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, served: new Map(), hits, stop: () => server.stop(true), pings: () => pings };
 }
+
+// ---------------------------------------------------------------- 0.7.5: list end and handoff conditions (docs/05 s64–s65)
+// One origin. Every code, cookie and path a test expects is a literal here or
+// in `api` / `done` (what the range really answered), never tabcap's output.
+//   /s64              s64 list-end: a "下一页" button whose click fetches
+//                     /s64/api?page=<n> (n = 1, 2, …) and reads the body.
+//   /s64/api?page=N   N 1–3: {"code":0,"items":[…]}; N ≥ 4: {"code":203,
+//                     "msg":"no more"}; page=bad: {"code":500,"msg":"boom"};
+//                     all HTTP 200; `api` logs each (page, code) by arrival.
+//   /s65/login?k=K    s65 login-done: text S65_LOGIN_PAGE and a button
+//                     S65_GO fixed at the viewport's top-left (0,0, 240 × 80
+//                     px: e2e.human-input presses (4, 4)); its click goes to
+//                     /s65/done?k=K 1500 ms later, unless &stay=1.
+//   /s65/done?k=K     302 to /s65/home?k=K with Set-Cookie s65_K=1; logged in `done`.
+//   /s65/home?k=K     text S65_WELCOME.
+
+export const S64_END_CODE = 203;
+
+export type HandoffSite = { origin: string; api: Array<{ page: string; code: number }>; done: string[]; stop: () => void };
+
+export function startHandoffSite(): HandoffSite {
+  const api: Array<{ page: string; code: number }> = [];
+  const done: string[] = [];
+  const html = (body: string) => new Response(`<!doctype html><meta charset=utf-8>${body}`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      const p = u.pathname;
+      const k = (u.searchParams.get("k") ?? "x").replace(/[^a-z0-9]/g, "");
+      if (p === "/favicon.ico") return new Response(null, { status: 204 });
+      if (p === "/s64")
+        return html(`<title>s64 list end</title>
+<button type=button id=s64-next>下一页</button> <span id=s64-out></span>
+<script>
+let n = 0;
+document.getElementById("s64-next").addEventListener("click", () => {
+  n += 1;
+  const page = n;
+  fetch("/s64/api?page=" + page, { cache: "no-store" }).then((r) => r.json()).then((j) => { document.getElementById("s64-out").textContent = "p" + page + "=" + j.code; });
+});
+</script>`);
+      if (p === "/s64/api") {
+        const page = u.searchParams.get("page") ?? "";
+        const n = Number(page);
+        const body = page === "bad" ? { code: 500, msg: "boom" } : Number.isInteger(n) && n >= 4 ? { code: S64_END_CODE, msg: "no more" } : { code: 0, items: [`item-${page}-a`, `item-${page}-b`] };
+        api.push({ page, code: body.code });
+        return Response.json(body, { headers: { "cache-control": "no-store" } });
+      }
+      if (p === "/s65/login") {
+        const stay = u.searchParams.get("stay") === "1";
+        return html(`<title>s65 login</title>
+<style>body { margin: 0; } #s65-go { position: fixed; left: 0; top: 0; width: 240px; height: 80px; margin: 0; }</style>
+<button type=button id=s65-go>S65_GO</button>
+<p style="margin-top: 120px">S65_LOGIN_PAGE</p>
+<script>
+document.getElementById("s65-go").addEventListener("click", () => {
+  ${stay ? "" : `setTimeout(() => { location.href = "/s65/done?k=${k}"; }, 1500);`}
+});
+</script>`);
+      }
+      if (p === "/s65/done") {
+        done.push(k);
+        return new Response(null, { status: 302, headers: { location: `/s65/home?k=${k}`, "set-cookie": `s65_${k}=1; Path=/`, "cache-control": "no-store" } });
+      }
+      if (p === "/s65/home") return html(`<title>s65 home</title><p>S65_WELCOME</p>`);
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, api, done, stop: () => server.stop(true) };
+}

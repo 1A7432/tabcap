@@ -2,6 +2,16 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### End rules: "no more pages" is not a stop
+
+- A paging API often answers a business code for "no more pages" (e.g. `{"code":203}`) that a stop rule like `json:$.code!=0` would catch, stopping the whole site and waiting for a human. New end rules, same syntax as stop rules: `config.json` `sites.<name>.guard.endOn` and `tabcap fetch --end-on <rule>` (repeatable; `endOn` in `--batch` lines and `POST /fetch`). They are checked before every stop rule; a matching response answers `ok` with `end: {rule, detail}`, no stop rule runs, the consecutive-non-2xx counter resets, and the recording gets one `guard` `end` event. A `--batch` keeps sending its later lines. The Python client (`_tabcap_fetch.py`) takes `end_on=[…]` and raises `ListEnd` (carrying status, headers and content) so a paging loop can `break`.
+
+### Skill: sub-agents and handoffs
+
+- The skill tells a sub-agent that hits `waiting` or `guard.stopped` to report to the agent that started it and stop: a relayed "the user is done" is not the user's own word, so the agent talking to the user resumes.
+
 ## 0.7.4 (2026-10-19)
 
 ### Inside an agent's command sandbox

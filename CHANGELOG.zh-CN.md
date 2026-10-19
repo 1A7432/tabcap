@@ -2,6 +2,16 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### 列表结束规则：「没有更多了」不算停手
+
+- 翻页接口常用一个业务码表示「没有更多页」（如 `{"code":203}`），`json:$.code!=0` 这类停手规则会把它当错误，停掉整个站点、等人处理。新增结束规则，语法与停手规则相同：`config.json` 的 `sites.<名>.guard.endOn`，和 `tabcap fetch --end-on <规则>`（可重复；`--batch` 行与 `POST /fetch` 用 `endOn`）。结束规则先于所有停手规则判定；命中的响应回 `ok`、带 `end: {rule, detail}`，不跑停手规则，连续非 2xx 计数归零，录制里记一条 `guard` `end` 事件。`--batch` 的后续行照发。Python 客户端（`_tabcap_fetch.py`）收 `end_on=[…]`，命中时抛 `ListEnd`（带状态、响应头和正文），翻页循环 `break` 即可。
+
+### skill：子代理与交接
+
+- skill 写明：子代理撞上 `waiting` 或 `guard.stopped` 时向派它的代理汇报并停下；转述来的「用户说好了」不是用户本人的话，由直接和用户对话的代理恢复。
+
 ## 0.7.4（2026-10-19）
 
 ### 在 agent 的命令沙箱里

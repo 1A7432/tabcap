@@ -58,7 +58,7 @@ class FakeRec implements GuardRecorder {
 }
 
 /** A guard whose site `example` covers SITE_URL with the given rules; blobs are bodies by name. */
-function guard(stopOn: string[], consecutiveNon200: number | null, blobs: Record<string, string> = {}) {
+function guard(stopOn: string[], consecutiveNon200: number | null, blobs: Record<string, string> = {}, endOn: string[] = []) {
   const g = new Guard({
     configDir: join(root, "config"),
     secrets: new Secrets(),
@@ -66,7 +66,7 @@ function guard(stopOn: string[], consecutiveNon200: number | null, blobs: Record
     screenshot: () => Promise.resolve("/tmp/shot.png"),
     pageInfo: () => Promise.resolve({ url: null, title: null, text: null }),
     settleMs: 0,
-    siteRules: (_s, url) => (url.startsWith(SITE_URL) ? { site: "example", rules: parseStopRules(stopOn), consecutiveNon200 } : null),
+    siteRules: (_s, url) => (url.startsWith(SITE_URL) ? { site: "example", rules: parseStopRules(stopOn), consecutiveNon200, endRules: parseStopRules(endOn) } : null),
     readBlob: (_s, blob) => (blob in blobs ? new TextEncoder().encode(blobs[blob]) : null),
   });
   const rec = new FakeRec("ex");
@@ -114,8 +114,8 @@ describe("site stop rules: pure parts (0.6-I)", () => {
   });
 
   test("config.json sites.<name>.guard: stopOn list and consecutiveNon200; wrong values are errors", () => {
-    expect(parseSiteGuard(undefined, "example")).toEqual({ stopOn: [], consecutiveNon200: null });
-    expect(parseSiteGuard({ stopOn: ["empty-body"], consecutiveNon200: 3 }, "example")).toEqual({ stopOn: ["empty-body"], consecutiveNon200: 3 });
+    expect(parseSiteGuard(undefined, "example")).toEqual({ stopOn: [], consecutiveNon200: null, endOn: [] });
+    expect(parseSiteGuard({ stopOn: ["empty-body"], consecutiveNon200: 3 }, "example")).toEqual({ stopOn: ["empty-body"], consecutiveNon200: 3, endOn: [] });
     expect(() => parseSiteGuard({ stopOn: "empty-body" }, "example")).toThrow(/sites\.example\.guard\.stopOn/);
     expect(() => parseSiteGuard({ consecutiveNon200: 0 }, "example")).toThrow(/consecutiveNon200/);
     expect(() => parseSiteGuard({ consecutiveNon200: 2.5 }, "example")).toThrow(/consecutiveNon200/);
@@ -256,5 +256,83 @@ describe("site stop rules over the response stream (0.6-I)", () => {
     expect(g.get("ex")).toMatchObject({ request: next.id, rule: "status>=400" });
     expect(g.fetchStopOf("example")?.fetchId).toBe("c-5:f-1");
     expect(rec.events[0]).toMatchObject({ detail: { fetchId: "c-5:f-1" } });
+  });
+});
+
+// 0.7.5-A (docs/04 §38): end rules. Oracle: the owner's case (10-20): stopOn
+// json:$.code!=0, page 21 answered {"code":203} = "no more"; that ends the
+// list, not the site.
+describe("site end rules (0.7.5-A)", () => {
+  test("config.json sites.<name>.guard.endOn: a list of rule strings; endOn alone is a guard setting; a bad rule is bad-input", () => {
+    expect(parseSiteGuard({ endOn: ["json:$.code=203"] }, "example")).toEqual({ stopOn: [], consecutiveNon200: null, endOn: ["json:$.code=203"] });
+    expect(() => parseSiteGuard({ endOn: "json:$.code=203" }, "example")).toThrow(/sites\.example\.guard\.endOn/);
+    expect([...siteGuardsFrom({ sites: { a: { guard: { endOn: ["empty-body"] } } } }).keys()]).toEqual(["a"]);
+    const file = join(root, "config.json");
+    writeFileSync(file, JSON.stringify({ sites: { example: { guard: { stopOn: ["json:$.code!=0"], endOn: ["json:$.code=203"] } } } }));
+    expect(allSiteRules(file).get("example")?.endRules.map((r) => r.src)).toEqual(["json:$.code=203"]);
+    writeFileSync(file, JSON.stringify({ sites: { example: { guard: { endOn: ["json:code=203"] } } } }));
+    let msg = "";
+    try {
+      allSiteRules(file);
+    } catch (e) {
+      msg = e instanceof TabcapError ? `${e.code} ${e.message}` : "other";
+    }
+    expect(msg).toContain("bad-input");
+    expect(msg).toContain("guard.endOn");
+  });
+
+  test("the owner's case: code 203 matches endOn first, nothing stops, one guard end event; a real error still trips", async () => {
+    const { g, rec } = guard(["json:$.code!=0"], null, { ok: '{"code":0}', end: '{"code":203,"msg":"no more"}', bad: '{"code":500}' }, ["json:$.code=203"]);
+    rec.emit(entry({ blob: "ok" }));
+    const end = rec.emit(entry({ blob: "end", type: "fetch", fetchId: "c-3:f-1" }));
+    await g.settle();
+    expect(g.get("ex")).toBeNull();
+    expect(g.fetchStopOf("example")).toBeNull();
+    expect(g.endHit("ex", end.id)).toEqual({ site: "example", rule: "json:$.code=203", detail: "$.code is 203" });
+    expect(rec.events).toEqual([
+      {
+        kind: "guard",
+        event: "end",
+        site: "example",
+        account: null,
+        rule: "json:$.code=203",
+        request: end.id,
+        detail: { rule: "json:$.code=203", detail: "$.code is 203", request: end.id, url: `${SITE_URL}/api/list`, status: 200, fetchId: "c-3:f-1" },
+      },
+    ]);
+    // the fetch that sent it notes the same hit again: still one event
+    g.noteEnd(rec, "ex", { site: "example", request: end.id, url: `${SITE_URL}/api/list`, status: 200, tab: "tab-1", fetchId: "c-3:f-1" }, { rule: "json:$.code=203", detail: "$.code is 203" });
+    expect(rec.events.length).toBe(1);
+    const bad = rec.emit(entry({ blob: "bad" }));
+    await g.settle();
+    expect(g.get("ex")).toMatchObject({ state: "waiting", reason: "stop-rule", request: bad.id });
+  });
+
+  test("an end response counts as a normal answer for consecutiveNon200 (resets the run, whatever its status)", async () => {
+    const { g, rec } = guard([], 2, {}, ["status=404"]);
+    rec.emit(entry({ status: 500 }));
+    rec.emit(entry({ status: 404 })); // end: resets
+    rec.emit(entry({ status: 500 }));
+    await g.settle();
+    expect(g.get("ex")).toBeNull();
+    const second = rec.emit(entry({ status: 502 }));
+    await g.settle();
+    expect(g.get("ex")).toMatchObject({ request: second.id, rule: "consecutiveNon200:2" });
+  });
+
+  test("a fetch's own --end-on joins the site's endOn for that fetch only; body end rules wait for a known body", async () => {
+    const { g, rec } = guard(["status>=400"], null, {}, []);
+    const release = g.fetchEndRules("c-4:f-1", parseStopRules(["status=410"]));
+    const mine = rec.emit(entry({ status: 410, type: "fetch", fetchId: "c-4:f-1" }));
+    expect(g.get("ex")).toBeNull();
+    expect(g.endHit("ex", mine.id)?.rule).toBe("status=410");
+    release();
+    const other = rec.emit(entry({ status: 410, type: "fetch", fetchId: "c-5:f-1" }));
+    await g.settle();
+    expect(g.get("ex")).toMatchObject({ request: other.id, rule: "status>=400" });
+    const b = guard(["status>=500"], null, {}, ["empty-body"]);
+    b.rec.emit(entry({ status: 503, bodySkipped: "resource-type" })); // body unknown: empty-body cannot end it
+    await b.g.settle();
+    expect(b.g.get("ex")?.rule).toBe("status>=500");
   });
 });

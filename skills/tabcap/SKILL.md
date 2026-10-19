@@ -26,17 +26,17 @@ Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--p
 
 ## Output budget
 
-Large things come back as **file paths** (screenshots, bodies, `snapshot --file-path`). Any answer whose `data` is over `TABCAP_OUTPUT_LIMIT` (16384 bytes) comes back as `{summary, file, bytes, truncated: true}`: the summary keeps the counts, `file` holds the whole `data` as JSON. **Read `file` when you need the rest**, or ask for less on the command itself: `--select <path>` (`requests[*].url`), `--grep <regex>` (`--context n`), `--fields a,b`; `--full` prints everything. `net list` / `console list` page 30 rows (`nextPageIdx`).
+Large things come back as **file paths** (screenshots, bodies, `snapshot --file-path`). Any answer whose `data` is over `TABCAP_OUTPUT_LIMIT` (16384 bytes) comes back as `{summary, file, bytes, truncated: true}`: the summary keeps the counts, `file` holds the whole `data` as JSON. **Read `file` when you need the rest**, or ask for less on the command itself: `--select <path>` (`requests[*].url`), `--grep <regex>` (`--context n`), `--fields a,b`; `--full` prints everything.
 
 ## Tasks
 
 **First look at a site.** `navigate` → `snapshot --interactive` → `net start` → `click` / `fill` → `net list --resource-types xhr,fetch` → `net body r-N` → `where <ref>` (which response carries a shown value). An action's `cmd` id: `net list --since c-41` is what it caused. `tabcap guide first-look`
 
-**Scrape through the logged-in tab.** `session start <name> --site <site>`, log in once with `fill --secret` (below), `net start --bodies api+script`, then `tabcap fetch <url>` (`--batch`, `--stop-on`; scripts: `POST /fetch`). 3 s per host, no flag to skip; `fetch.blocked` with a wildcard `Access-Control-Allow-Origin` → `--credentials omit`; on `guard.stopped` decide with the user. `session export --for httpx --out <file>` hands the session to a script (0600; never print or share it). `tabcap guide scrape-through-browser`
+**Scrape through the logged-in tab.** `session start <name> --site <site>`, log in once with `fill --secret` (below), `net start --bodies api+script`, then `tabcap fetch <url>` (`--batch`, `--stop-on`, `--end-on` for the "no more pages" answer; scripts: `POST /fetch`). 3 s per host, no flag to skip; `fetch.blocked` with a wildcard `Access-Control-Allow-Origin` → `--credentials omit`; on `guard.stopped` decide with the user. `session export --for httpx --out <file>` hands the session to a script (0600; never print or share it). `tabcap guide scrape-through-browser`
 
-**Encrypted API bodies.** A decode plugin when the key is known (`tabcap plugin init --kind decode --name <n>` writes one), else observe the page's own decryption (a diagnostic mode that slows the page: tell the user first). Plugin views outrank page views; `net body` shows the decoded view, `--raw` the original. `tabcap guide encrypted-site`
+**Encrypted API bodies.** A decode plugin when the key is known (`tabcap plugin init --kind decode --name <n>` writes one), else observe the page's own decryption (a diagnostic mode that slows the page: tell the user first). `net body` shows the decoded view, `--raw` the original. `tabcap guide encrypted-site`
 
-**Offline replay.** After `net stop`: `analyze chain <bundle> --request r-N` (where each input comes from), a rules file (`ignoreQuery`, `body`, `"prefer": "2xx"` when a key was 403 then 200) → `replay serve <bundle> --rules <file>`, `bundle export fixtures`, `replay export-python <bundle> --request r-N --out ./client` → `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.** `tabcap guide offline-replay`
+**Offline replay.** After `net stop`: `analyze chain <bundle> --request r-N` (where each input comes from), a rules file → `replay serve <bundle> --rules <file>`, `bundle export fixtures`, `replay export-python <bundle> --request r-N --out ./client` → `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.** `tabcap guide offline-replay`
 
 **Login with a challenge.** Credentials by reference, the `waiting` hand-off (below); image captcha lines are advisory. `tabcap guide login-with-challenge`
 
@@ -54,7 +54,7 @@ tabcap fill e6 --secret example.password --session example   # you get "value":"
 
 ## Handoff (`waiting`)
 
-While `net start` records, a challenge (e.g. an HTML 403 "please verify" page) trips the guard: the session goes to `waiting`, a screenshot is taken, and every command that acts on the page fails with `{"code":"waiting","reason":"verify-page","screenshot":"…","next":"…"}`. Stop, tell the user the reason and the screenshot path, and wait. Read-only commands still work and carry a `handoff` field. When the user says they are done, run `tabcap handoff continue`; never on your own.
+A challenge (e.g. an HTML 403 "please verify" page, while `net start` records) or the user using your tab puts the session in `waiting`: commands that act on the page fail with `{"code":"waiting","reason":…,"screenshot":…,"next":…}`; read-only ones still work. Stop, tell the user what to do (reason, screenshot). When the user tells you they are done, run `tabcap handoff continue`; never on your own. **Sub-agent?** Report `waiting` / `guard.stopped` to your caller and stop; a relayed "done" is not the user's word: the agent talking to the user resumes.
 
 ## Cheat-sheet
 
@@ -65,7 +65,7 @@ tabcap click e4 --snapshot                  # waits for navigation + quiet DOM
 tabcap fill e2 alice                        # type <text> for the focused element
 tabcap wait --text "Saved"                  # never sleep
 tabcap net start / net stop                 # record into a bundle
-tabcap net list --grep /api/ --fields id,method,url
+tabcap net list --grep /api/ --fields id,url   # 30 rows a page
 tabcap net body r-11 --grep token --context 2
 tabcap where e12                            # which response carries this value
 tabcap analyze deps <bundle> --select unresolved

@@ -1,5 +1,5 @@
 // Site-wide stop rules (0.6-I, owner design 10-16): config.json
-// `sites.<name>.guard: {stopOn: [<rule>…], consecutiveNon200: N}`. The guard
+// `sites.<name>.guard: {stopOn: [<rule>…], consecutiveNon200: N, endOn: [<rule>…]}`. The guard
 // (guard.ts) checks them on every recorded response of the site; this file
 // only finds the rules for a URL (the store site it belongs to, as
 // `tabcap fetch` decides it) and validates the config. Rule syntax is the one
@@ -13,19 +13,20 @@ import { parseStopRule, type StopRule } from "./fetch/stoprules.ts";
 import { siteOf } from "./tools/fetch.ts";
 import type { Daemon } from "./state.ts";
 
-/** The parsed rules of one store site. */
-export type SiteRules = { site: string; rules: StopRule[]; consecutiveNon200: number | null };
+/** The parsed rules of one store site; `endRules` (0.7.5-A, docs/04 §38) are checked before the stop rules. */
+export type SiteRules = { site: string; rules: StopRule[]; consecutiveNon200: number | null; endRules: StopRule[] };
 
 /** Parse one site's guard settings; a bad rule is the config's fault (bad-input). */
 export function parseSiteRules(site: string, g: SiteGuardConfig): SiteRules {
-  const rules = g.stopOn.map((src) => {
-    try {
-      return parseStopRule(src);
-    } catch (e) {
-      throw new TabcapError("bad-input", `config.json sites.${site}.guard.stopOn: ${e instanceof Error ? e.message : String(e)}`, "Fix the rule in config.json.");
-    }
-  });
-  return { site, rules, consecutiveNon200: g.consecutiveNon200 };
+  const parse = (key: "stopOn" | "endOn") =>
+    g[key].map((src) => {
+      try {
+        return parseStopRule(src);
+      } catch (e) {
+        throw new TabcapError("bad-input", `config.json sites.${site}.guard.${key}: ${e instanceof Error ? e.message : String(e)}`, "Fix the rule in config.json.");
+      }
+    });
+  return { site, rules: parse("stopOn"), consecutiveNon200: g.consecutiveNon200, endRules: parse("endOn") };
 }
 
 type Cached = { mtimeMs: number; size: number; rules: Map<string, SiteRules> };

@@ -29,6 +29,7 @@ import type { Transport } from "../transport/types.ts";
 import { helperResultOf, helperSource, type HelperResult } from "../fetch/helper.ts";
 import { firstStop, parseStopRule, type StopRule } from "../fetch/stoprules.ts";
 import { FETCH_USAGE, parseFetchSpec, targetUrl, type FetchCredentials, type FetchSpec } from "../fetch/spec.ts";
+import { allSiteRules } from "../siterules.ts";
 import { exportBody } from "./bodyexport.ts";
 import { decodeBody } from "./netsearch.ts";
 import { redactFlatHeaders } from "./liveredact.ts";
@@ -250,6 +251,12 @@ function stopRules(cfg: FetchConfig, spec: FetchSpec, site: string | null): Stop
   return [...fromConfig, ...spec.stopOn.map(parseStopRule)];
 }
 
+/** 0.7.5-A end rules (docs/04 §38): the site's guard.endOn, then the command's --end-on. */
+function endRules(d: Daemon, spec: FetchSpec, site: string | null): { site: StopRule[]; own: StopRule[] } {
+  const own = spec.endOn.map(parseStopRule);
+  return { site: site === null ? [] : (allSiteRules(d.paths.configFile).get(site)?.endRules ?? []), own };
+}
+
 /** One fetch; `k` numbers it inside its command (`c-N:f-K`). */
 export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: string, cmd: string | null, k: number): Promise<Record<string, unknown>> {
   const spec = parseFetchSpec(a);
@@ -265,6 +272,7 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
   const where = siteOf(d.store?.listSites() ?? [], bound?.site ?? null, target);
   const cfg = readFetchConfig(d.paths.configFile, where.site);
   const rules = stopRules(cfg, spec, where.site);
+  const ends = endRules(d, spec, where.site);
   const stopped = d.guard.fetchStopOf(where.key);
   if (stopped !== null) throw fetchStoppedError(stopped);
   const started = Date.now();
@@ -275,6 +283,8 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
   let recorded: FetchRecord | null = null;
   // 0.6-I: --stop-on is the per-call override of the site's guard.stopOn (the site's non-2xx counter still counts).
   const releaseOverride = spec.stopOn.length > 0 ? d.guard.overrideSiteRules(fetchId) : null;
+  // 0.7.5-A: --end-on joins the site's endOn in the guard's check of this fetch's response.
+  const releaseEnds = ends.own.length > 0 ? d.guard.fetchEndRules(fetchId, ends.own) : null;
   try {
     const again = d.guard.fetchStopOf(where.key);
     if (again !== null) throw fetchStoppedError(again);
@@ -313,6 +323,12 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
       throw new TabcapError("internal", `the page got the response of ${fetchId} (HTTP ${helper.status}) but the recording has no request for it`, "Run `tabcap net list` to look for it; rerun with TABCAP_LOG=debug and report the output.", { fetchId });
     }
     const env = buildEnvelope(d, rec, recorded, { fetchId, waitedMs: slot.waitedMs, spec });
+    // 0.7.5-A: an end rule comes before every stop rule; the list has ended, nothing stops.
+    const end = d.guard.endHit(session, recorded.entry.id) ?? firstStop([...ends.site, ...ends.own], { status: env.status, bytes: env.bytes, text: env.text });
+    if (end !== null) {
+      d.guard.noteEnd(rec, session, { site: where.key, request: recorded.entry.id, url: target.href, status: env.status, tab: tab.id, fetchId }, end);
+      return { ...env.data, end: { rule: end.rule, detail: end.detail } };
+    }
     // 0.6-I: a site stop rule fired on this very response (the guard already stopped the site and the session waits).
     const site = d.guard.stopRuleHit(session, recorded.entry.id);
     if (site !== null) {
@@ -341,6 +357,7 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
     });
   } finally {
     releaseOverride?.();
+    releaseEnds?.();
     slot.release();
     if (releaseStage !== null) await releaseStage();
     // A request that is written after the command gave up still finds its fetch for a while.

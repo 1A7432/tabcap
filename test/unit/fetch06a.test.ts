@@ -98,7 +98,7 @@ describe("CLI options → request (src/cli/fetch.ts)", () => {
 
 describe("request validation (fetch/spec.ts; the endpoint body is untrusted JSON)", () => {
   test("defaults, json / form bodies get their content-type unless given; method upper-cased", () => {
-    expect(parseFetchSpec({ url: "/x" })).toEqual({ url: "/x", method: "GET", headers: [], body: null, credentials: "include", tab: null, timeoutMs: 30000, stopOn: [], out: null, rawBody: false, reveal: false });
+    expect(parseFetchSpec({ url: "/x" })).toEqual({ url: "/x", method: "GET", headers: [], body: null, credentials: "include", tab: null, timeoutMs: 30000, stopOn: [], endOn: [], out: null, rawBody: false, reveal: false });
     const j = parseFetchSpec({ url: "/x", method: "post", json: { a: [1] } });
     expect([j.method, j.body, j.headers]).toEqual(["POST", '{"a":[1]}', [["content-type", "application/json"]]]);
     const f = parseFetchSpec({ url: "/x", method: "POST", form: { a: "1 2", b: "&" }, headers: { "Content-Type": "text/plain" } });
@@ -636,5 +636,68 @@ describe("0.6-P --credentials", () => {
       [`${c}:f-2`, "same-origin"],
       [`${c}:f-3`, "omit"],
     ]);
+  });
+});
+
+// ------------------------------------------------------------------ 0.7.5-A end rules (docs/04 §38)
+
+describe("0.7.5-A --end-on", () => {
+  test("spec and CLI: endOn is a rule string or a list (at most 32); --end-on repeats; a batch line may carry its own", () => {
+    expect(parseFetchSpec({ url: "/x", endOn: "json:$.code=203" }).endOn).toEqual(["json:$.code=203"]);
+    expect(parseFetchSpec({ url: "/x", endOn: ["a", "b"] }).endOn).toEqual(["a", "b"]);
+    for (const bad of [1, [1], { a: 1 }, Array.from({ length: 33 }, () => "empty-body")]) expect(codeOf(() => parseFetchSpec({ url: "/x", endOn: bad }))).toBe("usage");
+    const dir = tmp("tabcap-fetch-cli-");
+    expect(fetchArgs({ url: "/x", endOn: ["json:$.code=203", "empty-body"] }, dir)).toEqual({ url: "/x", endOn: ["json:$.code=203", "empty-body"] });
+    writeFileSync(join(dir, "b.jsonl"), '{"url":"/a","endOn":["status=404"]}\n');
+    expect(codeOf(() => fetchArgs({ batch: "b.jsonl", endOn: ["x"] }, dir))).toBe("usage");
+  });
+
+  test("an end rule comes before every stop rule: ok with end {rule, detail}, no stopped, the site keeps going, one guard end event", async () => {
+    const { d, rec, b } = await fetchHome(ORIGIN, (u) => ({ status: 200, body: u.includes("page=4") ? '{"code":203,"msg":"no more"}' : u.includes("bad") ? '{"code":500}' : '{"code":0}' }), {
+      fetch: { minIntervalMs: 0, stopOn: ["json:$.code!=0"] },
+    });
+    const c = rec.cmdStart({ tab: null, argv: null, input: {} });
+    const end = await fetchRun(d, b, { url: "/api/list?page=4", endOn: ["json:$.code=203"] }, "s1", { cmd: c });
+    expect(isRecord(end) && end["end"]).toEqual({ rule: "json:$.code=203", detail: "$.code is 203" });
+    expect(isRecord(end) && "stopped" in end).toBe(false);
+    const next = await fetchRun(d, b, { url: "/api/list?page=1" }, "s1", { cmd: c });
+    expect(isRecord(next) && [next["status"], "end" in next]).toEqual([200, false]);
+    // the end rule does not hide a real error
+    const err = await fetchRun(d, b, { url: "/api/list?bad", endOn: ["json:$.code=203"] }, "s1", { cmd: c }).catch((e: unknown) => e);
+    expect(err instanceof TabcapError && err.code).toBe("fetch.stopped");
+    expect(codeOf(() => guardResume(d, { site: "127.0.0.1:9" }, "s1"))).toBeNull();
+    await rec.stop();
+    const guard = readFileSync(join(rec.dir, "events.jsonl"), "utf8").trim().split("\n").map((l): unknown => JSON.parse(l)).filter(isRecord).filter((e) => e["kind"] === "guard");
+    const endId = isRecord(end) ? end["id"] : null;
+    expect(guard.map((g) => [g["event"], g["rule"]])).toEqual([
+      ["end", "json:$.code=203"],
+      ["breaker", "json:$.code!=0"],
+      ["resume", "json:$.code!=0"],
+    ]);
+    expect(guard[0]).toMatchObject({ site: "127.0.0.1:9", account: null, request: endId, detail: { detail: "$.code is 203", status: 200, fetchId: `${c}:f-1` } });
+  });
+
+  test("batch: the line that ends answers ok with end; the following lines are still sent", async () => {
+    const { d, rec, fb, b } = await fetchHome(ORIGIN, (u) => ({ status: 200, body: u.includes("page=2") ? '{"code":203}' : '{"code":0}' }));
+    const c = rec.cmdStart({ tab: null, argv: null, input: {} });
+    const res = await fetchRun(d, b, { batch: [{ url: "/l?page=1" }, { url: "/l?page=2", endOn: "json:$.code=203" }, { url: "/l?page=3" }] }, "s1", { cmd: c });
+    expect(isRecord(res) && Array.isArray(res["batch"])).toBe(true);
+    if (!isRecord(res) || !Array.isArray(res["batch"])) return;
+    expect(res["batch"].map((x) => (isRecord(x) && isRecord(x["data"]) ? [x["ok"], x["data"]["end"] ?? null] : x))).toEqual([
+      [true, null],
+      [true, { rule: "json:$.code=203", detail: "$.code is 203" }],
+      [true, null],
+    ]);
+    expect(fb.seen.length).toBe(3);
+    await rec.stop();
+  });
+
+  test("a bad --end-on rule is usage before anything is sent", async () => {
+    const { d, rec, fb, b } = await fetchHome(ORIGIN, () => ({ status: 200, body: "{}" }));
+    const c = rec.cmdStart({ tab: null, argv: null, input: {} });
+    const err = await fetchRun(d, b, { url: "/x", endOn: ["json:code=1"] }, "s1", { cmd: c }).catch((e: unknown) => e);
+    expect(err instanceof TabcapError && err.code).toBe("usage");
+    expect(fb.seen.length).toBe(0);
+    await rec.stop();
   });
 });
