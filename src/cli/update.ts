@@ -1,11 +1,13 @@
 // `tabcap update [--check]` (0.7.2, owner decision 2026-10-18): a CLI-local
 // command. One request to the npm registry, only when the user runs it; never
 // a background or start-up check. An npm install updates itself with the npm
-// that owns it; a release tarball or source build is never downloaded or
-// replaced, the answer points at the release page instead. Not an MCP tool
+// that owns it, a Homebrew install with `brew upgrade tabcap` (0.7.4); a release
+// tarball or source build is never downloaded or replaced, the answer points at
+// the release page instead. Not an MCP tool
 // (src/mcp/tools.ts EXCLUDED): an agent must not upgrade its own tool mid-session.
 
 import { existsSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { TabcapError } from "../shared/envelope.ts";
 import { envVar } from "../shared/env.ts";
 import { isRecord } from "../shared/json.ts";
@@ -18,15 +20,24 @@ export const RELEASES_URL = "https://github.com/1A7432/tabcap/releases";
 const REGISTRY_TIMEOUT_MS = 10_000;
 const BROWSER_CLAUSE = "`tabcap setup` moves Chrome for Testing to the current stable.";
 
-export type Channel = "npm" | "manual";
+export type Channel = "npm" | "homebrew" | "manual";
 export type Version = [number, number, number];
 
 /** The binary of an npm install lives in its platform package: node_modules/tabcap-<os>-<cpu>/bin/. */
 const NPM_BIN = /[\\/]node_modules[\\/]tabcap-(?:darwin|linux|win32)-(?:arm64|x64)[\\/]bin[\\/]/;
 
-/** Pure: the install channel of a (resolved) binary path; both separators are accepted. */
+/** A Homebrew keg: <prefix>/Cellar/tabcap/<version>/bin/tabcap (macOS and Linux only). */
+const BREW_BIN = /^(.+)\/Cellar\/tabcap\/[^/]+\/bin\/tabcap$/;
+
+/** Pure: the install channel of a (resolved) binary path; both separators are accepted for npm. */
 export function channelOf(executable: string): Channel {
-  return NPM_BIN.test(executable) ? "npm" : "manual";
+  if (NPM_BIN.test(executable)) return "npm";
+  return BREW_BIN.test(executable) ? "homebrew" : "manual";
+}
+
+/** Pure: the Homebrew prefix that owns this keg (<prefix>/Cellar/tabcap/...), or null. */
+export function brewPrefixOf(executable: string): string | null {
+  return BREW_BIN.exec(executable)?.[1] ?? null;
 }
 
 /**
@@ -81,8 +92,8 @@ export async function latestVersion(registry: string): Promise<string> {
   return v;
 }
 
-/** Runs npm with both of its outputs on our stderr (stdout stays the one envelope); exit code and the tail of its output. */
-async function runNpm(cmd: string[]): Promise<{ code: number; tail: string }> {
+/** Runs npm / brew with both of its outputs on our stderr (stdout stays the one envelope); exit code and the tail of its output. */
+async function runChild(cmd: string[]): Promise<{ code: number; tail: string }> {
   let child: ReturnType<typeof Bun.spawn>;
   try {
     child = Bun.spawn(cmd, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
@@ -130,15 +141,21 @@ export async function cmdUpdate(args: Record<string, unknown>): Promise<unknown>
     return { ...base, action: "up-to-date", next: `tabcap ${current}${ahead} is up to date. ${BROWSER_CLAUSE}` };
   }
   if (check) {
-    const next = channel === "npm" ? `Run \`tabcap update\` to install ${latest} (npm ${install.join(" ")}).` : manualNext;
+    const next =
+      channel === "npm"
+        ? `Run \`tabcap update\` to install ${latest} (npm ${install.join(" ")}).`
+        : channel === "homebrew"
+          ? `Run \`tabcap update\` to install ${latest} (brew ${BREW_UPGRADE.join(" ")}).`
+          : manualNext;
     return { ...base, action: "check", next };
   }
   if (channel === "manual") return { ...base, action: "manual", next: manualNext };
+  if (channel === "homebrew") return await brewUpgrade(base, resolved, latest);
   const owner = npmForBinary(resolved);
   const npm = envVar("NPM") ?? (owner !== null && existsSync(owner) ? owner : "npm");
   const command = [npm, ...install];
   progress(`running ${command.join(" ")}`);
-  const r = await runNpm(command);
+  const r = await runChild(command);
   if (r.code !== 0) {
     throw new TabcapError(
       "io",
@@ -146,9 +163,45 @@ export async function cmdUpdate(args: Record<string, unknown>): Promise<unknown>
       `Run \`npm ${install.join(" ")}\` by hand and read npm's output (a global prefix you cannot write to needs your usual fix), or download the package from ${RELEASES_URL}.`,
     );
   }
+  return { ...base, action: "installed", npm: { command }, next: await installedNext(latest) };
+}
+
+async function installedNext(latest: string): Promise<string> {
   const running = (await daemonPing(paths())).ok;
-  const next = running
+  return running
     ? `Installed ${latest}. The daemon still runs the old binary: run \`tabcap daemon stop && tabcap daemon start\`. ${BROWSER_CLAUSE}`
     : `Installed ${latest}; the next tabcap command runs it. ${BROWSER_CLAUSE}`;
-  return { ...base, action: "installed", npm: { command }, next };
+}
+
+const BREW_UPGRADE = ["upgrade", "tabcap"];
+
+/**
+ * Homebrew: `brew upgrade tabcap` with the brew of the owning prefix (it refreshes
+ * the tap itself unless HOMEBREW_NO_AUTO_UPDATE is set). The tap's formula follows
+ * a GitHub release once it is published, a few minutes after npm has the version,
+ * so success is judged by the keg <prefix>/Cellar/tabcap/<latest> existing.
+ */
+async function brewUpgrade(base: Record<string, unknown>, resolved: string, latest: string): Promise<unknown> {
+  const prefix = brewPrefixOf(resolved);
+  const owner = prefix === null ? null : join(prefix, "bin", "brew");
+  const brew = envVar("BREW") ?? (owner !== null && existsSync(owner) ? owner : "brew");
+  const command = [brew, ...BREW_UPGRADE];
+  progress(`running ${command.join(" ")}`);
+  const r = await runChild(command);
+  if (r.code !== 0) {
+    throw new TabcapError(
+      "io",
+      `${command.join(" ")} exited with ${r.code}${r.tail === "" ? "" : `: ${r.tail}`}`,
+      `Run \`brew ${BREW_UPGRADE.join(" ")}\` by hand and read its output, or download the package from ${RELEASES_URL}.`,
+    );
+  }
+  if (prefix !== null && !existsSync(join(prefix, "Cellar", "tabcap", latest))) {
+    return {
+      ...base,
+      action: "formula-behind",
+      brew: { command },
+      next: `brew finished, but the Homebrew formula is not at ${latest} yet: the tap follows a GitHub release a few minutes after it is published. Run \`brew update && brew ${BREW_UPGRADE.join(" ")}\` later.`,
+    };
+  }
+  return { ...base, action: "installed", brew: { command }, next: await installedNext(latest) };
 }

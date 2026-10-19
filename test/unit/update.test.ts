@@ -4,13 +4,13 @@
 // through TABCAP_NPM, so nothing is installed and no real registry is asked.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "bun";
 import { run } from "../../src/cli/main.ts";
 import { TOOL_VERSION } from "../../src/bundle/manifest.ts";
-import { channelOf, compareVersions, npmForBinary, parseVersion, type Version } from "../../src/cli/update.ts";
+import { brewPrefixOf, channelOf, compareVersions, npmForBinary, parseVersion, type Version } from "../../src/cli/update.ts";
 import { removeTree } from "./_platform.ts";
 
 const POSIX_NPM = "/usr/local/lib/node_modules/tabcap/node_modules/tabcap-darwin-arm64/bin/tabcap";
@@ -23,6 +23,17 @@ describe("install channel from the binary path", () => {
     expect(channelOf("/opt/x/node_modules/tabcap-linux-arm64/bin/tabcap")).toBe("npm");
     expect(channelOf(WIN_NPM)).toBe("npm");
     expect(channelOf("C:/Users/me/AppData/Roaming/npm/node_modules/tabcap/node_modules/tabcap-win32-x64/bin/tabcap.exe")).toBe("npm");
+  });
+
+  test("Homebrew kegs (the resolved path, not the bin/ symlink)", () => {
+    expect(channelOf("/opt/homebrew/Cellar/tabcap/0.7.3/bin/tabcap")).toBe("homebrew");
+    expect(channelOf("/home/linuxbrew/.linuxbrew/Cellar/tabcap/0.7.3_1/bin/tabcap")).toBe("homebrew");
+    expect(channelOf("/opt/homebrew/bin/tabcap")).toBe("manual");
+    expect(channelOf("/opt/homebrew/Cellar/other/1.0/bin/tabcap")).toBe("manual");
+    expect(channelOf("/opt/homebrew/Cellar/tabcap/0.7.3/libexec/tabcap")).toBe("manual");
+    expect(brewPrefixOf("/opt/homebrew/Cellar/tabcap/0.7.3/bin/tabcap")).toBe("/opt/homebrew");
+    expect(brewPrefixOf("/home/linuxbrew/.linuxbrew/Cellar/tabcap/0.7.3/bin/tabcap")).toBe("/home/linuxbrew/.linuxbrew");
+    expect(brewPrefixOf("/usr/local/bin/tabcap")).toBeNull();
   });
 
   test("anything else is manual", () => {
@@ -75,6 +86,15 @@ describe("tabcap update against a local registry", () => {
   const dir = mkdtempSync(join(tmpdir(), "tabcap-update-"));
   const npmExe = join(dir, "lib", "node_modules", "tabcap", "node_modules", "tabcap-linux-x64", "bin", "tabcap");
   const manualExe = join(dir, "bin", "tabcap");
+  const brewExe = join(dir, "Cellar", "tabcap", "0.0.1", "bin", "tabcap");
+  // A fake brew records its argv; with `keg` it creates <prefix>/Cellar/tabcap/<keg> like a real upgrade.
+  const fakeBrew = (name: string, code: number, keg?: string): string => {
+    const p = join(dir, name);
+    const mk = keg === undefined ? "" : `mkdir -p '${join(dir, "Cellar", "tabcap", keg, "bin")}'\n`;
+    writeFileSync(p, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argvFile}'\n${mk}echo "fake brew warns" >&2\nexit ${code}\n`);
+    chmodSync(p, 0o755);
+    return p;
+  };
   const argvFile = join(dir, "npm-argv.txt");
   const fakeNpm = (name: string, code: number): string => {
     const p = join(dir, name);
@@ -85,7 +105,7 @@ describe("tabcap update against a local registry", () => {
   let latest = "0.0.0";
   let server: Server<undefined>;
   const saved: Record<string, string | undefined> = {};
-  const keys = ["TABCAP_HOME", "TABCAP_NPM_REGISTRY", "TABCAP_NPM", "TABCAP_UPDATE_EXECUTABLE"];
+  const keys = ["TABCAP_HOME", "TABCAP_NPM_REGISTRY", "TABCAP_NPM", "TABCAP_BREW", "TABCAP_UPDATE_EXECUTABLE"];
   const setEnv = (k: string, v: string | undefined) => {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -93,7 +113,7 @@ describe("tabcap update against a local registry", () => {
 
   beforeAll(() => {
     for (const k of keys) saved[k] = process.env[k];
-    for (const p of [npmExe, manualExe]) {
+    for (const p of [npmExe, manualExe, brewExe]) {
       mkdirSync(join(p, ".."), { recursive: true });
       writeFileSync(p, "");
     }
@@ -186,6 +206,53 @@ describe("tabcap update against a local registry", () => {
     expect(envelope.error.message).toContain("exited with 1");
     expect(envelope.error.message).toContain("fake npm warns");
     expect(envelope.error.next).toContain(`npm install -g tabcap@${latest}`);
+  });
+
+  test.skipIf(process.platform === "win32")("--check on Homebrew: compares, spawns nothing", async () => {
+    latest = newer();
+    rmSync(argvFile, { force: true });
+    setEnv("TABCAP_BREW", fakeBrew("brew-check", 0));
+    const { code, envelope } = await update(brewExe, "--check");
+    expect(code).toBe(0);
+    if (!envelope.ok) throw new Error(envelope.error.message);
+    expect(envelope.data).toMatchObject({ updateAvailable: true, channel: "homebrew", action: "check" });
+    expect(String((envelope.data as { next: string }).next)).toContain("brew upgrade tabcap");
+    expect(existsSync(argvFile)).toBe(false);
+  });
+
+  // The fake brew is a POSIX shell script, and Homebrew does not exist on Windows.
+  test.skipIf(process.platform === "win32")("Homebrew channel: runs brew upgrade tabcap; the new keg means installed", async () => {
+    latest = newer();
+    const brew = fakeBrew("brew-ok", 0, latest);
+    setEnv("TABCAP_BREW", brew);
+    const { code, envelope } = await update(brewExe);
+    expect(code).toBe(0);
+    if (!envelope.ok) throw new Error(envelope.error.message);
+    expect(envelope.data).toMatchObject({ channel: "homebrew", action: "installed", brew: { command: [brew, "upgrade", "tabcap"] } });
+    expect(readFileSync(argvFile, "utf8")).toBe("upgrade\ntabcap\n");
+    await removeTree(join(dir, "Cellar", "tabcap", latest));
+  });
+
+  test.skipIf(process.platform === "win32")("Homebrew channel: brew succeeds without the new keg -> formula-behind", async () => {
+    latest = newer();
+    setEnv("TABCAP_BREW", fakeBrew("brew-behind", 0));
+    const { code, envelope } = await update(brewExe);
+    expect(code).toBe(0);
+    if (!envelope.ok) throw new Error(envelope.error.message);
+    expect(envelope.data).toMatchObject({ channel: "homebrew", action: "formula-behind" });
+    expect(String((envelope.data as { next: string }).next)).toContain("brew update && brew upgrade tabcap");
+  });
+
+  test.skipIf(process.platform === "win32")("Homebrew channel: brew failing -> error envelope", async () => {
+    latest = newer();
+    setEnv("TABCAP_BREW", fakeBrew("brew-fail", 1));
+    const { code, envelope } = await update(brewExe);
+    expect(code).toBe(1);
+    if (envelope.ok) throw new Error("expected failure");
+    expect(envelope.error.code).toBe("io");
+    expect(envelope.error.message).toContain("exited with 1");
+    expect(envelope.error.message).toContain("fake brew warns");
+    expect(envelope.error.next).toContain("brew upgrade tabcap");
   });
 
   test("unparsable latest -> error envelope", async () => {

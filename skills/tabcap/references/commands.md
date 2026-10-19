@@ -52,7 +52,7 @@ Example: `tabcap setup`
 
 ### `tabcap update`
 
-update tabcap itself: one request to the npm registry, only when run. An npm install runs `npm install -g tabcap@<latest>` with the npm that owns it (then restart a running daemon); a release package or source build is never replaced, the answer gives the release page. $TABCAP_NPM_REGISTRY overrides the registry URL, $TABCAP_NPM the npm executable
+update tabcap itself: one request to the npm registry, only when run. An npm install runs `npm install -g tabcap@<latest>` with the npm that owns it, a Homebrew install `brew upgrade tabcap` with its brew (then restart a running daemon); a release package or source build is never replaced, the answer gives the release page. $TABCAP_NPM_REGISTRY overrides the registry URL, $TABCAP_NPM the npm executable, $TABCAP_BREW the brew executable
 
 ```
 tabcap update [--check]

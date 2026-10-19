@@ -551,3 +551,8 @@
 - 做了什么：作者建了公开仓库 `1A7432/homebrew-tabcap` 并给出只写该仓库的 fine-grained PAT，存为 `HOMEBREW_TAP_TOKEN`；手动跑 `homebrew.yml -f tag=v0.7.3`，空仓库首推成功（Formula/tabcap.rb + README）【实测 run 39191585392】。README 中英文安装节加 Homebrew 一行；formula 头注释改成「生成文件，源在 tabcap 仓库的模板」，避免 tap 里显示 TEMPLATE。
 - 卡在哪：本机 `brew install 1A7432/tabcap/tabcap` 被权限分类器拦下，安装验证【待验】，等作者本机跑一次。
 - 下一格从哪开始：以后每次发布 Release 自动更新 tap；PAT 到期按 packaging/homebrew/README.md 第 2、3 步换。
+
+## 2026-10-19 · tabcap update 加 Homebrew 渠道（主循环）
+- 做了什么：二进制解析到 `<prefix>/Cellar/tabcap/<版本>/bin/tabcap` 即 `homebrew` 渠道，`tabcap update` 用该 prefix 的 brew 跑 `brew upgrade tabcap`；之后有 `Cellar/tabcap/<latest>` 才答 `installed`，否则 `formula-behind`（tap 比 npm 晚几分钟）；`TABCAP_BREW` 覆盖 brew；单测用假 brew 覆盖 check / installed / behind / 失败四种。本机 `/opt/homebrew/bin/tabcap` 符号链接经 realpath 识别为 homebrew【实测】；README、CHANGELOG 未发布节、formula caveats、命令帮助同步。
+- 卡在哪：真实 `brew upgrade` 要等 0.7.4 发布才能端到端走一遍【待验】。
+- 下一格从哪开始：0.7.4 发布后在本机 brew 那份上跑 `tabcap update` 验证；Windows `npm.cmd` 路径仍在候选里。

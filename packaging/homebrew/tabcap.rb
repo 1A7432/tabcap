@@ -39,7 +39,8 @@ class Tabcap < Formula
 
   def caveats
     <<~EOS
-      Run `tabcap setup` once to download Chrome for Testing.
+      Run `tabcap setup` once to download Chrome for Testing; `tabcap update` runs
+      `brew upgrade tabcap` later.
       The agent skill is in #{opt_pkgshare}/skills/tabcap: copy it to
       ~/.claude/skills/tabcap (Claude Code) or your agent's skills directory.
     EOS

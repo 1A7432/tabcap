@@ -4,6 +4,11 @@
 
 ## 未发布
 
+### tabcap update：Homebrew 渠道
+
+- Homebrew 安装的（二进制解析到 `<prefix>/Cellar/tabcap/<版本>/bin/tabcap`）现在是 `homebrew` 渠道：`tabcap update` 用该 prefix 的 brew（找不到就用 `PATH` 上的 `brew`）跑 `brew upgrade tabcap`，brew 的输出走 stderr。之后 registry 最新版本的 keg 存在就答 `installed`，否则答 `formula-behind`：tap 在 GitHub Release 发布后才更新，比 npm 晚几分钟，稍后再 `brew update && brew upgrade tabcap`。`--check` 只比较。`TABCAP_BREW` 改 brew 可执行文件。
+- Homebrew tap 已上线：`brew install 1A7432/tabcap/tabcap`（macOS arm64、Linux x64 与 arm64）。
+
 ### analyze chain：步骤按开始时间排
 
 - `analyze chain`（因而也是 `replay export-python` 的调用顺序）按每个请求的开始时刻排步骤（`timing.start`，否则 `mono`），录制序号只用来打平手。录制器在正文落盘时才给请求编号，登录的正文晚一点落盘，它的序号就会排在依赖它 csrf 的数据请求之后，链条就先调 data 再调 login（CI 上出现过）。

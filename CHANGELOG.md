@@ -4,6 +4,11 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### tabcap update: Homebrew channel
+
+- A Homebrew install (the binary resolves to `<prefix>/Cellar/tabcap/<version>/bin/tabcap`) is now channel `homebrew`: `tabcap update` runs `brew upgrade tabcap` with the brew of that prefix (else `brew` on `PATH`), brew's output on stderr. It answers `installed` when the keg for the registry's latest version exists afterwards, otherwise `formula-behind`: the tap follows a GitHub release a few minutes after npm has the version, so try `brew update && brew upgrade tabcap` later. `--check` only compares. `TABCAP_BREW` overrides the brew executable.
+- The Homebrew tap is live: `brew install 1A7432/tabcap/tabcap` (macOS arm64, Linux x64 and arm64).
+
 ### analyze chain: steps in start order
 
 - `analyze chain` (and so the call order of `replay export-python`) orders its steps by when each request started (`timing.start`, else `mono`), with the recording sequence only for ties. The recorder numbers a request when its body has been stored, so a login whose body landed late could get a higher number than the data call that needs its csrf, and the chain called data before login (seen on CI).
