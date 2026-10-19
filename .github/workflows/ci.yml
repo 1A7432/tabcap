@@ -1,5 +1,8 @@
 # L0 + typecheck + skill validation on Linux, Windows and macOS; L2 e2e on
-# Linux (Xvfb) and Windows only (macOS e2e stays local to save minutes).
+# Linux (Xvfb) and Windows only (macOS e2e stays local to save minutes), each in
+# three shards of about equal time on separate runners (scripts/e2e-shard.ts,
+# weights in test/e2e/timings.json). Commits that only touch NOTES, the
+# changelogs or docs/ (except docs/04, which a unit test reads) skip CI.
 # Chrome for Testing comes from `tabcap setup` and is cached by its version.
 # Python (the generated replay client) only through uv: a warm-up step fills the
 # uv cache with network, the tests then run uv offline.
@@ -12,8 +15,21 @@ name: ci
 on:
   push:
     branches: [main]
-    paths-ignore: [NOTES.md]
+    paths:
+      - "**"
+      - "!NOTES.md"
+      - "!CHANGELOG.md"
+      - "!CHANGELOG.zh-CN.md"
+      - "!docs/**"
+      - "docs/04-evidence-bundle-spec-v0.md"
   pull_request:
+    paths:
+      - "**"
+      - "!NOTES.md"
+      - "!CHANGELOG.md"
+      - "!CHANGELOG.zh-CN.md"
+      - "!docs/**"
+      - "docs/04-evidence-bundle-spec-v0.md"
   workflow_dispatch:
     inputs:
       e2e_only:
@@ -124,12 +140,14 @@ jobs:
           "$bin" ja4 native/wireprint/fixtures/clienthello/cft-155-macos-nav-1.bin
 
   e2e:
-    name: e2e (${{ matrix.os }})
+    name: e2e (${{ matrix.os }}, ${{ matrix.shard }}/${{ inputs.e2e_only && 1 || 3 }})
     strategy:
       fail-fast: false
       matrix:
         # Both, unless a flake hunt (e2e_only) picks one.
         os: ${{ fromJSON(inputs.e2e_only && inputs.e2e_os != 'both' && format('["{0}"]', inputs.e2e_os) || '["ubuntu-latest","windows-latest"]') }}
+        # Three shards; a flake hunt runs its one file in a single job.
+        shard: ${{ fromJSON(inputs.e2e_only && '[1]' || '[1,2,3]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ inputs.e2e_only && 60 || 20 }}
     env:
@@ -182,6 +200,7 @@ jobs:
       # (at most 1050 px wide at x=10), so Xvfb's pointer (screen centre) is not over the page
       # and sends no real mouse events. `display` is that prefix (nothing on Windows).
       - name: platform probe (listener, CDP channel, windows, file locations)
+        if: matrix.shard == 1
         continue-on-error: true
         run: |
           display() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 2560x1440x24" "$@"; else "$@"; fi; }
@@ -195,13 +214,15 @@ jobs:
       - name: L2 e2e
         env:
           # v04w copies the Chrome for Testing wire profile it captures here (uploaded below).
-          TABCAP_WIRE_PROFILE_OUT: ${{ runner.temp }}/wire-profile
+          TABCAP_WIRE_PROFILE_OUT: ${{ github.workspace }}/wire-profile
           E2E_ONLY: ${{ inputs.e2e_only }}
           E2E_REPEAT: ${{ inputs.e2e_repeat }}
         run: |
           display() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 2560x1440x24" "$@"; else "$@"; fi; }
           if [ -z "$E2E_ONLY" ]; then
-            display bun test test/e2e --timeout 120000 2>&1 | tee e2e.log
+            files=$(bun scripts/e2e-shard.ts ${{ matrix.shard }}/3)
+            echo "shard ${{ matrix.shard }}/3:" $files
+            display bun test $files --timeout 120000 2>&1 | tee e2e.log
             exit
           fi
           export TABCAP_LOG=debug TABCAP_E2E_KEEP="$GITHUB_WORKSPACE/ci-logs/keep"
@@ -213,12 +234,13 @@ jobs:
           done
           echo "$failed of $E2E_REPEAT run(s) of $E2E_ONLY failed"
           [ "$failed" = 0 ]
+      # Only the shard that ran v04w has one.
       - name: upload the captured wire profile
-        if: always()
+        if: always() && hashFiles('wire-profile/**') != ''
         uses: actions/upload-artifact@v4
         with:
           name: wire-profile-${{ matrix.os }}
-          path: ${{ runner.temp }}/wire-profile
+          path: wire-profile
           if-no-files-found: warn
           retention-days: 30
       # upload-artifact takes one root: everything goes into ci-logs/ in the workspace first
@@ -237,7 +259,7 @@ jobs:
         if: failure() || cancelled() || inputs.e2e_only
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-logs-${{ matrix.os }}
+          name: e2e-logs-${{ matrix.os }}-${{ matrix.shard }}
           path: ci-logs/
           if-no-files-found: ignore
           retention-days: 7

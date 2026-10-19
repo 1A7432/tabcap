@@ -561,3 +561,8 @@
 - 做了什么：Cursor agent 在 Auto-review 模式的 Seatbelt 沙箱里跑 tabcap，Chrome 子进程报 `sandbox initialization failed: Operation not permitted`、带 SIGTRAP 退出，它自己写了 `--no-sandbox` 包装脚本，排查时直接起的 Chrome 没带 `--use-mock-keychain` 弹了钥匙串【推断：钥匙串来源】。本机 `sandbox-exec`（只禁写家目录）复现：0.7.3 `browser start` 先答 ok、随后崩、之后只说 not-running【实测】。现在按本次启动写进 browser.log 的标志行判断，`browser start` 当场 `unsupported` 并给出路，之后的命令重复该错误；沙箱外启动与导航正常【实测】。各宿主：Claude Code / Codex 在沙箱外起 MCP 服务器，Gemini CLI 在沙箱内（官方文档 / 源码，子代理调研）；README、skill 只写一小段。
 - 卡在哪：Linux 的 `No usable sandbox!` 标志行只按 Chrome 源码字样匹配，没在 bubblewrap 里实测【待验】；沙箱内客户端能否连沙箱外守护进程的 socket 各家不同，文档只建议整个 tabcap 放沙箱外。
 - 下一格从哪开始：作者决定是否在 Cursor 改运行模式或 allowlist；0.7.4 候选照旧。
+
+## 2026-10-19 · CI 提速：e2e 分片 + 文档提交跳过（主循环）
+- 做了什么：一次 CI 约 12 分钟，几乎全是 e2e 串行（Windows 627 s、Ubuntu 432 s，按日志里每个文件的 group 头时间差算【实测 run 39224110445】）。e2e 每个系统拆 3 片、各占一台 runner，`scripts/e2e-shard.ts` 按 `test/e2e/timings.json`（两系统取大）最长优先贪心分配，三片各约 209 s；表里没有的新文件按中位数算，`--update <job log>` 刷新表。push / PR 只动 NOTES、两份 CHANGELOG、docs/（docs/04 除外，单测读它）时不跑 CI。探针只在第 1 片跑；wire 画像产物只由跑了 v04w 的那片上传，名字不变。
+- 卡在哪：实际总时长待这次推送的 CI 量【待验】。
+- 下一格从哪开始：e2e 文件增删较多后用 `--update` 刷新耗时表；接着发 0.7.4。
