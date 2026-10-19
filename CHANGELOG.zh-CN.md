@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## 未发布
+## 0.7.4（2026-10-19）
 
 ### 在 agent 的命令沙箱里
 
@@ -12,6 +12,10 @@
 
 - Homebrew 安装的（二进制解析到 `<prefix>/Cellar/tabcap/<版本>/bin/tabcap`）现在是 `homebrew` 渠道：`tabcap update` 用该 prefix 的 brew（找不到就用 `PATH` 上的 `brew`）跑 `brew upgrade tabcap`，brew 的输出走 stderr。之后 registry 最新版本的 keg 存在就答 `installed`，否则答 `formula-behind`：tap 在 GitHub Release 发布后才更新，比 npm 晚几分钟，稍后再 `brew update && brew upgrade tabcap`。`--check` 只比较。`TABCAP_BREW` 改 brew 可执行文件。
 - Homebrew tap 已上线：`brew install 1A7432/tabcap/tabcap`（macOS arm64、Linux x64 与 arm64）。
+
+### CI
+
+- 端到端测试每个系统拆成耗时大致相等的三片并行跑（`scripts/e2e-shard.ts`，权重在 `test/e2e/timings.json`），一次 CI 从约 12 分钟降到约 5 分钟。只改 NOTES、两份 CHANGELOG 或 `docs/`（单测读取的 `docs/04` 除外）的提交不跑 CI。
 
 ### analyze chain：步骤按开始时间排
 

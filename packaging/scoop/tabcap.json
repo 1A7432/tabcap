@@ -1,14 +1,14 @@
 {
-    "version": "0.7.3",
+    "version": "0.7.4",
     "description": "Browser for AI agents: background tabs, accessibility-tree refs, recorded traffic.",
     "homepage": "https://github.com/1A7432/tabcap",
     "license": "Apache-2.0",
     "notes": "Run `tabcap setup` once to download Chrome for Testing.",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/1A7432/tabcap/releases/download/v0.7.3/tabcap-v0.7.3-windows-x64.zip",
+            "url": "https://github.com/1A7432/tabcap/releases/download/v0.7.4/tabcap-v0.7.4-windows-x64.zip",
             "hash": "035db5d2a7fd423e58907bbd3522b73f5a06b6035404092290478c25f17dc580",
-            "extract_dir": "tabcap-v0.7.3-windows-x64"
+            "extract_dir": "tabcap-v0.7.4-windows-x64"
         }
     },
     "bin": "tabcap.exe",

@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.7.4 (2026-10-19)
 
 ### Inside an agent's command sandbox
 
@@ -12,6 +12,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 - A Homebrew install (the binary resolves to `<prefix>/Cellar/tabcap/<version>/bin/tabcap`) is now channel `homebrew`: `tabcap update` runs `brew upgrade tabcap` with the brew of that prefix (else `brew` on `PATH`), brew's output on stderr. It answers `installed` when the keg for the registry's latest version exists afterwards, otherwise `formula-behind`: the tap follows a GitHub release a few minutes after npm has the version, so try `brew update && brew upgrade tabcap` later. `--check` only compares. `TABCAP_BREW` overrides the brew executable.
 - The Homebrew tap is live: `brew install 1A7432/tabcap/tabcap` (macOS arm64, Linux x64 and arm64).
+
+### CI
+
+- The end-to-end suite runs in three shards of about equal time per OS (`scripts/e2e-shard.ts`, weights in `test/e2e/timings.json`), so a CI run takes about 5 minutes instead of 12. Commits that only touch NOTES, the changelogs or `docs/` (but `docs/04`, which a unit test reads) skip CI.
 
 ### analyze chain: steps in start order
 
