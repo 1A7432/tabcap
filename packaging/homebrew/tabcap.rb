@@ -1,10 +1,10 @@
 # typed: strict
 # frozen_string_literal: true
 
-# Homebrew formula TEMPLATE for tabcap. scripts/homebrew-formula.ts fills the VERSION
-# and the three SHA256_* placeholders from a release's SHA256SUMS; .github/workflows/homebrew.yml
-# does that for every published GitHub release and pushes Formula/tabcap.rb to the tap
-# https://github.com/1A7432/homebrew-tabcap (`brew install 1A7432/tabcap/tabcap`).
+# Homebrew formula for tabcap, generated: do not edit in the tap. The source is the template
+# packaging/homebrew/tabcap.rb in https://github.com/1A7432/tabcap; scripts/homebrew-formula.ts
+# fills the version and checksums from a release's SHA256SUMS, and .github/workflows/homebrew.yml
+# pushes the result here for every published release (`brew install 1A7432/tabcap/tabcap`).
 # Built targets: macOS arm64, Linux x64 and arm64 (no Intel macOS build).
 class Tabcap < Formula
   desc "Browser for AI agents: background tabs, a11y-tree refs, recorded traffic"

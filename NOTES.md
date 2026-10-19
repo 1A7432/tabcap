@@ -546,3 +546,8 @@
 - 做了什么：2b105c5 之后 main 的 CI 两边各红一条：Windows 的 v02d `net list --method POST` 紧跟 `wait --text` 后列到 0 条（录制器晚于页面，改成 `until`）；ubuntu 的 v04a `analyze chain` 步骤顺序为 `[data, login]`【实测日志：login r-21 在 mono 293025.23 结束，data r-20 在 1.18 ms 后开始，但 login 的事件序号更大】——`chain.ts` 按录制序号 `seq` 排步骤，而序号在正文落盘时分配，登录正文晚一点落盘就排到依赖它的请求之后，`replay export-python` 的调用顺序也跟着错。改成按 `timing.start`（否则 `mono`）排、`seq` 只打平手；单测 `deps.test.ts` 加「steps follow the start clock」用例；CHANGELOG 未发布节记录。5265226 的 CI 八个 job 全绿【实测 run main-ci-chain】。
 - 卡在哪：这类「测试一返回就读录制」的时序断言 CI 上每轮出一条，已改掉四处（v05f、v02d×2、v03e）；再出现按同样套路改。
 - 下一格从哪开始：0.7.4 候选加一条「chain 步骤按开始时间排」已在 Unreleased；其余候选见上一条；作者醒来定 loreweaver 2.4.1 发布（trusted publisher 验证期限 10-19 17:44 UTC）与 v0.7.1 草稿 Release 去留。
+
+## 2026-10-19 · Homebrew 分发上线（主循环）
+- 做了什么：作者建了公开仓库 `1A7432/homebrew-tabcap` 并给出只写该仓库的 fine-grained PAT，存为 `HOMEBREW_TAP_TOKEN`；手动跑 `homebrew.yml -f tag=v0.7.3`，空仓库首推成功（Formula/tabcap.rb + README）【实测 run 39191585392】。README 中英文安装节加 Homebrew 一行；formula 头注释改成「生成文件，源在 tabcap 仓库的模板」，避免 tap 里显示 TEMPLATE。
+- 卡在哪：本机 `brew install 1A7432/tabcap/tabcap` 被权限分类器拦下，安装验证【待验】，等作者本机跑一次。
+- 下一格从哪开始：以后每次发布 Release 自动更新 tap；PAT 到期按 packaging/homebrew/README.md 第 2、3 步换。
