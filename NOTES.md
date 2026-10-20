@@ -581,3 +581,8 @@
 - 做了什么：作者同意两条（10-20「同意。搞完发新小版本。」）：① `json:` 停手 / 结束规则只评判能解析成 JSON 的正文，HTML、空 204、纯文本不命中，JSON 里缺路径仍是「无值」；`fetch --stop-on`、`fetch.stopOn`、站点规则同一语义，`docs/04` §26 改写，fetch06a 表里 `<html>` 那行 expected 由命中改为不命中（理由：站点级规则对页面文档与埋点也求值，旧语义在 s64 第一版上打开页面即停【实测】），s64 改回作者真实写法 `json:$.code!=0`；`bundle info --usage` 的业务码本来就只看 JSON 正文，现在两处一致。② SKILL.md 保持 8 KB 上限，任务节改为每任务一行 + `tabcap guide <id>`，8190 → 7353 字节，顺手把交接一句改回带「reason, screenshot path」。单测 1327 全绿；v06a / v06h / v06i / v075a / v075b 14 条 e2e 全绿【实测】。
 - 卡在哪：「API 回 HTML 就停」不再由 `json:` 规则顺带实现，文档给了 `text:^\s*<`；没加新规则种类。
 - 下一格从哪开始：发 0.7.5（版本号、更新记录标题、打包模板、README 状态、样例 manifest、schema 快照），推 main 与 tag，看 release run，发布 GitHub Release，补 Scoop hash。
+
+## 2026-10-20 · 0.7.5 发布（主循环）
+- 做了什么：作者 10-20「搞完发新小版本」。`0.7.5-handoff-endon` 快进合入 main（4a03916，含 0.7.5-A / B / C 与 release 提交）；第一次 CI 只有 `unit (windows-latest)` 红【实测 run 39361140936：新测试 pyfetch075a 按 `\n` 切 Python 输出，Windows 是 CRLF】，修测试后 run 39361629194 全绿；推 v0.7.5 tag，release run 39362242481 一次全绿，五个 npm 包 0.7.5（curl registry 核对）【实测】；GitHub Release 取消草稿、非 prerelease、设为 latest；homebrew.yml run 39362873505 把 0.7.5 推进 tap【实测】；本机 `tabcap update` 走 homebrew 渠道真正跑了一次 `brew upgrade tabcap`，回 `action:"installed"`，`tabcap --version` 为 0.7.5【实测，NOTES 0.7.4 条的待验项】。Scoop 清单填 0.7.5 的 hash。
+- 卡在哪：`~/.claude/skills/tabcap` 是未改动的 0.7.3 副本，没有子代理那条规则，覆盖与否待作者定；Windows `npm.cmd` 路径、Linux 沙箱标志行仍【待验】。
+- 下一格从哪开始：真实项目上用 `--end-on` 与 `handoff wait --until-url` 复跑那次抓取。
