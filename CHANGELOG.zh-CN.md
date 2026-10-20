@@ -4,9 +4,10 @@
 
 ## 未发布
 
-### 防护家族识别（进行中）
+### 防护家族识别
 
 - `tabcap recon` / `tabcap analyze recon` 认出录制里出现的防护、验证码和指纹技术家族，带置信度和依据（请求号、cookie 名与头名、去掉查询串的 URL；从不输出值）。内置 43 家（防护 16、验证码 17、追踪模式下的指纹技术 10），每条厂商规则都有公开来源（docs/14）；`config/protection/` 里的规则文件可以覆盖或新增家族。只识别：这里没有任何帮你绕过防护的东西。
+- 不录制也有实时提示：`navigate`、`tab new`、`go`、`reload` 之后（以及 `snapshot` 里）对页面做一次只读的轻量探测（cookie 名、加载的脚本与 iframe 地址、页面全局变量——通过属性描述符读，不调用任何 getter——以及 DOM），某家族得分 ≥ 50 时回答里加 `protection: [{name, category, confidence}]`。`tabcap status` 按会话显示。guard 把会话交给人时，回答、`next` 和录下的交接事件都写明是哪一家（「This is Cloudflare Bot Management (identified, not bypassed; a human handles it).」）。录制中某个标签识别结果变化时，记一条 `protection` 事件。
 
 ### 修复
 

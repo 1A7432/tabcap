@@ -1,6 +1,7 @@
 // Daemon-wide state: the browser connection (at most one), sessions/tabs,
 // recorders, known secrets. Tools receive this object; nothing here talks HTTP.
 
+import { cachedNames, namesForGuard } from "./protection/live.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import type { Paths } from "../shared/paths.ts";
 import type { Recorder } from "./capture/recorder.ts";
@@ -96,6 +97,9 @@ export class Daemon {
       siteRules: (s, url) => siteRulesFor(this, s, url),
       // 0.7.5-B: the handoff tab's URL and cookie names when a handoff begins.
       baseline: (s, tab) => handoffBaseline(this, s, tab),
+      // 0.8-A: protection families of the handoff tab (cached per navigation; probed in the tab's turn when missing).
+      protectionOf: (tab) => cachedNames(this.browser?.tabs.tabs.get(tab)),
+      identifyTab: (tab) => namesForGuard(this, tab),
       readBlob: (s, blob) => {
         const r = this.recorders.get(s);
         const path = r === undefined ? null : new BlobStore(r.dir).pathOf(blob);

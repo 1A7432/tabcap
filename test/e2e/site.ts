@@ -2348,3 +2348,81 @@ export function startWebdriverSite(): WebdriverSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, reports, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.8-A: s67–s70 protection families (docs/05 §16)
+// One server for all four scenarios. Pages and stubs are our own; only NAMES
+// (cookie names, host names, globals, class names) match the families of
+// docs/14 — no vendor code. Vendor hosts are written as http://<host>:<port>/…
+// and reach this server through test/e2e/fwdproxy.ts (the browser runs with
+// --proxy <fwdproxy>); every scenario page also lives on its own made-up host
+// so cookies of one page never show up on another. Oracle: `hits` (path and
+// Host header of each request, in order).
+export type ProtectionSite = { port: number; at: (host: string, path: string) => string; hits: { path: string; host: string }[]; stop: () => void };
+
+export function startProtectionSite(): ProtectionSite {
+  const hits: { path: string; host: string }[] = [];
+  let port = 0;
+  const html = (body: string, init: { status?: number; cookies?: string[] } = {}) => {
+    const h = new Headers({ "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    for (const c of init.cookies ?? []) h.append("set-cookie", `${c}; Path=/`);
+    return new Response(`<!doctype html><meta charset=utf-8>${body}`, { status: init.status ?? 200, headers: h });
+  };
+  const js = (body: string) => new Response(body, { headers: { "content-type": "text/javascript", "cache-control": "no-store" } });
+  const vendor = (host: string, path: string) => `http://${host}:${port}${path}`;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      hits.push({ path: u.pathname, host: (req.headers.get("host") ?? "").replace(/:\d+$/, "") });
+      switch (u.pathname) {
+        // s67: passive (L1)
+        case "/s67/datadome":
+          return html(`<h1>s67 datadome</h1><script src="${vendor("js.datadome.co", "/tags.js")}"></script>`, { cookies: ["datadome=AbCdEf0123456789AbCdEf0123456789"] });
+        case "/s67/akamai":
+          return html(`<h1>s67 akamai</h1>`, { cookies: ["_abck=0123456789ABCDEF0123456789ABCDEF~0~stub", "bm_sz=0123456789ABCDEF0123456789ABCDEF~stub"] });
+        case "/s67/recaptcha":
+          return html(`<h1>s67 recaptcha</h1><div class="g-recaptcha" data-sitekey="x"></div><script src="${vendor("www.google.com", "/recaptcha/api.js")}"></script>`);
+        case "/s67/none":
+          return html(`<h1>s67 none</h1><script>fetch("/cdn-cgi/trace")</script>`, { cookies: ["TS01ab12cd=1"] });
+        case "/tags.js":
+          return js("window.ddjskey = 'k';");
+        case "/recaptcha/api.js":
+          return js("window.grecaptcha = { render: function () {} };");
+        case "/cdn-cgi/trace":
+          return new Response("ok", { headers: { "cache-control": "no-store" } });
+        // s68: page (L2); the ddjskey getter would report itself if anything called it
+        case "/s68":
+          return html(`<h1>s68</h1><div class="cf-turnstile" data-sitekey="y"></div><iframe src="${vendor("geo.captcha-delivery.com", "/x")}"></iframe><script src="/s68/stub.js"></script>`);
+        case "/s68/stub.js":
+          return js(`window.initGeetest4 = function () {}; window._dx = { Captcha: function () {} };
+Object.defineProperty(window, "ddjskey", { configurable: true, get: function () { fetch("/s68/getter-ran"); return "k"; } });`);
+        case "/x":
+          return html("<p>frame</p>");
+        case "/s68/getter-ran":
+          return new Response("ran", { headers: { "cache-control": "no-store" } });
+        // s69: trace (L3); the stub reads canvas, WebGL and hardware signals
+        case "/s69":
+          return html(`<h1>s69</h1><script src="${vendor("h.online-metrix.net", "/fp/tags.js")}"></script>`);
+        case "/fp/tags.js":
+          return js(`(function () {
+  var c = document.createElement("canvas"); c.width = 16; c.height = 16;
+  var x = c.getContext("2d"); x.fillText("s69", 1, 10); c.toDataURL(); x.getImageData(0, 0, 4, 4);
+  var g = document.createElement("canvas").getContext("webgl"); if (g) g.getParameter(g.VERSION);
+  void navigator.hardwareConcurrency;
+  window.__s69 = "done";
+})();`);
+        // s70: challenge pages (guard + family)
+        case "/s70/cf":
+          return html(`<h1>Just a moment</h1>`, { status: 403, cookies: ["__cf_bm=stubvalue"] });
+        case "/s70/jsl":
+          if ((req.headers.get("cookie") ?? "").includes("__jsl_clearance=")) return html(`<h1>s70 jsl ok</h1>`);
+          return html(`<script>document.cookie = "__jsl_clearance=1; path=/"; location.reload();</script>`, { status: 521, cookies: ["__jsluid_h=0123456789abcdef"] });
+        default:
+          return new Response("nf", { status: 404 });
+      }
+    },
+  });
+  port = server.port ?? 0;
+  return { port, at: (host, path) => `http://${host}:${port}${path}`, hits, stop: () => server.stop(true) };
+}

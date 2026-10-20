@@ -32,7 +32,7 @@ import { paths } from "../../src/shared/paths.ts";
 const OFF = { state: "off" as const, decode: false, weakRows: null };
 
 function sess(name: string, o: Partial<StatusSession> = {}): StatusSession {
-  return { session: name, site: "shop", account: "alice", tabSite: null, tabs: 1, current: "t1", url: null, recording: null, state: "running", reason: null, screenshot: null, trace: OFF, guardStops: [], ...o };
+  return { session: name, site: "shop", account: "alice", tabSite: null, tabs: 1, current: "t1", url: null, recording: null, state: "running", reason: null, screenshot: null, trace: OFF, guardStops: [], protection: [], ...o };
 }
 
 const REC = { bundle: "/b/w-1", since: 1, entries: 7, decodePlugins: [] as string[] };
@@ -237,6 +237,7 @@ describe("status off a daemon (no browser)", () => {
         screenshot: null,
         trace: { state: "off", decode: false, weakRows: null },
         guardStops: [{ site: "shop", rule: "status>=400", since: 9, reason: "fetch-stop", by: "w", request: "r-6" }],
+        protection: [],
       },
     ]);
     expect(data["handoff"]).toEqual([]);

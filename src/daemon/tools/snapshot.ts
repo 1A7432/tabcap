@@ -6,6 +6,7 @@
 // the tree (browser/axfilter.ts); the header and the ref table stay those of
 // the full snapshot.
 
+import { protectionField } from "../protection/live.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { TabcapError } from "../../shared/envelope.ts";
@@ -444,6 +445,8 @@ export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: Snaps
     // Only pages with child frames carry the list (a page without frames answers as before 0.4-I).
     ...(frames.length > 0 ? { frames } : {}),
     ...(o.frame === null ? {} : { frame: o.frame }),
+    // 0.8-A: identified protection families (≥ 50), probed once per navigation (docs/04 §41.3).
+    ...(await protectionField(d, t, tab)),
   };
   await adviseChallenge(d, t, tab, page.challenge);
   const blockText = (b: { head: string; body: Rendered | string }, max: number): { text: string; truncated: boolean; chars: number } => {
