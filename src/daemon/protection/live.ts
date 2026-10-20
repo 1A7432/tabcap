@@ -123,7 +123,8 @@ function record(d: Daemon, tab: Tab, detections: readonly Detection[]): void {
   const key = shown.map((x) => `${x.family}:${x.confidence}`).join(",");
   const last = written.get(tab);
   if (last !== undefined && last.bundle === rec.dir && last.key === key) return;
-  if (last === undefined && key === "") return; // nothing identified yet: no event
+  // Nothing identified yet in this recording: no event (a change to nothing within one recording is still written).
+  if (key === "" && (last === undefined || last.bundle !== rec.dir)) return;
   written.set(tab, { bundle: rec.dir, key });
   rec.event("protection", { nav: d.navOf(tab), url: tab.url, detections: shown.map((x) => ({ family: x.family, name: x.name, category: x.category, confidence: x.confidence, matched: x.matched })) }, { tab: tab.id });
 }
