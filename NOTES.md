@@ -586,3 +586,8 @@
 - 做了什么：作者 10-20「搞完发新小版本」。`0.7.5-handoff-endon` 快进合入 main（4a03916，含 0.7.5-A / B / C 与 release 提交）；第一次 CI 只有 `unit (windows-latest)` 红【实测 run 39361140936：新测试 pyfetch075a 按 `\n` 切 Python 输出，Windows 是 CRLF】，修测试后 run 39361629194 全绿；推 v0.7.5 tag，release run 39362242481 一次全绿，五个 npm 包 0.7.5（curl registry 核对）【实测】；GitHub Release 取消草稿、非 prerelease、设为 latest；homebrew.yml run 39362873505 把 0.7.5 推进 tap【实测】；本机 `tabcap update` 走 homebrew 渠道真正跑了一次 `brew upgrade tabcap`，回 `action:"installed"`，`tabcap --version` 为 0.7.5【实测，NOTES 0.7.4 条的待验项】。Scoop 清单填 0.7.5 的 hash。
 - 卡在哪：`~/.claude/skills/tabcap` 是未改动的 0.7.3 副本，没有子代理那条规则，覆盖与否待作者定；Windows `npm.cmd` 路径、Linux 沙箱标志行仍【待验】。
 - 下一格从哪开始：真实项目上用 `--end-on` 与 `handoff wait --until-url` 复跑那次抓取。
+
+## 2026-10-20 · 0.7.6-A · 默认隐藏 `navigator.webdriver`（主循环，分支 webdriver-hidden）
+- 做了什么：作者 10-20 改项目要求「默认隐藏 webdriver」，选方案 A（启动参数，不注入脚本），开关定为 `--webdriver hidden|visible`，`ext` 模式先不管，删掉文档里「不隐藏 webdriver」的说法。先用探针实测（CfT 155.0.8059.84，脚本在 scratchpad 不进仓库）：不加参数，pipe 下主文档与 iframe 都是 `true`；加 `--disable-blink-features=AutomationControlled` 后 pipe 与 port 两种连接下都是 `false`，视口 727 / 814 与不加时相同（据此判断没有多出信息栏，没看窗口截图）；专用 worker 里加不加都是 `undefined`【实测】。设计写进 `docs/04` §40（含 manifest `producer.browser.webdriver`）、`docs/05` s66、`docs/07` §1.2 参数表与末注、AGENTS.md 一条；`docs/10` 删去三处「不隐藏 webdriver」相关说法。代码：`buildArgs` 按 `webdriver` 加参数，`browser start --webdriver`、`config.json` `webdriver`，`browser start` / `browser status` / `status`（JSON 与 `--text` 首行）与 manifest 带当前值。单测 1328 全过；e2e v076a（s66 三条）、v07b、v04g 本机通过【实测】。
+- 卡在哪：v04w 本机跑不了（本机 Zig 0.17，项目要求 0.16，新 worktree 编不出 wireprint），交给 CI；线指纹画像缓存按参数哈希失效，第一次 `wire probe` 会重采【推断】。`ext` 模式的值没量【待验】。
+- 下一格从哪开始：作者审 `webdriver-hidden` 分支；看 CI（含 v04w 那片）；合入后随 0.7.6 发布。

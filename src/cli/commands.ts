@@ -173,6 +173,7 @@ export const COMMANDS: CommandSpec[] = [
     pos: [],
     flags: [
       { flag: "--proxy", key: "proxy", kind: "string", help: "system (default) | none (block everything but 127.0.0.1/localhost) | <url> (loopback goes through the proxy too)", metavar: "mode" },
+      { flag: "--webdriver", key: "webdriver", kind: "string", help: "hidden (default: navigator.webdriver reads false, a launch switch, no page script) | visible (Chrome's own value); default from config.json webdriver", metavar: "mode" },
       { flag: "--foreground", key: "foreground", kind: "bool", help: "open new tabs as the active tab of the window (still never steals the macOS foreground)" },
       { flag: "--executable-path", key: "executablePath", kind: "string", help: "Chrome for Testing binary (else $TABCAP_CHROME, config.json, cache)", metavar: "path" },
     ],

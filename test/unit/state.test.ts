@@ -95,7 +95,7 @@ describe("recorder: state cookie events (docs/04 §4.1)", () => {
     const tab = await tabs.createTab("s07");
     commit("http://127.0.0.1:4310/s07/login", "L1"); // the page was open before recording
     const dir = join(tmp("tabcap-state-"), "b");
-    const rec = await Recorder.start({ session: "s07", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
+    const rec = await Recorder.start({ session: "s07", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" } });
     jar.cookies = [cookie("sid", SID, { httpOnly: true })];
     commit("http://127.0.0.1:4310/s07/data", "L2");
     emit("Page.navigatedWithinDocument", { frameId: "T1", url: "http://127.0.0.1:4310/s07/data#tab2" });
@@ -111,6 +111,8 @@ describe("recorder: state cookie events (docs/04 §4.1)", () => {
     expect(rec.status()).toMatchObject({ counts: { state: 2 } });
     const done = await rec.stop();
     const reader = BundleReader.open(dir);
+    // 0.7.6-A: the launch's webdriver mode reaches the manifest (docs/04 §40)
+    expect(reader.manifest.producer.browser?.webdriver).toBe("hidden");
     const states = reader.events.filter((e) => e.kind === "state");
     expect(states.map((e) => [e["reason"], e["what"], e["origin"], e["count"], e.actor, e.tab])).toEqual([
       ["session-start", "cookies", "http://127.0.0.1:4310", 0, "system", "t1"],
@@ -155,7 +157,7 @@ describe("recorder: state cookie events (docs/04 §4.1)", () => {
     await tabs.createTab("x");
     commit("http://127.0.0.1:4310/s07/login", "L1");
     const dir = join(tmp("tabcap-state-race-"), "b");
-    const rec = await Recorder.start({ session: "x", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
+    const rec = await Recorder.start({ session: "x", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" } });
     jar.cookies = [cookie("sid", SID, { httpOnly: true })];
     racing = true;
     commit("http://127.0.0.1:4310/s07/login?again=1", "L2");
@@ -179,7 +181,7 @@ describe("recorder: state cookie events (docs/04 §4.1)", () => {
     await tabs.createTab("x");
     commit("http://127.0.0.1:4310/", "L1");
     const dir = join(tmp("tabcap-state-err-"), "b");
-    const rec = await Recorder.start({ session: "x", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
+    const rec = await Recorder.start({ session: "x", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" } });
     commit("http://127.0.0.1:4310/two", "L2");
     await rec.stop();
     const reader = BundleReader.open(dir);

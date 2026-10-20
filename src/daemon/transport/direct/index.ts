@@ -22,6 +22,7 @@ import {
   killAndWait,
   launchChrome,
   type ProxyMode,
+  type WebdriverMode,
 } from "./launcher.ts";
 
 export const FORBIDDEN_METHODS = new Set(["Target.activateTarget", "Page.bringToFront"]);
@@ -31,6 +32,7 @@ export type DirectOptions = {
   profileDir: string;
   logFile: string;
   proxy: ProxyMode;
+  webdriver: WebdriverMode;
   extensionDir: string | null;
   noStartupWindow: boolean;
   cdp?: "pipe" | "port";
@@ -90,6 +92,7 @@ export class DirectTransport implements Transport {
       logFile: o.logFile,
       platform: process.platform,
       proxy: o.proxy,
+      webdriver: o.webdriver,
       extensionDir: o.extensionDir,
       noStartupWindow: o.noStartupWindow,
       ...(o.cdp === undefined ? {} : { cdp: o.cdp }),

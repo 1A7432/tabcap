@@ -10,7 +10,7 @@ import { Tabs } from "../browser/targets.ts";
 import { ConsoleLog } from "../capture/console.ts";
 import type { Daemon } from "../state.ts";
 import { DirectTransport } from "../transport/direct/index.ts";
-import { parseProxy, proxyLabel, resolveExecutable } from "../transport/direct/launcher.ts";
+import { parseProxy, parseWebdriver, proxyLabel, resolveExecutable } from "../transport/direct/launcher.ts";
 import { logOffset, logSince, nestedSandboxError, sandboxFailed } from "../transport/direct/sandbox-check.ts";
 import { optBool, optStr, type Args } from "./args.ts";
 
@@ -33,6 +33,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     chromeCache: d.paths.chromeCache,
   });
   const proxy = parseProxy(optStr(a, "proxy") ?? cfg.proxy);
+  const webdriver = parseWebdriver(optStr(a, "webdriver") ?? cfg.webdriver);
   const foreground = optBool(a, "foreground");
   const profile = join(d.paths.profiles, "default");
   const cdpEnv = envVar("CDP");
@@ -47,6 +48,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     profileDir: profile,
     logFile: d.paths.browserLog,
     proxy,
+    webdriver,
     extensionDir: extensionDir(),
     // Measured 10-15: with --no-startup-window Chrome never took the macOS
     // foreground, even when the first createTarget opened a window.
@@ -84,6 +86,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
       executableSource: exe.source,
       profile,
       proxy: proxyLabel(proxy),
+      webdriver,
       foreground,
       front: t.front,
       startedAt: Date.now(),

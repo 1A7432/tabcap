@@ -14,6 +14,8 @@ export type TabcapConfig = {
   chrome: { executablePath: string; version: string | null; platform: string | null } | null;
   /** Default for `browser start --proxy`: "system" | "none" | <url>. */
   proxy: string | null;
+  /** Default for `browser start --webdriver`: "hidden" | "visible" (docs/04 §40). */
+  webdriver: string | null;
 };
 
 function readRaw(file: string): Record<string, unknown> {
@@ -29,10 +31,10 @@ export function readConfig(file: string): TabcapConfig {
     isRecord(c) && str(c, "executablePath") !== null
       ? { executablePath: str(c, "executablePath") ?? "", version: str(c, "version"), platform: str(c, "platform") }
       : null;
-  return { chrome, proxy: str(raw, "proxy") };
+  return { chrome, proxy: str(raw, "proxy"), webdriver: str(raw, "webdriver") };
 }
 
-/** Write `chrome` / `proxy`, keeping every other key of the file as it was. */
+/** Write `chrome` / `proxy` / `webdriver`, keeping every other key of the file as it was. */
 export function writeConfig(file: string, cfg: TabcapConfig): void {
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   writeFileAtomic(file, JSON.stringify({ ...readRaw(file), ...cfg }, null, 2) + "\n");

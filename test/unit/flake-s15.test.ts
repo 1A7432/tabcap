@@ -163,7 +163,7 @@ describe("requests closed at stop keep their start order (s15 flake, cause 2)", 
     const tabs = new Tabs(t, false);
     await tabs.createTab("s15");
     const dir = join(mkdtempSync(join(tmpdir(), "tabcap-flush-")), "b");
-    const rec = await Recorder.start({ session: "s15", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
+    const rec = await Recorder.start({ session: "s15", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" } });
     // three fetches whose bodies the page never reads: responses, but no loadingFinished
     const urls = ["http://127.0.0.1:9/api/verified?bucket=main", "http://127.0.0.1:9/api/limited?bucket=main", "http://127.0.0.1:9/api/limited?bucket=main&n=2"];
     urls.forEach((url, i) => {

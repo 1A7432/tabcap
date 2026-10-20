@@ -2312,3 +2312,39 @@ document.getElementById("s65-go").addEventListener("click", () => {
   });
   return { origin: `http://127.0.0.1:${server.port}`, api, done, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.7.6-A: s66 webdriver (docs/05 s66)
+// The page and its iframe each report navigator.webdriver and whether
+// Navigator.prototype's webdriver getter is still native, by fetching
+// /s66/report. Oracle: the server's log of reports, in arrival order.
+export type S66Report = { where: string; webdriver: string; native: string };
+export type WebdriverSite = { origin: string; reports: S66Report[]; stop: () => void };
+
+const S66_REPORT = (where: string) => `<script>
+const d = Object.getOwnPropertyDescriptor(Navigator.prototype, "webdriver");
+const native = d !== undefined && typeof d.get === "function" && Function.prototype.toString.call(d.get).includes("[native code]");
+fetch("/s66/report?where=${where}&webdriver=" + String(navigator.webdriver) + "&native=" + String(native));
+</script>`;
+const S66_PAGE = `<!doctype html><meta charset=utf-8><title>s66 webdriver</title><h1>s66</h1><iframe src="/s66/frame"></iframe>${S66_REPORT("main")}`;
+const S66_FRAME = `<!doctype html><meta charset=utf-8>${S66_REPORT("frame")}`;
+
+export function startWebdriverSite(): WebdriverSite {
+  const reports: S66Report[] = [];
+  const html = (body: string) => new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      if (u.pathname === "/s66") return html(S66_PAGE);
+      if (u.pathname === "/s66/frame") return html(S66_FRAME);
+      if (u.pathname === "/s66/report") {
+        const q = u.searchParams;
+        reports.push({ where: q.get("where") ?? "", webdriver: q.get("webdriver") ?? "", native: q.get("native") ?? "" });
+        return new Response("ok", { headers: { "cache-control": "no-store" } });
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, reports, stop: () => server.stop(true) };
+}

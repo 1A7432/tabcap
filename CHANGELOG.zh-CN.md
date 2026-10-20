@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### 默认隐藏 `navigator.webdriver`
+
+- tabcap 启动的 Chrome for Testing 多带 `--disable-blink-features=AutomationControlled`，页面和 iframe 里 `navigator.webdriver` 读到 `false`（此前经 CDP 管道为 `true`）。这是启动参数，不是页面脚本，getter 仍是原生的。`tabcap browser start --webdriver visible` 或 `config.json` 的 `"webdriver": "visible"` 不带这个参数；其他值报 usage 错误。当前值出现在 `browser start` / `browser status`、`tabcap status`（`browser.webdriver`；`--text` 首行末尾写 `webdriver <值>`）和证据包 manifest（`producer.browser.webdriver`）里。只改这一个信号；`ext` 模式（你自己的 Chrome）不动。作者 10-20 定。
+
 ## 0.7.5（2026-10-20）
 
 ### 列表结束规则：「没有更多了」不算停手

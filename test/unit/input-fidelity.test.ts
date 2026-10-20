@@ -406,7 +406,7 @@ describe("docs/04 §5.2 rule 9: bodies the page never reads", () => {
     const tabs = new Tabs(t, false);
     await tabs.createTab("s46");
     const dir = join(mkdtempSync(join(tmpdir(), "tabcap-unread-")), "b");
-    const rec = await Recorder.start({ session: "s46", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, unreadAfterMs: 40 });
+    const rec = await Recorder.start({ session: "s46", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" }, unreadAfterMs: 40 });
     const url = "http://127.0.0.1:9/api/limited";
     emit("Network.requestWillBeSent", { requestId: "R1", loaderId: "L1", type: "Fetch", timestamp: 10, wallTime: 1760500000, request: { url, method: "GET", headers: {} } });
     emit("Fetch.requestPaused", { requestId: "I1", networkId: "R1", resourceType: "Fetch", frameId: "T1", responseStatusCode: 200, responseHeaders: [{ name: "content-type", value: "application/json" }] });
@@ -434,7 +434,7 @@ describe("docs/04 §5.2 rule 9: bodies the page never reads", () => {
     const tabs = new Tabs(t, false);
     await tabs.createTab("s46");
     const dir = join(mkdtempSync(join(tmpdir(), "tabcap-unread-")), "b");
-    const rec = await Recorder.start({ session: "s46", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, unreadAfterMs: 30 });
+    const rec = await Recorder.start({ session: "s46", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" }, unreadAfterMs: 30 });
     // R1: response, never a Fetch body, never finished
     emit("Network.requestWillBeSent", { requestId: "R1", loaderId: "L1", type: "Other", timestamp: 10, wallTime: 1760500000, request: { url: "http://127.0.0.1:9/stream", method: "GET", headers: {} } });
     emit("Network.responseReceived", { requestId: "R1", type: "Other", timestamp: 10.1, response: { status: 200, headers: {}, mimeType: "text/plain" } });

@@ -172,7 +172,7 @@ export type RecorderOptions = {
   dir: string;
   t: Transport;
   tabs: Tabs;
-  browser: { version: string; userAgent: string };
+  browser: { version: string; userAgent: string; webdriver: "hidden" | "visible" };
   /** Console collector; its entries for this session's tabs become `console` events. */
   console?: ConsoleLog | null;
   /** Known-secret replacement for page-provided text (console). */
@@ -262,7 +262,7 @@ export class Recorder {
           version: TOOL_VERSION,
           daemon: TOOL_VERSION,
           extension: null,
-          browser: { name: "Chrome for Testing", version: o.browser.version.replace(/^[^/]*\//, ""), userAgent: o.browser.userAgent },
+          browser: { name: "Chrome for Testing", version: o.browser.version.replace(/^[^/]*\//, ""), userAgent: o.browser.userAgent, webdriver: o.browser.webdriver },
           platform: `${process.platform}-${process.arch}`,
         },
         session: { name: o.session, site: o.site?.site ?? null, account: o.site?.account ?? null, proxy: o.site?.proxy ?? null },

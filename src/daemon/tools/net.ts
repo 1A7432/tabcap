@@ -77,7 +77,7 @@ export async function netStart(d: Daemon, a: Args, session: string): Promise<unk
     dir,
     t,
     tabs,
-    browser: { version: info.version, userAgent: info.userAgent },
+    browser: { version: info.version, userAgent: info.userAgent, webdriver: info.webdriver },
     console,
     scrub: (s) => d.secrets.scrub(s),
     site: bound,

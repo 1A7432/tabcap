@@ -57,7 +57,7 @@ async function recordRedirect(post: { postData?: string; hasPostData: boolean },
   const tabs = new Tabs(chrome.t, false);
   await tabs.createTab("s49");
   const dir = join(mkdtempSync(join(tmpdir(), "tabcap-06d-")), "b");
-  const rec = await Recorder.start({ session: "s49", dir, t: chrome.t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
+  const rec = await Recorder.start({ session: "s49", dir, t: chrome.t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" } });
   const { emit } = chrome;
   emit("Network.requestWillBeSent", {
     requestId: "R1",

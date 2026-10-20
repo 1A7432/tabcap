@@ -99,7 +99,7 @@ Example: `tabcap daemon status`
 launch the dedicated Chrome for Testing (own profile, CDP over a pipe)
 
 ```
-tabcap browser start [--proxy mode] [--foreground] [--executable-path path]
+tabcap browser start [--proxy mode] [--webdriver mode] [--foreground] [--executable-path path]
 ```
 
 Example: `tabcap browser start --proxy none`
@@ -107,6 +107,7 @@ Example: `tabcap browser start --proxy none`
 | Option | Default | Meaning |
 |---|---|---|
 | `--proxy <mode>` |  | system (default) \| none (block everything but 127.0.0.1/localhost) \| <url> (loopback goes through the proxy too) |
+| `--webdriver <mode>` |  | hidden (default: navigator.webdriver reads false, a launch switch, no page script) \| visible (Chrome's own value); default from config.json webdriver |
 | `--foreground` |  | open new tabs as the active tab of the window (still never steals the macOS foreground) |
 | `--executable-path <path>` |  | Chrome for Testing binary (else $TABCAP_CHROME, config.json, cache) |
 

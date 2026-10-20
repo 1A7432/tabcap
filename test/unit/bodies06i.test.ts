@@ -92,7 +92,7 @@ async function record(mode: BodiesMode | undefined) {
   const tabs = new Tabs(chrome.t, false);
   await tabs.createTab("s54");
   const dir = join(mkdtempSync(join(tmpdir(), "tabcap-06i-")), "b");
-  const rec = await Recorder.start({ session: "s54", dir, t: chrome.t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, ...(mode === undefined ? {} : { bodies: mode }) });
+  const rec = await Recorder.start({ session: "s54", dir, t: chrome.t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" }, ...(mode === undefined ? {} : { bodies: mode }) });
   let ts = 10;
   for (const r of PAGE) {
     chrome.emit("Network.requestWillBeSent", { requestId: r.id, loaderId: "L1", type: r.cdpType, timestamp: (ts += 0.01), wallTime: 1760500000, request: { url: `${ORIGIN}${r.path}`, method: "GET", headers: {} } });
