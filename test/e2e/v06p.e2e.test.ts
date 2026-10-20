@@ -6,12 +6,12 @@
 //   - the exported Authorization: the literal the page sends (S60_TOKEN) to origin B.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { S60_COOKIE, S60_ME, S60_NEED_COOKIE, S60_PRIVATE, S60_TOKEN, S60_WILD, startCredSite, type CredSite } from "./site.ts";
-import { daemonRequest } from "./_daemon.ts";
+import { daemonRequest, removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -83,7 +83,7 @@ describe.skipIf(!enabled)("tabcap 0.6-P L2 (fetch --credentials, fetch.blocked h
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("ACAO * : include (default) is fetch.blocked with the wildcard reason and a --credentials omit hint; omit reads it without a cookie", async () => {

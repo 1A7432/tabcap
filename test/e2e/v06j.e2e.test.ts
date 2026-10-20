@@ -8,11 +8,12 @@
 //     the element it should land on.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { S56_LAY_TEXT, S56_MENU_TEXT, S56_TRUST_TEXT, startClickTargetSite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -71,7 +72,7 @@ describe.skipIf(!enabled)("tabcap 0.6-J L2 (docs/05 s56: a click lands on the el
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("snapshot --interactive marks the two widgets whose handler sits on a child with landing=\"child\", not the trusted-only one", async () => {

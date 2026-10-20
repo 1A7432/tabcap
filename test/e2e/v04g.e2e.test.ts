@@ -10,11 +10,12 @@
 //   - the bundle: the `state` env events read back from events.jsonl.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -117,7 +118,7 @@ describe.skipIf(!enabled)("tabcap 0.4-G L2 (signal probe: this browser vs a refe
 
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("fingerprint probe while recording: every field, a background tab closed afterwards, the current tab kept, a state env event", async () => {

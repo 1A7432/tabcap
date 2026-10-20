@@ -5,11 +5,12 @@
 // the login bodies it received) and from docs/05 / docs/06, never from tabcap.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, WALL_CODE, WALL_MARKER, startGuardSite, type GuardSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 // POSIX file modes do not exist on Windows (files get the profile's default ACL, docs/08): mode checks skip there.
 const POSIX_MODES = process.platform !== "win32";
@@ -113,7 +114,7 @@ describe.skipIf(!enabled)("tabcap 0.3-A L2 (store, secret fill, guard, handoff, 
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("store file 0600 in 0700; site list shows names, urls, usernames and refs, never the password", async () => {

@@ -10,7 +10,7 @@
 // the recording (header x-tabcap-replay) and against the range itself.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
@@ -18,6 +18,7 @@ import { isRecord } from "../../src/shared/json.ts";
 import { expectMode } from "../unit/_platform.ts";
 import { MUST_RUN, need, packageReason, runInPackageAsync, syncPackage } from "../unit/_python.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, startGuardSite, type GuardSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -97,7 +98,7 @@ describe.skipIf(!enabled)("tabcap 0.6-F L2 (session export --for requests / http
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     guard.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("s07 login with a bearer token: the export holds the cookie sid, authorization + x-csrf and the storage keys; 0600; the envelope only counts and names; the httpx client replays /api/data", async () => {

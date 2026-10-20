@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### 修复
+
+- Linux 上的 `click --trusted` / `hover`：后台标签帧慢时，开了小 screencast 之后的绘制确认改为最多 3 秒内每 250 ms 再查，不再只查一次。原来开 screencast 后紧接的一次检查可能 1 秒内看不到帧，就降成了 DOM 点击。
+
 ## 0.7.6（2026-10-20）
 
 ### 默认隐藏 `navigator.webdriver`

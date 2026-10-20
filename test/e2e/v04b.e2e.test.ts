@@ -7,12 +7,13 @@
 // 127.0.0.1 is opened (--proxy none).
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PredefinedNetworkConditions } from "../../src/daemon/tools/emulatespec.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { BIG_BYTES, startThrottleSite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -69,7 +70,7 @@ describe.skipIf(!enabled)("tabcap 0.4-B L2 (emulate network throttling)", () => 
   afterAll(async () => {
     await tabcap("daemon", "stop").catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test(`emulate --network-conditions "${PRESET}" makes a ${BIG_BYTES} B transfer take at least size / download; it survives wait --idle; a bare emulate clears it`, async () => {

@@ -13,12 +13,13 @@
 //     getBoundingClientRect), not against tabcap's arithmetic.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { S22_CLOSE_LABEL, S22_LAYER_TITLE, S22_MENU_LINKS, S22_SEARCH_PREFIX, S22_TABLE_CELLS, S22_TITLES, startFrameSite, type FrameSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -109,7 +110,7 @@ describe.skipIf(!enabled)("tabcap 0.4-I L2 (docs/05 s22 frames: frame-path refs,
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("navigate /s22 → snapshot: frames are header lines only (path, url, origin, depth, title), no element lines; outline has the same block", async () => {

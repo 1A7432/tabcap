@@ -8,12 +8,12 @@
 // cookie it set; tabcap's answers are only checked against those and §39.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { startHandoffSite, type HandoffSite } from "./site.ts";
-import { daemonRequest } from "./_daemon.ts";
+import { daemonRequest, removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -90,7 +90,7 @@ describe.skipIf(!enabled)("tabcap 0.7.5-B L2 (handoff wait --until-* on s65)", (
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    if (process.env["V075B_KEEP"] === undefined) rmSync(home, { recursive: true, force: true });
+    if (process.env["V075B_KEEP"] === undefined) removeHome(home, import.meta.file);
     else console.log(`[v075b] kept ${home}`);
   });
 

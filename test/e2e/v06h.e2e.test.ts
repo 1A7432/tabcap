@@ -7,12 +7,13 @@
 // per-host totals are summed over a host's rows, intervals read from the page / fetch rows.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, startGuardSite, startSearchSite, type GuardSite, type SearchSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -74,7 +75,7 @@ describe.skipIf(!enabled)("tabcap 0.6-H L2 (bundle info --usage over s07 + s06)"
     await tabcap(["daemon", "stop"]).catch(() => null);
     guard.stop();
     search.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("one run over s07 (login, data) and s06 (page + search, three fetches, the last one stopped): the usage numbers equal the range logs", async () => {

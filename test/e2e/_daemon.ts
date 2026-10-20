@@ -4,8 +4,8 @@
 // does: the Unix socket recorded in config/daemon.json, or on Windows the
 // loopback port with the bearer token from the same file (0.7.3: the three
 // callers used `unix:` only, which was every Windows e2e failure).
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { basename, join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 
 const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
@@ -21,4 +21,22 @@ export async function daemonRequest(home: string, path: string, body: Record<str
     res = await fetch(`http://localhost${path}`, { ...init, unix: String(info["socket"]) });
   }
   return rec(await res.json());
+}
+
+/**
+ * Remove a test's temp TABCAP_HOME. With TABCAP_E2E_KEEP set (CI), first copy
+ * its config/*.log (daemon.log, browser.log) to <KEEP>/<test file>/<home>/, and
+ * with `bundles` its data/bundles too, so a failed run leaves its logs behind.
+ */
+export function removeHome(home: string, testFile: string, o: { bundles?: boolean } = {}): void {
+  const keep = process.env["TABCAP_E2E_KEEP"] ?? "";
+  if (keep !== "" && home !== "") {
+    const to = join(keep, basename(testFile).replace(/\.e2e\.test\.ts$/, ""), basename(home));
+    for (const sub of ["config", ...(o.bundles === true ? [join("data", "bundles")] : [])]) {
+      const src = join(home, sub);
+      if (!existsSync(src)) continue;
+      cpSync(src, join(to, sub), { recursive: true, filter: (f) => sub !== "config" || f === src || f.endsWith(".log") });
+    }
+  }
+  rmSync(home, { recursive: true, force: true });
 }

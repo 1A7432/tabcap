@@ -7,12 +7,13 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { frontmostApp, isChromeApp } from "../../src/daemon/transport/direct/launcher.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { DATA_IMAGES, POST_PAD, SCAN_PORTS, SIGN_HEADER, SIGN_VALUE, startFieldSite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 // POSIX file modes do not exist on Windows (files get the profile's default ACL, docs/08): mode checks skip there.
 const POSIX_MODES = process.platform !== "win32";
@@ -106,7 +107,7 @@ describe.skipIf(!enabled)("tabcap 0.2-D L2 (field report)", () => {
   afterAll(async () => {
     await tabcap("daemon", "stop").catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("--version and two-level help", async () => {

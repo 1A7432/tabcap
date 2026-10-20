@@ -11,12 +11,13 @@
 // and the docs/04 §28 shapes.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { S42_ITEMS_JSON, S42_ORDER, S42_ORDER_JSON, S42_POST_JSON, S42_TOKEN, S42_TOKEN_JSON, startDecodeSite, xorEncode, type DecodeSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -77,7 +78,7 @@ describe.skipIf(!enabled)("tabcap 0.6-B L2 (decode plugins on docs/05 s42)", () 
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("walk: the recording's request events carry decoded views; where resolves the cell to the decoded path", async () => {

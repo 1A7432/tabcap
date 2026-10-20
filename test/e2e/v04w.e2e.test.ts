@@ -16,7 +16,7 @@
 // uv): without that template it is skipped with the reason printed.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
@@ -24,6 +24,7 @@ import { isRecord } from "../../src/shared/json.ts";
 import { profileArch, profileOs } from "../../src/wire/profile.ts";
 import PYPROJECT from "../../templates/python/pyproject.toml" with { type: "text" };
 import { startSmokeSite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -81,7 +82,7 @@ describe.skipIf(!enabled)("tabcap 0.4-W2 L2 (wire echo, browser baseline, probe)
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("wire version / ca-path: the component runs and the CA is a file", async () => {

@@ -19,6 +19,7 @@ import { isRecord } from "../../src/shared/json.ts";
 import { paths } from "../../src/shared/paths.ts";
 import { startForwardProxy, type FwdProxy } from "./fwdproxy.ts";
 import { startPoolSite, type PoolSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -92,7 +93,7 @@ describe.skipIf(!enabled)("tabcap 0.4-D L2 (account pool, proxy pool, per-accoun
     site.stop();
     px1.stop();
     px2.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("proxy add takes the password on stdin only; socks5 with a user is refused", async () => {

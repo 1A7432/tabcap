@@ -11,11 +11,12 @@
 //       `tabcap --help` at most 8 KB.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, startFieldSite, startGuardSite, type GuardSite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -85,7 +86,7 @@ describe.skipIf(!enabled)("tabcap 0.5-C L2 (context budget on the range)", () =>
     await tabcap(["daemon", "stop"]).catch(() => null);
     field.stop();
     guard.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("tabcap --help is the index, at most 8 KB", async () => {
@@ -107,11 +108,10 @@ describe.skipIf(!enabled)("tabcap 0.5-C L2 (context budget on the range)", () =>
 
     const list = await ok("net", "list", "--grep", "/api/", "--fields", "id,method,url", ...S);
     const rows = recs(list.data["requests"]);
-    const apis = rows.map((r) => [r["method"], new URL(s(r["url"])).pathname]);
-    expect(apis).toEqual([
-      ["POST", "/api/login"],
-      ["POST", "/api/data"],
-    ]);
+    // net list follows seq (docs/04 §3: assigned when the request event is written, at its end), so a
+    // login whose body lands after /api/data's comes second (Windows CI run 39400091976, attempt 2): compare as a set.
+    const apis = rows.map((r) => `${s(r["method"])} ${new URL(s(r["url"])).pathname}`).sort();
+    expect(apis).toEqual(["POST /api/data", "POST /api/login"]);
     for (const r of rows) expect(Object.keys(r).sort()).toEqual(["id", "method", "url"]);
     expect(list.envelope["filter"]).toMatchObject({ grep: "/api/", fields: ["id", "method", "url"], matches: 2, capped: false });
 
