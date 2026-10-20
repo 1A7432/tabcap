@@ -11,8 +11,11 @@
 //   json:<path>!=<value>   … differs from value (business error codes, e.g. json:$.code!=0)
 //   text:<regex>           the decoded body matches the regex (JavaScript, u flag, ≤ 256 chars)
 // <path> is `$` followed by `.name` / `[n]` steps. <value> is read as JSON when
-// it parses (0, true, "x", null), else as the literal string. A body that is
-// not JSON, or has nothing at the path, has no value: never equal to anything.
+// it parses (0, true, "x", null), else as the literal string. 0.7.5: json:
+// rules judge JSON bodies only; a body that does not parse as JSON (an HTML
+// page, an empty 204, a text beacon) never fires them, whatever the
+// Content-Type says. A JSON body with nothing at the path has no value:
+// never equal to anything (so `!=` fires).
 
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
@@ -165,12 +168,10 @@ export function firstStop(rules: readonly StopRule[], r: StopInput): { rule: str
         break;
       case "json": {
         const d = doc();
-        const v = d === NO_VALUE ? NO_VALUE : valueAt(d, rule.path);
+        if (d === NO_VALUE) break; // not a JSON body: no opinion
+        const v = valueAt(d, rule.path);
         const equal = v !== NO_VALUE && jsonEqual(v, rule.value);
-        if (rule.op === "=" ? equal : !equal) {
-          const where = d === NO_VALUE ? "the body is not JSON" : `${pathText(rule.path)} is ${show(v)}`;
-          return { rule: rule.src, detail: where };
-        }
+        if (rule.op === "=" ? equal : !equal) return { rule: rule.src, detail: `${pathText(rule.path)} is ${show(v)}` };
         break;
       }
       case "text":

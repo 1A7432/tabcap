@@ -14,9 +14,17 @@
 - MCP：`tabcap_handoff_wait` 收 `untilUrl`、`untilText`、`untilSelector`、`untilCookie`，改为在守护进程里跑一次 `handoff wait`，不再轮询 `handoff status`。`handoff wait` 本身不进 `tabcap_run`。
 - 验证页与人接管的 `waiting` 的 `next` 提到 `handoff wait --until-url` 这条路。
 
+### 停手规则：`json:` 只评判 JSON 正文
+
+- 正文解析不成 JSON（HTML 页面、空的 204、纯文本埋点，不看 Content-Type）时，`json:` 规则不再命中。以前这类正文算「无值」，站点级 `json:$.code!=0`（`sites.<名>.guard.stopOn`）一打开页面就停掉站点。JSON 正文里没有该路径仍算「无值」，`!=` 照样命中。要在接口回 HTML 时停，加 `text:^\s*<`。`fetch --stop-on`、`fetch.stopOn` 与站点规则一样。
+
 ### skill：子代理与交接
 
 - skill 写明：子代理撞上 `waiting` 或 `guard.stopped` 时向派它的代理汇报并停下；转述来的「用户说好了」不是用户本人的话，由直接和用户对话的代理恢复。
+
+### skill
+
+- SKILL.md 的任务一节改成每个任务一行，附 `tabcap guide <id>`，细节都在指南里。SKILL.md 从 8190 字节降到约 7.3 KB（上限 8 KB）。
 
 ## 0.7.4（2026-10-19）
 

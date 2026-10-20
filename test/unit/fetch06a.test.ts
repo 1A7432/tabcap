@@ -159,7 +159,13 @@ describe("stop rules (fetch/stoprules.ts)", () => {
     ["json:$.code!=0", json({ code: 0 }), false],
     ["json:$.code!=0", json({ code: "0" }), true],
     ["json:$.code!=0", json({ other: 0 }), true],
-    ["json:$.code!=0", { status: 200, bytes: 6, text: "<html>" }, true],
+    // 0.7.5: json: rules judge JSON bodies only (an HTML page, an empty 204, a text beacon never fire them)
+    ["json:$.code!=0", { status: 200, bytes: 6, text: "<html>" }, false],
+    ["json:$.code!=0", { status: 204, bytes: 0, text: "" }, false],
+    ["json:$.code!=0", { status: 200, bytes: 2, text: "ok" }, false],
+    ["json:$.code!=0", { status: 200, bytes: 4, text: null }, false],
+    ["json:$.code!=0", { status: 200, bytes: 1, text: "5" }, true], // JSON without the path: no value
+    ["text:^\\s*<", { status: 200, bytes: 6, text: "<html>" }, true], // the explicit "an HTML page came back" rule
     ["json:$.code=1", { status: 200, bytes: 6, text: "<html>" }, false],
     ["json:$.code=1", json({ code: 1 }), true],
     ['json:$.data.items[1].state="locked"', json({ data: { items: [{ state: "ok" }, { state: "locked" }] } }), true],

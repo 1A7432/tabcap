@@ -14,9 +14,17 @@ English | [中文](CHANGELOG.zh-CN.md)
 - MCP: `tabcap_handoff_wait` takes `untilUrl`, `untilText`, `untilSelector`, `untilCookie` and is now one `handoff wait` in the daemon instead of polling `handoff status`. `handoff wait` itself is not in `tabcap_run`.
 - The `next` of a verify-page or take-over `waiting` names `handoff wait --until-url` as the other way out.
 
+### Stop rules: `json:` judges JSON bodies only
+
+- A `json:` rule no longer fires on a body that does not parse as JSON (an HTML page, an empty 204, a plain-text beacon), whatever its Content-Type. Before, such a body had "no value", so a site-wide `json:$.code!=0` (`sites.<name>.guard.stopOn`) stopped the site as soon as a page loaded. A JSON body without the path still has no value, so `!=` still fires there. To stop when an API answers HTML, add `text:^\s*<`. This applies to `fetch --stop-on`, `fetch.stopOn` and site rules alike.
+
 ### Skill: sub-agents and handoffs
 
 - The skill tells a sub-agent that hits `waiting` or `guard.stopped` to report to the agent that started it and stop: a relayed "the user is done" is not the user's own word, so the agent talking to the user resumes.
+
+### Skill
+
+- SKILL.md's task section is one line per task with its `tabcap guide <id>`; the details live in the guides. SKILL.md went from 8190 to about 7.3 KB of its 8 KB budget.
 
 ## 0.7.4 (2026-10-19)
 

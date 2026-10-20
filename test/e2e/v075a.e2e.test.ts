@@ -1,8 +1,8 @@
 // L2 for 0.7.5-A (Chrome for Testing, the real daemon, the range in site.ts):
-//   - s64 end rules: with config.json sites.example.fetch.stopOn
-//     ["json:$.code!=0"] and sites.example.guard {stopOn: ['text:"code":[1-9]'],
-//     endOn: ["json:$.code=203"]} (a site json rule would trip on the HTML
-//     page itself: no value != 0), the "no more pages"
+//   - s64 end rules: with config.json sites.example.guard {stopOn:
+//     ["json:$.code!=0"], endOn: ["json:$.code=203"]} (the owner's rule; since
+//     0.7.5 json: rules judge JSON bodies only, so the HTML page itself does
+//     not trip it), the "no more pages"
 //     answer (code 203) of `tabcap fetch` and of the page's own request ends
 //     the list instead of stopping the site; a real error (code 500) still
 //     stops it; `fetch --end-on` adds a rule for one call. The codes are the
@@ -20,7 +20,7 @@ const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const SITE = "example";
 const S = ["--session", "ex"];
-const STOP = 'text:"code":[1-9]';
+const STOP = "json:$.code!=0";
 
 let home = "";
 let site: HandoffSite;
@@ -70,7 +70,7 @@ describe.skipIf(!enabled)("tabcap 0.7.5-A L2 (end rules)", () => {
     home = mkdtempSync(join(tmpdir(), "tabcap-e2e075a-"));
     site = startHandoffSite();
     mkdirSync(join(home, "config"), { recursive: true, mode: 0o700 });
-    const config = { fetch: { minIntervalMs: 0 }, sites: { [SITE]: { fetch: { stopOn: ["json:$.code!=0"] }, guard: { stopOn: [STOP], endOn: [`json:$.code=${S64_END_CODE}`] } } } };
+    const config = { fetch: { minIntervalMs: 0 }, sites: { [SITE]: { guard: { stopOn: [STOP], endOn: [`json:$.code=${S64_END_CODE}`] } } } };
     writeFileSync(join(home, "config", "config.json"), JSON.stringify(config, null, 2) + "\n");
     const add = await tabcap(["site", "add", SITE, "--url", `${site.origin}/s64`, "--user", "s64-user", "--password-stdin"], "s64-Pa55word-e2e\n");
     if (!add.ok) throw new Error(`site add failed: ${add.raw}`);

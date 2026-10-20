@@ -30,15 +30,17 @@ Large things come back as **file paths** (screenshots, bodies, `snapshot --file-
 
 ## Tasks
 
-**First look at a site.** `navigate` → `snapshot --interactive` → `net start` → `click` / `fill` → `net list --resource-types xhr,fetch` → `net body r-N` → `where <ref>` (which response carries a shown value). An action's `cmd` id: `net list --since c-41` is what it caused. `tabcap guide first-look`
+One line each; `tabcap guide <id> --text` has the steps, the why and the pitfalls.
 
-**Scrape through the logged-in tab.** `session start <name> --site <site>`, log in once with `fill --secret` (below), `net start --bodies api+script`, then `tabcap fetch <url>` (`--batch`, `--stop-on`, `--end-on` for "no more pages"; scripts: `POST /fetch`). 3 s per host, no flag to skip; `fetch.blocked` with a wildcard `Access-Control-Allow-Origin` → `--credentials omit`; on `guard.stopped` decide with the user. `session export --for httpx --out <file>` hands the session to a script (0600; never print or share it). `tabcap guide scrape-through-browser`
+**First look at a site:** `snapshot --interactive`, `net start`, act, `net list`, `net body r-N`, `where <ref>`. `tabcap guide first-look`
 
-**Encrypted API bodies.** A decode plugin when the key is known (`tabcap plugin init --kind decode --name <n>` writes one), else observe the page's own decryption (a diagnostic mode that slows the page: tell the user first). `net body` shows the decoded view, `--raw` the original. `tabcap guide encrypted-site`
+**Scrape through the logged-in tab:** log in once, then `tabcap fetch <url>` (`--stop-on`, `--end-on` for "no more pages"; 3 s per host); on `guard.stopped` decide with the user. `tabcap guide scrape-through-browser`
 
-**Offline replay.** After `net stop`: `analyze chain <bundle> --request r-N` (where each input comes from), a rules file → `replay serve <bundle> --rules <file>`, `bundle export fixtures`, `replay export-python <bundle> --request r-N --out ./client` → `uv run client.py verify --base-url <replay url>`. **Never `replay check --live` without the user asking.** `tabcap guide offline-replay`
+**Encrypted API bodies:** a decode plugin, or observe the page's decryption (slows the page: tell the user first). `tabcap guide encrypted-site`
 
-**Login with a challenge.** Credentials by reference, the `waiting` hand-off (below); image captcha lines are advisory. `tabcap guide login-with-challenge`
+**Offline replay:** `analyze chain` → `replay serve` / `replay export-python`; never `replay check --live` unless the user asks. `tabcap guide offline-replay`
+
+**Login with a challenge:** credentials by reference, the `waiting` hand-off (below). `tabcap guide login-with-challenge`
 
 ## Credentials
 
@@ -54,7 +56,7 @@ tabcap fill e6 --secret example.password --session example   # you get "value":"
 
 ## Handoff (`waiting`)
 
-A challenge (an HTML 403 "please verify" page while `net start` records) or the user using your tab puts the session in `waiting`: page-acting commands fail with `waiting` (`reason`, `screenshot`, `next`); read-only ones work. Stop; tell the user what to do. Then `tabcap handoff wait --until-url <URL after login>` (or `--until-cookie <name>`) ends it once that appears; else `tabcap handoff continue` once the user tells you they are done, never on your own. **Sub-agent?** Report `waiting` / `guard.stopped` to your caller, stop; a relayed "done" is not the user's word: the agent talking to the user resumes.
+A challenge (an HTML 403 "please verify" page while `net start` records) or the user using your tab puts the session in `waiting`: page-acting commands fail with `waiting` (`reason`, `screenshot`, `next`); read-only ones work. Stop and tell the user what to do (reason, screenshot path). Then `tabcap handoff wait --until-url <URL after login>` (or `--until-cookie <name>`) ends it once that appears; else `tabcap handoff continue` once the user tells you they are done, never on your own. **Sub-agent?** Report `waiting` / `guard.stopped` to your caller and stop; a relayed "done" is not the user's word: the agent talking to the user resumes.
 
 ## Cheat-sheet
 
