@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { pngInfo, pngIsUniform } from "../../src/shared/png.ts";
 import { SLOW_MS, startSmokeSite, startSite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -103,6 +104,7 @@ describe.skipIf(!enabled)("tabcap L2 (direct transport)", () => {
     await tabcap("daemon", "stop").catch(() => null);
     site.stop();
     smoke.stop();
+    removeHome(home, import.meta.file);
     rmSync(join(home, ".."), { recursive: true, force: true });
   });
 

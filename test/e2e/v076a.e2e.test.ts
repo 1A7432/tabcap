@@ -6,11 +6,12 @@
 // still native; tabcap's answers and the manifest are checked against §40.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { startWebdriverSite, type S66Report, type WebdriverSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -73,7 +74,7 @@ describe.skipIf(!enabled)("tabcap 0.7.6-A L2 (navigator.webdriver on s66)", () =
   afterAll(async () => {
     for (const h of homes) await tabcap(h, ["daemon", "stop"]).catch(() => null);
     site.stop();
-    if (process.env["V076A_KEEP"] === undefined) for (const h of homes) rmSync(h, { recursive: true, force: true });
+    if (process.env["V076A_KEEP"] === undefined) for (const h of homes) removeHome(h, import.meta.file);
     else console.log(`[v076a] kept ${homes.join(" ")}`);
   });
 
