@@ -9,12 +9,12 @@
 // ping count; tabcap's answers are only checked against those and docs/04 §37.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { S62_BTN, S62_PING, startTakeoverSite, type TakeoverSite } from "./site.ts";
-import { daemonRequest } from "./_daemon.ts";
+import { daemonRequest, removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -115,7 +115,7 @@ describe.skipIf(!enabled)("tabcap 0.7.1-A L2 (human take-over on s62)", () => {
   afterAll(async () => {
     for (const h of homes) await tabcap(h, ["daemon", "stop"]).catch(() => null);
     site.stop();
-    for (const h of homes) rmSync(h, { recursive: true, force: true });
+    for (const h of homes) removeHome(h, import.meta.file);
   });
 
   test("(1) tabcap's own click --trusted, type --trusted, press-key and hover do not trigger; the page's synthetic events do not either", async () => {
