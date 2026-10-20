@@ -1,0 +1,65 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "recaptcha",
+ "name": "Google reCAPTCHA",
+ "vendor": "Google",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://developers.google.com/recaptcha/docs/display",
+   "note": "api.js, .g-recaptcha[data-sitekey], grecaptcha, g-recaptcha-response"
+  },
+  {
+   "url": "https://cloud.google.com/recaptcha/docs/faq",
+   "note": "_GRECAPTCHA cookie; www.google.com/recaptcha/, www.gstatic.com/recaptcha/"
+  }
+ ],
+ "rules": [
+  {
+   "id": "api-js",
+   "kind": "request",
+   "url": "^https?://www\\.google\\.com(?::\\d+)?/recaptcha/(api|enterprise)\\.js",
+   "confidence": 100,
+   "note": "reCAPTCHA loader"
+  },
+  {
+   "id": "gstatic",
+   "kind": "request",
+   "url": "^https?://www\\.gstatic\\.com(?::\\d+)?/recaptcha/",
+   "confidence": 100,
+   "note": "reCAPTCHA static host"
+  },
+  {
+   "id": "grecaptcha-cookie",
+   "kind": "cookie",
+   "name": "_GRECAPTCHA",
+   "confidence": 100,
+   "note": "reCAPTCHA risk-analysis cookie"
+  },
+  {
+   "id": "widget",
+   "kind": "dom",
+   "match": {
+    "classPrefix": "g-recaptcha"
+   },
+   "confidence": 60,
+   "note": "reCAPTCHA widget container"
+  },
+  {
+   "id": "grecaptcha",
+   "kind": "global",
+   "path": "grecaptcha",
+   "condition": "exists",
+   "confidence": 60,
+   "note": "reCAPTCHA JavaScript API"
+  },
+  {
+   "id": "response-field",
+   "kind": "requestBody",
+   "text": "(?:^|[&\\\"{,\\s])g-recaptcha-response",
+   "confidence": 60,
+   "note": "reCAPTCHA token form field"
+  }
+ ]
+}

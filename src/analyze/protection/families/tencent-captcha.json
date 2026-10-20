@@ -1,0 +1,42 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "tencent-captcha",
+ "name": "腾讯云验证码 (TCaptcha)",
+ "vendor": "腾讯云 Tencent Cloud",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://cloud.tencent.com/document/product/1110/112026",
+   "note": "turing.captcha.qcloud.com/TJCaptcha.js (2.0)"
+  },
+  {
+   "url": "https://www.tencentcloud.com/document/product/1159/73397",
+   "note": "*.captcha.qcloud.com/TCaptcha-global.js, global.captcha.gtimg.com, TencentCaptcha"
+  }
+ ],
+ "rules": [
+  {
+   "id": "qcloud",
+   "kind": "request",
+   "url": "^https?://([a-z0-9-]+\\.)*captcha\\.qcloud\\.com(?::\\d+)?/",
+   "confidence": 100,
+   "note": "Tencent captcha host"
+  },
+  {
+   "id": "gtimg",
+   "kind": "request",
+   "url": "^https?://([a-z0-9-]+\\.)*captcha\\.gtimg\\.com(?::\\d+)?/",
+   "confidence": 100,
+   "note": "Tencent captcha global host"
+  },
+  {
+   "id": "tencentcaptcha",
+   "kind": "global",
+   "path": "TencentCaptcha",
+   "condition": "function",
+   "confidence": 60,
+   "note": "Tencent captcha constructor"
+  }
+ ]
+}

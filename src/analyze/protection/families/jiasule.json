@@ -1,0 +1,74 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "jiasule",
+ "name": "知道创宇 加速乐",
+ "vendor": "知道创宇 Knownsec",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://cloud.tencent.com/developer/article/2208840",
+   "note": "__jsluid_h / __jsluid_s, __jsl_clearance; first response 521"
+  },
+  {
+   "url": "https://www.cnblogs.com/ddkt/p/18045031",
+   "note": "521 → JS → 200 flow"
+  }
+ ],
+ "rules": [
+  {
+   "id": "jsluid",
+   "kind": "cookie",
+   "name": "^__jsluid_[hs]$",
+   "confidence": 95,
+   "note": "加速乐 identifier cookie",
+   "nameRegex": true
+  },
+  {
+   "id": "jsl-clearance",
+   "kind": "cookie",
+   "name": "^__jsl_clearance(_s)?$",
+   "confidence": 95,
+   "note": "加速乐 clearance cookie",
+   "nameRegex": true
+  },
+  {
+   "id": "status-521",
+   "kind": "challenge",
+   "confidence": 50,
+   "note": "加速乐 first response: HTTP 521 with a script",
+   "status": [
+    521
+   ],
+   "standalone": false
+  }
+ ],
+ "combinations": [
+  {
+   "id": "flow",
+   "name": "521 page with the 加速乐 cookie",
+   "confidence": 95,
+   "when": {
+    "all": [
+     {
+      "any": [
+       {
+        "rule": "status-521"
+       }
+      ]
+     },
+     {
+      "any": [
+       {
+        "rule": "jsluid"
+       },
+       {
+        "rule": "jsl-clearance"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

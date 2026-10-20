@@ -1,0 +1,17 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-fonts",
+ "name": "Font probing",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "check",
+   "kind": "api",
+   "target": "FontFaceSet.prototype.check",
+   "confidence": 50,
+   "note": "font availability checks"
+  }
+ ]
+}

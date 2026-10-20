@@ -40,6 +40,10 @@ import { DepsGraph, sourceGrade, type DepsClass, type DepsSource, type InputLoca
 import { cookiePairs, headerValues } from "./diff.ts";
 import { wirePrefix } from "./find.ts";
 import { htmlTextNodes } from "./htmltext.ts";
+import { evidenceFromBundle } from "./protection/evidence.ts";
+import { identify, type Detection, type Evidence, type Fingerprinting } from "./protection/identify.ts";
+import { builtinFamilies } from "./protection/registry.ts";
+import type { Family } from "./protection/rules.ts";
 
 export const DOSSIER_SCHEMA = "tabcap-dossier/0";
 export const DOSSIER_JSON = "dossier.json";
@@ -128,9 +132,8 @@ export const PROTECTION_SIGNALS: readonly SignalRule[] = [
   { signal: "status-429", label: "429 Too Many Requests", test: (r) => (r.response?.status === 429 ? "429" : null) },
   { signal: "retry-after", label: "retry-after header", test: hasHeader("retry-after") },
   { signal: "rate-limit", label: "rate-limit headers (x-ratelimit-* / ratelimit-*)", test: (r) => respHeaderNames(r).find((h) => h.startsWith("x-ratelimit-") || h.startsWith("ratelimit")) ?? null },
-  { signal: "bot-management", label: "Cloudflare challenge marker (cf-mitigated)", test: hasHeader("cf-mitigated") },
-  { signal: "bot-management", label: "AWS WAF action (x-amzn-waf-action)", test: hasHeader("x-amzn-waf-action") },
-  { signal: "bot-management", label: "DataDome (x-datadome)", test: hasHeader("x-datadome") },
+  // 0.8-A: cf-mitigated, x-amzn-waf-action and x-datadome moved into the family rules (docs/04 §41);
+  // Imperva stays here as a bare header name: its sources are too weak for a family (docs/14 §5).
   { signal: "bot-management", label: "Imperva / Incapsula (x-iinfo)", test: hasHeader("x-iinfo") },
 ];
 
@@ -207,7 +210,8 @@ export type ProtectionEntry =
       resumedBy: string | null;
       grade: Grade;
     }
-  | { source: "response"; signal: SignalRule["signal"]; label: string; name: string; count: number; requests: string[]; grade: Grade };
+  | { source: "response"; signal: SignalRule["signal"]; label: string; name: string; count: number; requests: string[]; grade: Grade }
+  | ({ source: "family" } & Detection);
 
 export type Dossier = {
   schema: typeof DOSSIER_SCHEMA;
@@ -220,12 +224,14 @@ export type Dossier = {
   coverage: Coverage;
   cookies: CookieEntry[];
   protection: ProtectionEntry[];
+  /** 0.8-A: fingerprinting techniques from trace `signal` events (empty without trace mode). */
+  fingerprinting: Fingerprinting[];
   grades: {
     stack: Grade;
     channels: Grade;
     coverage: Grade;
     cookies: { origin: Grade; lifetime: Grade; flags: Grade; role: Grade; requiredBy: "analyze deps (per entry)" };
-    protection: { guard: Grade; response: Grade };
+    protection: { guard: Grade; response: Grade; family: Grade };
   };
   notes: string[];
   warnings: string[];
@@ -337,7 +343,11 @@ function wsRecvPayloads(reader: BundleReader, events: readonly RawEvent[], hands
 
 // ------------------------------------------------------------ the dossier
 
-export type ReconOptions = { session?: string; now?: number; warnings?: string[] };
+/**
+ * `families`: the rule set (built-ins plus config/protection/, docs/04 §41.1);
+ * `live`: evidence only the live page has (its globals, current DOM, loaded resources).
+ */
+export type ReconOptions = { session?: string; now?: number; warnings?: string[]; families?: readonly Family[]; live?: Evidence | null };
 
 /** The page offline: the last root document of the recording (its HTML text nodes stand in for the visible text). */
 export function recordedPage(reader: BundleReader): ReconPage {
@@ -376,7 +386,8 @@ export function buildDossier(reader: BundleReader, page: ReconPage, opts: ReconO
   if (channels.length > MAX_CHANNELS) warnings.push(`${channels.length} channels; the first ${MAX_CHANNELS} are listed`);
   const cookies = classifyCookies(reader, graph);
   const stack = stackOf(page, requests, cookies);
-  const protection = protectionOf(reader, requests);
+  const found = identify(opts.families ?? builtinFamilies(), mergeEvidence(evidenceFromBundle(reader), opts.live ?? null));
+  const protection: ProtectionEntry[] = [...found.detections.filter((x) => x.category !== "fingerprint").map((x) => ({ source: "family" as const, ...x })), ...protectionOf(reader, requests)];
 
   return {
     schema: DOSSIER_SCHEMA,
@@ -389,15 +400,29 @@ export function buildDossier(reader: BundleReader, page: ReconPage, opts: ReconO
     coverage,
     cookies,
     protection,
+    fingerprinting: found.fingerprinting,
     grades: {
       stack: "推断",
       channels: "实测",
       coverage: "实测",
       cookies: { origin: "实测", lifetime: "实测", flags: "实测", role: "推断", requiredBy: "analyze deps (per entry)" },
-      protection: { guard: "实测", response: "推断" },
+      protection: { guard: "实测", response: "推断", family: "推断" },
     },
     notes: [IDENTIFICATION_ONLY],
     warnings,
+  };
+}
+
+/** Bundle evidence plus what only the live page has: globals, the live DOM and resources replace / extend the recorded ones. */
+function mergeEvidence(bundle: Evidence, live: Evidence | null): Evidence {
+  if (live === null) return bundle;
+  return {
+    ...bundle,
+    cookies: [...(bundle.cookies ?? []), ...(live.cookies ?? [])],
+    resources: [...(bundle.resources ?? []), ...(live.resources ?? [])],
+    globals: live.globals ?? bundle.globals ?? null,
+    dom: live.dom ?? bundle.dom ?? null,
+    frames: [...(bundle.frames ?? []), ...(live.frames ?? [])],
   };
 }
 
@@ -743,7 +768,8 @@ export function reconOutput(d: Dossier, paths: DossierPaths): Record<string, unk
       requests: d.channels.reduce((n, c) => n + c.count, 0),
       coverage: { ratio: d.coverage.ratio, found: d.coverage.found, total: d.coverage.total },
       cookies: d.cookies.map((c) => `${c.name} (${c.role})`),
-      protection: d.protection.map((p) => (p.source === "guard" ? `guard ${p.kind} ${p.request ?? ""}`.trim() : `${p.signal} ${p.name}`)),
+      protection: d.protection.map((p) => (p.source === "family" ? `${p.name} (${p.category}, ${p.confidence})` : p.source === "guard" ? `guard ${p.kind} ${p.request ?? ""}`.trim() : `${p.signal} ${p.name}`)),
+      fingerprinting: d.fingerprinting.map((f) => `${f.technique}${f.attributedTo === null ? "" : ` → ${f.attributedTo}`}`),
     },
     warnings: d.warnings,
   };
@@ -814,16 +840,24 @@ export function renderDossierMd(d: Dossier): string {
     L.push("");
   }
 
-  L.push(`## Protection (guard ${d.grades.protection.guard}; response signals ${d.grades.protection.response})`, "");
+  L.push(`## Protection (families ${d.grades.protection.family}; guard ${d.grades.protection.guard}; response signals ${d.grades.protection.response})`, "");
   if (d.protection.length === 0) L.push("Nothing identified.", "");
   else {
     L.push("| source | signal | request | detail |", "|---|---|---|---|");
     for (const p of d.protection) {
-      if (p.source === "guard") {
+      if (p.source === "family") {
+        const why = p.matched.map((x) => `${x.rule}: ${x.where.join(", ")}`).join("; ");
+        L.push(`| family | ${cell(p.name)} (${p.category}, ${p.confidence}${p.combination === null ? "" : `, ${p.combination}`}) | ${cell(p.layers.map((l) => `L${l}`).join(" "))} | ${cell(why)} |`);
+      } else if (p.source === "guard") {
         const handed = p.handedToHuman === null ? "" : `handed to the human${p.handedToHuman.screenshot === null ? "" : ` (screenshot ${p.handedToHuman.screenshot})`}`;
         L.push(`| guard | ${cell(p.kind)} | ${p.request ?? ""} | ${cell([`HTTP ${p.status ?? "?"}`, handed, p.resumedBy === null ? "" : `resumed by ${p.resumedBy}`].filter((x) => x !== "").join("; "))} |`);
       } else L.push(`| response | ${p.signal}: ${cell(p.name)} | ${p.requests.join(", ")}${p.count > p.requests.length ? `, … (${p.count})` : ""} | ${cell(p.label)} |`);
     }
+    L.push("");
+  }
+  if (d.fingerprinting.length > 0) {
+    L.push("## Fingerprinting (trace mode, 推断)", "", "| technique | APIs | callers | attributed to |", "|---|---|---|---|");
+    for (const f of d.fingerprinting) L.push(`| ${cell(f.technique)} | ${cell(f.apis.join(", "))} | ${cell(f.callers.map((c) => `${c.url} ×${c.count}`).join(", "))} | ${f.attributedTo ?? ""} |`);
     L.push("");
   }
   for (const n of d.notes) L.push(`> ${n}`, "");

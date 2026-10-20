@@ -1,0 +1,42 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "sucuri",
+ "name": "Sucuri Website Firewall",
+ "vendor": "Sucuri",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.sucuri.net/website-firewall/sucuri-cdn/",
+   "note": "x-sucuri-id, x-sucuri-cache"
+  },
+  {
+   "url": "https://cookiedatabase.org/cookie/sucuri/sucuri_cloudproxy_uuid_/",
+   "note": "sucuri_cloudproxy_uuid_*"
+  }
+ ],
+ "rules": [
+  {
+   "id": "sucuri-id",
+   "kind": "responseHeader",
+   "name": "x-sucuri-id",
+   "confidence": 100,
+   "note": "Sucuri firewall node header"
+  },
+  {
+   "id": "sucuri-cache",
+   "kind": "responseHeader",
+   "name": "x-sucuri-cache",
+   "confidence": 100,
+   "note": "Sucuri CDN cache header"
+  },
+  {
+   "id": "cloudproxy-uuid",
+   "kind": "cookie",
+   "name": "^sucuri_cloudproxy_uuid_",
+   "confidence": 90,
+   "note": "Sucuri firewall cookie",
+   "nameRegex": true
+  }
+ ]
+}

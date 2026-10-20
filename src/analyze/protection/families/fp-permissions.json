@@ -1,0 +1,17 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-permissions",
+ "name": "Permission state probing",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "query",
+   "kind": "api",
+   "target": "Permissions.prototype.query",
+   "confidence": 35,
+   "note": "permission states"
+  }
+ ]
+}

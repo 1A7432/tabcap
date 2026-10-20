@@ -1,0 +1,117 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-navigator",
+ "name": "Navigator fingerprinting",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "plugins",
+   "kind": "api",
+   "target": "Navigator.prototype.plugins",
+   "confidence": 35,
+   "note": "plugin list"
+  },
+  {
+   "id": "mimetypes",
+   "kind": "api",
+   "target": "Navigator.prototype.mimeTypes",
+   "confidence": 35,
+   "note": "MIME type list"
+  },
+  {
+   "id": "webdriver",
+   "kind": "api",
+   "target": "Navigator.prototype.webdriver",
+   "confidence": 40,
+   "note": "automation flag"
+  },
+  {
+   "id": "uadata-he",
+   "kind": "api",
+   "target": "NavigatorUAData.prototype.getHighEntropyValues",
+   "confidence": 45,
+   "note": "high-entropy client hints"
+  },
+  {
+   "id": "languages",
+   "kind": "api",
+   "target": "Navigator.prototype.languages",
+   "confidence": 20,
+   "note": "language list",
+   "standalone": false
+  },
+  {
+   "id": "platform",
+   "kind": "api",
+   "target": "Navigator.prototype.platform",
+   "confidence": 20,
+   "note": "platform",
+   "standalone": false
+  },
+  {
+   "id": "vendor",
+   "kind": "api",
+   "target": "Navigator.prototype.vendor",
+   "confidence": 20,
+   "note": "vendor",
+   "standalone": false
+  },
+  {
+   "id": "touch",
+   "kind": "api",
+   "target": "Navigator.prototype.maxTouchPoints",
+   "confidence": 20,
+   "note": "touch points",
+   "standalone": false
+  }
+ ],
+ "combinations": [
+  {
+   "id": "profile",
+   "name": "plugin / MIME list, automation flag and platform",
+   "confidence": 70,
+   "when": {
+    "all": [
+     {
+      "any": [
+       {
+        "rule": "plugins"
+       },
+       {
+        "rule": "mimetypes"
+       }
+      ]
+     },
+     {
+      "any": [
+       {
+        "rule": "webdriver"
+       },
+       {
+        "rule": "uadata-he"
+       }
+      ]
+     },
+     {
+      "any": [
+       {
+        "rule": "platform"
+       },
+       {
+        "rule": "vendor"
+       },
+       {
+        "rule": "languages"
+       },
+       {
+        "rule": "touch"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

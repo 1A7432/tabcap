@@ -1,0 +1,106 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "datadome",
+ "name": "DataDome",
+ "vendor": "DataDome",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.datadome.co/docs/cookie-session-storage",
+   "note": "datadome, dd_testcookie"
+  },
+  {
+   "url": "https://docs.datadome.co/docs/javascript-tag",
+   "note": "js.datadome.co/tags.js, api-js.datadome.co /js/, ddjskey, ddoptions, *.captcha-delivery.com"
+  }
+ ],
+ "rules": [
+  {
+   "id": "datadome-cookie",
+   "kind": "cookie",
+   "name": "datadome",
+   "confidence": 100,
+   "note": "DataDome session cookie"
+  },
+  {
+   "id": "dd-testcookie",
+   "kind": "cookie",
+   "name": "dd_testcookie",
+   "confidence": 90,
+   "note": "DataDome test cookie, removed at once"
+  },
+  {
+   "id": "tag",
+   "kind": "request",
+   "url": "^https?://js\\.datadome\\.co(?::\\d+)?/",
+   "confidence": 100,
+   "note": "DataDome JavaScript tag host"
+  },
+  {
+   "id": "collect",
+   "kind": "request",
+   "url": "^https?://api-js\\.datadome\\.co(?::\\d+)?/",
+   "confidence": 100,
+   "note": "DataDome signal collection host"
+  },
+  {
+   "id": "x-datadome",
+   "kind": "responseHeader",
+   "name": "x-datadome",
+   "confidence": 100,
+   "note": "DataDome response header (recon v0 row)"
+  },
+  {
+   "id": "ddjskey",
+   "kind": "global",
+   "path": "ddjskey",
+   "condition": "exists",
+   "confidence": 75,
+   "note": "integration snippet sets window.ddjskey"
+  },
+  {
+   "id": "ddoptions",
+   "kind": "global",
+   "path": "ddoptions",
+   "condition": "exists",
+   "confidence": 60,
+   "note": "integration snippet sets window.ddoptions"
+  },
+  {
+   "id": "captcha-delivery",
+   "kind": "frame",
+   "url": "^https?://([a-z0-9-]+\\.)*captcha-delivery\\.com(?::\\d+)?/",
+   "confidence": 90,
+   "note": "DataDome block / challenge page frame"
+  }
+ ],
+ "combinations": [
+  {
+   "id": "tag-and-cookie",
+   "name": "DataDome tag with its cookie",
+   "confidence": 95,
+   "when": {
+    "all": [
+     {
+      "any": [
+       {
+        "rule": "tag"
+       },
+       {
+        "rule": "ddjskey"
+       }
+      ]
+     },
+     {
+      "any": [
+       {
+        "rule": "datadome-cookie"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

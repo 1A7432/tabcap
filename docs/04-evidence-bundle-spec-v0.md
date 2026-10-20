@@ -462,7 +462,7 @@
 - `stack`：`{source:"adapter", name, category, confidence, evidence, grade}`（当前页面上每个适配器的 detect 结果，离线没有）、`{source:"header", marker, value, hint, request, requests, grade}`（值照录，截 200 字符）、`{source:"cookie", marker, name, hint, request, grade}`（只有名字，从不写 cookie 值）；全部【推断】。
 - `channels`：`{method, template, type, body:"json"|"html"|"fragment"|"text"|"binary"|"ws"|"sse", count, first:"r-N", status:[…], unreadByPage:<条数>, decode:[find 步骤名], tokens}`，按首条请求的 seq 排。
 - `cookies`：`{name, carrier:"cookie"|"header"|"query"|"body", origin, setBy:[r-N…], lifetime:{kind:"session"}|{kind:"persistent",expires}|null, flags:{httpOnly,secure,sameSite}|null, role, requiredBy:[{request,input,via,grade}]}`；`origin` 为 `{kind:"set-cookie",request}` / `{kind:"session-start"}` / `{kind:"unrecorded"}`，非 cookie 的 csrf 输入为 `{kind:"deps", class, request?, path?, cookie?, grade}`。
-- `protection`：`{source:"guard", kind, request, url, status, handedToHuman:{question,screenshot}|null, resumedBy, grade:"实测"}`、`{source:"response", signal, label, name, count, requests, grade:"推断"}`（只有头名字，不写值）。
+- `protection`：`{source:"guard", kind, request, url, status, handedToHuman:{question,screenshot}|null, resumedBy, grade:"实测"}`、`{source:"response", signal, label, name, count, requests, grade:"推断"}`（只有头名字，不写值）；0.8-A 起另有 `{source:"family", family, name, vendor, category, confidence, layers, matched, combination, grade:"推断"}`（§41.2，排在最前），`cf-mitigated` / `x-amzn-waf-action` / `x-datadome` 三条从 response 信号移进家族规则。0.8-A 顶层加 `fingerprinting:[{technique, family, apis, callers:[{url, count}], attributedTo}]`，`grades.protection` 加 `family:"推断"`。
 
 ## 23. 0.4-I 按实现定案（10-16，待作者审）
 
@@ -1037,7 +1037,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - 一家一个 JSON。内置的在 `src/analyze/protection/families/<id>.json`（打包进二进制）；用户的在 `config/protection/<id>.json`，同 `id` 覆盖内置、新 `id` 追加。用户文件按不可信输入校验（未知键拒绝、大小 ≤ 32 KB、正则编译失败报错并点名文件与字段），坏文件跳过并在回答的 `warnings` 里列出，不影响其他家族。
 - 顶层：`{schema:"tabcap-protection/0", id:<kebab>, name, vendor, category:"anti-bot"|"captcha"|"fingerprint", version:<正整数>, sources:[{url, note?}](内置必填), rules:[…], combinations?:[…]}`。
-- 规则：`{id, layer:1|2|3, kind, confidence:1–100, standalone?:true, note, seen?:[{date, where}]}` 加按 `kind` 的匹配字段：
+- 规则：`{id, kind, confidence:1–100, standalone?:true, note}` 加按 `kind` 的匹配字段；层由 `kind` 决定（0.8-A1 实现定：不另写 `layer`，免得两处不一致）：
   - L1（录到的流量，或实时的 cookie 名 / 资源 URL）：`cookie {name, nameRegex?, valueShape?}`（`valueShape` 是对值的正则，只用于判断形状，**值从不输出**）；`request {url}`（正则对完整 URL，主机 + 路径；可加 `type`、`method`）；`responseHeader {name, value?}`；`requestHeader {name}`；`challenge {status?:[…], text?}`（只对 document / HTML 正文，`text` 正则，正文截 64 KB 求值）；`requestBody {url?, text}`（POST 正文里的字段名，如 `g-recaptcha-response`）。
   - L2（页面上，只读）：`global {path, condition:"exists"|"function"|"object"|"string"}`（主世界里沿 `path` 逐段读**自有属性描述符**判断，不调用 getter；遇到访问器只算 `exists`）；`dom {match, has?}`（沿用适配器的 ElementSpec：tag / id / classPrefix / attr，`docs/09` §9）；`frame {url}`（iframe 的 src 正则）。
   - L3（追踪模式）：`api {target, caller?}`（`target` 是追踪 `signal` 的 API 名，`caller` 是对调用方脚本 URL 的正则，可省）。
@@ -1048,7 +1048,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - 纯函数 `identify(evidence, families) → Detection[]`。证据：`{cookies:[{name, value?}], requests:[{id, url, method, type, status, requestHeaders, responseHeaders, body?, postData?}], globals:{<path>:"function"|"object"|"string"|"accessor"|…}, dom:<适配器 digest>, frames:[url], api:[{target, caller}]}`，各项可缺（缺的那层不评）。
 - `Detection`：`{family, name, vendor, category, confidence, layers:[1|2|3], matched:[{rule, layer, kind, where}], grade:"推断"}`；`where` 只有指向：请求号 `r-N`、cookie **名**、头**名**、全局路径、选择器、API 名与调用方 URL——cookie 值、头值、正文从不出现在输出里。按置信度降序，置信度 < 30 的不报。
-- L3 的指纹技术（`category:"fingerprint"`）另报：`{technique, apis:[…], callers:[{url, count}], attributedTo?:<家族 id>}`；调用方脚本命中某家族的 L1 `request` 规则时归因。
+- L3 的指纹技术（`category:"fingerprint"`，0.8-A1 内置 10 类：canvas、WebGL、navigator、硬件、屏幕、时区 / Intl、媒体设备、权限、语音、字体——只用追踪模式默认名单里的 API；音频、WebRTC、电量等要先扩追踪名单，待作者定）另报：`{technique, apis:[…], callers:[{url, count}], attributedTo?:<家族 id>}`；调用方脚本命中某家族的 L1 `request` 规则时归因。
 
 ### 41.3 数据从哪来、在哪里报
 

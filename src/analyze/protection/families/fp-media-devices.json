@@ -1,0 +1,17 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-media-devices",
+ "name": "Media device enumeration",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "enumerate",
+   "kind": "api",
+   "target": "MediaDevices.prototype.enumerateDevices",
+   "confidence": 45,
+   "note": "camera / microphone list"
+  }
+ ]
+}

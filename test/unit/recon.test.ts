@@ -104,7 +104,7 @@ describe("tables", () => {
   test("stack markers stay within 20; protection signals are names only", () => {
     expect(STACK_MARKERS.length).toBeLessThanOrEqual(20);
     expect(new Set(STACK_MARKERS.map((m) => m.marker)).size).toBe(STACK_MARKERS.length);
-    expect(PROTECTION_SIGNALS.map((s) => s.signal)).toEqual(["html-403", "status-429", "retry-after", "rate-limit", "bot-management", "bot-management", "bot-management", "bot-management"]);
+    expect(PROTECTION_SIGNALS.map((s) => s.signal)).toEqual(["html-403", "status-429", "retry-after", "rate-limit", "bot-management"]);
   });
 });
 
@@ -296,12 +296,24 @@ describe("protection", () => {
     });
     const d = buildDossier(BundleReader.open(dir), live(""));
     expect(d.protection).toEqual([
+      // 0.8-A: cf-mitigated is a Cloudflare family rule now (docs/04 §41), listed before guard and response signals
+      {
+        source: "family",
+        family: "cloudflare-bot-management",
+        name: "Cloudflare Bot Management",
+        vendor: "Cloudflare",
+        category: "anti-bot",
+        confidence: 100,
+        layers: [1],
+        matched: [{ rule: "cf-mitigated", layer: 1, kind: "responseHeader", where: [`${ids.cf} header cf-mitigated`] }],
+        combination: null,
+        grade: "推断",
+      },
       { source: "guard", kind: "verify-page", request: ids.wall, url: `${O}/api/limited?bucket=main`, status: 403, handedToHuman: { question: "Complete the verification in the browser, then tell the AI to continue.", screenshot: "/tmp/shot.png" }, resumedBy: "human", grade: "实测" },
       { source: "response", signal: "html-403", label: "HTML 403 (block or challenge page)", name: "403", count: 2, requests: [ids.wall, ids.cf], grade: "推断" },
       { source: "response", signal: "status-429", label: "429 Too Many Requests", name: "429", count: 1, requests: [ids.limited], grade: "推断" },
       { source: "response", signal: "retry-after", label: "retry-after header", name: "retry-after", count: 1, requests: [ids.limited], grade: "推断" },
       { source: "response", signal: "rate-limit", label: "rate-limit headers (x-ratelimit-* / ratelimit-*)", name: "x-ratelimit-remaining", count: 1, requests: [ids.rl], grade: "推断" },
-      { source: "response", signal: "bot-management", label: "Cloudflare challenge marker (cf-mitigated)", name: "cf-mitigated", count: 1, requests: [ids.cf], grade: "推断" },
     ]);
     expect(d.notes).toEqual([IDENTIFICATION_ONLY]);
     // names only: no header value reaches the dossier
@@ -330,7 +342,7 @@ describe("output", () => {
     expect(md).toContain("Coverage (实测): 1 / 1 page text tokens found in recorded responses (100.0%).");
     expect(md).toContain(`| sid | cookie | set-cookie ${ids.login} | session | HttpOnly SameSite=Lax | session | ${ids.data} (实测) |`);
     expect(md).toContain(`| x-csrf | header | response ${ids.login} $.csrf (实测) |  |  | csrf | ${ids.data} (实测) |`);
-    expect(md).toContain("## Protection (guard 实测; response signals 推断)\n\nNothing identified.");
+    expect(md).toContain("## Protection (families 推断; guard 实测; response signals 推断)\n\nNothing identified.");
     expect(md).toContain(`> ${IDENTIFICATION_ONLY}`);
     expect(md.endsWith("\n")).toBe(true);
   });

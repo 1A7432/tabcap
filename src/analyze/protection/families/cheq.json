@@ -1,0 +1,56 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "cheq",
+ "name": "CHEQ",
+ "vendor": "CHEQ",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://cheq.ai/cookie-policy/",
+   "note": "_cq_duid, _cq_suid, _cq_check, _cq_session …"
+  },
+  {
+   "url": "https://support.cheq.ai/hc/en-us/articles/47224875880209-Send-Custom-Events",
+   "note": "window._cq"
+  }
+ ],
+ "rules": [
+  {
+   "id": "duid",
+   "kind": "cookie",
+   "name": "_cq_duid",
+   "confidence": 100,
+   "note": "CHEQ cookie (cookie policy)"
+  },
+  {
+   "id": "suid",
+   "kind": "cookie",
+   "name": "_cq_suid",
+   "confidence": 100,
+   "note": "CHEQ cookie (cookie policy)"
+  },
+  {
+   "id": "check",
+   "kind": "cookie",
+   "name": "_cq_check",
+   "confidence": 90,
+   "note": "CHEQ cookie (cookie policy)"
+  },
+  {
+   "id": "session",
+   "kind": "cookie",
+   "name": "_cq_session",
+   "confidence": 90,
+   "note": "CHEQ cookie (cookie policy)"
+  },
+  {
+   "id": "cq",
+   "kind": "global",
+   "path": "_cq",
+   "condition": "exists",
+   "confidence": 70,
+   "note": "CHEQ library global"
+  }
+ ]
+}

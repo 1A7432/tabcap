@@ -1,0 +1,42 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "dingxiang",
+ "name": "顶象 (验证码 / 设备指纹)",
+ "vendor": "顶象 Dingxiang",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://www.dingxiang-inc.com/docs/detail/captcha",
+   "note": "cdn.dingxiang-inc.com/ctu-group/captcha-ui/, _dx.Captcha"
+  },
+  {
+   "url": "https://www.dingxiang-inc.com/docs/detail/const-id",
+   "note": "cdn.dingxiang-inc.com/ctu-group/constid-js/, constid.dingxiang-inc.com/udid/"
+  }
+ ],
+ "rules": [
+  {
+   "id": "ctu",
+   "kind": "request",
+   "url": "^https?://cdn\\.dingxiang-inc\\.com(?::\\d+)?/ctu-group/",
+   "confidence": 100,
+   "note": "顶象 SDK path"
+  },
+  {
+   "id": "constid",
+   "kind": "request",
+   "url": "^https?://constid\\.dingxiang-inc\\.com(?::\\d+)?/",
+   "confidence": 100,
+   "note": "顶象 device id endpoint"
+  },
+  {
+   "id": "dx",
+   "kind": "global",
+   "path": "_dx.Captcha",
+   "condition": "function",
+   "confidence": 50,
+   "note": "顶象 captcha constructor"
+  }
+ ]
+}

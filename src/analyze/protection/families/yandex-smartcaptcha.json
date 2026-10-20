@@ -1,0 +1,40 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "yandex-smartcaptcha",
+ "name": "Yandex SmartCaptcha",
+ "vendor": "Yandex Cloud",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://yandex.cloud/en/docs/smartcaptcha/concepts/widget-methods",
+   "note": "smartcaptcha.cloud.yandex.ru/captcha.js, .smart-captcha, window.smartCaptcha"
+  }
+ ],
+ "rules": [
+  {
+   "id": "loader",
+   "kind": "request",
+   "url": "^https?://smartcaptcha\\.cloud\\.yandex\\.ru(?::\\d+)?/",
+   "confidence": 100,
+   "note": "SmartCaptcha loader"
+  },
+  {
+   "id": "widget",
+   "kind": "dom",
+   "match": {
+    "classPrefix": "smart-captcha"
+   },
+   "confidence": 60,
+   "note": "SmartCaptcha widget container"
+  },
+  {
+   "id": "smartcaptcha",
+   "kind": "global",
+   "path": "smartCaptcha",
+   "condition": "exists",
+   "confidence": 50,
+   "note": "SmartCaptcha global"
+  }
+ ]
+}

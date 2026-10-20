@@ -133,7 +133,8 @@ describe("recon dossier", () => {
       coverage: { ratio: null, total: 0, found: 0, unmatched: [], capped: 0 },
       cookies: [],
       protection: [{ source: "guard" as const, kind: "challenge", request: "r-2", url: "http://h/v?ticket=1&sessionId=9", status: 403, handedToHuman: null, resumedBy: null, grade: "实测" as const }],
-      grades: { stack: "推断" as const, channels: "实测" as const, coverage: "实测" as const, cookies: { origin: "实测" as const, lifetime: "实测" as const, flags: "实测" as const, role: "推断" as const, requiredBy: "analyze deps (per entry)" as const }, protection: { guard: "实测" as const, response: "推断" as const } },
+      grades: { stack: "推断" as const, channels: "实测" as const, coverage: "实测" as const, cookies: { origin: "实测" as const, lifetime: "实测" as const, flags: "实测" as const, role: "推断" as const, requiredBy: "analyze deps (per entry)" as const }, protection: { guard: "实测" as const, response: "推断" as const, family: "推断" as const } },
+      fingerprinting: [],
       notes: [],
       warnings: [],
     };

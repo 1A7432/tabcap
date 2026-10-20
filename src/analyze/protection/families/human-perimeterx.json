@@ -1,0 +1,94 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "human-perimeterx",
+ "name": "HUMAN Bot Defender (PerimeterX)",
+ "vendor": "HUMAN Security",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.humansecurity.com/applications/use-of-cookies-web-storage",
+   "note": "_px, _px2, _px3, _pxvid, pxcts, _pxff_*"
+  }
+ ],
+ "rules": [
+  {
+   "id": "pxvid",
+   "kind": "cookie",
+   "name": "_pxvid",
+   "confidence": 100,
+   "note": "HUMAN visitor id cookie"
+  },
+  {
+   "id": "pxcts",
+   "kind": "cookie",
+   "name": "pxcts",
+   "confidence": 100,
+   "note": "HUMAN cross-tab session cookie"
+  },
+  {
+   "id": "px3",
+   "kind": "cookie",
+   "name": "_px3",
+   "confidence": 85,
+   "note": "HUMAN session cookie (short name)"
+  },
+  {
+   "id": "px2",
+   "kind": "cookie",
+   "name": "_px2",
+   "confidence": 85,
+   "note": "HUMAN session cookie (short name)"
+  },
+  {
+   "id": "pxff",
+   "kind": "cookie",
+   "name": "^_pxff_",
+   "confidence": 80,
+   "note": "HUMAN feature-flag cookies",
+   "nameRegex": true
+  },
+  {
+   "id": "px",
+   "kind": "cookie",
+   "name": "_px",
+   "confidence": 40,
+   "note": "HUMAN session cookie (very short name, corroboration only)",
+   "standalone": false
+  }
+ ],
+ "combinations": [
+  {
+   "id": "px-pair",
+   "name": "_px* session cookie with the visitor id",
+   "confidence": 95,
+   "when": {
+    "all": [
+     {
+      "any": [
+       {
+        "rule": "px3"
+       },
+       {
+        "rule": "px2"
+       },
+       {
+        "rule": "px"
+       }
+      ]
+     },
+     {
+      "any": [
+       {
+        "rule": "pxvid"
+       },
+       {
+        "rule": "pxcts"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

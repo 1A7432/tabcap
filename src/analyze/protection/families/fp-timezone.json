@@ -1,0 +1,42 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-timezone",
+ "name": "Time zone / Intl fingerprinting",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "resolved",
+   "kind": "api",
+   "target": "Intl.DateTimeFormat.prototype.resolvedOptions",
+   "confidence": 30,
+   "note": "Intl resolved options"
+  },
+  {
+   "id": "offset",
+   "kind": "api",
+   "target": "Date.prototype.getTimezoneOffset",
+   "confidence": 20,
+   "note": "time zone offset",
+   "standalone": false
+  }
+ ],
+ "combinations": [
+  {
+   "id": "both",
+   "name": "resolved options and offset",
+   "confidence": 50,
+   "when": {
+    "all": [
+     {
+      "rule": "resolved"
+     },
+     {
+      "rule": "offset"
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,51 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "netease-yidun",
+ "name": "网易易盾 (验证码 / 设备指纹)",
+ "vendor": "网易易盾 NetEase Yidun",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://support.dun.163.com/documents/15588062143475712?docId=294963751458885632",
+   "note": "cstaticdun.126.net/load.min.js, initNECaptcha, initNECaptchaWithFallback"
+  },
+  {
+   "url": "https://support.dun.163.com/documents/609099986339037184?docId=674394551067910144",
+   "note": "createNEFingerprint"
+  }
+ ],
+ "rules": [
+  {
+   "id": "load",
+   "kind": "request",
+   "url": "^https?://cstaticdun\\.126\\.net(?::\\d+)?/",
+   "confidence": 100,
+   "note": "易盾 loader host"
+  },
+  {
+   "id": "init",
+   "kind": "global",
+   "path": "initNECaptcha",
+   "condition": "function",
+   "confidence": 60,
+   "note": "易盾 captcha initialiser"
+  },
+  {
+   "id": "init-fallback",
+   "kind": "global",
+   "path": "initNECaptchaWithFallback",
+   "condition": "function",
+   "confidence": 60,
+   "note": "易盾 captcha initialiser with fallback"
+  },
+  {
+   "id": "fingerprint",
+   "kind": "global",
+   "path": "createNEFingerprint",
+   "condition": "function",
+   "confidence": 60,
+   "note": "易盾 device fingerprint factory"
+  }
+ ]
+}

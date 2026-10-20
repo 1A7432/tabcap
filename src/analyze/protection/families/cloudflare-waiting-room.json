@@ -1,0 +1,31 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "cloudflare-waiting-room",
+ "name": "Cloudflare Waiting Room",
+ "vendor": "Cloudflare",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://developers.cloudflare.com/waiting-room/reference/waiting-room-cookie/",
+   "note": "__cfwaitingroom, optional customer suffix"
+  }
+ ],
+ "rules": [
+  {
+   "id": "waiting-room-cookie",
+   "kind": "cookie",
+   "name": "__cfwaitingroom",
+   "confidence": 100,
+   "note": "waiting room cookie"
+  },
+  {
+   "id": "waiting-room-cookie-suffix",
+   "kind": "cookie",
+   "name": "^__cfwaitingroom_",
+   "confidence": 90,
+   "note": "waiting room cookie with a customer suffix",
+   "nameRegex": true
+  }
+ ]
+}

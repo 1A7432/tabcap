@@ -1,0 +1,23 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "radware-bot-manager",
+ "name": "Radware Bot Manager (ShieldSquare)",
+ "vendor": "Radware",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://support.radware.com/app/answers/answer_view/a_id/1029716/~/bot-manager---implementation-guide",
+   "note": "eupulse.shieldsquare.net, scus.shieldsquare.net"
+  }
+ ],
+ "rules": [
+  {
+   "id": "pulse",
+   "kind": "request",
+   "url": "^https?://(eupulse|scus)\\.shieldsquare\\.net(?::\\d+)?/",
+   "confidence": 100,
+   "note": "ShieldSquare service endpoints"
+  }
+ ]
+}

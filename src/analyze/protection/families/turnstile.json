@@ -1,0 +1,51 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "turnstile",
+ "name": "Cloudflare Turnstile",
+ "vendor": "Cloudflare",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/",
+   "note": "challenges.cloudflare.com/turnstile/v0/api.js, .cf-turnstile, turnstile"
+  },
+  {
+   "url": "https://developers.cloudflare.com/turnstile/get-started/server-side-validation/",
+   "note": "cf-turnstile-response"
+  }
+ ],
+ "rules": [
+  {
+   "id": "api-js",
+   "kind": "request",
+   "url": "^https?://challenges\\.cloudflare\\.com(?::\\d+)?/turnstile/",
+   "confidence": 100,
+   "note": "Turnstile loader"
+  },
+  {
+   "id": "widget",
+   "kind": "dom",
+   "match": {
+    "classPrefix": "cf-turnstile"
+   },
+   "confidence": 60,
+   "note": "Turnstile widget container"
+  },
+  {
+   "id": "turnstile",
+   "kind": "global",
+   "path": "turnstile",
+   "condition": "exists",
+   "confidence": 50,
+   "note": "Turnstile JavaScript API"
+  },
+  {
+   "id": "response-field",
+   "kind": "requestBody",
+   "text": "(?:^|[&\\\"{,\\s])cf-turnstile-response",
+   "confidence": 60,
+   "note": "Turnstile token form field"
+  }
+ ]
+}

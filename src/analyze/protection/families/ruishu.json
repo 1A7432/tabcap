@@ -1,0 +1,56 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "ruishu",
+ "name": "瑞数 Botgate",
+ "vendor": "瑞数信息 River Security",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://m.freebuf.com/articles/web/381454.html",
+   "note": "202 / 412 page with meta content and window.$_ts"
+  },
+  {
+   "url": "https://cloud.tencent.com/developer/article/2208857",
+   "note": "server cookie S + generated cookie T"
+  }
+ ],
+ "rules": [
+  {
+   "id": "ts-page",
+   "kind": "challenge",
+   "confidence": 80,
+   "note": "瑞数 challenge page: 202 / 412 with $_ts",
+   "status": [
+    202,
+    412
+   ],
+   "text": "\\$_ts\\s*[=.\\[]"
+  },
+  {
+   "id": "ts-global",
+   "kind": "global",
+   "path": "$_ts",
+   "condition": "exists",
+   "confidence": 80,
+   "note": "瑞数 configuration global"
+  }
+ ],
+ "combinations": [
+  {
+   "id": "page-and-global",
+   "name": "瑞数 challenge page with its global",
+   "confidence": 90,
+   "when": {
+    "all": [
+     {
+      "rule": "ts-page"
+     },
+     {
+      "rule": "ts-global"
+     }
+    ]
+   }
+  }
+ ]
+}

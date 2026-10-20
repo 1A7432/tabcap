@@ -1,0 +1,39 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "prosopo",
+ "name": "Prosopo Procaptcha",
+ "vendor": "Prosopo",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.prosopo.io/en/basics/client-side-rendering/",
+   "note": "js.prosopo.io/js/procaptcha.bundle.js, .procaptcha, procaptcha-response"
+  }
+ ],
+ "rules": [
+  {
+   "id": "bundle",
+   "kind": "request",
+   "url": "^https?://js\\.prosopo\\.io(?::\\d+)?/",
+   "confidence": 100,
+   "note": "Procaptcha loader"
+  },
+  {
+   "id": "widget",
+   "kind": "dom",
+   "match": {
+    "classPrefix": "procaptcha"
+   },
+   "confidence": 60,
+   "note": "Procaptcha widget container"
+  },
+  {
+   "id": "response-field",
+   "kind": "requestBody",
+   "text": "(?:^|[&\\\"{,\\s])procaptcha-response",
+   "confidence": 60,
+   "note": "Procaptcha token form field"
+  }
+ ]
+}
