@@ -1,0 +1,51 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "captcha-eu",
+ "name": "Captcha.eu",
+ "vendor": "Captcha.eu",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.captcha.eu/install",
+   "note": "www.captcha.eu/sdk.js, KROT, captcha_at_solution"
+  },
+  {
+   "url": "https://github.com/captcha-eu/docs/blob/master/widget.md",
+   "note": ".cpt_widget"
+  }
+ ],
+ "rules": [
+  {
+   "id": "sdk",
+   "kind": "request",
+   "url": "^https?://www\\.captcha\\.eu(?::\\d+)?/sdk\\.js",
+   "confidence": 100,
+   "note": "Captcha.eu SDK"
+  },
+  {
+   "id": "krot",
+   "kind": "global",
+   "path": "KROT",
+   "condition": "exists",
+   "confidence": 50,
+   "note": "Captcha.eu SDK global"
+  },
+  {
+   "id": "solution-field",
+   "kind": "requestBody",
+   "text": "(?:^|[&\\\"{,\\s])captcha_at_solution",
+   "confidence": 60,
+   "note": "Captcha.eu solution form field"
+  },
+  {
+   "id": "widget",
+   "kind": "dom",
+   "match": {
+    "classPrefix": "cpt_widget"
+   },
+   "confidence": 50,
+   "note": "Captcha.eu widget container"
+  }
+ ]
+}

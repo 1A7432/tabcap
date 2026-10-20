@@ -4,6 +4,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### Protection family identification (in progress)
+
+- `tabcap recon` / `tabcap analyze recon` name the anti-bot, CAPTCHA and fingerprinting families a recording shows, each with a confidence and the evidence (request ids, cookie and header names, URLs without their query; never a value). 43 built-in families (16 anti-bot, 17 CAPTCHA, 10 fingerprinting techniques from trace mode), every vendor rule backed by a public source (docs/14); your own rule files in `config/protection/` override or add families. Identification only: nothing here helps get past a protection.
+
 ### Fixes
 
 - `click --trusted` / `hover` on Linux: when a background tab's frames are slow, the paint check now keeps trying for up to 3 s (every 250 ms) once the small screencast is on, instead of checking once. A single check right after the screencast started could see no frame within 1 s and fall back to the DOM click.

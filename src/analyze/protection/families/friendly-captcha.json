@@ -1,0 +1,32 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "friendly-captcha",
+ "name": "Friendly Captcha",
+ "vendor": "Friendly Captcha",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://developer.friendlycaptcha.com/docs/v2/getting-started/install",
+   "note": "@friendlycaptcha/sdk site.min.js, .frc-captcha[data-sitekey]"
+  }
+ ],
+ "rules": [
+  {
+   "id": "sdk",
+   "kind": "request",
+   "url": "/npm/@friendlycaptcha/",
+   "confidence": 90,
+   "note": "Friendly Captcha SDK package path"
+  },
+  {
+   "id": "widget",
+   "kind": "dom",
+   "match": {
+    "classPrefix": "frc-captcha"
+   },
+   "confidence": 60,
+   "note": "Friendly Captcha widget container"
+  }
+ ]
+}

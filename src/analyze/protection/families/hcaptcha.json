@@ -1,0 +1,47 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "hcaptcha",
+ "name": "hCaptcha",
+ "vendor": "Intuition Machines",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.hcaptcha.com/",
+   "note": "js.hcaptcha.com/1/api.js, .h-captcha, hcaptcha, h-captcha-response"
+  }
+ ],
+ "rules": [
+  {
+   "id": "api-js",
+   "kind": "request",
+   "url": "^https?://js\\.hcaptcha\\.com(?::\\d+)?/",
+   "confidence": 100,
+   "note": "hCaptcha loader"
+  },
+  {
+   "id": "widget",
+   "kind": "dom",
+   "match": {
+    "classPrefix": "h-captcha"
+   },
+   "confidence": 60,
+   "note": "hCaptcha widget container"
+  },
+  {
+   "id": "hcaptcha",
+   "kind": "global",
+   "path": "hcaptcha",
+   "condition": "exists",
+   "confidence": 50,
+   "note": "hCaptcha JavaScript API"
+  },
+  {
+   "id": "response-field",
+   "kind": "requestBody",
+   "text": "(?:^|[&\\\"{,\\s])h-captcha-response",
+   "confidence": 60,
+   "note": "hCaptcha token form field"
+  }
+ ]
+}

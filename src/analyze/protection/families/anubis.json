@@ -1,0 +1,48 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "anubis",
+ "name": "Anubis (proof-of-work)",
+ "vendor": "Techaro",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://github.com/TecharoHQ/anubis/blob/main/docs/docs/design/how-anubis-works.mdx",
+   "note": "techaro.lol-anubis-auth JWT cookie"
+  },
+  {
+   "url": "https://github.com/TecharoHQ/anubis/blob/main/docs/docs/admin/policies.mdx",
+   "note": "X-Anubis-Rule / X-Anubis-Action / X-Anubis-Status"
+  }
+ ],
+ "rules": [
+  {
+   "id": "auth",
+   "kind": "cookie",
+   "name": "techaro.lol-anubis-auth",
+   "confidence": 100,
+   "note": "Anubis pass cookie"
+  },
+  {
+   "id": "rule",
+   "kind": "responseHeader",
+   "name": "x-anubis-rule",
+   "confidence": 100,
+   "note": "Anubis rule header"
+  },
+  {
+   "id": "action",
+   "kind": "responseHeader",
+   "name": "x-anubis-action",
+   "confidence": 100,
+   "note": "Anubis action header"
+  },
+  {
+   "id": "status",
+   "kind": "responseHeader",
+   "name": "x-anubis-status",
+   "confidence": 100,
+   "note": "Anubis status header"
+  }
+ ]
+}

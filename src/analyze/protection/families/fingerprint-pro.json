@@ -1,0 +1,35 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fingerprint-pro",
+ "name": "Fingerprint (FingerprintJS Pro)",
+ "vendor": "Fingerprint",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.fingerprint.com/docs/v3/quick-start-guide",
+   "note": "fpjscdn.net/v3/<key>"
+  },
+  {
+   "url": "https://docs.fingerprint.com/reference/js-agent-start-function",
+   "note": "_vid_ storage key prefix"
+  }
+ ],
+ "rules": [
+  {
+   "id": "cdn",
+   "kind": "request",
+   "url": "^https?://fpjscdn\\.net(?::\\d+)?/",
+   "confidence": 100,
+   "note": "Fingerprint agent CDN"
+  },
+  {
+   "id": "vid",
+   "kind": "cookie",
+   "name": "^_vid_",
+   "confidence": 70,
+   "note": "default storage key prefix (cookie)",
+   "nameRegex": true
+  }
+ ]
+}

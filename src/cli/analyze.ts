@@ -1,6 +1,9 @@
 // `tabcap analyze …`: argument parsing and printing only; the work is in
 // src/analyze/ (pure functions over bundle directories, no daemon).
 
+import { join } from "node:path";
+import { loadFamilies } from "../analyze/protection/registry.ts";
+import { paths as currentPaths } from "../shared/paths.ts";
 import { TabcapError, fail, ok, toFail, type Envelope } from "../shared/envelope.ts";
 import { find, renderFindText, type FindResult } from "../analyze/find.ts";
 import { appendFinding, appendFindings, type SavedFinding, type SavedFindings } from "../analyze/finding.ts";
@@ -167,7 +170,9 @@ function cmdRecon(argv: readonly string[]): Outcome {
   }
   const bundle = optStr(parsed.args["bundle"]) ?? "";
   const reader = BundleReader.open(bundle);
-  const dossier = redactDossier(buildDossier(reader, recordedPage(reader)), parsed.args["reveal"] === true);
+  // 0.8-A: built-in protection families plus config/protection/ (docs/04 §41.1)
+  const { families, warnings } = loadFamilies(join(currentPaths().config, "protection"));
+  const dossier = redactDossier(buildDossier(reader, recordedPage(reader), { families, warnings }), parsed.args["reveal"] === true);
   const out = reconOutput(dossier, writeDossier(bundle, dossier));
   if (parsed.args["text"] !== true) return { code: 0, envelope: ok(out) };
   return { code: 0, envelope: ok(out), text: renderDossierMd(dossier).trimEnd() };

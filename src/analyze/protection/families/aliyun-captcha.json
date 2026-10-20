@@ -1,0 +1,50 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "aliyun-captcha",
+ "name": "阿里云验证码",
+ "vendor": "阿里云 Alibaba Cloud",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://developer.aliyun.com/ask/600069",
+   "note": "o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js, initAliyunCaptcha"
+  },
+  {
+   "url": "https://help.aliyun.com/en/captcha/captcha1-0/user-guide/integration-methods-for-invisible-captcha",
+   "note": "g.alicdn.com/AWSC/AWSC/awsc.js, AWSC.use"
+  }
+ ],
+ "rules": [
+  {
+   "id": "captcha2",
+   "kind": "request",
+   "url": "^https?://o\\.alicdn\\.com(?::\\d+)?/captcha-frontend/aliyunCaptcha/",
+   "confidence": 100,
+   "note": "阿里云验证码 2.0 SDK path"
+  },
+  {
+   "id": "awsc",
+   "kind": "request",
+   "url": "^https?://g\\.alicdn\\.com(?::\\d+)?/AWSC/",
+   "confidence": 100,
+   "note": "阿里云验证码 1.0 (AWSC) path"
+  },
+  {
+   "id": "init",
+   "kind": "global",
+   "path": "initAliyunCaptcha",
+   "condition": "function",
+   "confidence": 60,
+   "note": "阿里云验证码 2.0 initialiser"
+  },
+  {
+   "id": "awsc-global",
+   "kind": "global",
+   "path": "AWSC",
+   "condition": "exists",
+   "confidence": 50,
+   "note": "阿里云验证码 1.0 global"
+  }
+ ]
+}

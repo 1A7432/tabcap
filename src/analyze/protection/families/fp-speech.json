@@ -1,0 +1,17 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-speech",
+ "name": "Speech voice fingerprinting",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "voices",
+   "kind": "api",
+   "target": "SpeechSynthesis.prototype.getVoices",
+   "confidence": 50,
+   "note": "installed voices"
+  }
+ ]
+}

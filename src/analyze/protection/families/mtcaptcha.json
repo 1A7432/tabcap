@@ -1,0 +1,52 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "mtcaptcha",
+ "name": "MTCaptcha",
+ "vendor": "MTCaptcha",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.mtcaptcha.com/dev-guide",
+   "note": "service.mtcaptcha.com, service2.mtcaptcha.com, .mtcaptcha, window.mtcaptcha"
+  },
+  {
+   "url": "https://docs.mtcaptcha.com/faq-cookie-declaration",
+   "note": "mtv1* cookies"
+  }
+ ],
+ "rules": [
+  {
+   "id": "service",
+   "kind": "request",
+   "url": "^https?://service2?\\.mtcaptcha\\.com(?::\\d+)?/",
+   "confidence": 100,
+   "note": "MTCaptcha service host"
+  },
+  {
+   "id": "mtv1",
+   "kind": "cookie",
+   "name": "^mtv1",
+   "confidence": 70,
+   "note": "MTCaptcha cookies",
+   "nameRegex": true
+  },
+  {
+   "id": "widget",
+   "kind": "dom",
+   "match": {
+    "classPrefix": "mtcaptcha"
+   },
+   "confidence": 50,
+   "note": "MTCaptcha widget container"
+  },
+  {
+   "id": "mtcaptcha",
+   "kind": "global",
+   "path": "mtcaptcha",
+   "condition": "exists",
+   "confidence": 50,
+   "note": "MTCaptcha global"
+  }
+ ]
+}

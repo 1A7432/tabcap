@@ -1,0 +1,41 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-hardware",
+ "name": "Hardware fingerprinting",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "cores",
+   "kind": "api",
+   "target": "Navigator.prototype.hardwareConcurrency",
+   "confidence": 35,
+   "note": "CPU cores"
+  },
+  {
+   "id": "memory",
+   "kind": "api",
+   "target": "Navigator.prototype.deviceMemory",
+   "confidence": 40,
+   "note": "device memory"
+  }
+ ],
+ "combinations": [
+  {
+   "id": "both",
+   "name": "cores and memory",
+   "confidence": 60,
+   "when": {
+    "all": [
+     {
+      "rule": "cores"
+     },
+     {
+      "rule": "memory"
+     }
+    ]
+   }
+  }
+ ]
+}

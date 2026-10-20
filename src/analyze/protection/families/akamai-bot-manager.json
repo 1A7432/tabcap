@@ -1,0 +1,44 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "akamai-bot-manager",
+ "name": "Akamai Bot Manager",
+ "vendor": "Akamai",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://www.akamai.com/legal/manage-cookie-preferences",
+   "note": "Akamai's cookie table lists _abck, bm_sz, ak_bmsc, bm_sv"
+  }
+ ],
+ "rules": [
+  {
+   "id": "abck",
+   "kind": "cookie",
+   "name": "_abck",
+   "confidence": 100,
+   "note": "Bot Manager cookie (Akamai cookie table)"
+  },
+  {
+   "id": "bm-sz",
+   "kind": "cookie",
+   "name": "bm_sz",
+   "confidence": 100,
+   "note": "Bot Manager cookie (Akamai cookie table)"
+  },
+  {
+   "id": "ak-bmsc",
+   "kind": "cookie",
+   "name": "ak_bmsc",
+   "confidence": 100,
+   "note": "Bot Manager cookie (Akamai cookie table)"
+  },
+  {
+   "id": "bm-sv",
+   "kind": "cookie",
+   "name": "bm_sv",
+   "confidence": 90,
+   "note": "Bot Manager cookie (Akamai cookie table)"
+  }
+ ]
+}

@@ -1,0 +1,91 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-webgl",
+ "name": "WebGL fingerprinting",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "param1",
+   "kind": "api",
+   "target": "WebGLRenderingContext.prototype.getParameter",
+   "confidence": 35,
+   "note": "WebGL parameters"
+  },
+  {
+   "id": "param2",
+   "kind": "api",
+   "target": "WebGL2RenderingContext.prototype.getParameter",
+   "confidence": 35,
+   "note": "WebGL2 parameters"
+  },
+  {
+   "id": "ext1",
+   "kind": "api",
+   "target": "WebGLRenderingContext.prototype.getSupportedExtensions",
+   "confidence": 40,
+   "note": "WebGL extension list"
+  },
+  {
+   "id": "ext2",
+   "kind": "api",
+   "target": "WebGL2RenderingContext.prototype.getSupportedExtensions",
+   "confidence": 40,
+   "note": "WebGL2 extension list"
+  },
+  {
+   "id": "getext1",
+   "kind": "api",
+   "target": "WebGLRenderingContext.prototype.getExtension",
+   "confidence": 30,
+   "note": "WebGL extension",
+   "standalone": false
+  },
+  {
+   "id": "getext2",
+   "kind": "api",
+   "target": "WebGL2RenderingContext.prototype.getExtension",
+   "confidence": 30,
+   "note": "WebGL2 extension",
+   "standalone": false
+  }
+ ],
+ "combinations": [
+  {
+   "id": "params-and-extensions",
+   "name": "parameters with the extension list",
+   "confidence": 70,
+   "when": {
+    "all": [
+     {
+      "any": [
+       {
+        "rule": "param1"
+       },
+       {
+        "rule": "param2"
+       }
+      ]
+     },
+     {
+      "any": [
+       {
+        "rule": "ext1"
+       },
+       {
+        "rule": "ext2"
+       },
+       {
+        "rule": "getext1"
+       },
+       {
+        "rule": "getext2"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

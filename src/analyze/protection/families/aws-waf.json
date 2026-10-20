@@ -1,0 +1,41 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "aws-waf",
+ "name": "AWS WAF (Bot Control, CAPTCHA / Challenge)",
+ "vendor": "Amazon Web Services",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.aws.amazon.com/waf/latest/developerguide/waf-js-challenge-api-get-token.html",
+   "note": "aws-waf-token cookie, x-aws-waf-token header"
+  },
+  {
+   "url": "https://docs.aws.amazon.com/waf/latest/developerguide/waf-captcha-and-challenge-actions.html",
+   "note": "x-amzn-waf-action: captcha (405) / challenge (202)"
+  }
+ ],
+ "rules": [
+  {
+   "id": "token-cookie",
+   "kind": "cookie",
+   "name": "aws-waf-token",
+   "confidence": 100,
+   "note": "AWS WAF token cookie"
+  },
+  {
+   "id": "token-header",
+   "kind": "requestHeader",
+   "name": "x-aws-waf-token",
+   "confidence": 100,
+   "note": "AWS WAF token request header"
+  },
+  {
+   "id": "waf-action",
+   "kind": "responseHeader",
+   "name": "x-amzn-waf-action",
+   "confidence": 100,
+   "note": "AWS WAF CAPTCHA / challenge response (recon v0 row)"
+  }
+ ]
+}

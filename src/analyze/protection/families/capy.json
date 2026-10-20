@@ -1,0 +1,23 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "capy",
+ "name": "Capy Puzzle Captcha",
+ "vendor": "Capy",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://www.capy.me/developers/",
+   "note": "capy_challengekey, capy_answer POST fields"
+  }
+ ],
+ "rules": [
+  {
+   "id": "fields",
+   "kind": "requestBody",
+   "text": "(?:^|[&\\\"{,\\s])capy_(challengekey|answer)",
+   "confidence": 60,
+   "note": "Capy form fields"
+  }
+ ]
+}

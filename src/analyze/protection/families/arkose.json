@@ -1,0 +1,23 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "arkose",
+ "name": "Arkose Labs (FunCaptcha)",
+ "vendor": "Arkose Labs",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://developer.arkoselabs.com/docs/recaptcha-to-arkose-labs-migration-guide",
+   "note": "<company>-api.arkoselabs.com/v2/<key>/api.js, client-api.arkoselabs.com"
+  }
+ ],
+ "rules": [
+  {
+   "id": "api-js",
+   "kind": "request",
+   "url": "^https?://[a-z0-9-]+-api\\.arkoselabs\\.com(?::\\d+)?/",
+   "confidence": 100,
+   "note": "Arkose Labs loader host"
+  }
+ ]
+}

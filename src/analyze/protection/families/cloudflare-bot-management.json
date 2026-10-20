@@ -1,0 +1,48 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "cloudflare-bot-management",
+ "name": "Cloudflare Bot Management",
+ "vendor": "Cloudflare",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://developers.cloudflare.com/fundamentals/reference/policies-compliances/cloudflare-cookies/",
+   "note": "__cf_bm (Bot Management, Bot Fight Mode), cf_clearance (passed challenge)"
+  },
+  {
+   "url": "https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/",
+   "note": "/cdn-cgi/challenge-platform/ scripts"
+  }
+ ],
+ "rules": [
+  {
+   "id": "cf-bm-cookie",
+   "kind": "cookie",
+   "name": "__cf_bm",
+   "confidence": 100,
+   "note": "Bot Management / Bot Fight Mode cookie"
+  },
+  {
+   "id": "cf-clearance-cookie",
+   "kind": "cookie",
+   "name": "cf_clearance",
+   "confidence": 100,
+   "note": "set after the visitor passed a Cloudflare challenge"
+  },
+  {
+   "id": "challenge-platform",
+   "kind": "request",
+   "url": "/cdn-cgi/challenge-platform/",
+   "confidence": 100,
+   "note": "Cloudflare challenge platform script path"
+  },
+  {
+   "id": "cf-mitigated",
+   "kind": "responseHeader",
+   "name": "cf-mitigated",
+   "confidence": 100,
+   "note": "challenge response marker (recon v0 row)"
+  }
+ ]
+}

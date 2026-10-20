@@ -1,0 +1,88 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-screen",
+ "name": "Screen fingerprinting",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "color",
+   "kind": "api",
+   "target": "Screen.prototype.colorDepth",
+   "confidence": 20,
+   "note": "colour depth",
+   "standalone": false
+  },
+  {
+   "id": "pixel",
+   "kind": "api",
+   "target": "Screen.prototype.pixelDepth",
+   "confidence": 20,
+   "note": "pixel depth",
+   "standalone": false
+  },
+  {
+   "id": "availw",
+   "kind": "api",
+   "target": "Screen.prototype.availWidth",
+   "confidence": 20,
+   "note": "available width",
+   "standalone": false
+  },
+  {
+   "id": "availh",
+   "kind": "api",
+   "target": "Screen.prototype.availHeight",
+   "confidence": 20,
+   "note": "available height",
+   "standalone": false
+  },
+  {
+   "id": "dpr",
+   "kind": "api",
+   "target": "Window.prototype.devicePixelRatio",
+   "confidence": 20,
+   "note": "device pixel ratio",
+   "standalone": false
+  }
+ ],
+ "combinations": [
+  {
+   "id": "profile",
+   "name": "depths with the available area",
+   "confidence": 55,
+   "when": {
+    "all": [
+     {
+      "any": [
+       {
+        "rule": "color"
+       },
+       {
+        "rule": "pixel"
+       }
+      ]
+     },
+     {
+      "any": [
+       {
+        "rule": "availw"
+       },
+       {
+        "rule": "availh"
+       }
+      ]
+     },
+     {
+      "any": [
+       {
+        "rule": "dpr"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,48 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "netacea",
+ "name": "Netacea",
+ "vendor": "Netacea",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.netacea.com/overview/integration-modes",
+   "note": "x-netacea-match / x-netacea-mitigate / x-netacea-captcha headers"
+  },
+  {
+   "url": "https://docs.netacea.com/netacea-plugin-information/fastly/installation-and-configuration",
+   "note": "/ATAverify default captcha path"
+  }
+ ],
+ "rules": [
+  {
+   "id": "match",
+   "kind": "responseHeader",
+   "name": "x-netacea-match",
+   "confidence": 100,
+   "note": "Netacea recommended-action header"
+  },
+  {
+   "id": "mitigate",
+   "kind": "responseHeader",
+   "name": "x-netacea-mitigate",
+   "confidence": 100,
+   "note": "Netacea recommended-action header"
+  },
+  {
+   "id": "captcha",
+   "kind": "responseHeader",
+   "name": "x-netacea-captcha",
+   "confidence": 100,
+   "note": "Netacea recommended-action header"
+  },
+  {
+   "id": "ataverify",
+   "kind": "request",
+   "url": "/ATAverify(?:[/?#]|$)",
+   "confidence": 70,
+   "note": "Netacea default captcha path (configurable)"
+  }
+ ]
+}

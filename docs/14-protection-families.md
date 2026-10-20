@@ -17,8 +17,7 @@
 | Akamai Bot Manager | cookie `_abck`、`bm_sz`、`ak_bmsc`、`bm_sv`（L1） | akamai.com/legal/manage-cookie-preferences | 强 |
 | DataDome | cookie `datadome`、`dd_testcookie`（L1）；脚本 `js.datadome.co/tags.js`、上报 `api-js.datadome.co`（L1）；全局 `ddjskey`、`ddoptions`（L2）；拦截 iframe `*.captcha-delivery.com`（L2）；响应头 `x-datadome`（L1，已有） | docs.datadome.co：cookie-session-storage、javascript-tag | 强 |
 | HUMAN（PerimeterX） | cookie `_px`、`_px2`、`_px3`、`_pxvid`、`pxcts`、`_pxff_*`（L1） | docs.humansecurity.com/applications/use-of-cookies-web-storage | 强 |
-| F5 BIG-IP ASM | cookie `TS` 前缀（L1，短前缀，只能作佐证） | techdocs.f5.com ASM 11.4.1 发布说明 | 中（单独不定案） |
-| AWS WAF | cookie `aws-waf-token`（L1）；请求头 `x-aws-waf-token`（L1）；响应头 `x-amzn-waf-action: captcha`（405）/ `challenge`（202）（L1，已有）；脚本 `…/challenge.js`（L1） | docs.aws.amazon.com/waf | 强 |
+| AWS WAF | cookie `aws-waf-token`（L1）；请求头 `x-aws-waf-token`（L1）；响应头 `x-amzn-waf-action: captcha`（405）/ `challenge`（202）（L1，已有）；`challenge.js` 的主机文档里没给出，不收 | docs.aws.amazon.com/waf | 强 |
 | Netacea | 响应头 `x-netacea-match`、`x-netacea-mitigate`、`x-netacea-captcha`（L1）；挑战路径 `/ATAverify`（L1） | docs.netacea.com | 强 |
 | Radware Bot Manager（ShieldSquare） | 主机 `eupulse.shieldsquare.net`、`scus.shieldsquare.net`（L1） | support.radware.com 实施指南 | 强；`__uzm*` 无来源 |
 | Reblaze（Link11） | cookie `rbzid`、`rbzsessionid`（L1） | waap.docs.link11.com | 强 |
@@ -56,7 +55,7 @@
 
 ## 3. 指纹技术（L3，不分厂商）
 
-和 Antibot-Detector 的 fingerprint 一类同义：按**页面调用了哪些 API** 认技术（canvas、WebGL、audio、字体、navigator、screen、WebRTC、电量、硬件、媒体设备、剪贴板、crypto、CSS 媒体查询、手柄、地理位置、IndexedDB、存储、时区 / Intl、USB、设备方向、performance）。数据来自追踪模式的 `signal` 事件（`docs/04` §4.1，API 名单在 `src/daemon/trace/signals.ts`），技术与 API 的对应只用 API 名（Web IDL 规范为 oracle），不需要厂商来源。每个技术报：调用了哪些 API、调用方脚本 URL；调用方脚本命中 §1 / §2 某家族的脚本规则时，标「归因到 <家族>」。
+和 Antibot-Detector 的 fingerprint 一类同义：按**页面调用了哪些 API** 认技术。0.8-A1 内置 10 类，只用追踪模式默认名单（`src/daemon/trace/signals.ts`）里有的 API：canvas、WebGL、navigator、硬件、屏幕、时区 / Intl、媒体设备、权限、语音、字体。audio、WebRTC、电量、剪贴板、crypto、CSS 媒体查询、手柄、地理位置、IndexedDB、存储、USB、设备方向、performance 要先把对应 API 加进追踪名单（改追踪模式的默认行为，待作者定）。数据来自追踪模式的 `signal` 事件（`docs/04` §4.1，API 名单在 `src/daemon/trace/signals.ts`），技术与 API 的对应只用 API 名（Web IDL 规范为 oracle），不需要厂商来源。每个技术报：调用了哪些 API、调用方脚本 URL；调用方脚本命中 §1 / §2 某家族的脚本规则时，标「归因到 <家族>」。
 
 ## 4. 本地对照
 
@@ -68,6 +67,7 @@
 |---|---|---|
 | Imperva / Incapsula | cookie `visid_incap_*`、`incap_ses_*`、`nlbi_*`、`___utmvc`，头 `X-Iinfo`、`X-CDN: Incapsula`（wafrift-detect 规则库、某站 cookie 政策）；`reese84` 无来源 | 没有厂商自己的来源（作者 10-20：偏弱的先不加）；recon v0 原有的 `x-iinfo` 头名一行照旧保留在通用信号里 |
 | Kasada | 头 `x-kpsdk-ct`、`x-kpsdk-cd`，脚本 `ips.js`（一个逆向仓库） | 弱 |
+| F5 BIG-IP ASM | cookie `TS` 前缀（techdocs.f5.com） | 只有一个短前缀，单独不能定案，没有能组合的第二个信号 |
 | F5 Distributed Cloud Bot Defense（Shape） | JS 路径由客户配置 | 弱，几乎不可被动识别 |
 | 阿里云 WAF | 只有「JS 挑战页」的描述 | 弱，没有具体名字 |
 | Google BotGuard、Amazon、Azure Front Door、白山云 YUNDUN、Hunt、Meetrics、Ocule、DeepSeek PoW、OpenAI Sentinel | 没有合格的具体信号（Sentinel 只有一个账号工具仓库） | 无 |

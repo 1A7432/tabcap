@@ -1,0 +1,34 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "reblaze",
+ "name": "Reblaze (Link11 WAAP)",
+ "vendor": "Reblaze / Link11",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://waap.docs.link11.com/v2.20.4/using-the-product/best-practices/enabling-passive-challenges",
+   "note": "rbzid after the passive challenge"
+  },
+  {
+   "url": "https://waap.docs.link11.com/reference-information/api/api-access-to-traffic-data",
+   "note": "rbzsessionid"
+  }
+ ],
+ "rules": [
+  {
+   "id": "rbzid",
+   "kind": "cookie",
+   "name": "rbzid",
+   "confidence": 100,
+   "note": "Reblaze ID cookie"
+  },
+  {
+   "id": "rbzsessionid",
+   "kind": "cookie",
+   "name": "rbzsessionid",
+   "confidence": 100,
+   "note": "Reblaze session cookie"
+  }
+ ]
+}

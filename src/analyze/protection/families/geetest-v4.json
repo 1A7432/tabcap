@@ -1,0 +1,31 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "geetest-v4",
+ "name": "极验 GeeTest v4",
+ "vendor": "极验 GeeTest",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://docs.geetest.com/gt4/quick_integration_guide",
+   "note": "static.geetest.com/v4/gt4.js, initGeetest4"
+  }
+ ],
+ "rules": [
+  {
+   "id": "gt4-js",
+   "kind": "request",
+   "url": "^https?://static\\.geetest\\.com(?::\\d+)?/v4/",
+   "confidence": 100,
+   "note": "GeeTest v4 loader path"
+  },
+  {
+   "id": "init",
+   "kind": "global",
+   "path": "initGeetest4",
+   "condition": "function",
+   "confidence": 60,
+   "note": "GeeTest v4 initialiser"
+  }
+ ]
+}

@@ -10,6 +10,8 @@
 // 0.6-E: URLs in the answer and the dossier (the page, guard detections) show
 // sensitive query parameters as <redacted:name> unless --reveal (docs/04 §8.3).
 
+import { join } from "node:path";
+import { loadFamilies } from "../../analyze/protection/registry.ts";
 import { BundleReader } from "../../bundle/reader.ts";
 import type { RequestEvent } from "../../bundle/types.ts";
 import { buildDossier, pageOf, reconOutput, writeDossier, type AdapterDetection, type Dossier, type ReconPage, recordedPage } from "../../analyze/recon.ts";
@@ -83,7 +85,10 @@ export async function recon(d: Daemon, a: Args, session: string): Promise<unknow
     warnings.push(`no current page (${e instanceof Error ? e.message : String(e)})`);
     page = recordedPage(reader);
   }
-  const built = buildDossier(reader, page, { session, warnings });
+  // 0.8-A: built-in protection families plus config/protection/ (docs/04 §41.1)
+  const loaded = loadFamilies(join(d.paths.config, "protection"));
+  warnings.push(...loaded.warnings);
+  const built = buildDossier(reader, page, { session, warnings, families: loaded.families });
   const dossier = revealOf(a) ? built : redactDossier(built, { scrub: (s) => d.secrets.scrub(s) });
   const paths = writeDossier(rec.dir, dossier, (s) => d.secrets.scrub(s));
   return reconOutput(dossier, paths);

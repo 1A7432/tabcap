@@ -1,0 +1,23 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "threatmetrix",
+ "name": "LexisNexis ThreatMetrix",
+ "vendor": "LexisNexis Risk Solutions",
+ "category": "anti-bot",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://cybersource.portaldom.do/pages/cybersource/rest/sections/decision-manager.html",
+   "note": "h.online-metrix.net/fp/tags.js profiling script"
+  }
+ ],
+ "rules": [
+  {
+   "id": "profiling",
+   "kind": "request",
+   "url": "^https?://h\\.online-metrix\\.net(?::\\d+)?/fp/",
+   "confidence": 100,
+   "note": "ThreatMetrix device profiling host"
+  }
+ ]
+}

@@ -1,0 +1,66 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "shumei",
+ "name": "数美 (验证码 / 设备指纹)",
+ "vendor": "数美 Shumei",
+ "category": "captcha",
+ "version": 1,
+ "sources": [
+  {
+   "url": "https://help.ishumei.com/docs/tw/sdk/web/developDoc/",
+   "note": "static.portal101.cn/dist/web/…/fp.min.js, /deviceprofile/v4, SMSdk, _smConf"
+  },
+  {
+   "url": "https://cdn.deepseek.com/policies/en-US/cookies-policy.html",
+   "note": "smidV2 (a site's cookie policy)"
+  }
+ ],
+ "rules": [
+  {
+   "id": "fp",
+   "kind": "request",
+   "url": "^https?://static\\.portal101\\.cn(?::\\d+)?/dist/web/",
+   "confidence": 100,
+   "note": "数美 web SDK path"
+  },
+  {
+   "id": "smsdk",
+   "kind": "global",
+   "path": "SMSdk",
+   "condition": "exists",
+   "confidence": 60,
+   "note": "数美 SDK global"
+  },
+  {
+   "id": "smconf",
+   "kind": "global",
+   "path": "_smConf",
+   "condition": "exists",
+   "confidence": 60,
+   "note": "数美 SDK configuration global"
+  },
+  {
+   "id": "init",
+   "kind": "global",
+   "path": "initSMCaptcha",
+   "condition": "function",
+   "confidence": 60,
+   "note": "数美 captcha initialiser"
+  },
+  {
+   "id": "smidv2",
+   "kind": "cookie",
+   "name": "smidV2",
+   "confidence": 70,
+   "note": "数美 device id (a site's cookie policy)"
+  },
+  {
+   "id": "deviceprofile",
+   "kind": "request",
+   "url": "/deviceprofile/v4(?:[/?#]|$)",
+   "confidence": 40,
+   "note": "数美 device profile path (generic, corroboration only)",
+   "standalone": false
+  }
+ ]
+}

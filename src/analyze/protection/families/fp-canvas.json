@@ -1,0 +1,59 @@
+{
+ "schema": "tabcap-protection/0",
+ "id": "fp-canvas",
+ "name": "Canvas fingerprinting",
+ "vendor": "—",
+ "category": "fingerprint",
+ "version": 1,
+ "rules": [
+  {
+   "id": "todataurl",
+   "kind": "api",
+   "target": "HTMLCanvasElement.prototype.toDataURL",
+   "confidence": 35,
+   "note": "canvas read back as a data URL"
+  },
+  {
+   "id": "toblob",
+   "kind": "api",
+   "target": "HTMLCanvasElement.prototype.toBlob",
+   "confidence": 35,
+   "note": "canvas read back as a blob"
+  },
+  {
+   "id": "getimagedata",
+   "kind": "api",
+   "target": "CanvasRenderingContext2D.prototype.getImageData",
+   "confidence": 40,
+   "note": "canvas pixels read back"
+  }
+ ],
+ "combinations": [
+  {
+   "id": "readbacks",
+   "name": "two canvas read-back paths",
+   "confidence": 70,
+   "when": {
+    "all": [
+     {
+      "any": [
+       {
+        "rule": "getimagedata"
+       }
+      ]
+     },
+     {
+      "any": [
+       {
+        "rule": "todataurl"
+       },
+       {
+        "rule": "toblob"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}
