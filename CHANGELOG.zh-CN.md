@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## 未发布
+## 0.7.6（2026-10-20）
 
 ### 默认隐藏 `navigator.webdriver`
 
