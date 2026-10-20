@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.8.0 (2026-10-20)
 
 ### Protection family identification
 
