@@ -591,3 +591,8 @@
 - 做了什么：作者 10-20 改项目要求「默认隐藏 webdriver」，选方案 A（启动参数，不注入脚本），开关定为 `--webdriver hidden|visible`，`ext` 模式先不管，删掉文档里「不隐藏 webdriver」的说法。先用探针实测（CfT 155.0.8059.84，脚本在 scratchpad 不进仓库）：不加参数，pipe 下主文档与 iframe 都是 `true`；加 `--disable-blink-features=AutomationControlled` 后 pipe 与 port 两种连接下都是 `false`，视口 727 / 814 与不加时相同（据此判断没有多出信息栏，没看窗口截图）；专用 worker 里加不加都是 `undefined`【实测】。设计写进 `docs/04` §40（含 manifest `producer.browser.webdriver`）、`docs/05` s66、`docs/07` §1.2 参数表与末注、AGENTS.md 一条；`docs/10` 删去三处「不隐藏 webdriver」相关说法。代码：`buildArgs` 按 `webdriver` 加参数，`browser start --webdriver`、`config.json` `webdriver`，`browser start` / `browser status` / `status`（JSON 与 `--text` 首行）与 manifest 带当前值。单测 1328 全过；e2e v076a（s66 三条）、v07b、v04g 本机通过【实测】。
 - 卡在哪：v04w 本机跑不了（本机 Zig 0.17，项目要求 0.16，新 worktree 编不出 wireprint），交给 CI；线指纹画像缓存按参数哈希失效，第一次 `wire probe` 会重采【推断】。`ext` 模式的值没量【待验】。
 - 下一格从哪开始：作者审 `webdriver-hidden` 分支；看 CI（含 v04w 那片）；合入后随 0.7.6 发布。
+
+## 2026-10-20 · 0.7.6 发布（主循环）
+- 做了什么：作者 10-20「开pr，没问题就合入main和发版」。PR #22（0.7.6-A + release 提交）两轮 CI 全绿（含 v04w 所在分片与 Bugbot）【实测 run 39397093929、39397895194】；直接推 main 被自动模式权限判断拦下，改用 `gh pr merge 22 --rebase`，main 37341ee 与测过的 f144238 树相同；推 v0.7.6 tag，release run 39398783232 一次全绿，五个 npm 包 0.7.6（curl registry 核对）；GitHub Release 取消草稿、非 prerelease、设为 latest；homebrew.yml run 39399977571 把 0.7.6 推进 tap【实测】；Scoop 清单 hash 换成 0.7.6 的 windows-x64 zip（本条所在 PR）。
+- 卡在哪：`ext` 模式下 webdriver 的值仍【待验】；本机 Zig 0.17 跑不了 v04w。
+- 下一格从哪开始：与作者讨论防护家族识别（先参照现有开源项目的识别方法）。
