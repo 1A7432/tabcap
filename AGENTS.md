@@ -22,7 +22,7 @@
 - 浏览器：默认用工具自己管的 Chrome for Testing 副本；接管作者自己的 Chrome（`ext` 模式）时只挂自己开的标签；只清、只改靶场两个源的 cookie / storage；需要作者点「允许」或装东西的步骤先说。
 - 真实账号：阶段 2 `guard` 落地前，本仓库里的 AI 协作者不用真实账号对靶场以外的站点发请求。产品本身怎么用由作者决定。
 - 凭据：密码、token 不进对话、不进日志、不进证据包、不进命令行参数，走工具本地库的引用（`docs/04` §8.1）；守护进程对所有输出做已知秘密值替换。
-- 第三方材料：闭源工具的材料只在本地对照、不复制、不提交。可抄 Apache-2.0 代码（Playwright `cdpRelay.ts`、agent-browser-stealth）并保留其 NOTICE。DrissionPage 是自定义非商业许可【实测：读过其 LICENSE】，只借思路不抄代码。 scrapfly/Antibot-Detector 是 NPOSL-3.0：只学它的识别思路和规则格式，代码与规则数据不进仓库，规则从公开来源自己写，它的规则只在作者本机拿来对照（`docs/14` §4，10-20 作者定）。
+- 第三方材料：闭源工具的材料只在本地对照、不复制、不提交。可抄 Apache-2.0 代码（Playwright `cdpRelay.ts`、agent-browser-stealth）并保留其 NOTICE。DrissionPage 是自定义非商业许可【实测：读过其 LICENSE】，只借思路不抄代码。 scrapfly/Antibot-Detector 是 NPOSL-3.0：只学它的识别思路和规则格式，代码与规则数据不进仓库，规则从公开来源自己写，它的规则只在作者本机拿来对照，对照脚本只留本地、不进仓库、不推远端（`docs/14` §4，10-20 作者定）。
 
 ## 代码规则
 
