@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.7.6 (2026-10-20)
 
 ### `navigator.webdriver` is hidden by default
 
