@@ -13,7 +13,7 @@
 // written by hand, LOGIN_*), the bundle's blobs, docs/04 §31.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
@@ -21,6 +21,7 @@ import { sha256Hex } from "../../src/shared/ids.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { requestBodyBytes } from "../../src/replay/common.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, S42_ORDER, S42_ORDER_JSON, S42_POST_JSON, startDecodeSite, startGuardSite, startSearchSite, xorEncode, type DecodeSite, type GuardSite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -143,7 +144,7 @@ describe.skipIf(!enabled)("tabcap 0.6-C L2 (replay rules and fixture export on s
     search.stop();
     guard.stop();
     s42.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("record s06 search, s07 login + data, s42 token / items / order into one bundle", async () => {

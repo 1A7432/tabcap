@@ -4,11 +4,12 @@
 // log (`hits`), never tabcap's output. `--proxy none` must leave the proxy log untouched.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { startProxySite, startSmokeSite, type ProxySite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -48,7 +49,7 @@ describe.skipIf(!enabled)("tabcap 0.6-N L2 (--proxy <url> carries loopback traff
     await tabcap(["daemon", "stop"]).catch(() => null);
     range.stop();
     proxy.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("--proxy <url>: the page on 127.0.0.1 is fetched through the proxy; --proxy none: the proxy sees nothing new", async () => {

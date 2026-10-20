@@ -407,6 +407,19 @@ const fullRate = (p: Paint): boolean => p.painted && p.frameMs !== null && p.fra
 /** A tiny screencast: its only job is to make the compositor draw the tab's frames. */
 const HOLD_SCREENCAST = { format: "jpeg", quality: 1, maxWidth: 32, maxHeight: 32, everyNthFrame: 1 };
 
+export type PointerDeps = { rng: Rng; sleep: (ms: number) => Promise<unknown>; now: () => number; moveTimeoutMs: number };
+const DEFAULT_DEPS: PointerDeps = { rng: Math.random, sleep: (ms) => Bun.sleep(ms), now: () => performance.now(), moveTimeoutMs: MOVE_TIMEOUT_MS };
+
+/**
+ * With the screencast on, paint checks repeat (POLL apart) until one is at full
+ * rate or WAIT has passed since the screencast started (a check that starts
+ * inside WAIT still runs to its own end, up to ~1.3 s). CI 10-20 (Linux, run
+ * 39398756001): one check right after the screencast started saw no frame
+ * within 1 s and the click fell back to the DOM click.
+ */
+export const HELD_PAINT_WAIT_MS = 3000;
+export const HELD_PAINT_POLL_MS = 250;
+
 /** The first paint check when a screencast had to hold the frames (reported as `paint` in the output). */
 export type FramesHeld = { raf: boolean; frameMs: number | null; visibility: string | null; held: "screencast" };
 
@@ -422,13 +435,13 @@ export type PaintForInput = { paint: Paint; held: FramesHeld | null; release: ()
  * typing; a Page.startScreencast brings it back to 17 ms for as long as it runs,
  * also under a running animation (a screenshot only until the next few changes).
  * So a `visible` tab whose frames are slow (or missing) gets one tiny screencast
- * that runs until `release`, and a second paint check; the caller reports it
+ * that runs until `release`, and paint checks again (up to HELD_PAINT_WAIT_MS); the caller reports it
  * (`paint.held: "screencast"`). macOS draws such tabs at full rate (81/81 e2e
  * without a screencast) and does not take this branch. A hidden tab is left
  * alone (degraded as before), and so is one the screencast does not bring to
- * full rate: the screencast is stopped and the second check decides.
+ * full rate within HELD_PAINT_WAIT_MS: the screencast is stopped and the last check decides.
  */
-export async function holdFrames(t: Transport, sessionId: string): Promise<PaintForInput> {
+export async function holdFrames(t: Transport, sessionId: string, clock: Pick<PointerDeps, "now" | "sleep"> = DEFAULT_DEPS): Promise<PaintForInput> {
   const none = async () => undefined;
   const first = await paintCheck(t, sessionId);
   if (first.visibility !== "visible" || fullRate(first)) return { paint: first, held: null, release: none };
@@ -443,15 +456,20 @@ export async function holdFrames(t: Transport, sessionId: string): Promise<Paint
       log.warn("trusted input: screencast did not stop", { error: String(e) });
     });
   };
-  const second = await paintCheck(t, sessionId);
-  log.info("trusted input: slow frames, screencast held", { raf: first.raf, frameMs: first.frameMs, after: second.frameMs, painted: second.painted });
+  const until = clock.now() + HELD_PAINT_WAIT_MS;
+  let second = await paintCheck(t, sessionId);
+  let checks = 1;
+  while (!fullRate(second) && clock.now() + HELD_PAINT_POLL_MS < until) {
+    await clock.sleep(HELD_PAINT_POLL_MS);
+    second = await paintCheck(t, sessionId);
+    checks++;
+  }
+  log.info("trusted input: slow frames, screencast held", { raf: first.raf, frameMs: first.frameMs, after: second.frameMs, painted: second.painted, checks });
   if (fullRate(second)) return { paint: second, held: { raf: first.raf, frameMs: first.frameMs, visibility: first.visibility, held: "screencast" }, release };
   await release();
   return { paint: second, held: null, release: none };
 }
 
-export type PointerDeps = { rng: Rng; sleep: (ms: number) => Promise<unknown>; now: () => number; moveTimeoutMs: number };
-const DEFAULT_DEPS: PointerDeps = { rng: Math.random, sleep: (ms) => Bun.sleep(ms), now: () => performance.now(), moveTimeoutMs: MOVE_TIMEOUT_MS };
 
 /**
  * How long a lost delivery probe waits for the navigation it may have caused.
@@ -636,7 +654,7 @@ export async function trustedClickOn(t: Transport, tab: Tab, node: InputNode, re
   return withFocusEmulation(t, tab.sessionId, async () => {
     liveOrStale(rec(callResult(await call(t, sid, node.objectId, SCROLL_FN))), ref);
     // The paint check, focus emulation and mouse events are the top-level tab's (input routes into frames).
-    const { paint, held, release } = await holdFrames(t, tab.sessionId);
+    const { paint, held, release } = await holdFrames(t, tab.sessionId, deps);
     try {
       if (!paint.painted) {
         log.info("click --trusted: tab not confirmed painted, DOM click instead", { tab: tab.id, ref, raf: paint.raf, visibility: paint.visibility, error: paint.error });

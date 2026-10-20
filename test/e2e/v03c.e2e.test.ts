@@ -6,12 +6,13 @@
 // spec's field list and file modes; never tabcap's own output.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, startGuardSite, type GuardSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 // POSIX file modes do not exist on Windows (files get the profile's default ACL, docs/08): mode checks skip there.
 const POSIX_MODES = process.platform !== "win32";
@@ -81,7 +82,7 @@ describe.skipIf(!enabled)("tabcap 0.3-C L2 (state snapshots, saved sessions, §1
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   let bundle = "";

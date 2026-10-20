@@ -7,12 +7,13 @@
 // beyond the structure fields the acceptance names.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { clickRhythm, clickSegment, collapseMoves, diffEvents, formatDiff, RHYTHM_FIELDS, typingSegment, type Ev } from "./eventshape.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, startGuardSite, startProbeSite, type GuardSite, type ProbeSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -105,7 +106,7 @@ describe.skipIf(!enabled)("tabcap 0.3-E L2 (input fidelity on s46, unreadByPage)
     await tabcap("daemon", "stop").catch(() => null);
     probe.stop();
     guard.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("A7.4: the default click stays the DOM click — one untrusted click like the Playwright el.click() export, marked eventShape incomplete", async () => {

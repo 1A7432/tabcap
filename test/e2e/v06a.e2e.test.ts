@@ -6,12 +6,12 @@
 //   - CORS: origin B allows origin A on /api/cors and not on /api/nocors.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { FETCH_BIG, FETCH_BIZ_ERROR, FETCH_CORS_BODY, FETCH_ITEM, FETCH_OK, LOGIN_PASSWORD, LOGIN_USER, startFetchSite, type FetchSite } from "./site.ts";
-import { daemonRequest } from "./_daemon.ts";
+import { daemonRequest, removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -95,7 +95,7 @@ describe.skipIf(!enabled)("tabcap 0.6-A L2 (fetch through the logged-in tab: att
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("5 concurrent fetches (a 3-line --batch and 2 endpoint calls): own fetchIds, the range's bodies, no marker on the wire, ≥ 3 s apart", async () => {

@@ -13,7 +13,7 @@
 //     devicePixelRatio.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
@@ -36,6 +36,7 @@ import {
   type FrameSite,
   type PoolSite,
 } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -112,7 +113,7 @@ describe.skipIf(!enabled)("tabcap 0.6-D L2 (docs/05 s22, s47–s52: DOM-backed r
     site.stop();
     frames.stop();
     pool.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("D1 s47: --css matches without an accessibility node get DOM-backed refs; fill, type, click, html, screenshot --ref, hover, upload drive them; a reload expires them", async () => {

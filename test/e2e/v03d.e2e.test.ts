@@ -7,11 +7,12 @@
 // anything itself.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { OVERLAY_EXPECTED, OVERLAY_PAGES, startOverlaySite, type OverlayPage, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -73,7 +74,7 @@ describe.skipIf(!enabled)("tabcap 0.3-D L2 (overlay adapter)", () => {
   afterAll(async () => {
     await tabcap("daemon", "stop").catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   for (const page of OVERLAY_PAGES) {

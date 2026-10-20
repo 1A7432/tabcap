@@ -9,11 +9,12 @@
 //     range's own log (`api`).
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { S64_END_CODE, startHandoffSite, type HandoffSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -82,7 +83,7 @@ describe.skipIf(!enabled)("tabcap 0.7.5-A L2 (end rules)", () => {
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    if (process.env["V075A_KEEP"] === undefined) rmSync(home, { recursive: true, force: true });
+    if (process.env["V075A_KEEP"] === undefined) removeHome(home, import.meta.file);
     else console.log(`[v075a] kept ${home}`);
   });
 

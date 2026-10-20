@@ -7,12 +7,13 @@
 // expected path below is a literal read off the page source in site.ts.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { S41_TOKEN, S41_VIEWSTATE, startEmbeddedSite, type EmbeddedSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -77,7 +78,7 @@ describe.skipIf(!enabled)("tabcap 0.4-H L2 (embedded state on docs/05 s41)", () 
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("walk: where on the amount cell lists the script / assign paths before the cell; submit posts the viewstate and its token", async () => {

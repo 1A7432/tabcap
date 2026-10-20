@@ -4,11 +4,12 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { SLOW_API_BODY, SLOW_API_MS, WS_BINARY, WS_MARKER, startLabSite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -64,7 +65,7 @@ describe.skipIf(!enabled)("tabcap 0.2-A L2", () => {
   afterAll(async () => {
     await tabcap("daemon", "stop").catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("websocket: handshake request + one ws event per frame, payload hashes match", async () => {

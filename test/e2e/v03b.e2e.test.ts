@@ -6,7 +6,7 @@
 // before-leave race; startSearchSite: s06 search with a page-computed sig).
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
@@ -16,6 +16,7 @@ import { requestBodyBytes } from "../../src/replay/common.ts";
 import { TODO_MARK } from "../../src/replay/python.ts";
 import { pyCompile } from "../unit/_python.ts";
 import { SEARCH_BUILD, startSearchSite, startSite, type Site } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -95,7 +96,7 @@ describe.skipIf(!enabled)("tabcap 0.3-B L2 (replay serve / check / export-python
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
     search.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("record s01 (list), s02 (before-leave race) and s06 (search ×2) into one bundle", async () => {

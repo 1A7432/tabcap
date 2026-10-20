@@ -2,6 +2,12 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### Fixes
+
+- `click --trusted` / `hover` on Linux: when a background tab's frames are slow, the paint check now keeps trying for up to 3 s (every 250 ms) once the small screencast is on, instead of checking once. A single check right after the screencast started could see no frame within 1 s and fall back to the DOM click.
+
 ## 0.7.6 (2026-10-20)
 
 ### `navigator.webdriver` is hidden by default

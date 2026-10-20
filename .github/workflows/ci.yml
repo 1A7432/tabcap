@@ -7,9 +7,11 @@
 # Python (the generated replay client) only through uv: a warm-up step fills the
 # uv cache with network, the tests then run uv offline.
 # Flake hunting (workflow_dispatch with e2e_only): only the e2e job runs, on the
-# chosen OS, the one test file e2e_repeat times with TABCAP_LOG=debug; the test
-# files that honour TABCAP_E2E_KEEP leave their daemon logs and bundles in
-# ci-logs/keep/, uploaded with the other logs whether the runs pass or fail.
+# chosen OS, the one test file e2e_repeat times with TABCAP_LOG=debug, its logs
+# uploaded whether the runs pass or fail. Every e2e run sets TABCAP_E2E_KEEP:
+# each test file's temp home leaves its daemon.log / browser.log (v04a also its
+# bundles) in ci-logs/keep/<file>/ (test/e2e/_daemon.ts removeHome); ordinary
+# shards run at TABCAP_LOG=info and upload them when the shard fails.
 name: ci
 
 on:
@@ -220,6 +222,7 @@ jobs:
         run: |
           display() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 2560x1440x24" "$@"; else "$@"; fi; }
           if [ -z "$E2E_ONLY" ]; then
+            export TABCAP_LOG=info TABCAP_E2E_KEEP="$GITHUB_WORKSPACE/ci-logs/keep"
             files=$(bun scripts/e2e-shard.ts ${{ matrix.shard }}/3)
             echo "shard ${{ matrix.shard }}/3:" $files
             display bun test $files --timeout 120000 2>&1 | tee e2e.log

@@ -13,13 +13,14 @@
 // hits) is logged, not asserted.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { builtinSignalList } from "../../src/daemon/trace/signals.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { TRACE_CANVAS_JS, TRACE_FRAME_HTML, TRACE_LOOP_READS, TRACE_OOPIF_HTML, TRACE_PROBE_JS, TRACE_WORKER_JS, startTraceSite, type TraceSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -93,7 +94,7 @@ describe.skipIf(!enabled)("tabcap 0.4-F L2 (trace mode: signal reads via debugge
   afterAll(async () => {
     await tabcap(["daemon", "stop"]).catch(() => null);
     site.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   /** The page's own snapshot at load (window.__snapLoad) and one taken later through evaluate, trace off. */

@@ -13,7 +13,7 @@ import { RefTable } from "../../src/daemon/browser/refs.ts";
 import { Tabs, type Tab } from "../../src/daemon/browser/targets.ts";
 import { Recorder } from "../../src/daemon/capture/recorder.ts";
 import { distanceFromLine, JITTER_PX, keyEventParams, minJerk, PATH_MS, planClick, planTyping, PRESS_GAP_MS, type Rng } from "../../src/daemon/tools/inputplan.ts";
-import { paintCheck, pointerClick, trustedClickOn, typeKeys, type PointerDeps } from "../../src/daemon/tools/input.ts";
+import { HELD_PAINT_POLL_MS, HELD_PAINT_WAIT_MS, paintCheck, pointerClick, trustedClickOn, typeKeys, type PointerDeps } from "../../src/daemon/tools/input.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { CdpTimeoutError } from "../../src/daemon/transport/direct/cdp.ts";
@@ -292,6 +292,29 @@ describe("click --trusted on a fake Chrome", () => {
     expect(order.indexOf("Page.stopScreencast")).toBeLessThan(order.indexOf("Input.dispatchMouseEvent"));
     expect(order.filter((m) => m.includes("Screencast"))).toEqual(["Page.startScreencast", "Page.stopScreencast"]);
     expect(calls.at(-1)?.params).toEqual({ enabled: false });
+  });
+
+  test("CI 10-20: the screencast's first full-rate frames come a few checks late — still a held, trusted click", async () => {
+    const { t, calls } = fakeChrome({ frames: [null, null, null, 17] });
+    const deps = instantDeps(7);
+    const r = await trustedClickOn(t, fakeTab(), NODE, "e3", deps);
+    if (r.kind !== "clicked") throw new Error("expected a click");
+    expect(r.held).toEqual({ raf: true, frameMs: null, visibility: "visible", held: "screencast" });
+    expect(calls.filter((c) => c.method === "Runtime.evaluate").length).toBe(4);
+    expect(deps.slept.slice(0, 2)).toEqual([HELD_PAINT_POLL_MS, HELD_PAINT_POLL_MS]);
+  });
+
+  test("CI 10-20: rAF never runs, even with the screencast → checks for at most HELD_PAINT_WAIT_MS, screencast stopped, DOM click", async () => {
+    const { t, calls, mouse } = fakeChrome({ raf: false, visibility: "visible" });
+    const deps = instantDeps(8);
+    const r = await trustedClickOn(t, fakeTab(), NODE, "e3", deps);
+    expect(r.kind).toBe("degraded");
+    expect(mouse()).toEqual([]);
+    const waited = deps.slept.filter((ms) => ms === HELD_PAINT_POLL_MS);
+    expect(waited.length).toBe(Math.ceil(HELD_PAINT_WAIT_MS / HELD_PAINT_POLL_MS) - 1);
+    expect(waited.length * HELD_PAINT_POLL_MS).toBeLessThan(HELD_PAINT_WAIT_MS);
+    expect(calls.filter((c) => c.method === "Runtime.evaluate").length).toBe(waited.length + 2);
+    expect(calls.map((c) => c.method).filter((m) => m.includes("Screencast"))).toEqual(["Page.startScreencast", "Page.stopScreencast"]);
   });
 
   test("a hidden tab gets no screencast: degraded as before", async () => {

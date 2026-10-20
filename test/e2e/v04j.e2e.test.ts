@@ -15,12 +15,13 @@
 //       trips (verify-page) and hands the session to the human.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, LIMIT_OK, startGuardSite, startSearchSite, type GuardSite, type SearchSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -100,7 +101,7 @@ describe.skipIf(!enabled)("tabcap 0.4-J L2 (recon dossier on s07 + s06, s15)", (
     await tabcap(["daemon", "stop"]).catch(() => null);
     guard.stop();
     search.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("s07 login → data, then s06 search: channels, coverage, sid and the csrf header, no protection; receipt in the cmd end event", async () => {

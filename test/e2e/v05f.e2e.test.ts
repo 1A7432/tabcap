@@ -8,11 +8,12 @@
 //   - refs: a filtered snapshot must give an element the ref the full snapshot gave it.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { S22_TABLE_CELLS, S40_ROWS, S40_TABLES, SEARCH_MIN_API, SEARCH_MIN_HTML, SEARCH_MIN_JS, SEARCH_MIN_TOKEN, startFrameSite, startLocaleSite, startTraceSite, type FrameSite, type Site, type TraceSite } from "./site.ts";
+import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
@@ -90,7 +91,7 @@ describe.skipIf(!enabled)("tabcap 0.5-F L2 (in-command search: snapshot filters,
     frames.stop();
     locale.stop();
     trace.stop();
-    rmSync(home, { recursive: true, force: true });
+    removeHome(home, import.meta.file);
   });
 
   test("s22: snapshot --grep across --frames keeps the full snapshot's frame refs and the ancestor chain; --css in one frame; --ref --depth", async () => {
