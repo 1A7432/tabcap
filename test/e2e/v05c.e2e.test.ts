@@ -151,7 +151,9 @@ describe.skipIf(!enabled)("tabcap 0.5-C L2 (context budget on the range)", () =>
     expect(list.data["pageSize"]).toBe(30);
     expect(list.data["nextPageIdx"]).toBe(1);
     const all = await ok("net", "list", "--page-size", "0", ...S);
-    expect(recs(all.data["requests"]).length).toBe(Number(list.data["matched"]));
+    // compared within one answer: late-written requests can land between the two lists (CI run 39363020490: 45, then 47)
+    expect(recs(all.data["requests"]).length).toBe(Number(all.data["matched"]));
+    expect(Number(all.data["matched"])).toBeGreaterThanOrEqual(Number(list.data["matched"]));
 
     const snap = await ok("snapshot", ...S);
     expect(bytes(snap.raw)).toBeLessThanOrEqual(LIMIT);
