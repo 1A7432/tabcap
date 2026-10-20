@@ -66,6 +66,6 @@ test.skipIf(skipWithout(packageReason(), "python fetch client"))("ListEnd ends a
   ].join("\n");
   const r = await runInPackageAsync(pkg, ["python", "-c", script], { TABCAP_HOME: home });
   expect(r.err).toBe("");
-  expect(r.out.trim().split("\n")).toEqual(["end 3 json:$.code=203 $.code is 203 200 {\"code\":203} False", "[(1, 200, '{\"code\":0}'), (2, 200, '{\"code\":0}')]"]);
+  expect(r.out.trim().split(/\r?\n/)).toEqual(["end 3 json:$.code=203 $.code is 203 200 {\"code\":203} False", "[(1, 200, '{\"code\":0}'), (2, 200, '{\"code\":0}')]"]);
   expect(seen.map((b) => (isRecord(b) ? b["endOn"] : null))).toEqual([["json:$.code=203"], ["json:$.code=203"], ["json:$.code=203"]]);
 });
