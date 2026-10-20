@@ -8,7 +8,7 @@ tabcap gives an agent its own Chrome, in background tabs that never take your sc
 
 It is built for one job: working out how a site's traffic works so that your scraper can reproduce it. It is not an unattended scraping platform.
 
-Status: 0.7.4, alpha. Used daily on macOS arm64; Linux x64 and Windows x64 run in CI with known gaps; Linux arm64 is built but untested. Apache-2.0.
+Status: 0.7.5, alpha. Used daily on macOS arm64; Linux x64 and Windows x64 run in CI with known gaps; Linux arm64 is built but untested. Apache-2.0.
 
 ## Why
 

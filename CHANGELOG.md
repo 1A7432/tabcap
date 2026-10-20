@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.7.5 (2026-10-20)
 
 ### End rules: "no more pages" is not a stop
 

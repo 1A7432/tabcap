@@ -8,7 +8,7 @@ tabcap 给 agent 一份自己的 Chrome，在后台标签里干活，不抢你�
 
 它只做一件事：搞清楚一个站点的流量是怎么回事，好让你的爬虫复现。它不是无人值守的采集平台。
 
-状态：0.7.4，alpha。macOS arm64 日常在用；Linux x64 与 Windows x64 在 CI 上跑，有已知缺口；Linux arm64 只编译过、没运行过。Apache-2.0。
+状态：0.7.5，alpha。macOS arm64 日常在用；Linux x64 与 Windows x64 在 CI 上跑，有已知缺口；Linux arm64 只编译过、没运行过。Apache-2.0。
 
 ## 为什么做它
 
