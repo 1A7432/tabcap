@@ -1026,3 +1026,40 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **输出里标明**：`browser start` / `browser status` 的回答带 `webdriver:"hidden"|"visible"`；`tabcap status` 的 `browser` 带 `webdriver`（浏览器没在跑为 `null`），`status --text` 的守护进程行在标签数后写 `webdriver <值>`；证据包 `manifest.producer.browser.webdriver`（§7），旧包没有这个字段。
 - **不管的**：`ext` 模式接管作者自己的 Chrome，不是 tabcap 启动的，本节不改它，值未量【待验】。只隐藏这一个信号：CDP 连接本身的痕迹、Chrome for Testing 自身的特征、其他指纹都不处理。线指纹画像（`11`）的缓存按启动参数哈希失效，换参数后第一次 `wire probe` 重新采集。
 - **验证**：单测（`buildArgs` 默认带、`visible` 不带；`--webdriver` / `config.json` 的解析与报错；manifest 读写；`status --text`）；e2e `test/e2e/v076a.e2e.test.ts`（靶场 s66，`05` §15）。
+
+## 41. 0.8-A 防护家族识别（10-20 作者定需求；本节为设计草案，待作者审）
+
+来源：作者 10-20「不做针对和绕过，但是家族化模式识别流水线可以搞……至少要让用户或者说 agent 知道碰到的是啥」；同日定：规则自己从公开来源写、本地对照 scrapfly/Antibot-Detector（NPOSL-3.0，代码与规则数据不进仓库，只学思路和方式）、**三层都做**、家族面向 Antibot-Detector 看齐。家族清单与来源见 `docs/14`。recon v0（§22）的 `PROTECTION_SIGNALS` 里四条厂商头名并入本节的规则表，限流 / HTML 403 等通用信号照旧。
+
+- **只识别**：回答「这里碰到的是哪家、凭什么这么说」。不给绕过提示，不分析对方脚本的算法，不估「难度」（Antibot-Detector 的 difficulty 是给绕过用的，不学），不提供针对某家的工具（它的 Advanced 一栏不学）。认出来以后照旧：挑战交给 guard / 人。
+
+### 41.1 规则文件 `tabcap-protection/0`
+
+- 一家一个 JSON。内置的在 `src/analyze/protection/families/<id>.json`（打包进二进制）；用户的在 `config/protection/<id>.json`，同 `id` 覆盖内置、新 `id` 追加。用户文件按不可信输入校验（未知键拒绝、大小 ≤ 32 KB、正则编译失败报错并点名文件与字段），坏文件跳过并在回答的 `warnings` 里列出，不影响其他家族。
+- 顶层：`{schema:"tabcap-protection/0", id:<kebab>, name, vendor, category:"anti-bot"|"captcha"|"fingerprint", version:<正整数>, sources:[{url, note?}](内置必填), rules:[…], combinations?:[…]}`。
+- 规则：`{id, layer:1|2|3, kind, confidence:1–100, standalone?:true, note, seen?:[{date, where}]}` 加按 `kind` 的匹配字段：
+  - L1（录到的流量，或实时的 cookie 名 / 资源 URL）：`cookie {name, nameRegex?, valueShape?}`（`valueShape` 是对值的正则，只用于判断形状，**值从不输出**）；`request {url}`（正则对完整 URL，主机 + 路径；可加 `type`、`method`）；`responseHeader {name, value?}`；`requestHeader {name}`；`challenge {status?:[…], text?}`（只对 document / HTML 正文，`text` 正则，正文截 64 KB 求值）；`requestBody {url?, text}`（POST 正文里的字段名，如 `g-recaptcha-response`）。
+  - L2（页面上，只读）：`global {path, condition:"exists"|"function"|"object"|"string"}`（主世界里沿 `path` 逐段读**自有属性描述符**判断，不调用 getter；遇到访问器只算 `exists`）；`dom {match, has?}`（沿用适配器的 ElementSpec：tag / id / classPrefix / attr，`docs/09` §9）；`frame {url}`（iframe 的 src 正则）。
+  - L3（追踪模式）：`api {target, caller?}`（`target` 是追踪 `signal` 的 API 名，`caller` 是对调用方脚本 URL 的正则，可省）。
+- 组合：`{id, name, confidence, when:{all|any:[{rule:<id>}|{all|any:[…]}]}}`，可嵌套。
+- **置信度原则**（学 Antibot-Detector 的定法，用我们自己的话写进单测）：只有该厂商才会产生的信号才能单条 100（厂商自有的主机、厂商自创的 cookie / 头名；短名字如 `TS`、`v`、`_px` 必须带 `valueShape` 才行）；页面标记、全局变量、源码文字和与别家共用的信号单条至多 90（anti-bot）/ 60（captcha）；`standalone:false` 只在组合里计分；组合只有每个分支都是厂商专有信号时才能到 100，其余 ≤ 95；来源强度为「弱」的规则至多 60（`docs/14`）。家族得分 = 命中的 standalone 规则与成立的组合里的最大值。单测逐条检查内置规则是否守这些上限。
+
+### 41.2 识别与输出
+
+- 纯函数 `identify(evidence, families) → Detection[]`。证据：`{cookies:[{name, value?}], requests:[{id, url, method, type, status, requestHeaders, responseHeaders, body?, postData?}], globals:{<path>:"function"|"object"|"string"|"accessor"|…}, dom:<适配器 digest>, frames:[url], api:[{target, caller}]}`，各项可缺（缺的那层不评）。
+- `Detection`：`{family, name, vendor, category, confidence, layers:[1|2|3], matched:[{rule, layer, kind, where}], grade:"推断"}`；`where` 只有指向：请求号 `r-N`、cookie **名**、头**名**、全局路径、选择器、API 名与调用方 URL——cookie 值、头值、正文从不出现在输出里。按置信度降序，置信度 < 30 的不报。
+- L3 的指纹技术（`category:"fingerprint"`）另报：`{technique, apis:[…], callers:[{url, count}], attributedTo?:<家族 id>}`；调用方脚本命中某家族的 L1 `request` 规则时归因。
+
+### 41.3 数据从哪来、在哪里报
+
+- **离线（证据包）**：`tabcap recon` / `tabcap analyze recon <包>`。L1 来自包里的请求、响应头、`state` 事件的 cookie 名、document 正文；L2 只能从录到的主文档 HTML 里认 `dom` / `frame`（`global` 离线不评）；L3 来自开过追踪的包里的 `signal` 事件。`dossier.json` 的 `protection` 加 `{source:"family", …Detection}` 条目，`fingerprinting:[…]` 另列；`dossier.md` 的 Protection 一节先列家族，再列原有的 guard 与通用信号。
+- **实时（不录制也有）**：每次 `navigate`（及 `go` / `reload` 后的导航）结束、页面 ready 之后，对该标签做一次轻量探测：`Network.getCookies`（标签 URL，只取名字）、隔离世界里读 `performance.getEntriesByType("resource")` 与 `document.scripts` 的 URL、主世界自有属性描述符读 L2 全局、复用适配器的 DOM digest 与 iframe src。不开 `Network.enable`，不注入页面脚本，每次导航只跑一次。录制中的会话再加上录制里该标签的响应头与状态（完整 L1）。
+- **报给 agent**：`navigate` / `snapshot` 的回答在识别到置信度 ≥ 50 的家族时加一行 `protection:[{name, category, confidence}]`（只名字与分数，细节去 `recon`）；`status` 的每个会话带 `protection:[name…]`，`status --text` 的会话行末加 `· protection <名…>`；guard 停手或交接（`waiting`）时，回答与 `handoff` / `guard` 事件带该标签当时识别到的家族名，`next` 里说「这是 <家族>，交给人」。证据包写一条 `protection {tab, nav, detections:[{family, confidence, matched}]}` 事件（每次导航有变化时一条，§4.2 新 kind）。
+- **追踪模式**：只有 `trace start` 开着才有 L3；`trace stop` 时把本次窗口的指纹技术汇总写进 `protection` 事件。
+
+### 41.4 本地对照与验证
+
+- `scripts/protection-compare.ts <包> --abd <目录>`：读作者本机 Antibot-Detector 检出里的规则、跑同一个包，只输出家族名与「一致 / 只有 tabcap / 只有 Antibot-Detector」。不进 CI，不在仓库或输出里留对方规则内容。不一致时回到公开来源补规则（`docs/14` 的来源规则），不照抄。
+- 单测：规则文件的校验与报错、置信度上限、每条内置规则都有 `sources`、`identify` 的各层与组合、值从不出现在输出里（含 `valueShape` 命中的 cookie）、用户文件覆盖、坏文件只跳过自己。
+- e2e：靶场 s67–s70（`05` §16），厂商主机经 `fwdproxy` 映射到本机，页面里只有我们自己写的桩脚本与名字，不放任何厂商代码。
+- 【待验】真实站点上的命中率与误报：靶场只能证明匹配逻辑；`docs/14` 每条要在作者真实项目的包里见到才改【实测】。
