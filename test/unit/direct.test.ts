@@ -3,11 +3,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pickDownload } from "../../src/daemon/transport/direct/cft.ts";
-import { binaryIn, buildArgs, cachedChrome, parseProxy, resolveExecutable } from "../../src/daemon/transport/direct/launcher.ts";
+import { HIDE_WEBDRIVER_FLAG, binaryIn, buildArgs, cachedChrome, parseProxy, parseWebdriver, resolveExecutable } from "../../src/daemon/transport/direct/launcher.ts";
 import { ReadyTracker, originOf, toReadyInput } from "../../src/daemon/transport/direct/ready.ts";
+import { readConfig } from "../../src/shared/config.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 
-const base = { profileDir: "/p", platform: "darwin" as const, cdp: "pipe" as const, proxy: parseProxy("system"), extensionDir: null, noStartupWindow: true };
+const base = { profileDir: "/p", platform: "darwin" as const, cdp: "pipe" as const, proxy: parseProxy("system"), webdriver: "hidden" as const, extensionDir: null, noStartupWindow: true };
 
 describe("launcher flags (docs/07 §1.2 采用 rows)", () => {
   test("pipe, keychain, quiet / no-throttle / recording groups", () => {
@@ -61,6 +62,29 @@ describe("launcher flags (docs/07 §1.2 采用 rows)", () => {
     expect(buildArgs({ ...base, proxy: parseProxy("system") }).some((x) => x.startsWith("--proxy-"))).toBe(false);
     expect(parseProxy(undefined)).toEqual({ kind: "system" });
     expect(() => parseProxy("not a proxy")).toThrow(TabcapError);
+  });
+
+  test("webdriver: hidden by default on both CDP channels, visible passes no switch (docs/04 §40)", () => {
+    expect(HIDE_WEBDRIVER_FLAG).toBe("--disable-blink-features=AutomationControlled");
+    expect(buildArgs(base)).toContain(HIDE_WEBDRIVER_FLAG);
+    expect(buildArgs({ ...base, cdp: "port" })).toContain(HIDE_WEBDRIVER_FLAG);
+    const v = buildArgs({ ...base, webdriver: "visible" });
+    expect(v.some((x) => x.startsWith("--disable-blink-features"))).toBe(false);
+    expect(parseWebdriver(undefined)).toBe("hidden");
+    expect(parseWebdriver(null)).toBe("hidden");
+    expect(parseWebdriver("")).toBe("hidden");
+    expect(parseWebdriver("hidden")).toBe("hidden");
+    expect(parseWebdriver("visible")).toBe("visible");
+    expect(() => parseWebdriver("sometimes")).toThrow(TabcapError);
+    expect(() => parseWebdriver("Hidden")).toThrow(TabcapError);
+    const dir = mkdtempSync(join(tmpdir(), "tabcap-cfg-"));
+    const file = join(dir, "config.json");
+    writeFileSync(file, JSON.stringify({ webdriver: "visible" }));
+    expect(readConfig(file).webdriver).toBe("visible");
+    writeFileSync(file, JSON.stringify({ webdriver: 3 }));
+    expect(readConfig(file).webdriver).toBeNull();
+    writeFileSync(file, "{}");
+    expect(parseWebdriver(readConfig(file).webdriver)).toBe("hidden");
   });
 
   test("executable resolution: flag > env > config > cache; missing paths are errors", () => {

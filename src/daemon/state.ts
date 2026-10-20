@@ -30,6 +30,8 @@ export type BrowserInfo = {
   executableSource: string;
   profile: string;
   proxy: string;
+  /** 0.7.6-A: whether navigator.webdriver is hidden (docs/04 §40). */
+  webdriver: "hidden" | "visible";
   foreground: boolean;
   front: unknown;
   startedAt: number;

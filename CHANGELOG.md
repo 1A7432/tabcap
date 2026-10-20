@@ -2,6 +2,12 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### `navigator.webdriver` is hidden by default
+
+- The Chrome for Testing that tabcap launches now gets `--disable-blink-features=AutomationControlled`, so `navigator.webdriver` reads `false` in pages and iframes (it read `true` over the CDP pipe). It is a launch switch, not a page script: the getter stays native. `tabcap browser start --webdriver visible`, or `config.json` `"webdriver": "visible"`, leaves it out; any other value is a usage error. The mode shows in `browser start` / `browser status`, in `tabcap status` (`browser.webdriver`; the `--text` head line ends in `webdriver <mode>`) and in the bundle manifest (`producer.browser.webdriver`). Only this one signal changes; `ext` mode (your own Chrome) is not touched. The owner decided this on 10-20.
+
 ## 0.7.5 (2026-10-20)
 
 ### End rules: "no more pages" is not a stop

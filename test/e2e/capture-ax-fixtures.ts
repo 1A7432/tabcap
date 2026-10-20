@@ -15,7 +15,7 @@ const exe = process.env["TABCAP_CHROME"];
 if (exe === undefined) throw new Error("set TABCAP_CHROME");
 const site = startSite();
 const home = mkdtempSync(join(tmpdir(), "tabcap-ax-"));
-const t = await DirectTransport.start({ executable: exe, profileDir: join(home, "profile"), logFile: join(home, "chrome.log"), proxy: { kind: "none" }, extensionDir: null, noStartupWindow: true, restoreFront: true });
+const t = await DirectTransport.start({ executable: exe, profileDir: join(home, "profile"), logFile: join(home, "chrome.log"), proxy: { kind: "none" }, webdriver: "hidden", extensionDir: null, noStartupWindow: true, restoreFront: true });
 try {
   const r = await t.send("Target.createTarget", { url: "about:blank", background: true });
   const targetId = String(r["targetId"]);

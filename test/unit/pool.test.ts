@@ -370,7 +370,7 @@ describe("secret substitution of proxy credentials", () => {
     const tabs = new Tabs(f.t, false);
     await tabs.createTab("s1");
     const dir = join(tmp("tabcap-pool-rec-"), "b");
-    const rec = await Recorder.start({ session: "s1", dir, t: f.t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, scrubOut: (line) => d.proxySecrets.scrub(line) });
+    const rec = await Recorder.start({ session: "s1", dir, t: f.t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" }, scrubOut: (line) => d.proxySecrets.scrub(line) });
     const url = "http://127.0.0.1:4310/api/x";
     f.emit("Network.requestWillBeSent", { requestId: "R1", loaderId: "L1", documentURL: url, request: { url, method: "GET", headers: {} }, timestamp: 1, wallTime: 1760000000, type: "XHR", initiator: { type: "other" } });
     f.emit("Network.requestWillBeSentExtraInfo", { requestId: "R1", associatedCookies: [], headers: { Host: "127.0.0.1:4310", "Proxy-Authorization": `Basic ${B64}`, "Proxy-Connection": "keep-alive" }, connectTiming: { requestTime: 1 } });

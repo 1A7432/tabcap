@@ -74,7 +74,7 @@ describe("actor default (docs/04 §16)", () => {
     const tabs = new Tabs(t, false);
     await tabs.createTab("s");
     const dir = join(tmp("tabcap-actor-"), "b");
-    const rec = await Recorder.start({ session: "s", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
+    const rec = await Recorder.start({ session: "s", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" } });
     const c = rec.cmdStart({ tab: "t1", argv: ["navigate"], input: {} });
     rec.cmdEnd(c ?? "", { tab: "t1", ok: true, error: null, durationMs: 1, outputSummary: null });
     // after the navigate returned: the page's own XHR

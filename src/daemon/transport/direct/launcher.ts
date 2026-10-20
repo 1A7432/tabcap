@@ -74,6 +74,18 @@ export const RECORDING_DISABLED_FEATURES = [
   "DestroyProfileOnBrowserClose",
 ];
 
+/** 0.7.6-A: navigator.webdriver reads false; a Blink switch, no page script (docs/04 §40). */
+export const HIDE_WEBDRIVER_FLAG = "--disable-blink-features=AutomationControlled";
+
+export type WebdriverMode = "hidden" | "visible";
+
+/** `hidden` (default) or `visible`; anything else is a usage error. */
+export function parseWebdriver(value: string | undefined | null): WebdriverMode {
+  if (value === undefined || value === null || value === "" || value === "hidden") return "hidden";
+  if (value === "visible") return "visible";
+  throw new TabcapError("usage", `bad --webdriver value: ${value}`, "Use --webdriver hidden (default) or --webdriver visible.");
+}
+
 export type ProxyMode = { kind: "system" } | { kind: "none" } | { kind: "url"; url: string };
 
 /** `system` (default: pass nothing), `none` (black-hole proxy), or a proxy URL. */
@@ -95,6 +107,7 @@ export type ArgsOptions = {
   platform: NodeJS.Platform;
   cdp: "pipe" | "port";
   proxy: ProxyMode;
+  webdriver: WebdriverMode;
   extensionDir: string | null;
   noStartupWindow: boolean;
 };
@@ -103,6 +116,7 @@ export type ArgsOptions = {
 export function buildArgs(o: ArgsOptions): string[] {
   const args = [`--user-data-dir=${o.profileDir}`];
   args.push(o.cdp === "pipe" ? "--remote-debugging-pipe" : "--remote-debugging-port=0");
+  if (o.webdriver === "hidden") args.push(HIDE_WEBDRIVER_FLAG);
   args.push(...NETWORK_QUIET_FLAGS, ...NO_THROTTLE_FLAGS, ...QUIET_UI_FLAGS, ...RECORDING_FLAGS);
   args.push(`--disable-features=${[...NETWORK_QUIET_DISABLED_FEATURES, ...RECORDING_DISABLED_FEATURES].join(",")}`);
   if (o.platform === "darwin") args.push("--use-mock-keychain");

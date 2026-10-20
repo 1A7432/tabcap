@@ -194,6 +194,17 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         },
         {
           "alias": null,
+          "default": null,
+          "flag": "--webdriver",
+          "help": "hidden (default: navigator.webdriver reads false, a launch switch, no page script) | visible (Chrome's own value); default from config.json webdriver",
+          "key": "webdriver",
+          "repeatable": false,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
           "default": false,
           "flag": "--foreground",
           "help": "open new tabs as the active tab of the window (still never steals the macOS foreground)",
@@ -223,7 +234,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
       ],
       "positionals": [],
       "summary": "launch the dedicated Chrome for Testing (own profile, CDP over a pipe)",
-      "usage": "tabcap browser start [--proxy mode] [--foreground] [--executable-path path]",
+      "usage": "tabcap browser start [--proxy mode] [--webdriver mode] [--foreground] [--executable-path path]",
     },
     {
       "daemon": true,

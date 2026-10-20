@@ -306,7 +306,7 @@ describe("recorder: decoded views beside the original bodies", () => {
     const tabs = new Tabs(t, false);
     await tabs.createTab("dec");
     const dir = join(tmp("tabcap-decb-"), "b");
-    const rec = await Recorder.start({ session: "dec", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, decode: session });
+    const rec = await Recorder.start({ session: "dec", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" }, decode: session });
     emit("Network.requestWillBeSent", {
       requestId: "R1",
       loaderId: "L1",
@@ -360,7 +360,7 @@ describe("recorder: decoded views beside the original bodies", () => {
     const tabs = new Tabs(t, false);
     await tabs.createTab("dec");
     const dir = join(tmp("tabcap-decn-"), "b");
-    const rec = await Recorder.start({ session: "dec", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, decode: session });
+    const rec = await Recorder.start({ session: "dec", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" }, decode: session });
     for (const [id, ts] of [["R1", 10], ["R2", 11]] as const) {
       emit("Network.requestWillBeSent", { requestId: id, loaderId: "L1", type: "Fetch", timestamp: ts, wallTime: 1760600000 + ts, request: { url: `${ORIGIN}/api/${id}`, method: "GET", headers: {} } });
       emit("Network.responseReceived", { requestId: id, type: "Fetch", timestamp: ts + 0.1, response: { status: 200, headers: { "content-type": "text/plain" }, mimeType: "text/plain" } });
@@ -388,7 +388,7 @@ describe("recorder: decoded views beside the original bodies", () => {
     const tabs = new Tabs(t, false);
     await tabs.createTab("dis");
     const dir = join(tmp("tabcap-decn-"), "b");
-    rec = await Recorder.start({ session: "dis", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, decode: session });
+    rec = await Recorder.start({ session: "dis", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" }, decode: session });
     for (let i = 0; i < MAX_FAILURES + 1; i++) {
       emit("Network.requestWillBeSent", { requestId: `R${i}`, loaderId: "L1", type: "Fetch", timestamp: 10 + i, wallTime: 1760600000 + i, request: { url: `${ORIGIN}/api/${i}`, method: "GET", headers: {} } });
       emit("Network.responseReceived", { requestId: `R${i}`, type: "Fetch", timestamp: 10.1 + i, response: { status: 200, headers: { "content-type": "text/plain" }, mimeType: "text/plain" } });
@@ -576,7 +576,7 @@ describe("0.6-V: preflights and empty bodies are not offered; a decline supersed
     const tabs = new Tabs(t, false);
     await tabs.createTab("skip");
     const dir = join(tmp("tabcap-decskip-"), "b");
-    const rec = await Recorder.start({ session: "skip", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA" }, decode: dec });
+    const rec = await Recorder.start({ session: "skip", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" }, decode: dec });
     const reqs: Array<[string, string, string, Record<string, unknown>, Record<string, string>, string | null]> = [
       ["R1", "OPTIONS", "/api/p1", { type: "preflight", url: `${ORIGIN}/page` }, {}, null],
       ["R2", "OPTIONS", "/api/p2", { type: "other" }, { "access-control-request-method": "POST" }, null],

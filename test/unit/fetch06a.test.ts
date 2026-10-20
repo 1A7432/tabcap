@@ -448,7 +448,7 @@ async function fetchHome(origin: string, serve: (url: string) => Served, config:
   const tabs = new Tabs(fb.t, false);
   const tab = await tabs.createTab("s1");
   tab.url = `${origin}/page`;
-  const rec = await Recorder.start({ session: "s1", dir: join(root, "bundle"), t: fb.t, tabs, browser: { version: "Chrome/155", userAgent: "UA" } });
+  const rec = await Recorder.start({ session: "s1", dir: join(root, "bundle"), t: fb.t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" } });
   d.recorders.set("s1", rec);
   return { d, rec, fb, b: { t: fb.t, tabs, console: null } };
 }

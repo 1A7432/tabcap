@@ -390,7 +390,8 @@ export type Producer = {
   version: string;
   daemon?: string | null;
   extension?: string | null;
-  browser?: { name: string; version: string; userAgent?: string | null } | null;
+  /** `webdriver`: 0.7.6-A, absent in older bundles (docs/04 §40). */
+  browser?: { name: string; version: string; userAgent?: string | null; webdriver?: "hidden" | "visible" } | null;
   platform?: string | null;
 };
 

@@ -17,7 +17,8 @@ export const STATUS_SCHEMA = "tabcap-status/0";
 
 export type StatusDaemon = { running: true; pid: number; version: string; listener: string; socket: string | null; port?: number; startedAt: number } | { running: false; listener: string };
 
-export type StatusBrowser = { running: boolean; pid: number | null; mode: "direct" | "ext" | null; tabs: number };
+/** `webdriver`: 0.7.6-A, null while no browser runs (docs/04 §40). */
+export type StatusBrowser = { running: boolean; pid: number | null; mode: "direct" | "ext" | null; tabs: number; webdriver: "hidden" | "visible" | null };
 
 export type StatusRecording = { bundle: string; since: number; entries: number; decodePlugins: string[] };
 
@@ -246,7 +247,7 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
   const facts: StatusFacts = {
     schema: STATUS_SCHEMA,
     daemon,
-    browser: b === null ? { running: false, pid: null, mode: null, tabs: 0 } : { running: true, pid: b.info.pid, mode: b.t.kind, tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length },
+    browser: b === null ? { running: false, pid: null, mode: null, tabs: 0, webdriver: null } : { running: true, pid: b.info.pid, mode: b.t.kind, tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length, webdriver: b.info.webdriver },
     sessions,
     plugins: enabledPlugins(d.paths.config),
     handoff: d.guard
@@ -268,7 +269,7 @@ export function offlineStatus(configDir: string, listener: string): StatusAnswer
   const facts: StatusFacts = {
     schema: STATUS_SCHEMA,
     daemon: { running: false, listener },
-    browser: { running: false, pid: null, mode: null, tabs: 0 },
+    browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null },
     sessions: [],
     plugins: enabledPlugins(configDir),
     handoff: [],
@@ -293,7 +294,7 @@ export function renderStatusText(data: unknown): string {
   const plugins = [...strs(pl["decode"]).map((n) => `decode ${n}`), ...strs(pl["challenge"]).map((n) => `challenge ${n}`)];
   const head =
     dmn["running"] === true
-      ? `daemon pid ${txt(dmn["pid"])} (${txt(dmn["listener"])}) · ${br["running"] === true ? `browser pid ${txt(br["pid"])} ${txt(br["mode"])}, ${txt(br["tabs"])} tab(s)` : "browser not running"}`
+      ? `daemon pid ${txt(dmn["pid"])} (${txt(dmn["listener"])}) · ${br["running"] === true ? `browser pid ${txt(br["pid"])} ${txt(br["mode"])}, ${txt(br["tabs"])} tab(s), webdriver ${txt(br["webdriver"])}` : "browser not running"}`
       : "daemon not running (`tabcap daemon start`)";
   const lines = [`tabcap status · ${head} · plugins: ${plugins.length === 0 ? "none" : plugins.join(", ")}`];
   const sessions = recs(s["sessions"]);
