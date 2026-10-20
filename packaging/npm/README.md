@@ -24,11 +24,11 @@
 ```sh
 bun run npm:pack                        # 四个平台包 + tabcap
 bun run npm:pack --targets darwin-arm64 # 只打这些平台包（npm 名或 release 名，逗号分隔）；tabcap 总会打
-bun run npm:pack --version 0.7.6        # 只做断言：package.json 与每个模板都必须是 0.7.6，否则拒绝
+bun run npm:pack --version 0.8.0        # 只做断言：package.json 与每个模板都必须是 0.8.0，否则拒绝
 ```
 
 - 版本只来自 `package.json`；任何模板的 `version` 不同就拒绝（升版本时同时改 `packaging/npm/**/package.json`）。
-- 二进制取 `dist/tabcap-<release 目标>[.exe]`。缺失，或内嵌的 package.json 版本不是本版本（旧二进制），就用 `scripts/release.ts` 的同一套命令重编：先 `bun scripts/native.ts build`（四个 Zig wire 组件，需要 Zig 0.16.0），再 `bun build --compile`。本机平台的二进制还要跑一次 `--version`，必须等于本版本。【实测 2026-10-16】主检出的 `dist/` 里 `tabcap-linux-x64`、`tabcap-windows-x64.exe` 内嵌的是 0.2.0，这个检查就是防它们被打进 0.7.6。
+- 二进制取 `dist/tabcap-<release 目标>[.exe]`。缺失，或内嵌的 package.json 版本不是本版本（旧二进制），就用 `scripts/release.ts` 的同一套命令重编：先 `bun scripts/native.ts build`（四个 Zig wire 组件，需要 Zig 0.16.0），再 `bun build --compile`。本机平台的二进制还要跑一次 `--version`，必须等于本版本。【实测 2026-10-16】主检出的 `dist/` 里 `tabcap-linux-x64`、`tabcap-windows-x64.exe` 内嵌的是 0.2.0，这个检查就是防它们被打进 0.8.0。
 - 产物在 `dist/npm/`：每个包一个目录、一个 `npm pack` 出的 `.tgz`，加 `SHA256SUMS`。打包用 `npm pack --json --offline --ignore-scripts --no-update-notifier`，不连 registry；打完核对 tarball 里的文件与目录完全一致、二进制是可执行权限。
 - 结尾打印发布命令（按顺序）和发布后的核对命令，路径是绝对路径，可以直接复制。
 
@@ -36,7 +36,7 @@ bun run npm:pack --version 0.7.6        # 只做断言：package.json 与每个�
 
 ## 2. 本地验证（发布前，不连 registry）
 
-平台包还没发布，`npm install -g ./dist/npm/tabcap-0.7.6.tgz` 会去 registry 找它们。验证改用一个临时项目，把平台包和主包的 tgz 一起当本地文件装，`--offline` 保证不联网（另外三个平台包是可选依赖，取不到就跳过）：
+平台包还没发布，`npm install -g ./dist/npm/tabcap-0.8.0.tgz` 会去 registry 找它们。验证改用一个临时项目，把平台包和主包的 tgz 一起当本地文件装，`--offline` 保证不联网（另外三个平台包是可选依赖，取不到就跳过）：
 
 ```sh
 bun run npm:pack
@@ -44,7 +44,7 @@ REPO=$PWD
 T=$(mktemp -d) && cd "$T"
 echo '{"name":"proof","version":"0.0.0","private":true}' > package.json
 npm install --no-save --offline --no-audit --no-fund --no-update-notifier --cache "$T/cache" \
-  "$REPO/dist/npm/tabcap-darwin-arm64-0.7.6.tgz" "$REPO/dist/npm/tabcap-0.7.6.tgz"
+  "$REPO/dist/npm/tabcap-darwin-arm64-0.8.0.tgz" "$REPO/dist/npm/tabcap-0.8.0.tgz"
 node_modules/.bin/tabcap --version
 node_modules/.bin/tabcap wire version
 node_modules/.bin/tabcap schema --json | head -c 200
@@ -57,14 +57,14 @@ added 2 packages in 774ms
 $ ls node_modules
 tabcap  tabcap-darwin-arm64
 $ node_modules/.bin/tabcap --version
-{"ok":true,"data":{"tool":"tabcap","version":"0.7.6"}}            # exit 0；直接跑 node_modules/tabcap-darwin-arm64/bin/tabcap --version 输出相同
+{"ok":true,"data":{"tool":"tabcap","version":"0.8.0"}}            # exit 0；直接跑 node_modules/tabcap-darwin-arm64/bin/tabcap --version 输出相同
 $ node_modules/.bin/tabcap wire version
 {"ok":true,"data":{"component":"wireprint 0.1.0","path":"<TABCAP_HOME>/cache/native/wireprint-2b0cb9d4…/wireprint","sha256":"2b0cb9d455628298e04ce8cb984aaa6699121495fccdfc94bab03e4f592a3f24","source":"embedded","target":"aarch64-macos"}}
 $ node_modules/.bin/tabcap schema --json | head -c 200
 {
   "schema": "tabcap-cli-schema/0",
   "tool": "tabcap",
-  "version": "0.7.6",
+  "version": "0.8.0",
   "envelope": {
     "ok": "{ok:true,data}",
     "error": "{ok:false,error:{code,message,next}}"
@@ -92,14 +92,14 @@ $ node_modules/.bin/tabcap no-such-command        # 退出码 2，与直接跑�
 3. **（可选）预演**：`npm publish <tgz> --dry-run --access public --registry https://registry.npmjs.org` 只显示将上传的内容，不上传（是否仍连 registry 核对登录与版本【待验】）。
 4. **按顺序发布**：先四个平台包，最后 `tabcap`。直接粘贴 `bun run npm:pack` 结尾打印的那几行；形如
    ```sh
-   npm publish <repo>/dist/npm/tabcap-darwin-arm64-0.7.6.tgz --access public --registry https://registry.npmjs.org
-   npm publish <repo>/dist/npm/tabcap-linux-x64-0.7.6.tgz    --access public --registry https://registry.npmjs.org
-   npm publish <repo>/dist/npm/tabcap-linux-arm64-0.7.6.tgz  --access public --registry https://registry.npmjs.org
-   npm publish <repo>/dist/npm/tabcap-win32-x64-0.7.6.tgz    --access public --registry https://registry.npmjs.org
-   npm publish <repo>/dist/npm/tabcap-0.7.6.tgz              --access public --registry https://registry.npmjs.org
+   npm publish <repo>/dist/npm/tabcap-darwin-arm64-0.8.0.tgz --access public --registry https://registry.npmjs.org
+   npm publish <repo>/dist/npm/tabcap-linux-x64-0.8.0.tgz    --access public --registry https://registry.npmjs.org
+   npm publish <repo>/dist/npm/tabcap-linux-arm64-0.8.0.tgz  --access public --registry https://registry.npmjs.org
+   npm publish <repo>/dist/npm/tabcap-win32-x64-0.8.0.tgz    --access public --registry https://registry.npmjs.org
+   npm publish <repo>/dist/npm/tabcap-0.8.0.tgz              --access public --registry https://registry.npmjs.org
    ```
    账号开了发布二次验证时每条加 `--otp <六位码>`，或按提示在浏览器确认。从自己机器发布，不加 `--provenance`（那只在 CI 的 OIDC 环境里可用）。
-5. **核对**：粘贴打印的 `npm view …` 几行，每个都应输出 `0.7.6`，`tabcap@0.7.6 optionalDependencies` 应列出四个平台包。然后换一个干净目录 `npm install -g tabcap --registry https://registry.npmjs.org && tabcap --version`。
+5. **核对**：粘贴打印的 `npm view …` 几行，每个都应输出 `0.8.0`，`tabcap@0.8.0 optionalDependencies` 应列出四个平台包。然后换一个干净目录 `npm install -g tabcap --registry https://registry.npmjs.org && tabcap --version`。
 6. **dist-tag**：第一次发布自动打 `latest`，不用 `npm dist-tag`。以后发预发布版本才需要 `--tag next`。
 
 ### 中途失败
