@@ -27,8 +27,10 @@ export type LiveHint = { name: string; category: string; confidence: number };
 
 type Cached = { epoch: number; url: string; found: Identification };
 const cache = new WeakMap<Tab, Cached>();
-/** The family ids last written into the bundle per tab (a `protection` event only when they change). */
-const written = new WeakMap<Tab, string>();
+/** What was last written into which recording per tab (a `protection` event only when it changes, per recording). */
+const written = new WeakMap<Tab, { bundle: string; key: string }>();
+/** Each probe step's own limit: a navigation answer never waits long for the probe (steps run in parallel). */
+const STEP_MS = { cookies: 2000, evaluate: 3000 };
 
 /** The ElementSpec attributes and tags the families' dom rules need in the digest. */
 function digestNeedsOf(families: readonly Family[]): { attrs: string[]; tags: string[] } {
@@ -62,10 +64,12 @@ export async function probeTab(t: Transport, tab: Tab, families: readonly Family
   const fd = rootDoc(tab, doc);
   const paths = globalPaths(families);
   const needs = digestNeedsOf(families);
-  const cookies = await part("cookies", async () => parseCookies(await t.send("Network.getCookies", navCookieParams(doc.url), tab.sessionId, 5000)));
-  const loaded = await part("resources", () => inWorld(t, tab, fd, async (ctx) => parseResources(callResult(await t.send("Runtime.evaluate", { expression: `(${RESOURCES_FN})(${MAX_RESOURCES}, ${MAX_FRAMES})`, contextId: ctx, returnByValue: true }, fd.sessionId, 10_000)))));
-  const dom = await part("dom", () => inWorld(t, tab, fd, async (ctx) => parseDigest(callResult(await t.send("Runtime.evaluate", { expression: `(${DIGEST_FN})(${JSON.stringify(needs.attrs)}, ${JSON.stringify(needs.tags)}, ${DIGEST_MAX})`, contextId: ctx, returnByValue: true }, fd.sessionId, 10_000)))));
-  const globals = paths.length === 0 ? {} : await part("globals", async () => parseGlobals(callResult(await t.send("Runtime.evaluate", { expression: `(${GLOBALS_FN})(${JSON.stringify(paths)})`, returnByValue: true }, fd.sessionId, 5000)), paths));
+  const [cookies, loaded, dom, globals] = await Promise.all([
+    part("cookies", async () => parseCookies(await t.send("Network.getCookies", navCookieParams(doc.url), tab.sessionId, STEP_MS.cookies))),
+    part("resources", () => inWorld(t, tab, fd, async (ctx) => parseResources(callResult(await t.send("Runtime.evaluate", { expression: `(${RESOURCES_FN})(${MAX_RESOURCES}, ${MAX_FRAMES})`, contextId: ctx, returnByValue: true }, fd.sessionId, STEP_MS.evaluate))))),
+    part("dom", () => inWorld(t, tab, fd, async (ctx) => parseDigest(callResult(await t.send("Runtime.evaluate", { expression: `(${DIGEST_FN})(${JSON.stringify(needs.attrs)}, ${JSON.stringify(needs.tags)}, ${DIGEST_MAX})`, contextId: ctx, returnByValue: true }, fd.sessionId, STEP_MS.evaluate))))),
+    paths.length === 0 ? Promise.resolve({}) : part("globals", async () => parseGlobals(callResult(await t.send("Runtime.evaluate", { expression: `(${GLOBALS_FN})(${JSON.stringify(paths)})`, returnByValue: true }, fd.sessionId, STEP_MS.evaluate)), paths)),
+  ]);
   return { cookies, resources: loaded?.resources ?? null, frames: loaded?.frames ?? null, dom, globals };
 }
 
@@ -76,7 +80,11 @@ export function familiesFor(d: Daemon): { families: Family[]; warnings: string[]
 /** The identification for the tab's current navigation, probing once per navigation. Never throws: a failed probe is an empty answer. */
 export async function liveIdentify(d: Daemon, t: Transport, tab: Tab): Promise<Identification> {
   const have = cache.get(tab);
-  if (have !== undefined && have.epoch === tab.navEpoch && have.url === tab.url) return have.found;
+  if (have !== undefined && have.epoch === tab.navEpoch && have.url === tab.url) {
+    // The page may have been probed before `net start`: the recording still gets its event (once per recording).
+    record(d, tab, have.found.detections);
+    return have.found;
+  }
   let found: Identification = { detections: [], fingerprinting: [] };
   try {
     const { families } = familiesFor(d);
@@ -113,8 +121,10 @@ function record(d: Daemon, tab: Tab, detections: readonly Detection[]): void {
   if (rec === undefined) return;
   const shown = detections.filter((x) => x.category !== "fingerprint");
   const key = shown.map((x) => `${x.family}:${x.confidence}`).join(",");
-  if ((written.get(tab) ?? "") === key) return;
-  written.set(tab, key);
+  const last = written.get(tab);
+  if (last !== undefined && last.bundle === rec.dir && last.key === key) return;
+  if (last === undefined && key === "") return; // nothing identified yet: no event
+  written.set(tab, { bundle: rec.dir, key });
   rec.event("protection", { nav: d.navOf(tab), url: tab.url, detections: shown.map((x) => ({ family: x.family, name: x.name, category: x.category, confidence: x.confidence, matched: x.matched })) }, { tab: tab.id });
 }
 

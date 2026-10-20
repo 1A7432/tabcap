@@ -83,10 +83,12 @@ describe.skipIf(!enabled)("tabcap 0.8-A L2 (protection families on s67–s70)", 
     expect(site.hits.some((h) => h.host === "www.google.com" && h.path === "/recaptcha/api.js")).toBe(true);
   }, 90_000);
 
-  test("s67 recorded: a protection event in the bundle; recon lists the family; no cookie value anywhere", async () => {
+  test("s67 recorded: a protection event in the bundle (also when the page was probed before net start); recon lists the family; no cookie value anywhere", async () => {
     const S = ["--session", "b"];
-    const bundle = s((await ok("net", "start", ...S))["bundle"]);
+    // probed before the recording starts (Bugbot on PR #25): the cached answer still reaches the new bundle
     expect(hints(await ok("navigate", site.at("dd2.range.test", "/s67/datadome"), ...S))).toEqual([["DataDome", 100]]);
+    const bundle = s((await ok("net", "start", ...S))["bundle"]);
+    expect(hints(await ok("snapshot", ...S))).toEqual([["DataDome", 100]]);
     await ok("net", "stop", ...S);
     const prot = events(bundle).filter((e) => e["kind"] === "protection");
     expect(prot.length).toBe(1);
@@ -115,13 +117,16 @@ describe.skipIf(!enabled)("tabcap 0.8-A L2 (protection families on s67–s70)", 
     await ok("navigate", site.at("tm.range.test", "/s69"), ...S);
     const end = Date.now() + 5000;
     while (s((await ok("evaluate", "window.__s69 || ''", ...S))["value"]) !== "done" && Date.now() < end) await Bun.sleep(100);
+    // Linux CI (Xvfb, no GPU) may have no WebGL context: the page says whether it had one (oracle).
+    const webgl = (await ok("evaluate", "window.__s69webgl === true", ...S))["value"] === true;
     await ok("trace", "stop", ...S);
     await ok("net", "stop", ...S);
     await ok("analyze", "recon", bundle);
     const d = rec(JSON.parse(readFileSync(join(bundle, "exports", "dossier.json"), "utf8")));
     const fp = recs(d["fingerprinting"]);
     const by = new Map(fp.map((f) => [s(f["family"]), f]));
-    for (const id of ["fp-canvas", "fp-webgl", "fp-hardware"]) {
+    expect(by.has("fp-webgl")).toBe(webgl);
+    for (const id of webgl ? ["fp-canvas", "fp-webgl", "fp-hardware"] : ["fp-canvas", "fp-hardware"]) {
       expect(by.has(id)).toBe(true);
       expect(by.get(id)?.["attributedTo"]).toBe("threatmetrix");
       expect(s(recs(by.get(id)?.["callers"])[0]?.["url"])).toContain("h.online-metrix.net");

@@ -2409,6 +2409,7 @@ Object.defineProperty(window, "ddjskey", { configurable: true, get: function () 
   var c = document.createElement("canvas"); c.width = 16; c.height = 16;
   var x = c.getContext("2d"); x.fillText("s69", 1, 10); c.toDataURL(); x.getImageData(0, 0, 4, 4);
   var g = document.createElement("canvas").getContext("webgl"); if (g) g.getParameter(g.VERSION);
+  window.__s69webgl = !!g;
   void navigator.hardwareConcurrency;
   window.__s69 = "done";
 })();`);
