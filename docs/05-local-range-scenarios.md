@@ -346,3 +346,13 @@
   4. **人从别处继续**：接 3，后台跑 `handoff wait --until-url /never --timeout 15000`，1 s 后 `handoff continue`。expected：后台那条回 `state:"resumed"`、`by:"human"`。
   - 包里（`net stop` 后）：`handoff` 的 `resumed` 依次是 `by:"condition"`（`condition.kind:"url"`）、`by:"condition"`（`condition.kind:"cookie"`）、`by:"human"`。
 - 不在靶场里的【待验】：真人登录、跨域单点登录的 cookie（`04` §39 末条）。
+
+## 15. 0.7.6-A 默认隐藏 webdriver（10-20，P1）
+
+### s66 webdriver（P1；0.7.6-A，`04` §40）
+- 页面 `/s66`（`test/e2e/site.ts` 的 `startWebdriverSite`）：脚本加载时把 `navigator.webdriver` 和 `Object.getOwnPropertyDescriptor(Navigator.prototype, "webdriver").get` 是否原生（`toString()` 含 `[native code]`）用 `fetch("/s66/report?where=main&...")` 报给服务器；页面里一个 `<iframe src="/s66/frame">`，同样报 `where=frame`。服务器按到达顺序记每份报告（oracle）。
+- 走法与 expected（`test/e2e/v076a.e2e.test.ts`）：
+  1. **默认**：`browser start --proxy none` → `session start a` → `navigate /s66` → 等两份报告。expected：`browser start` 回答 `webdriver:"hidden"`；服务器记到 `main` 与 `frame` 各一份，都是 `webdriver=false`、`native=true`；`status` 的 `browser.webdriver` 为 `"hidden"`；`net start` / `net stop` 包住这次导航的包 `manifest.producer.browser.webdriver` 为 `"hidden"`。
+  2. **关掉**：另一个 `TABCAP_HOME`，`browser start --proxy none --webdriver visible` → 同样导航。expected：回答 `webdriver:"visible"`，两份报告都是 `webdriver=true`（pipe 下 Chrome 自己的值，`07` §1.2）、`native=true`。
+  3. **配置**：第三个 `TABCAP_HOME`，`config.json` `{"webdriver":"visible"}`，`browser start --proxy none`（不带 `--webdriver`）。expected：回答 `webdriver:"visible"`；`config.json` `{"webdriver":"sometimes"}` 时 `browser start` 回 `usage`，浏览器没有起来。
+- 不在靶场里的【待验】：`ext` 模式（作者自己的 Chrome）的值。

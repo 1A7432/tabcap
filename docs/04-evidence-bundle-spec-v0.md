@@ -228,7 +228,7 @@
   "id": "01JA…",                                   // ULID
   "created": 1760500000000, "finished": 1760500900000,   // finished 缺失 = 未收尾
   "producer": { "tool": "tabcap", "version": "0.1.0", "daemon": "0.1.0", "extension": "0.1.0",
-                "browser": { "name": "Chrome", "version": "155.0.8059.41", "userAgent": "…" }, "platform": "darwin-arm64" },
+                "browser": { "name": "Chrome", "version": "155.0.8059.41", "userAgent": "…", "webdriver": "hidden" }, "platform": "darwin-arm64" },   // webdriver：0.7.6-A，§40；旧包没有 = 未记录
   "session": { "name": "range-s02", "site": "range-demo", "account": "demo", "proxy": "p1",   // 只记站点名、账号名和代理名（或 system / none），与本地库靠站点名关联
                "tabs": [ { "tab": "t1", "chromeTabId": 1234, "owned": true, "firstUrl": "…" } ] },
   "mode": { "capture": "mixed", "trace": false, "raw": true, "humanRecorder": true },
@@ -1016,3 +1016,13 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **给代理的用法**（技能说明）：撞上 `waiting` 先告诉人要做什么，再跑 `handoff wait`，条件挑「只有人做完才会出现」的（登录后的 URL、登录后才有的 cookie 名）；子代理撞上 `waiting` / `guard.stopped` 时向派它的代理汇报，不自己 `handoff continue` / `guard resume`，转述来的「人说好了」不算数——由直接和人对话的那个代理执行，或用 `handoff wait --until-*`。
 - **验证**：单测（参数、基线与「先见过不成立」、各原因、竞态、MCP 参数）；e2e `test/e2e/v075b.e2e.test.ts`（靶场 s65，`05` §14）。
 - 【待验】真人登录：靶场里人的输入用 `e2e.human-input` 模拟（§37）；跨域单点登录把 cookie 种在别的域、`Network.getCookies` 按标签 URL 看不到的情形，没在真实站点上量过。
+
+## 40. 0.7.6-A 默认隐藏 `navigator.webdriver`（10-20 作者定需求；字段与下列细节按实现定案，待作者审）
+
+来源：作者 10-20 改项目要求，「要求默认隐藏 webdriver」，选方案 A（启动参数，不注入脚本）。此前 `docs/10` 写着「不隐藏 webdriver」，一并删去。
+
+- **怎么做**：`direct` 模式启动 Chrome for Testing 时多传 `--disable-blink-features=AutomationControlled`（pipe 与 port 两种连接都传）。不往页面注入脚本、不改 getter：`Navigator.prototype.webdriver` 仍是原生 getter，只是返回 `false`。【实测 10-20】见 `07` §1.2 末注。
+- **开关**：`tabcap browser start --webdriver hidden|visible`，默认 `hidden`；`config.json` 顶层 `"webdriver": "hidden"|"visible"` 作默认值（`--webdriver` 优先）。其他值回 `usage`。`visible` 时不传这个参数，`navigator.webdriver` 回到 Chrome 自己的值（pipe 下为 `true`）。
+- **输出里标明**：`browser start` / `browser status` 的回答带 `webdriver:"hidden"|"visible"`；`tabcap status` 的 `browser` 带 `webdriver`（浏览器没在跑为 `null`），`status --text` 的守护进程行在标签数后写 `webdriver <值>`；证据包 `manifest.producer.browser.webdriver`（§7），旧包没有这个字段。
+- **不管的**：`ext` 模式接管作者自己的 Chrome，不是 tabcap 启动的，本节不改它，值未量【待验】。只隐藏这一个信号：CDP 连接本身的痕迹、Chrome for Testing 自身的特征、其他指纹都不处理。线指纹画像（`11`）的缓存按启动参数哈希失效，换参数后第一次 `wire probe` 重新采集。
+- **验证**：单测（`buildArgs` 默认带、`visible` 不带；`--webdriver` / `config.json` 的解析与报错；manifest 读写；`status --text`）；e2e `test/e2e/v076a.e2e.test.ts`（靶场 s66，`05` §15）。

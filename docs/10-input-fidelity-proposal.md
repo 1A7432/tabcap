@@ -21,7 +21,7 @@
 > 以下为作者给出的规格原文，未改一字。
 
 ---
-【任务】把 tabcap 的 click / type 的「事件形状」从残缺补到真人输入下限。不是反检测军备：不伪装指纹、不隐藏 webdriver、不对任何站点做对抗；目标是自动化输入的事件序列与真人 / Playwright 同形。遵守 AGENTS.md：设计先提案（本格改 CLI 语义，必须先出提案过审再写码）、expected 只来自本地探针 oracle 实测、靶场先加场景（范围规则：没有场景不开工）。
+【任务】把 tabcap 的 click / type 的「事件形状」从残缺补到真人输入下限。不是反检测军备：不伪装指纹、不对任何站点做对抗；目标是自动化输入的事件序列与真人 / Playwright 同形。遵守 AGENTS.md：设计先提案（本格改 CLI 语义，必须先出提案过审再写码）、expected 只来自本地探针 oracle 实测、靶场先加场景（范围规则：没有场景不开工）。
 
 【oracle——先读，不要重新发明】
 1. NOTES「探针 · DrissionPage 与 Playwright 点击语义对比」格 + /tmp/tabcap-probe/reports/ 的 11 次本地实测：Playwright 的 page.click 在 pointerdown 前有真实 move 链到达目标点（movementX/Y 有值，13 事件）；DrissionPage 默认无 move（光标瞬移）；by_js / evaluate 的 click 是 isTrusted=false；通用静态指纹（webdriver、plugins、CDP 探针）两边并无差异——事件序才是本格要补的主变量。
@@ -73,7 +73,7 @@
 3. 【实测】tabcap `--trusted` 与 DrissionPage 默认点击同形，只有 `pointerover → down`，目标点上没有 move。
 4. 【实测】逐字段 diff（tabcap `--trusted` 对 Playwright 无头；忽略 `timeStamp`、`dt` 和随窗口位置变化的 `screenX/Y`）：pointerdown 的 **`pressure` 为 0，Playwright 为 0.5**；`clientY` 相差 0.02 px（185.95 对 185.93）；`button`、`buttons`、`detail`、`pointerType`、`width`、`height`、`isPrimary` 都相同。DrissionPage 的 `pressure` 也是 0。【推断】Playwright 按下时给 `Input.dispatchMouseEvent` 带了 `force: 0.5`；【待验】在实现格里用探针确认。
 5. 【实测】隐藏后台标签（开之前 `visibilityState:"hidden"`）上，现有 `--trusted` 先开焦点仿真再发事件，点击送达、没有挂起；结束后页面回到 `hidden`，`hasFocus` 仍为 true（与 `docs/07` §1.1「关闭后 hasFocus 不回落」一致）。现有代码不发 `mouseMoved`，所以「未绘制的隐藏标签上 `mouseMoved` 永不返回」这条本格**没有重跑**，沿用 spike 2 的【实测】，引入轨迹后必须在验收里重测（§7 A7.3）。
-6. 【实测，范围外，仅记录】tabcap（`--remote-debugging-pipe`、不带 `--enable-automation`）与 Playwright 的探针页上 `navigator.webdriver` 都是 `true`，DrissionPage（`--remote-debugging-port`）为 `false`。`docs/07` §1.2 写的「不传 `--enable-automation`，`navigator.webdriver` 保持 false」与本次实测不符。【推断】原因是 pipe 方式本身。规格明确「不隐藏 webdriver」，本提案不改任何东西，只请作者修正 `docs/07` 的那句描述。
+6. 【实测，范围外，仅记录】tabcap（`--remote-debugging-pipe`、不带 `--enable-automation`）与 Playwright 的探针页上 `navigator.webdriver` 都是 `true`，DrissionPage（`--remote-debugging-port`）为 `false`。`docs/07` §1.2 写的「不传 `--enable-automation`，`navigator.webdriver` 保持 false」与本次实测不符。【推断】原因是 pipe 方式本身。（0.7.6-A 起启动 CfT 默认隐藏 `navigator.webdriver`，见 `docs/04` §40。）
 
 ### 2.3 打字【实测】
 
@@ -158,7 +158,7 @@
 - **第一级的定位**：`el.click()` 只在 `--dom` 或降级时使用，输出必带 eventShape:"incomplete"。
 ```
 
-启动参数表（§1.2）不需要新增参数【推断】：轨迹与按键都是运行时 CDP 调用。§1.2 末尾关于 `navigator.webdriver` 的那句与 §2.2 第 6 条的实测不符，请作者修正措辞（只改描述，不改行为）。
+启动参数表（§1.2）不需要新增参数【推断】：轨迹与按键都是运行时 CDP 调用。
 
 ## 6. `docs/05` 要加的场景（作者审后合并）
 
@@ -201,7 +201,7 @@
 4. 对拍报告：A7.6 的逐字段 diff 进报告。
 5. NOTES 三行收尾。
 
-不在本格做：guard、回放、HAR 的任何语义；`fill` 的路径；任何指纹、`webdriver` 相关的改动；任何第三方站点上的测试。
+不在本格做：guard、回放、HAR 的任何语义；`fill` 的路径；任何指纹相关的改动；任何第三方站点上的测试。
 
 ## 9. 待作者定
 

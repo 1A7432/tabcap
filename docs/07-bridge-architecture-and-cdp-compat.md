@@ -105,9 +105,10 @@
 | 后台标签不节流 | `--disable-background-timer-throttling` `--disable-renderer-backgrounding` `--disable-backgrounding-occluded-windows` | 采用。这是 spike 1g「隐藏标签定时器节流」的已知解法，和焦点模拟配合用 |
 | 不打扰 | `--no-first-run` `--no-default-browser-check` `--disable-search-engine-choice-screen` `--disable-infobars`（隐藏 Chrome for Testing 自己的信息栏）`--disable-prompt-on-repost` `--disable-hang-monitor` `--disable-popup-blocking` | 采用。弹窗拦截关掉：登录弹窗是真实场景，`Page.windowOpen` 照样记录；要不要默认关【待定，倾向关】 |
 | 录制相关 | `--disable-back-forward-cache`（bfcache 会让后退 / 前进不走网络、事件不完整）`--disable-features=PaintHolding,ThirdPartyStoragePartitioning,AvoidCorsURLLoaderRestartOnRedirect,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose` `--enable-features=CDPScreenshotNewSurface`（隐藏标签截图）`--allow-pre-commit-input` `--disable-ipc-flooding-protection` `--force-color-profile=srgb` `--export-tagged-pdf` | 采用；`CDPScreenshotNewSurface` 对后台标签截图的效果【待验】 |
+| 隐藏 webdriver | `--disable-blink-features=AutomationControlled` | 10-20 作者定：默认采用，`--webdriver visible` 时不传（`04` §40）。不在 Playwright 的表里 |
 | 不要 | `--disable-extensions`（我们要装 UI 扩展）`--unsafely-disable-devtools-self-xss-warnings` `--disable-stack-profiler`（Windows 专用）`--disable-dev-shm-usage`（Linux 容器）以及所有 `edge` / `ms` 前缀的 Edge 专用项 | 不采用 |
 
-注意：不传 `--enable-automation`；【实测 10-15 探针页】以 `--remote-debugging-pipe` 启动时 `navigator.webdriver` 仍为 true，Playwright 同样如此，原因未查【推断：管道连接即视为自动化】。参数表以代码里的常量为准，本表只是取舍记录。
+注意：不传 `--enable-automation`；【实测 10-15 探针页】只以 `--remote-debugging-pipe` 启动时 `navigator.webdriver` 仍为 true，Playwright 同样如此【推断：管道连接即视为自动化】。【实测 10-20，CfT 155.0.8059.84】加上 `--disable-blink-features=AutomationControlled` 后，pipe 与 port 两种连接下主文档与 iframe 里都是 false，视口高度与不加时相同（727 / 814），没有多出信息栏；专用 worker 里 `navigator.webdriver` 加不加都是 `undefined`（`WorkerNavigator` 没有这个属性）。参数表以代码里的常量为准，本表只是取舍记录。
 
 扩展 ↔ 守护进程的信封（回环、单控制者、来源校验，沿用私有笔记）：
 
