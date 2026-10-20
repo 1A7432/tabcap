@@ -7,7 +7,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/1A7432/tabcap/releases/download/v0.8.0/tabcap-v0.8.0-windows-x64.zip",
-            "hash": "a17051691ce103109d00252b51f99af19a8dab85f9f22092e9727c31fe5faf82",
+            "hash": "9135646a3513c2439ae20d750c89edb897d8dc0d140391fb861cb5fab28de450",
             "extract_dir": "tabcap-v0.8.0-windows-x64"
         }
     },
