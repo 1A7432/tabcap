@@ -1029,7 +1029,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 ## 41. 0.8-A 防护家族识别（10-20 作者定需求；本节为设计草案，待作者审）
 
-来源：作者 10-20「不做针对和绕过，但是家族化模式识别流水线可以搞……至少要让用户或者说 agent 知道碰到的是啥」；同日定：规则自己从公开来源写、本地对照 scrapfly/Antibot-Detector（NPOSL-3.0，代码与规则数据不进仓库，只学思路和方式）、**三层都做**、家族面向 Antibot-Detector 看齐。家族清单与来源见 `docs/14`。recon v0（§22）的 `PROTECTION_SIGNALS` 里四条厂商头名并入本节的规则表，限流 / HTML 403 等通用信号照旧。
+来源：作者 10-20「不做针对和绕过，但是家族化模式识别流水线可以搞……至少要让用户或者说 agent 知道碰到的是啥」；同日定：规则自己从公开来源写、本地对照 scrapfly/Antibot-Detector（NPOSL-3.0，代码与规则数据不进仓库，只学思路和方式）、**三层都做**、家族面向 Antibot-Detector 看齐。家族清单与来源见 `docs/14`。recon v0（§22）的 `PROTECTION_SIGNALS` 里三条厂商头名（`cf-mitigated`、`x-amzn-waf-action`、`x-datadome`）并入本节的规则表；`x-iinfo`（Imperva，来源偏弱、不进表，`docs/14` §5）与限流 / HTML 403 等通用信号照旧留在 `PROTECTION_SIGNALS`。
 
 - **只识别**：回答「这里碰到的是哪家、凭什么这么说」。不给绕过提示，不分析对方脚本的算法，不估「难度」（Antibot-Detector 的 difficulty 是给绕过用的，不学），不提供针对某家的工具（它的 Advanced 一栏不学）。认出来以后照旧：挑战交给 guard / 人。
 
@@ -1042,7 +1042,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   - L2（页面上，只读）：`global {path, condition:"exists"|"function"|"object"|"string"}`（主世界里沿 `path` 逐段读**自有属性描述符**判断，不调用 getter；遇到访问器只算 `exists`）；`dom {match, has?}`（沿用适配器的 ElementSpec：tag / id / classPrefix / attr，`docs/09` §9）；`frame {url}`（iframe 的 src 正则）。
   - L3（追踪模式）：`api {target, caller?}`（`target` 是追踪 `signal` 的 API 名，`caller` 是对调用方脚本 URL 的正则，可省）。
 - 组合：`{id, name, confidence, when:{all|any:[{rule:<id>}|{all|any:[…]}]}}`，可嵌套。
-- **置信度原则**（学 Antibot-Detector 的定法，用我们自己的话写进单测）：只有该厂商才会产生的信号才能单条 100（厂商自有的主机、厂商自创的 cookie / 头名；短名字如 `TS`、`v`、`_px` 必须带 `valueShape` 才行）；页面标记、全局变量、源码文字和与别家共用的信号单条至多 90（anti-bot）/ 60（captcha）；`standalone:false` 只在组合里计分；组合只有每个分支都是厂商专有信号时才能到 100，其余 ≤ 95；来源强度为「弱」的规则至多 60（`docs/14`）。家族得分 = 命中的 standalone 规则与成立的组合里的最大值。单测逐条检查内置规则是否守这些上限。
+- **置信度原则**（学 Antibot-Detector 的定法，用我们自己的话写进单测）：只有该厂商才会产生的信号才能单条 100（厂商自有的主机、厂商自创的 cookie / 头名；短名字如 `TS`、`v`、`_px` 必须带 `valueShape` 才行）；页面标记、全局变量、源码文字和与别家共用的信号单条至多 90（anti-bot）/ 60（captcha）；`standalone:false` 只在组合里计分；组合只有每个分支都是厂商专有信号时才能到 100，其余 ≤ 95。来源强度为「弱」或「无」的家族不进内置表（作者 10-20，`docs/14` §5）。家族得分 = 命中的 standalone 规则与成立的组合里的最大值。单测逐条检查内置规则是否守这些上限。
 
 ### 41.2 识别与输出
 
@@ -1059,7 +1059,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 ### 41.4 本地对照与验证
 
-- `scripts/protection-compare.ts <包> --abd <目录>`：读作者本机 Antibot-Detector 检出里的规则、跑同一个包，只输出家族名与「一致 / 只有 tabcap / 只有 Antibot-Detector」。不进 CI，不在仓库或输出里留对方规则内容。不一致时回到公开来源补规则（`docs/14` 的来源规则），不照抄。
+- 本地对照（作者 10-20 定：脚本只留本地，绝对不进仓库、不推远端）：用作者本机的 Antibot-Detector 检出跑同一个包，只看「一致 / 只有 tabcap / 只有 Antibot-Detector」的家族名。不一致时回到公开来源补规则（`docs/14` 的来源规则），不照抄。
 - 单测：规则文件的校验与报错、置信度上限、每条内置规则都有 `sources`、`identify` 的各层与组合、值从不出现在输出里（含 `valueShape` 命中的 cookie）、用户文件覆盖、坏文件只跳过自己。
 - e2e：靶场 s67–s70（`05` §16），厂商主机经 `fwdproxy` 映射到本机，页面里只有我们自己写的桩脚本与名字，不放任何厂商代码。
 - 【待验】真实站点上的命中率与误报：靶场只能证明匹配逻辑；`docs/14` 每条要在作者真实项目的包里见到才改【实测】。

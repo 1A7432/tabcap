@@ -6,7 +6,7 @@
 
 等级：表里的信号全部是【推断】（来源说有，本工具没在真实站点录到过）；作者真实项目的包里见到后改【实测】并记在规则的 `seen` 里。
 
-强度：**强** = 厂商自己的文档 / 政策；**中** = 中立技术来源或集成方文档；**弱** = 只有逆向仓库或单一非正式来源（进表但 `confidence` 封顶 60，标【待验】）；**无** = 没找到合格来源，进 backlog，不发规则。
+强度：**强** = 厂商自己的文档 / 政策；**中** = 中立技术来源或集成方文档；**弱** = 只有逆向仓库或单一非正式来源；**无** = 没找到合格来源。作者 10-20 定：**弱与无都不进表**，列在 §5 backlog，等作者真实项目的包里见到（那时以包为 oracle）或找到强 / 中来源再加。
 
 ## 1. 防护（anti-bot / WAF）
 
@@ -17,10 +17,7 @@
 | Akamai Bot Manager | cookie `_abck`、`bm_sz`、`ak_bmsc`、`bm_sv`（L1） | akamai.com/legal/manage-cookie-preferences | 强 |
 | DataDome | cookie `datadome`、`dd_testcookie`（L1）；脚本 `js.datadome.co/tags.js`、上报 `api-js.datadome.co`（L1）；全局 `ddjskey`、`ddoptions`（L2）；拦截 iframe `*.captcha-delivery.com`（L2）；响应头 `x-datadome`（L1，已有） | docs.datadome.co：cookie-session-storage、javascript-tag | 强 |
 | HUMAN（PerimeterX） | cookie `_px`、`_px2`、`_px3`、`_pxvid`、`pxcts`、`_pxff_*`（L1） | docs.humansecurity.com/applications/use-of-cookies-web-storage | 强 |
-| Imperva / Incapsula | cookie `visid_incap_*`、`incap_ses_*`、`nlbi_*`、`___utmvc`（L1）；响应头 `X-Iinfo`、`X-CDN: Incapsula`（L1，`x-iinfo` 已有） | wafrift-detect 规则库（只取事实）、某站 cookie 政策 | 中；`reese84` 无来源 |
-| Kasada | 请求头 `x-kpsdk-ct`、`x-kpsdk-cd`（L1）；脚本 `ips.js`（L1） | github.com/lktop/kpsdk | 弱 |
 | F5 BIG-IP ASM | cookie `TS` 前缀（L1，短前缀，只能作佐证） | techdocs.f5.com ASM 11.4.1 发布说明 | 中（单独不定案） |
-| F5 Distributed Cloud Bot Defense（Shape） | JS 下载路径由客户配置（示例 `/common.js?single`） | docs.cloud.f5.com | 弱（几乎不可被动识别） |
 | AWS WAF | cookie `aws-waf-token`（L1）；请求头 `x-aws-waf-token`（L1）；响应头 `x-amzn-waf-action: captcha`（405）/ `challenge`（202）（L1，已有）；脚本 `…/challenge.js`（L1） | docs.aws.amazon.com/waf | 强 |
 | Netacea | 响应头 `x-netacea-match`、`x-netacea-mitigate`、`x-netacea-captcha`（L1）；挑战路径 `/ATAverify`（L1） | docs.netacea.com | 强 |
 | Radware Bot Manager（ShieldSquare） | 主机 `eupulse.shieldsquare.net`、`scus.shieldsquare.net`（L1） | support.radware.com 实施指南 | 强；`__uzm*` 无来源 |
@@ -32,8 +29,6 @@
 | Anubis | cookie `techaro.lol-anubis-auth`（L1）；响应头 `X-Anubis-Rule`、`X-Anubis-Action`、`X-Anubis-Status`（L1） | github.com/TecharoHQ/anubis 文档 | 强 |
 | 知道创宇 加速乐 | cookie `__jsluid_h` / `__jsluid_s`、`__jsl_clearance` / `__jsl_clearance_s`（L1）；首个响应 HTTP 521 + JS（L1 挑战页） | 腾讯云开发者社区、博客园文章 | 中 |
 | 瑞数 | 挑战响应 HTTP 202 / 412、`<meta … content>`、全局 `$_ts`（L1 挑战页 / L2）；cookie 成对 `<名>S` + `<名>T`（名字因站而异，只作佐证） | FreeBuf、腾讯云开发者社区 | 中 |
-| 阿里云 WAF | JS 挑战页（来源没给 cookie 名） | alibabacloud.com WAF 文档 | 弱（要补） |
-| Google BotGuard、Amazon、Azure Front Door、白山云 YUNDUN、Hunt、Meetrics、Ocule、DeepSeek PoW、OpenAI Sentinel | 没找到合格的具体信号（Sentinel 只有一个账号工具仓库） | — | 无 → backlog |
 
 站点自有的（不是厂商产品）：同花顺 `hexin-v` 请求头 = cookie `v`、脚本 `chameleon.min.js`（ctfiot、CSDN，中）——按范围规则，作者真实项目用到才进表。
 
@@ -58,7 +53,6 @@
 | 阿里云验证码 | 脚本 `o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js`、旧版 `g.alicdn.com/AWSC/AWSC/awsc.js`（L1）；全局 `initAliyunCaptcha`、`AWSC`（L2） | developer.aliyun.com、help.aliyun.com | 强 |
 | 顶象 | 脚本 `cdn.dingxiang-inc.com/ctu-group/captcha-ui/`、`…/constid-js/`（L1）；接口 `constid.dingxiang-inc.com/udid/`（L1）；全局 `_dx`（L2） | dingxiang-inc.com/docs | 强 |
 | 数美 | 脚本 `static.portal101.cn/dist/web/…/fp.min.js`（L1）；接口 `/deviceprofile/v4`（L1，路径通用，佐证）；全局 `SMSdk`、`_smConf`、`initSMCaptcha`（L2）；`smidV2`（L1 cookie / 存储，中） | help.ishumei.com、数美 PDF | 强 |
-| Basilisk、Binance bCAPTCHA、速卖通 baxia | 只有打码服务商的来源或没有 | — | 无 → backlog |
 
 ## 3. 指纹技术（L3，不分厂商）
 
@@ -66,4 +60,15 @@
 
 ## 4. 本地对照
 
-`scripts/protection-compare.ts <包> --abd <Antibot-Detector 检出目录>`（拟）：用作者本机的 Antibot-Detector 规则跑同一个证据包，列出两边结论不一致的家族。只在本地跑，不进 CI，不把对方规则写进仓库或输出文件（输出只有家族名与一致 / 不一致）。不一致时，回到公开来源补我们的规则，不照抄对方的规则。
+作者 10-20 定：对照脚本**只留本地，绝对不进仓库、不推到任何远端**（放在作者本机或主循环 scratchpad，仓库里不放脚本、不放它的输出）。做法：用作者本机的 Antibot-Detector 检出跑同一个证据包，只看两边结论不一致的家族名；不一致时回到公开来源补我们的规则，不照抄对方的规则。
+
+## 5. backlog（不进表）
+
+| 家族 | 现有线索 | 为什么不进 |
+|---|---|---|
+| Imperva / Incapsula | cookie `visid_incap_*`、`incap_ses_*`、`nlbi_*`、`___utmvc`，头 `X-Iinfo`、`X-CDN: Incapsula`（wafrift-detect 规则库、某站 cookie 政策）；`reese84` 无来源 | 没有厂商自己的来源（作者 10-20：偏弱的先不加）；recon v0 原有的 `x-iinfo` 头名一行照旧保留在通用信号里 |
+| Kasada | 头 `x-kpsdk-ct`、`x-kpsdk-cd`，脚本 `ips.js`（一个逆向仓库） | 弱 |
+| F5 Distributed Cloud Bot Defense（Shape） | JS 路径由客户配置 | 弱，几乎不可被动识别 |
+| 阿里云 WAF | 只有「JS 挑战页」的描述 | 弱，没有具体名字 |
+| Google BotGuard、Amazon、Azure Front Door、白山云 YUNDUN、Hunt、Meetrics、Ocule、DeepSeek PoW、OpenAI Sentinel | 没有合格的具体信号（Sentinel 只有一个账号工具仓库） | 无 |
+| Basilisk、Binance bCAPTCHA、速卖通 baxia | 只有打码服务商的来源或没有 | 无 |
