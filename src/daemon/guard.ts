@@ -85,7 +85,10 @@ export const TAKEOVER_NEXT =
 
 export const TAKEOVER_QUESTION = "You are using the AI's tab; when you are done, tell the AI to continue (`tabcap handoff continue`).";
 
-const nextOf = (h: Handoff): string => (h.reason === "stop-rule" ? STOP_RULE_NEXT(h) : h.reason === "human-takeover" ? TAKEOVER_NEXT : CONTINUE_NEXT);
+/** 0.8-A: "This is <families>; " before the advice, when the tab's page was identified (identification only, docs/04 §41). */
+export const protectionPrefix = (h: Pick<Handoff, "protection">): string => (h.protection === undefined || h.protection.length === 0 ? "" : `This is ${h.protection.join(" + ")} (identified, not bypassed; a human handles it). `);
+
+const nextOf = (h: Handoff): string => protectionPrefix(h) + (h.reason === "stop-rule" ? STOP_RULE_NEXT(h) : h.reason === "human-takeover" ? TAKEOVER_NEXT : CONTINUE_NEXT);
 
 export type HandlerState = {
   plugin: string;
@@ -131,6 +134,8 @@ export type Handoff = {
   seenFalse?: Set<string>;
   /** 0.7.5-B: the condition that ended it (`resumedBy: "condition"`). */
   condition?: { kind: string; value: string };
+  /** 0.8-A: protection families identified on the tab when it began (names; docs/04 §41.3). */
+  protection?: string[];
 };
 
 /** 0.7.5-B: what a handoff saw of its tab when it began (cookie names only, never values). */
@@ -158,18 +163,19 @@ export function handoffView(h: Handoff): Record<string, unknown> {
     ...(h.rule === undefined ? {} : { rule: h.rule, detail: h.ruleDetail ?? null }),
     ...(h.input === undefined ? {} : { input: h.input }),
     ...(h.condition === undefined ? {} : { condition: h.condition }),
+    ...(h.protection === undefined || h.protection.length === 0 ? {} : { protection: h.protection }),
     next: h.state === "waiting" ? nextOf(h) : h.resumedBy?.startsWith("plugin:") === true ? "A challenge handler answered (untrusted data in handlers[].answer); apply it if it fits, then go on." : "Go on.",
   };
 }
 
 export function waitingError(h: Handoff): TabcapError {
   if (h.reason === "stop-rule") {
-    return new TabcapError("guard.stopped", `session "${h.session}" is stopped: site rule ${h.rule ?? "?"} fired on ${h.request ?? "?"} (${h.ruleDetail ?? `HTTP ${h.status ?? "?"}`})`, STOP_RULE_NEXT(h), handoffView(h));
+    return new TabcapError("guard.stopped", `session "${h.session}" is stopped: site rule ${h.rule ?? "?"} fired on ${h.request ?? "?"} (${h.ruleDetail ?? `HTTP ${h.status ?? "?"}`})`, protectionPrefix(h) + STOP_RULE_NEXT(h), handoffView(h));
   }
   if (h.reason === "human-takeover") {
-    return new TabcapError("waiting", `session "${h.session}" is waiting: the user took over tab ${h.tab} (${h.input?.event ?? "input"} at ${h.url})`, TAKEOVER_NEXT, handoffView(h));
+    return new TabcapError("waiting", `session "${h.session}" is waiting: the user took over tab ${h.tab} (${h.input?.event ?? "input"} at ${h.url})`, protectionPrefix(h) + TAKEOVER_NEXT, handoffView(h));
   }
-  return new TabcapError("waiting", `session "${h.session}" is waiting for the human: ${h.reason} at ${h.url} (HTTP ${h.status ?? "?"})`, CONTINUE_NEXT, handoffView(h));
+  return new TabcapError("waiting", `session "${h.session}" is waiting for the human: ${h.reason} at ${h.url} (HTTP ${h.status ?? "?"})`, protectionPrefix(h) + CONTINUE_NEXT, handoffView(h));
 }
 
 export type GuardDeps = {
@@ -191,6 +197,10 @@ export type GuardDeps = {
   readBlob?: (session: string, blob: string) => Uint8Array | null;
   /** 0.7.5-B: the tab's URL and cookie names when a handoff begins (docs/04 §39). */
   baseline?: (session: string, tab: string) => Promise<HandoffBaseline>;
+  /** 0.8-A: protection families identified on a daemon tab's current page (names, cached; docs/04 §41.3). */
+  protectionOf?: (tab: string) => string[];
+  /** 0.8-A: the same, probing in the tab's turn when the navigation was not probed yet. */
+  identifyTab?: (tab: string) => Promise<string[]>;
 };
 
 /** 0.6-I: the response types the site rules look at (page XHR / fetch, `tabcap fetch`, navigations). */
@@ -440,6 +450,11 @@ export class Guard {
     const shot = (async () => {
       await Bun.sleep(this.deps.settleMs ?? 400);
       h.screenshot = await this.deps.screenshot(h.session, h.tab).catch(() => null);
+      // 0.8-A: a trip during a navigation comes before the page was probed; answers wait for this like for the shot.
+      if ((h.protection === undefined || h.protection.length === 0) && this.deps.identifyTab !== undefined) {
+        const families = await this.deps.identifyTab(h.tab).catch(() => [] as string[]);
+        if (families.length > 0) h.protection = families;
+      }
     })();
     h.shot = shot;
     return shot;
@@ -567,6 +582,9 @@ export class Guard {
       rule: hit.rule,
       ruleDetail: hit.detail,
     };
+    // 0.8-A: the families identified on the tab (cached per navigation), shown in the answer, `next` and events.
+    const families = this.deps.protectionOf?.(h.tab) ?? [];
+    if (families.length > 0) h.protection = families;
     this.handoffs.set(session, h);
     this.fetchStops.set(site, { site, session, rule: hit.rule, detail: hit.detail, request: e.id, fetchId: e.fetchId ?? null, url: e.url, status: e.status, since, reason: "stop-rule" });
     this.tripsByRequest.set(`${session}|${e.id}`, { site, ...hit });
@@ -575,6 +593,7 @@ export class Guard {
       "guard",
       {
         event: "breaker",
+        ...(h.protection === undefined ? {} : { protection: h.protection }),
         site,
         account,
         reason: "stop-rule",
@@ -590,6 +609,7 @@ export class Guard {
       "handoff",
       {
         state: "waiting",
+        ...(h.protection === undefined ? {} : { protection: h.protection }),
         reason: "stop-rule",
         question: `A stop rule of site ${site} fired (${hit.rule} on ${e.id}); look at the response, then tell the AI whether to continue.`,
         timeoutMs: null,
@@ -636,6 +656,9 @@ export class Guard {
       delivered: false,
     };
     // Block first; everything else is bookkeeping.
+    // 0.8-A: the families identified on the tab (cached per navigation), shown in the answer, `next` and events.
+    const families = this.deps.protectionOf?.(h.tab) ?? [];
+    if (families.length > 0) h.protection = families;
     this.handoffs.set(session, h);
     this.readBaseline(h);
     let coolUntil: number | null = null;
@@ -647,13 +670,13 @@ export class Guard {
     this.emitState(session, "waiting");
     rec.event(
       "guard",
-      { event: "breaker", site: h.site, account: bound?.account ?? null, detail: { reason, request: e.id, url: e.url, status: e.status, mime: e.mime, ...(coolUntil === null ? {} : { coolUntil }) } },
+      { event: "breaker", ...(h.protection === undefined ? {} : { protection: h.protection }), site: h.site, account: bound?.account ?? null, detail: { reason, request: e.id, url: e.url, status: e.status, mime: e.mime, ...(coolUntil === null ? {} : { coolUntil }) } },
       { tab: e.tab },
     );
     await this.takeShot(h);
     rec.event(
       "handoff",
-      { state: "waiting", reason, question: "Complete the verification in the browser, then tell the AI to continue.", timeoutMs: null, answerRef: null, request: e.id, url: e.url, screenshot: h.screenshot },
+      { state: "waiting", ...(h.protection === undefined ? {} : { protection: h.protection }), reason, question: "Complete the verification in the browser, then tell the AI to continue.", timeoutMs: null, answerRef: null, request: e.id, url: e.url, screenshot: h.screenshot },
       { tab: e.tab },
     );
     log.info("guard: waiting for the human", { session, reason, request: e.id });
@@ -795,12 +818,15 @@ export class Guard {
       input: { event: o.event, at: o.at },
       humanActive: true,
     };
+    // 0.8-A: the families identified on the tab (cached per navigation), shown in the answer, `next` and events.
+    const families = this.deps.protectionOf?.(h.tab) ?? [];
+    if (families.length > 0) h.protection = families;
     this.handoffs.set(session, h);
     this.readBaseline(h);
     this.emitState(session, "waiting");
     rec?.event(
       "handoff",
-      { state: "waiting", reason: "human-takeover", question: TAKEOVER_QUESTION, timeoutMs: null, answerRef: null, request: null, url: o.url, screenshot: null, input: { event: o.event, at: o.at } },
+      { state: "waiting", ...(h.protection === undefined ? {} : { protection: h.protection }), reason: "human-takeover", question: TAKEOVER_QUESTION, timeoutMs: null, answerRef: null, request: null, url: o.url, screenshot: null, input: { event: o.event, at: o.at } },
       { tab: o.tab },
     );
     log.info("guard: the human took over", { session, tab: o.tab, event: o.event });

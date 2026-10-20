@@ -5,16 +5,21 @@
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
 import { DEFAULT_COMMAND_TIMEOUT_MS, type NavType, type Tab } from "../browser/targets.ts";
+import { protectionField } from "../protection/live.ts";
 import type { Daemon } from "../state.ts";
 import { confirmState, startReadyWait } from "../transport/direct/ready.ts";
 import type { Transport } from "../transport/types.ts";
 import { checkSessionName, optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { withPostWait } from "./settle.ts";
 
-/** The readiness wait, then the DOM part of the post-action wait (unless --no-wait). */
-async function settled(t: Transport, tab: Tab, a: Args, nav: () => Promise<NavResult>): Promise<unknown> {
+/**
+ * The readiness wait, then the DOM part of the post-action wait (unless --no-wait),
+ * then the once-per-navigation protection probe (0.8-A, docs/04 §41.3): `protection`
+ * lists the families identified at confidence ≥ 50, absent when there are none.
+ */
+async function settled(d: Daemon, t: Transport, tab: Tab, a: Args, nav: () => Promise<NavResult>): Promise<unknown> {
   const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), nav, { navigationDone: true });
-  return { ...result, wait };
+  return { ...result, wait, ...(await protectionField(d, t, tab)) };
 }
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:", "file:", "about:", "data:"]);
@@ -81,7 +86,7 @@ export async function navigate(d: Daemon, a: Args, session: string): Promise<unk
   return tabs.run(
     tab,
     () =>
-      settled(t, tab, a, () => waitNavigation(t, tab, url, budget, async () => {
+      settled(d, t, tab, a, () => waitNavigation(t, tab, url, budget, async () => {
         tab.pendingNavType = null;
         const r = await t.send("Page.navigate", { url }, tab.sessionId);
         const err = str(r, "errorText");
@@ -113,7 +118,7 @@ export async function go(d: Daemon, a: Args, session: string): Promise<unknown> 
       if (target === undefined || entryId === null) throw new TabcapError("page", `no history entry to go ${dir} to`, "Use `tabcap navigate <url>` instead.");
       const url = str(target, "url") ?? "";
       const sameDoc = current !== undefined && stripHash(str(current, "url") ?? "") === stripHash(url);
-      return settled(t, tab, a, () => waitNavigation(t, tab, url, budget, async () => {
+      return settled(d, t, tab, a, () => waitNavigation(t, tab, url, budget, async () => {
         tab.pendingNavType = "back_forward" satisfies NavType;
         await t.send("Page.navigateToHistoryEntry", { entryId }, tab.sessionId);
         if (sameDoc) await Bun.sleep(100);
@@ -132,7 +137,7 @@ export async function reload(d: Daemon, a: Args, session: string): Promise<unkno
   return tabs.run(
     tab,
     () =>
-      settled(t, tab, a, () => waitNavigation(t, tab, tab.url, budget, async () => {
+      settled(d, t, tab, a, () => waitNavigation(t, tab, tab.url, budget, async () => {
         tab.pendingNavType = "reload";
         await t.send("Page.reload", ignoreCache ? { ignoreCache: true } : {}, tab.sessionId);
         return { loaderId: null, sameDocument: false };

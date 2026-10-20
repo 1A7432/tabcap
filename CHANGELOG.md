@@ -4,9 +4,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
-### Protection family identification (in progress)
+### Protection family identification
 
 - `tabcap recon` / `tabcap analyze recon` name the anti-bot, CAPTCHA and fingerprinting families a recording shows, each with a confidence and the evidence (request ids, cookie and header names, URLs without their query; never a value). 43 built-in families (16 anti-bot, 17 CAPTCHA, 10 fingerprinting techniques from trace mode), every vendor rule backed by a public source (docs/14); your own rule files in `config/protection/` override or add families. Identification only: nothing here helps get past a protection.
+- Live, without a recording: after `navigate`, `tab new`, `go` and `reload` (and in `snapshot`) a light read-only probe of the page (cookie names, loaded script and frame URLs, page globals read through property descriptors so no getter runs, the DOM) adds `protection: [{name, category, confidence}]` when a family scores 50 or more. `tabcap status` shows them per session. When the guard hands a session to the human, the answer, its `next` and the recorded handoff name the family ("This is Cloudflare Bot Management (identified, not bypassed; a human handles it)."). A recording gets a `protection` event when a tab's families change.
 
 ### Fixes
 

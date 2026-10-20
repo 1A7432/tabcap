@@ -1353,7 +1353,7 @@ export class Recorder {
    * from `where --write-findings`, docs/04 §4.1) inside the current command
    * window. Returns its seq, or null when the bundle is closed.
    */
-  event(kind: "guard" | "handoff" | "finding" | "note" | "action", fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor; cmd?: null } = {}): number | null {
+  event(kind: "guard" | "handoff" | "finding" | "note" | "action" | "protection", fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor; cmd?: null } = {}): number | null {
     if (this.writerClosed || this.stopping) return null;
     const ev = this.writer.append({
       ts: nowMs(),

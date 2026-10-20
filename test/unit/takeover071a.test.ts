@@ -316,6 +316,7 @@ describe("daemon answers (no browser)", () => {
       screenshot: null,
       trace: { state: "off", decode: false, weakRows: null },
       guardStops: [],
+      protection: [],
     };
     const f: StatusFacts = { schema: STATUS_SCHEMA, daemon: { running: true, pid: 1, version: "0", listener: "unix", socket: null, startedAt: 0 }, browser: { running: true, pid: 1, mode: "direct", tabs: 1, webdriver: "hidden" }, sessions: [s], plugins: { decode: [], challenge: [] }, handoff: [] };
     expect(nextOf(f, [])).toContain("the user took over its tab (human-takeover)");

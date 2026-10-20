@@ -357,26 +357,26 @@
   3. **配置**：第三个 `TABCAP_HOME`，`config.json` `{"webdriver":"visible"}`，`browser start --proxy none`（不带 `--webdriver`）。expected：回答 `webdriver:"visible"`；`config.json` `{"webdriver":"sometimes"}` 时 `browser start` 回 `usage`，浏览器没有起来。
 - 不在靶场里的【待验】：`ext` 模式（作者自己的 Chrome）的值。
 
-## 16. 0.8-A 防护家族识别（10-20，P1；设计草案，待作者审）
+## 16. 0.8-A 防护家族识别（10-20，P1）
 
-共同点：页面与桩脚本都是我们自己写的，只放名字（cookie 名、主机名、全局变量名、类名），不放任何厂商代码；厂商主机用 `http://<厂商主机>:<靶场端口>/…` 写在页面里，浏览器以 `--proxy <fwdproxy>` 启动，`test/e2e/fwdproxy.ts` 把它们转到本机靶场（CONNECT 照旧拒绝，什么都不出本机）。oracle：靶场按到达顺序记下每个请求与它下发的 cookie / 头，加上页面自己记录的事实；expected 只由这些与 `docs/14` 的规则推出。
+共同点（`test/e2e/site.ts` 的 `startProtectionSite`，`test/e2e/v08a.e2e.test.ts`）：页面与桩脚本都是我们自己写的，只放名字（cookie 名、主机名、全局变量名、类名），不放任何厂商代码。厂商主机写成 `http://<厂商主机>:<靶场端口>/…`，浏览器以 `--proxy <fwdproxy>` 启动，`test/e2e/fwdproxy.ts` 把它们转到本机靶场（CONNECT 照旧拒绝，什么都不出本机）。每个场景页也放在自己的假主机上（`dd.range.test`、`ak.range.test` …），各页 cookie 互不串。oracle：靶场按顺序记下每个请求的路径与 Host 头（`hits`），加上每页埋下的东西；家族名与分数由 `docs/14` 的规则文件推出。
 
-### s67 passive（P1；L1）
-- 页面 `/s67/<家族>`：`/s67/datadome` 下发 `Set-Cookie: datadome=<128 位 base64 形状>` 并加载 `http://js.datadome.co:<端口>/tags.js`（桩：`window.ddjskey="k"`）；`/s67/akamai` 下发 `_abck=<32 位大写 hex>~0~…` 与 `bm_sz`；`/s67/recaptcha` 加载 `http://www.google.com:<端口>/recaptcha/api.js`（桩：`window.grecaptcha={render(){}}`）并有 `<div class="g-recaptcha" data-sitekey="x">`；`/s67/none` 只下发 `TS01ab=1` 与一个 `/cdn-cgi/trace` 请求（只有佐证信号）。
-- 走法：每页 `navigate`（不录制）→ 看回答；`net start` → 再导航一遍 → `net stop` → `analyze recon <包>`。
-- expected：`datadome` 页回答 `protection` 含 DataDome（≥ 95：cookie + 脚本组合）；`akamai` 页含 Akamai Bot Manager（100：`_abck` 形状）；`recaptcha` 页含 reCAPTCHA；`none` 页没有 `protection` 字段。离线 `dossier.json` 的 `protection` 有同样三家（`source:"family"`），`matched[].where` 里有 cookie 名与 `r-N`，整个 dossier 与回答里搜不到任何 cookie 值。
+### s67 passive（P1；L1，实时与录制）
+- 页面：`/s67/datadome` 下发 `datadome=<32 位>` 并加载 `http://js.datadome.co:<端口>/tags.js`（桩：`window.ddjskey="k"`）；`/s67/akamai` 下发 `_abck=<32 位大写 hex>~0~…` 与 `bm_sz`；`/s67/recaptcha` 有 `<div class="g-recaptcha" data-sitekey="x">` 并加载 `http://www.google.com:<端口>/recaptcha/api.js`（桩：`window.grecaptcha`）；`/s67/none` 只下发 `TS01ab12cd=1` 并请求 `/cdn-cgi/trace`。
+- 走法与 expected：
+  1. **不录制**：依次 `navigate` none / datadome / akamai / recaptcha。none 的回答**没有** `protection`；其余分别是 `[{DataDome, 100}]`、`[{Akamai Bot Manager, 100}]`、`[{Google reCAPTCHA, 100}]`；随后 `snapshot` 同样带 reCAPTCHA，`status` 的会话 `protection` 为 `["Google reCAPTCHA"]`；`hits` 里有 Host 为 `js.datadome.co` 的 `/tags.js` 与 `www.google.com` 的 `/recaptcha/api.js`（桩确实经代理以厂商主机到达）。
+  2. **录制**：`net start` → `navigate` datadome（另一个主机）→ `net stop`。包里恰一条 `protection` 事件，`detections` 为 `[datadome 100]`；`analyze recon <包>` 的 `summary.protection` 含 `DataDome (anti-bot, 100)`，`dossier.json` 有 `"source": "family"`；dossier 与 `protection` 事件里都搜不到那个 cookie 值。
 
 ### s68 page（P1；L2）
-- 页面 `/s68`：同源桩脚本设 `window.initGeetest4=function(){}`、`window._dx={Captcha(){}}`，有 `<div class="cf-turnstile" data-sitekey="y">` 与 `<iframe src="http://geo.captcha-delivery.com:<端口>/x">`；另有一个 `Object.defineProperty(window, "ddjskey", {get(){ fetch("/s68/getter-ran"); return "k"; }})`。
-- expected：回答 `protection` 含极验 v4、顶象、Turnstile、DataDome（iframe + 全局）；靶场**收不到** `/s68/getter-ran`（L2 不调用 getter）。
+- 页面 `/s68`：`<div class="cf-turnstile">`、`<iframe src="http://geo.captcha-delivery.com:<端口>/x">`，同源桩脚本设 `window.initGeetest4=function(){}`、`window._dx={Captcha(){}}`，并用 `Object.defineProperty(window, "ddjskey", {get(){ fetch("/s68/getter-ran"); … }})` 埋一个会自报的 getter。
+- expected：`navigate` 回答的 `protection` 恰为极验 GeeTest v4、顶象、Cloudflare Turnstile、DataDome 四家（DataDome 90：iframe 规则；`ddjskey` 是访问器，只算存在），靶场**收不到** `/s68/getter-ran`（L2 读描述符，从不调用 getter）。
 
 ### s69 trace（P1；L3）
-- 页面 `/s69`：加载 `http://h.online-metrix.net:<端口>/fp/tags.js`（桩：画一个 canvas 并 `toDataURL()`、`getContext("webgl").getParameter(…)`、读 `navigator.hardwareConcurrency`）。
-- 走法：`net start` → `trace start` → `navigate /s69` → `trace stop` → `net stop` → `analyze recon <包>`。
-- expected：`fingerprinting` 含 canvas、webgl、hardware 三项，`callers[0].url` 是那个桩脚本，`attributedTo` 为 ThreatMetrix；没开追踪的同一走法没有 `fingerprinting`。
+- 页面 `/s69` 加载 `http://h.online-metrix.net:<端口>/fp/tags.js`（桩：canvas `toDataURL` 与 `getImageData`、WebGL `getParameter`、读 `navigator.hardwareConcurrency`，最后 `window.__s69="done"`）。
+- 走法：`net start` → `trace start` → `navigate /s69` → 等 `__s69` → `trace stop` → `net stop` → `analyze recon <包>`。
+- expected：`dossier.json` 的 `fingerprinting` 含 `fp-canvas`、`fp-webgl`、`fp-hardware`，每项 `attributedTo:"threatmetrix"`，`callers[0].url` 含 `h.online-metrix.net`。
 
-### s70 challenge（P1；L1 挑战页 + guard）
-- 页面 `/s70/jsl` 第一次回 HTTP 521 + 一段 JS（桩：设 `__jsl_clearance` 后 `location.reload()`），第二次回 200；`/s70/cf` 回 403 HTML、响应头 `cf-mitigated: challenge`、`Set-Cookie: __cf_bm=…`。站点 `example` 的 guard 用默认规则。
-- 走法：`session start --site example` → `net start` → `navigate /s70/cf`。
-- expected：guard 停手 / `waiting` 的回答带 `protection` 含 Cloudflare，`next` 写「这是 Cloudflare，交给人」；包里的 `guard` 与 `handoff` 事件带家族名；`navigate /s70/jsl` 后回答含知道创宇加速乐（521 + cookie）。
-- 不在靶场里的【待验】：真实站点上的命中与误报（`docs/14`）。
+### s70 challenge（P1；guard + 家族）
+- 页面 `/s70/cf` 回 403 HTML 并下发 `__cf_bm`；`/s70/jsl` 第一次回 521 并下发 `__jsluid_h`、页面脚本设 `__jsl_clearance` 后 `location.reload()`，带了该 cookie 再请求回 200。
+- 走法与 expected：`net start` → `navigate /s70/cf`：guard 进入 `verify-page` 交接（录到 403 HTML），`handoff status` 的 `handoff.protection` 为 `["Cloudflare Bot Management"]`（交接截图那一步在标签的轮次里补做探测，回答等它），`next` 以 `This is Cloudflare Bot Management (identified, not bypassed; a human handles it). ` 开头；`handoff continue` → `net stop` 后，包里 `handoff {state:"waiting"}` 事件带同样的 `protection`。另一个会话 `navigate /s70/jsl`：回答 `protection` 含「知道创宇 加速乐」（cookie 名规则）。
+- 不在靶场里的【待验】：真实站点上的命中与误报（`docs/14`）。实时探测不读响应头与状态码（`04` §41.3），521 / 412 这类挑战页规则只在 `recon` 里生效。

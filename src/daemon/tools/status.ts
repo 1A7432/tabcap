@@ -8,6 +8,7 @@
 // before the command path (main.ts), so it opens no `cmd` window in any
 // recording and is never refused while a session waits.
 
+import { cachedNames } from "../protection/live.ts";
 import { isRecord } from "../../shared/json.ts";
 import { decodePlugins, pluginsFor } from "../hooks/plugins.ts";
 import type { Daemon } from "../state.ts";
@@ -42,6 +43,8 @@ export type StatusSession = {
   screenshot: string | null;
   trace: StatusTrace;
   guardStops: StatusGuardStop[];
+  /** 0.8-A: protection families identified on the current tab's page (≥ 50, cached per navigation; docs/04 §41.3). */
+  protection: string[];
 };
 
 /** `url`: the request the guard handed over on (0.7-E). */
@@ -219,7 +222,8 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
     const bound = d.sites.get(name) ?? null;
     const tabs = b === null ? [] : b.tabs.sessionTabs(name);
     const current = b?.tabs.session(name)?.current ?? null;
-    const currentUrl = tabs.find((t) => t.id === current)?.url ?? tabs[0]?.url ?? null;
+    const currentTab = tabs.find((t) => t.id === current) ?? tabs[0];
+    const currentUrl = currentTab?.url ?? null;
     const r = d.recorders.get(name);
     const tr = d.tracers.get(name);
     const h = d.guard.get(name);
@@ -242,6 +246,7 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
       guardStops: stops
         .filter((s) => s.session === name || (hostSite !== null && s.site === hostSite) || (waiting && h.site !== null && s.site === h.site))
         .map((s) => ({ site: s.site, rule: s.rule, since: s.since, reason: s.reason, by: s.session, request: s.request })),
+      protection: cachedNames(currentTab),
     };
   });
   const facts: StatusFacts = {
@@ -313,6 +318,7 @@ export function renderStatusText(data: unknown): string {
       state,
       trace,
       ...(stops.length === 0 ? [] : [`fetch stopped: ${stops.join(", ")}`]),
+      ...(strs(x["protection"]).length === 0 ? [] : [`protection ${strs(x["protection"]).join(", ")}`]),
     ];
     lines.push(`${txt(x["session"])}: ${parts.join(" · ")}`);
   }
