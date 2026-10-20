@@ -140,7 +140,7 @@ describe.skipIf(!enabled)("tabcap 0.5-C L2 (context budget on the range)", () =>
     expect(field.hits.filter((h) => h === "GET /api/look").length - before).toBe(40);
     await ok("net", "wait", "--url", "/api/look", ...S);
     let list = await ok("net", "list", ...S);
-    for (let i = 0; i < 30 && Number(list.data["matched"]) < 44; i++) {
+    for (let i = 0; i < 30 && Number(list.data["matched"]) < 45; i++) {
       await Bun.sleep(200);
       list = await ok("net", "list", ...S);
     }
