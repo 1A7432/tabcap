@@ -6175,6 +6175,6 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
   ],
   "tool": "tabcap",
-  "version": "0.8.1",
+  "version": "<version>",
 }
 `;
