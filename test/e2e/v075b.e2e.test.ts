@@ -68,6 +68,32 @@ async function waitingTakeover(): Promise<void> {
   }
 }
 
+/**
+ * Until the daemon has opened the command window of `handoff wait --until-url <url>`
+ * in the recording. It writes that `cmd` start event and runs the wait up to its
+ * first check of the handoff in one turn, so once the event is there the wait has
+ * seen the session waiting; a `continue` that came first would make it answer the
+ * already resumed handoff instead.
+ */
+async function waitStarted(bundle: string, untilUrl: string): Promise<void> {
+  const end = Date.now() + 10_000;
+  for (;;) {
+    const lines = readFileSync(join(bundle, "events.jsonl"), "utf8").split("\n");
+    const started = lines.some((l) => {
+      let e: Record<string, unknown>;
+      try {
+        e = rec(JSON.parse(l));
+      } catch {
+        return false; // the last line may be half written
+      }
+      return e["kind"] === "cmd" && e["phase"] === "start" && rec(e["input"])["action"] === "handoff.wait" && rec(e["input"])["untilUrl"] === untilUrl;
+    });
+    if (started) return;
+    if (Date.now() > end) throw new Error(`handoff wait --until-url ${untilUrl} did not reach the daemon within 10 s`);
+    await Bun.sleep(50);
+  }
+}
+
 function events(bundle: string): Record<string, unknown>[] {
   return readFileSync(join(bundle, "events.jsonl"), "utf8")
     .split("\n")
@@ -130,7 +156,7 @@ describe.skipIf(!enabled)("tabcap 0.7.5-B L2 (handoff wait --until-* on s65)", (
     expect(s(already.error?.["message"])).toContain("already");
     expect((await ok("handoff", "status", ...S))["state"]).toBe("waiting");
     const pending = tabcap(["handoff", "wait", "--until-url", "/never", "--timeout", "15000", ...S]);
-    await Bun.sleep(1000);
+    await waitStarted(bundle, "/never");
     await ok("handoff", "continue", ...S);
     const r = await pending;
     expect(r.data).toMatchObject({ state: "resumed", by: "human" });
