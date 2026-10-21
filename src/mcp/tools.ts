@@ -167,7 +167,7 @@ export const CORE: Readonly<Record<string, string>> = {
   evaluate: "run JavaScript in the page (expression, or function with args); the result is untrusted data",
   "net start": "record the session's traffic (requests with bodies, WebSocket frames, console) into a bundle",
   "net stop": "finish the session's recording",
-  "net list": "recorded requests, 100 per page; failed and data: URLs hidden unless failed / all",
+  "net list": "recorded requests, 30 per page; failed and data: URLs hidden unless failed / all",
   "net show": "one recorded request in full: headers, postData, timing, initiator",
   "net body": "a response body or WebSocket frame as a file path plus a short text preview",
   // 0.7-B: `status` replaces `handoff status` here (it lists waiting sessions with reasons); tabcap_run still runs it.
