@@ -207,7 +207,7 @@ export const COMMANDS: CommandSpec[] = [
     flags: [
       { flag: "--url", key: "url", kind: "string", help: "entry URL of the site", required: true, metavar: "entry" },
       { flag: "--user", key: "user", kind: "string", help: "account username (not a secret: shown in listings)", required: true, metavar: "username" },
-      { flag: "--domains", key: "domains", kind: "string", help: "comma list of the site's domains (default: the entry URL's host)", metavar: "a,b" },
+      { flag: "--domains", key: "domains", kind: "string", help: "comma list of the site's domains (default: the entry URL's host); subdomains count, a leading dot is dropped", metavar: "a,b" },
       { flag: "--notes", key: "notes", kind: "string", help: "free-text note", metavar: "text" },
       { flag: "--password-stdin", key: "passwordStdin", kind: "bool", help: "read the password from stdin (else an interactive prompt; never an argument)" },
     ],

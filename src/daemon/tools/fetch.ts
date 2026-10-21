@@ -30,6 +30,7 @@ import { helperResultOf, helperSource, type HelperResult } from "../fetch/helper
 import { firstStop, parseStopRule, type StopRule } from "../fetch/stoprules.ts";
 import { FETCH_USAGE, parseFetchSpec, targetUrl, type FetchCredentials, type FetchSpec } from "../fetch/spec.ts";
 import { allSiteRules } from "../siterules.ts";
+import { siteOf } from "../../shared/sites.ts";
 import { exportBody } from "./bodyexport.ts";
 import { decodeBody } from "./netsearch.ts";
 import { redactFlatHeaders, redactRuleDetail } from "./liveredact.ts";
@@ -59,27 +60,6 @@ export type ToolCtx = { cmd: string | null };
 
 /** The browser parts a fetch uses (the daemon's running browser; unit tests pass fakes). */
 export type FetchBrowser = { t: Transport; tabs: Tabs; console: ConsoleLog | null };
-
-/** Which store site a URL belongs to (session-bound site first), else its host. */
-export function siteOf(
-  sites: ReadonlyArray<{ name: string; entryUrl: string; domains: readonly string[] }>,
-  bound: string | null,
-  url: URL,
-): { key: string; site: string | null } {
-  const host = url.hostname.toLowerCase();
-  const ordered = [...sites].sort((a, b) => (a.name === bound ? -1 : b.name === bound ? 1 : 0));
-  for (const s of ordered) {
-    let entryHost: string | null = null;
-    try {
-      entryHost = new URL(s.entryUrl).hostname.toLowerCase();
-    } catch {
-      entryHost = null;
-    }
-    const hosts = [...(entryHost === null ? [] : [entryHost]), ...s.domains.map((d) => d.trim().toLowerCase().replace(/^\.+/, "")).filter((d) => d !== "")];
-    if (hosts.some((h) => host === h || host.endsWith(`.${h}`))) return { key: s.name, site: s.name };
-  }
-  return { key: url.host, site: null };
-}
 
 /** The selected response headers of an envelope (scrubbed, cut). */
 export function envelopeHeaders(h: unknown, scrub: (s: string) => string): Record<string, string> {

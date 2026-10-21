@@ -21,7 +21,8 @@ import { firstStop, parseStopRule, parseStopRules } from "../../src/daemon/fetch
 import { fetchInput, handleFetch } from "../../src/daemon/main.ts";
 import { Daemon } from "../../src/daemon/state.ts";
 import { Store } from "../../src/daemon/store/db.ts";
-import { blockedNext, credentialsBlock, envelopeHeaders, envelopeTiming, fetchRun, siteOf } from "../../src/daemon/tools/fetch.ts";
+import { blockedNext, credentialsBlock, envelopeHeaders, envelopeTiming, fetchRun } from "../../src/daemon/tools/fetch.ts";
+import { siteOf } from "../../src/shared/sites.ts";
 import { guardResume } from "../../src/daemon/tools/handoff.ts";
 import { fetchConfigFrom, FETCH_DEFAULTS } from "../../src/shared/config.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
