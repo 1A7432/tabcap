@@ -22,6 +22,7 @@ import { screenshot } from "./tools/page.ts";
 import { setLogScrubber } from "../shared/log.ts";
 import { browserStatus, browserStop } from "./tools/browser.ts";
 import { TOOLS } from "./tools/index.ts";
+import { TEXT_ACTIONS } from "./tools/registry.ts";
 import { scrubValue } from "./secrets.ts";
 import { listen, newToken, type Listening } from "./listener.ts";
 import { budgetBlock } from "./tools/pool.ts";
@@ -39,8 +40,6 @@ function toEnvelope(e: unknown): FailEnvelope {
   return toFail(e);
 }
 
-/** Actions whose `text` argument is typed into the page (fill / type). */
-const TEXT_ACTIONS = new Set(["fill", "type"]);
 const DEFERRED = "<deferred to the end event>";
 
 /**
@@ -79,6 +78,7 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     await d.guard.shotTaken(null);
     return markFetchAuth(d, ok(statusOf(d, daemonFacts(d))));
   }
+  // status, daemon.status and daemon.shutdown are answered above (tools/registry.ts DAEMON_ACTIONS).
   const known = TOOLS[action];
   if (known === undefined) return fail("usage", `unknown action: ${action}`, "Run `tabcap --help`.");
   // Sites may have been added by `tabcap site add` (another process) since the last command.

@@ -49,6 +49,7 @@ import { scrubValue, type Secrets } from "./secrets.ts";
 import { firstStop, type StopRule } from "./fetch/stoprules.ts";
 import { decodeBody } from "./tools/netsearch.ts";
 import { redactRuleDetail, redactUrl, type LiveCtx } from "./tools/liveredact.ts";
+import { actionsWhere } from "./tools/registry.ts";
 
 export const LOGIN_LIMIT = 1;
 
@@ -281,12 +282,8 @@ export function arrivalMono(ev: Record<string, unknown> | undefined): number | n
   return null;
 }
 
-/** Commands refused while the session waits for the human. */
-// hover and upload (0.3-F) act on the page like click, so they wait for the human too;
-// resize and emulate (0.4) change what the page sees (its size, device, network), so they wait as well;
-// fingerprint probe (0.4-G) opens and navigates a tab of the session like tab new.
-// fetch (0.6-A) sends requests from the session's tab, so it waits as well.
-export const BLOCKED_WHILE_WAITING: ReadonlySet<string> = new Set(["navigate", "click", "fill", "type", "press", "go", "reload", "evaluate", "dialog", "hover", "upload", "resize", "emulate", "fingerprint.probe", "fetch"]);
+/** Commands refused while the session waits for the human: the `blockedWhileWaiting` rows of tools/registry.ts (why each one is there is noted in the table). */
+export const BLOCKED_WHILE_WAITING: ReadonlySet<string> = actionsWhere("blockedWhileWaiting");
 
 /**
  * 0.6-A: a `tabcap fetch` stop rule fired. `site` is the store site the URL
