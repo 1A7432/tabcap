@@ -143,7 +143,9 @@ describe.skipIf(!enabled)("tabcap 0.5-A L2 (tabcap mcp over stdio)", () => {
   test("navigate → snapshot → net list → daemon stop; each envelope is the one the CLI gives for the same call", async () => {
     const S = { session: "m" };
     expect((await c.call("tabcap_run", { argv: ["daemon", "start"] })).env).toMatchObject({ ok: true });
-    expect((await c.call("tabcap_run", { argv: ["browser", "start", "--proxy", "none", "--executable-path", CHROME] })).env).toMatchObject({ ok: true });
+    // Review 10-21: --executable-path / --chrome-arg are for the human over MCP; the daemon finds the browser through TABCAP_CHROME.
+    expect((await c.call("tabcap_run", { argv: ["browser", "start", "--proxy", "none", "--executable-path", CHROME] })).env).toMatchObject({ ok: false, error: { code: "usage" } });
+    expect((await c.call("tabcap_run", { argv: ["browser", "start", "--proxy", "none"] })).env).toMatchObject({ ok: true });
     expect((await c.call("tabcap_net_start", S)).env).toMatchObject({ ok: true });
 
     // navigate: the MCP call in session m, the CLI in session c (both recording), the same URL → the same page facts.
