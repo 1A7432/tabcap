@@ -219,13 +219,22 @@ jobs:
           TABCAP_WIRE_PROFILE_OUT: ${{ github.workspace }}/wire-profile
           E2E_ONLY: ${{ inputs.e2e_only }}
           E2E_REPEAT: ${{ inputs.e2e_repeat }}
+        # Without TABCAP_CHROME (written by the setup step) every e2e file skips and bun
+        # exits 0: refuse to start, and after the run scripts/e2e-summary.ts fails the
+        # step when bun's summary says nothing passed.
         run: |
+          if [ -z "${TABCAP_CHROME:-}" ]; then
+            echo "::error::TABCAP_CHROME is empty: the setup step did not record Chrome for Testing, so every e2e file would skip"
+            exit 1
+          fi
+          bun -e 'if (!require("node:fs").existsSync(process.env.TABCAP_CHROME)) { console.log(`::error::TABCAP_CHROME=${process.env.TABCAP_CHROME} does not exist`); process.exit(1); }'
           display() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 2560x1440x24" "$@"; else "$@"; fi; }
           if [ -z "$E2E_ONLY" ]; then
             export TABCAP_LOG=info TABCAP_E2E_KEEP="$GITHUB_WORKSPACE/ci-logs/keep"
             files=$(bun scripts/e2e-shard.ts ${{ matrix.shard }}/3)
             echo "shard ${{ matrix.shard }}/3:" $files
             display bun test $files --timeout 120000 2>&1 | tee e2e.log
+            bun scripts/e2e-summary.ts e2e.log
             exit
           fi
           export TABCAP_LOG=debug TABCAP_E2E_KEEP="$GITHUB_WORKSPACE/ci-logs/keep"
@@ -236,6 +245,7 @@ jobs:
             echo "::endgroup::"
           done
           echo "$failed of $E2E_REPEAT run(s) of $E2E_ONLY failed"
+          bun scripts/e2e-summary.ts e2e.log
           [ "$failed" = 0 ]
       # Only the shard that ran v04w has one.
       - name: upload the captured wire profile
