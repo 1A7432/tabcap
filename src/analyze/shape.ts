@@ -68,7 +68,6 @@ import { decodedPayload } from "./views.ts";
 export const SHAPE_SCHEMA = "tabcap-shape/0";
 export const SCHEMA_DIFF_SCHEMA = "tabcap-schema-diff/0";
 export const SHAPE_JSON = "shape.json";
-export const SHAPE_RECEIPT = `exports/${SHAPE_JSON}`;
 /** Fields per endpoint (request query + request body + response, all levels). */
 export const MAX_FIELDS = 2000;
 export const MAX_SHAPE_DEPTH = 32;

@@ -474,7 +474,7 @@ function parseHeadersIn(v: unknown, where: string): HarHeaderIn[] {
   });
 }
 
-export function parseHar(json: unknown): HarIn {
+function parseHar(json: unknown): HarIn {
   if (!isRecord(json) || !isRecord(json["log"])) throw badHar("root", "missing log object");
   const log = json["log"];
   const entriesRaw = log["entries"];
@@ -552,7 +552,7 @@ export function parseHar(json: unknown): HarIn {
 // ------------------------------------------------------------ import: bodies
 
 /** §5.1 header object from a HAR list: lowercase names, no pseudo headers, repeats as arrays. */
-export function headersFromHar(list: readonly HarHeaderIn[]): Headers {
+function headersFromHar(list: readonly HarHeaderIn[]): Headers {
   const out: Headers = {};
   for (const { name, value } of list) {
     if (name.startsWith(":")) continue;
@@ -575,7 +575,7 @@ export type DecodedBody = { bytes: Uint8Array; base64: boolean; wireEncoding: st
  * without decodeFailed. Only undecodable binary is marked decodeFailed.
  * wireEncoding records the header value in every case.
  */
-export function decodeHarBody(text: string, base64: boolean, contentEncoding: string | null): DecodedBody {
+function decodeHarBody(text: string, base64: boolean, contentEncoding: string | null): DecodedBody {
   const raw = base64 ? new Uint8Array(Buffer.from(text, "base64")) : toBytes(text);
   const ce = contentEncoding?.trim().toLowerCase() ?? "";
   if (ce === "" || ce === "identity") return { bytes: raw, base64, wireEncoding: null, decodeFailed: false };
@@ -818,7 +818,7 @@ function typeFromContentType(contentType: string | null): ResourceType {
 }
 
 /** The imported event's type and, when `_resourceType` is absent, how it was inferred. */
-export function importedType(raw: Record<string, unknown>, req: Headers, resp: Headers | null, mimeType: string | null): { type: ResourceType; typeInferred?: "sec-fetch" | "content-type" } {
+function importedType(raw: Record<string, unknown>, req: Headers, resp: Headers | null, mimeType: string | null): { type: ResourceType; typeInferred?: "sec-fetch" | "content-type" } {
   if (raw["_resourceType"] !== undefined) return { type: toResourceType(raw["_resourceType"]) };
   const bySecFetch = typeFromSecFetch(req);
   if (bySecFetch !== null) return { type: bySecFetch, typeInferred: "sec-fetch" };
@@ -833,7 +833,7 @@ export function importedType(raw: Record<string, unknown>, req: Headers, resp: H
  * offsets from the start (blocked, then dns, connect with ssl inside it, send, wait) so that
  * `exportHar` reads the same spans back. `null` when the entry has no number at all.
  */
-export function timingFromHar(ts: number, raw: Record<string, unknown>): RequestEvent["timing"] {
+function timingFromHar(ts: number, raw: Record<string, unknown>): RequestEvent["timing"] {
   const known = (v: number | null): number | null => (v !== null && Number.isFinite(v) && v >= 0 ? v : null);
   const tm = rec(raw, "timings");
   const g = (k: string): number | null => (tm === null ? null : known(num(tm, k)));
