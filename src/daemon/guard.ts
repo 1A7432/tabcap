@@ -94,7 +94,8 @@ export const STOP_RULE_NEXT = (h: { session: string; site: string | null; reques
 export const TAKEOVER_NEXT = (session: string): string =>
   `The user is operating this session's tab themselves; do not act on the page (read-only commands still work). When the user says they are done, run \`tabcap handoff continue${sessionFlag(session)}\`; or, if you know what they are doing (e.g. logging in), \`tabcap handoff wait --until-url <the URL after it>${sessionFlag(session)}\` ends it by itself (over MCP: ${MCP_CONTINUE}, ${MCP_WAIT}).`;
 
-export const TAKEOVER_QUESTION = "You are using the AI's tab; when you are done, tell the AI to continue (`tabcap handoff continue`).";
+/** The take-over question on the handoff event; outside the default session it names it (review 10-21). */
+export const takeoverQuestion = (session: string): string => `You are using the AI's tab; when you are done, tell the AI to continue (\`tabcap handoff continue${sessionFlag(session)}\`).`;
 
 /** 0.8-A: "This is <families>; " before the advice, when the tab's page was identified (identification only, docs/04 §41). */
 export const protectionPrefix = (h: Pick<Handoff, "protection">): string => (h.protection === undefined || h.protection.length === 0 ? "" : `This is ${h.protection.join(" + ")} (identified, not bypassed; a human handles it). `);
@@ -750,7 +751,7 @@ export class Guard {
   /** End a handoff: `tabcap handoff continue` (human), a handler's answer, or (0.7.5-B) a `handoff wait` condition. */
   resume(session: string, by: string, answerRef: string | null = null, condition: { kind: string; value: string } | null = null): Handoff {
     const h = this.handoffs.get(session);
-    if (h === undefined || h.state !== "waiting") throw new TabcapError("not-found", `session "${session}" is not waiting for the human`, "Nothing to continue; run `tabcap handoff status`.");
+    if (h === undefined || h.state !== "waiting") throw new TabcapError("not-found", `session "${session}" is not waiting for the human`, `Nothing to continue; run \`tabcap handoff status${sessionFlag(session)}\`.`);
     h.state = "resumed";
     h.resumedAt = Date.now();
     h.resumedBy = by;
@@ -848,7 +849,7 @@ export class Guard {
     this.emitState(session, "waiting");
     rec?.event(
       "handoff",
-      { state: "waiting", ...(h.protection === undefined ? {} : { protection: h.protection }), reason: "human-takeover", question: TAKEOVER_QUESTION, timeoutMs: null, answerRef: null, request: null, url: o.url, screenshot: null, input: { event: o.event, at: o.at } },
+      { state: "waiting", ...(h.protection === undefined ? {} : { protection: h.protection }), reason: "human-takeover", question: takeoverQuestion(session), timeoutMs: null, answerRef: null, request: null, url: o.url, screenshot: null, input: { event: o.event, at: o.at } },
       { tab: o.tab },
     );
     log.info("guard: the human took over", { session, tab: o.tab, event: o.event });
