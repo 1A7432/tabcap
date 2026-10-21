@@ -73,22 +73,35 @@ export type StatusFacts = {
 
 /**
  * `next` (0.7-E): what to do first: for a waiting session `tabcap handoff continue` once the human
- * finished (one clause per waiting session), else the first conflict's next, else null.
+ * finished (one clause per waiting session; a stop-rule wait is decided on the response first),
+ * else the first conflict's next, else null.
  */
 export type StatusAnswer = StatusFacts & { conflicts: StatusConflict[]; next: string | null };
 
 /** The top-level `next` of a status answer (pure). */
 export function nextOf(f: StatusFacts, conflicts: readonly StatusConflict[]): string | null {
   const waiting = f.sessions.filter((s) => s.state === "waiting");
-  if (waiting.length > 0) return waiting.map(waitingNext).join("; ");
+  if (waiting.length > 0) return waiting.map((s) => waitingNext(s, f)).join("; ");
   return conflicts[0]?.next ?? null;
 }
 
-/** One waiting session's clause of `next`; 0.7.1-A: on a take-over the user is already at the tab, so there is nobody to tell. */
-function waitingNext(s: StatusSession): string {
+/**
+ * One waiting session's clause of `next`; 0.7.1-A: on a take-over the user is already at the tab, so there is nobody to tell.
+ * A stop-rule wait gives the guard's own advice (guard.ts STOP_RULE_NEXT, docs/04 §18 0.6-I, §39): look at the
+ * response first, then `handoff continue` or `guard resume --site`; the request and site come from the session's
+ * own stop-rule stop (else the handoff's site and an `<r-N>` placeholder).
+ */
+function waitingNext(s: StatusSession, f: StatusFacts): string {
   const go = `\`tabcap handoff continue ${S(s.session)}\``;
+  const shot = s.screenshot === null ? "" : ` (screenshot ${s.screenshot})`;
   if (s.reason === "human-takeover") return `session ${q(s.session)}: the user took over its tab (human-takeover); do not act on the page; when they say they are done: ${go}`;
-  return `session ${q(s.session)} waits for the human (${s.reason ?? "?"}): tell the user${s.screenshot === null ? "" : ` (screenshot ${s.screenshot})`}; after they finished in the browser: ${go}`;
+  if (s.reason === "stop-rule") {
+    const own = s.guardStops.find((x) => x.reason === "stop-rule" && x.by === s.session);
+    const request = own?.request ?? "<r-N>";
+    const site = own?.site ?? f.handoff.find((h) => h.session === s.session)?.site ?? null;
+    return `session ${q(s.session)} waits (stop-rule${own === undefined ? "" : ` ${own.rule} fired on ${own.request}`})${shot}: look at the response first (\`tabcap net body ${request} ${S(s.session)}\`); go on only when the human (or you, after judging) decides to: ${go}${site === null ? "" : ` (or \`tabcap guard resume --site ${site}\`)`}`;
+  }
+  return `session ${q(s.session)} waits for the human (${s.reason ?? "?"}): tell the user${shot}; after they finished in the browser: ${go}`;
 }
 
 const q = (s: string) => JSON.stringify(s);
