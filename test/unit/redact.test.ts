@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { exportHar } from "../../src/bundle/har.ts";
 import { BundleReader } from "../../src/bundle/reader.ts";
-import { isSensitiveName, nameWords, redactBundle } from "../../src/bundle/redact.ts";
+import { newManifest } from "../../src/bundle/manifest.ts";
+import { RULES_VERSION, isSensitiveName, nameWords, redactBundle, redactView } from "../../src/bundle/redact.ts";
+import type { RawEvent } from "../../src/bundle/types.ts";
+import { isRecord } from "../../src/shared/json.ts";
 import { JWT, SECRET_SID, buildRichBundle } from "./_fixtures.ts";
 import { buildBundle } from "./_analyze.ts";
 
@@ -103,7 +106,7 @@ describe("redaction (docs/04 §8)", () => {
 
   test("copy has manifest.redaction and recomputed counts; source unchanged; salt only in source exports/", async () => {
     const { src, out, res, salt, before, copy, orig } = await redactedRich();
-    expect(copy.manifest.redaction).toEqual({ rules: "default@2", applied: 1760500999000 });
+    expect(copy.manifest.redaction).toEqual({ rules: "default@3", applied: 1760500999000 });
     expect(orig.manifest.redaction).toBeNull();
     expect(copy.manifest.counts.events).toBe(orig.events.length);
     expect(copy.manifest.counts.requests).toBe(orig.manifest.counts.requests);
@@ -138,5 +141,109 @@ describe("redaction (docs/04 §8)", () => {
     const src = tmp("tabcap-rich-");
     await buildRichBundle(src);
     await expect(redactBundle(src, src)).rejects.toMatchObject({ code: "conflict" });
+  });
+});
+
+describe("default@3: every event kind is walked (review 2026-10-21)", () => {
+  const TOKEN = "SECRETTOKEN123";
+  const OTHER = "OTHERSECRET99";
+  const salt = "s3";
+  const env = { ts: 1, mono: null, actor: "ai" as const, tab: "t1", cmd: null };
+  const ph = (v: string, kind = "secret") => placeholder(kind, salt, v);
+  const blob = `sha256:${"a".repeat(64)}`;
+
+  function view() {
+    const manifest = newManifest({ created: 1, notes: "shared with demo@example.com" });
+    manifest.producer.browser = {
+      name: "Chrome",
+      version: "155.0.1.2",
+      args: ["--user-data-dir=<profile>", "--remote-debugging-pipe", `--app=https://a.example/start?session=${OTHER}`],
+      extraArgs: ["--lang=zh", "--note=ask demo@example.com"],
+      dropArgs: ["--disable-extensions"],
+    };
+    const events: RawEvent[] = [
+      { seq: 1, ...env, kind: "cmd", phase: "start", id: "c-1", argv: ["navigate", `https://a.example/cb?token=${TOKEN}`], input: { url: `https://a.example/cb?token=${TOKEN}`, note: "for demo@example.com" } },
+      { seq: 2, ...env, kind: "request", id: "r-2", method: "GET", type: "document", url: `https://a.example/cb?token=${TOKEN}`, urlFragment: null, outcome: "failed", error: { text: `net::ERR at https://a.example/x?code=${TOKEN}` }, request: { headers: {}, headersSource: "event", postData: null }, response: null },
+      { seq: 3, ...env, kind: "cmd", phase: "end", ref: "c-1", ok: false, durationMs: 3, error: { code: "page", message: `the request failed at /cb?code=${TOKEN}` }, outputSummary: { url: `https://a.example/cb?token=${TOKEN}`, text: `token was ${TOKEN}` } },
+      { seq: 4, ...env, kind: "guard", event: "end", site: "a", account: null, detail: { rule: "json:$.code!=0", detail: `$.data is "${TOKEN}"`, request: "r-2", url: `https://a.example/api?access_token=${OTHER}&next=${TOKEN}`, status: 200 } },
+      { seq: 5, ...env, kind: "console", level: "log", source: "console-api", text: `jwt ${JWT} mail demo@example.com`, args: ["demo@example.com", "https://a.example/x?sid=CONSOLESID77"], url: "https://a.example/", line: 1, col: 1, stack: null },
+      { seq: 6, ...env, kind: "handoff", state: "resumed", reason: "human-takeover", question: "Log in as demo@example.com, then continue.", timeoutMs: null, answerRef: null, condition: { kind: "url", value: `/home?sid=${TOKEN}` } },
+      { seq: 7, ...env, kind: "protection", nav: "n-1", url: `https://a.example/cb?token=${TOKEN}`, detections: [{ family: "x", name: "X", category: "waf", confidence: "high", matched: [{ rule: "r1", layer: "edge", kind: "request", where: ["r-2 https://a.example/u/demo@example.com", `cookie ${TOKEN}`] }] }] },
+      { seq: 8, ...env, kind: "screenshot", blob, format: "png", width: 1, height: 1, scale: 1, reason: "handoff", nav: null },
+    ];
+    return { manifest, events, readBlob: () => null };
+  }
+
+  const byKind = (events: readonly RawEvent[], seq: number): Record<string, unknown> => {
+    const e = events.find((x) => x.seq === seq);
+    if (e === undefined) throw new Error(`event ${seq} missing`);
+    return e;
+  };
+  const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
+
+  test("cmd argv / input / outputSummary / error, guard detail, console, handoff, protection and manifest args are redacted", () => {
+    const v = redactView(view(), { salt, now: () => 9 });
+    expect(RULES_VERSION).toBe("default@3");
+    expect(v.manifest.redaction).toEqual({ rules: "default@3", applied: 9 });
+    const t = ph(TOKEN);
+    const o = ph(OTHER);
+    const mail = ph("demo@example.com", "email");
+
+    const start = byKind(v.events, 1);
+    expect(start["argv"]).toEqual(["navigate", `https://a.example/cb?token=${t}`]);
+    expect(start["input"]).toEqual({ url: `https://a.example/cb?token=${t}`, note: `for ${mail}` });
+
+    const req = byKind(v.events, 2);
+    expect(req["url"]).toBe(`https://a.example/cb?token=${t}`);
+    expect(req["error"]).toEqual({ text: `net::ERR at https://a.example/x?code=${t}` });
+
+    const end = byKind(v.events, 3);
+    expect(end["error"]).toEqual({ code: "page", message: `the request failed at /cb?code=${t}` });
+    expect(end["outputSummary"]).toEqual({ url: `https://a.example/cb?token=${t}`, text: `token was ${t}` });
+
+    const guard = byKind(v.events, 4);
+    expect(guard["detail"]).toEqual({ rule: "json:$.code!=0", detail: `$.data is "${t}"`, request: "r-2", url: `https://a.example/api?access_token=${o}&next=${t}`, status: 200 });
+
+    const con = byKind(v.events, 5);
+    expect(con["text"]).toBe(`jwt ${ph(JWT, "jwt")} mail ${mail}`);
+    expect(con["args"]).toEqual([mail, `https://a.example/x?sid=${ph("CONSOLESID77")}`]);
+
+    const hand = byKind(v.events, 6);
+    expect(hand["question"]).toBe(`Log in as ${mail}, then continue.`);
+    expect(hand["condition"]).toEqual({ kind: "url", value: `/home?sid=${t}` });
+
+    const prot = byKind(v.events, 7);
+    const det = Array.isArray(prot["detections"]) ? rec(prot["detections"][0]) : {};
+    const m0 = Array.isArray(det["matched"]) ? rec(det["matched"][0]) : {};
+    expect(m0["where"]).toEqual([`r-2 https://a.example/u/${mail}`, `cookie ${t}`]);
+    expect(prot["url"]).toBe(`https://a.example/cb?token=${t}`);
+
+    const b = v.manifest.producer.browser;
+    expect(b?.args).toEqual(["--user-data-dir=<profile>", "--remote-debugging-pipe", `--app=https://a.example/start?session=${o}`]);
+    expect(b?.extraArgs).toEqual(["--lang=zh", `--note=ask ${mail}`]);
+    expect(b?.dropArgs).toEqual(["--disable-extensions"]);
+    expect(v.manifest.notes).toBe(`shared with ${mail}`);
+
+    const all = JSON.stringify({ m: v.manifest, e: v.events });
+    for (const secret of [TOKEN, OTHER, "CONSOLESID77", "demo@example.com", JWT]) expect([secret, all.includes(secret)]).toEqual([secret, false]);
+  });
+
+  test("ids, refs, blob refs and envelope fields stay as recorded", () => {
+    const src = view();
+    const v = redactView(src, { salt });
+    expect(v.events.map((e) => [e.seq, e.kind, e.tab, e.cmd, e.ts, e.actor])).toEqual(src.events.map((e) => [e.seq, e.kind, e.tab, e.cmd, e.ts, e.actor]));
+    expect(byKind(v.events, 1)["id"]).toBe("c-1");
+    expect(byKind(v.events, 3)["ref"]).toBe("c-1");
+    expect(rec(byKind(v.events, 4)["detail"])["request"]).toBe("r-2");
+    expect(byKind(v.events, 7)["nav"]).toBe("n-1");
+    expect(byKind(v.events, 8)["blob"]).toBe(blob);
+    expect(byKind(v.events, 4)["site"]).toBe("a");
+  });
+
+  test("HAR --embed-events carries the same redacted events", () => {
+    const har = exportHar(view(), { redact: { salt }, embedEvents: true }).har;
+    const text = JSON.stringify(har.log._events ?? []);
+    expect(text).toContain(`token=${ph(TOKEN)}`);
+    for (const secret of [TOKEN, OTHER, "CONSOLESID77", "demo@example.com"]) expect([secret, text.includes(secret)]).toEqual([secret, false]);
   });
 });
