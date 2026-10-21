@@ -157,9 +157,10 @@ function cmdChain(argv: readonly string[]): Outcome {
   }
   const a = parsed.args;
   const bundle = optStr(a["bundle"]) ?? "";
-  const result = redactChain(chainOf(DepsGraph.open(bundle), bundle, { request: optStr(a["request"]), session: optStr(a["bundleSession"]) }), a["reveal"] === true);
+  const reveal = a["reveal"] === true;
+  const result = redactChain(chainOf(DepsGraph.open(bundle), bundle, { request: optStr(a["request"]), session: optStr(a["bundleSession"]) }), reveal);
   if (a["text"] !== true) return { code: 0, envelope: ok(result) };
-  return { code: 0, envelope: ok(result), text: renderChainText(result) };
+  return { code: 0, envelope: ok(result), text: renderChainText(result, { reveal }) };
 }
 
 function cmdRecon(argv: readonly string[]): Outcome {
