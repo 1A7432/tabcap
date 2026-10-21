@@ -116,15 +116,31 @@ describe.skipIf(!enabled)("tabcap 0.7.5-A L2 (end rules)", () => {
     // the range's log (oracle): what was asked, in order, and what it answered
     expect(site.api.map((a) => `${a.page}:${a.code}`)).toEqual(["1:0", "2:0", "3:0", "4:203", "1:0", "1:0", "2:0", "3:0", "4:203", "bad:500", "bad:500"]);
     const evs = events(bundle);
-    const apiReqs = evs.filter((e) => e["kind"] === "request" && s(e["url"]).includes("/s64/api"));
-    const idOf = (i: number) => apiReqs[i]?.["id"];
+    // Each request picked by what it is, not by its place in events.jsonl: a request's
+    // seq is given when its body is written, so it can come after a later one's (0.7.4).
+    const one = (what: string, hits: Record<string, unknown>[]): unknown => {
+      expect([what, hits.length]).toEqual([what, 1]);
+      return hits[0]?.["id"];
+    };
+    const apiReqs = (page: string) => evs.filter((e) => e["kind"] === "request" && s(e["url"]).endsWith(`/s64/api?page=${page}`));
+    const fetchCmd = (endOn: boolean) =>
+      one(
+        `fetch page=bad${endOn ? " --end-on" : ""} command`,
+        evs.filter((e) => e["kind"] === "cmd" && e["phase"] === "start" && rec(e["input"])["action"] === "fetch" && s(e["argv"]).includes("/s64/api?page=bad") && s(e["argv"]).includes("--end-on") === endOn),
+      );
+    const badCmd = fetchCmd(false);
+    const badEndOnCmd = fetchCmd(true);
+    const fetch4 = one("fetch page=4", apiReqs("4").filter((e) => "fetchId" in e));
+    const page4 = one("the page's own page=4", apiReqs("4").filter((e) => !("fetchId" in e)));
+    const badReq = one("fetch page=bad", apiReqs("bad").filter((e) => e["cmd"] === badCmd));
+    const badEndOnReq = one("fetch page=bad --end-on", apiReqs("bad").filter((e) => e["cmd"] === badEndOnCmd));
     const guard = evs.filter((e) => e["kind"] === "guard");
     expect(guard.map((g) => [g["event"], g["site"], g["rule"], g["request"]])).toEqual([
-      ["end", SITE, "json:$.code=203", idOf(3)],
-      ["end", SITE, "json:$.code=203", idOf(8)],
-      ["breaker", SITE, STOP, idOf(9)],
-      ["resume", SITE, STOP, idOf(9)],
-      ["end", SITE, "json:$.code=500", idOf(10)],
+      ["end", SITE, "json:$.code=203", fetch4],
+      ["end", SITE, "json:$.code=203", page4],
+      ["breaker", SITE, STOP, badReq],
+      ["resume", SITE, STOP, badReq],
+      ["end", SITE, "json:$.code=500", badEndOnReq],
     ]);
     expect(rec(guard[0]?.["detail"])).toMatchObject({ detail: "$.code is 203", status: 200 });
     expect(typeof rec(guard[0]?.["detail"])["fetchId"]).toBe("string");
