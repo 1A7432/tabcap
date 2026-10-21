@@ -74,23 +74,32 @@ export function originOf(url: string): string | null {
   }
 }
 
-export const CONTINUE_NEXT =
-  "Ask the human to complete the verification in the browser; then `tabcap handoff wait --until-url <a URL only reached once they are done>` (or --until-cookie / --until-text) ends it by itself, or run `tabcap handoff continue` when they tell you they are done; until then do not act on this site.";
+/**
+ * Owner 10-21: the commands of a `next` carry `--session <s>` unless the session is the default one,
+ * and a next naming `handoff wait` / `handoff continue` ends with their MCP tools (`tabcap_run`
+ * does not run `handoff wait`, src/mcp/tools.ts EXCLUDED).
+ */
+export const sessionFlag = (session: string): string => (session === "default" ? "" : ` --session ${session}`);
+export const MCP_WAIT = "tabcap_handoff_wait";
+export const MCP_CONTINUE = "tabcap_handoff_continue";
+
+export const CONTINUE_NEXT = (session: string): string =>
+  `Ask the human to complete the verification in the browser; then \`tabcap handoff wait --until-url <a URL only reached once they are done>${sessionFlag(session)}\` (or --until-cookie / --until-text) ends it by itself, or run \`tabcap handoff continue${sessionFlag(session)}\` when they tell you they are done; until then do not act on this site (over MCP: ${MCP_WAIT}, ${MCP_CONTINUE}).`;
 
 /** 0.6-I: what to do after a site stop rule put the session into waiting. */
-export const STOP_RULE_NEXT = (h: { site: string | null; request: string | null }) =>
-  `A site stop rule fired; look at the response first (\`tabcap net body ${h.request ?? "<r-N>"}\`). Go on only when the human (or you, after judging) decides to: \`tabcap handoff continue\`${h.site === null ? "" : ` (or \`tabcap guard resume --site ${h.site}\`)`}; until then do not act on this site.`;
+export const STOP_RULE_NEXT = (h: { session: string; site: string | null; request: string | null }) =>
+  `A site stop rule fired; look at the response first (\`tabcap net body ${h.request ?? "<r-N>"}${sessionFlag(h.session)}\`). Go on only when the human (or you, after judging) decides to: \`tabcap handoff continue${sessionFlag(h.session)}\`${h.site === null ? "" : ` (or \`tabcap guard resume --site ${h.site}\`)`}; until then do not act on this site (over MCP: ${MCP_CONTINUE}).`;
 
 /** 0.7.1-A: what to do after tabcap saw the human operate one of the session's tabs. */
-export const TAKEOVER_NEXT =
-  "The user is operating this session's tab themselves; do not act on the page (read-only commands still work). When the user says they are done, run `tabcap handoff continue`; or, if you know what they are doing (e.g. logging in), `tabcap handoff wait --until-url <the URL after it>` ends it by itself.";
+export const TAKEOVER_NEXT = (session: string): string =>
+  `The user is operating this session's tab themselves; do not act on the page (read-only commands still work). When the user says they are done, run \`tabcap handoff continue${sessionFlag(session)}\`; or, if you know what they are doing (e.g. logging in), \`tabcap handoff wait --until-url <the URL after it>${sessionFlag(session)}\` ends it by itself (over MCP: ${MCP_CONTINUE}, ${MCP_WAIT}).`;
 
 export const TAKEOVER_QUESTION = "You are using the AI's tab; when you are done, tell the AI to continue (`tabcap handoff continue`).";
 
 /** 0.8-A: "This is <families>; " before the advice, when the tab's page was identified (identification only, docs/04 §41). */
 export const protectionPrefix = (h: Pick<Handoff, "protection">): string => (h.protection === undefined || h.protection.length === 0 ? "" : `This is ${h.protection.join(" + ")} (identified, not bypassed; a human handles it). `);
 
-const nextOf = (h: Handoff): string => protectionPrefix(h) + (h.reason === "stop-rule" ? STOP_RULE_NEXT(h) : h.reason === "human-takeover" ? TAKEOVER_NEXT : CONTINUE_NEXT);
+const nextOf = (h: Handoff): string => protectionPrefix(h) + (h.reason === "stop-rule" ? STOP_RULE_NEXT(h) : h.reason === "human-takeover" ? TAKEOVER_NEXT(h.session) : CONTINUE_NEXT(h.session));
 
 export type HandlerState = {
   plugin: string;
@@ -177,12 +186,12 @@ export function waitingError(h: Handoff, c: LiveCtx = SHOWN): TabcapError {
   const url = redactUrl(h.url, c);
   if (h.reason === "stop-rule") {
     const detail = h.ruleDetail === undefined ? `HTTP ${h.status ?? "?"}` : redactRuleDetail(h.ruleDetail, c);
-    return new TabcapError("guard.stopped", `session "${h.session}" is stopped: site rule ${h.rule ?? "?"} fired on ${h.request ?? "?"} (${detail})`, protectionPrefix(h) + STOP_RULE_NEXT(h), handoffView(h, c));
+    return new TabcapError("guard.stopped", `session "${h.session}" is stopped: site rule ${h.rule ?? "?"} fired on ${h.request ?? "?"} (${detail})`, nextOf(h), handoffView(h, c));
   }
   if (h.reason === "human-takeover") {
-    return new TabcapError("waiting", `session "${h.session}" is waiting: the user took over tab ${h.tab} (${h.input?.event ?? "input"} at ${url})`, protectionPrefix(h) + TAKEOVER_NEXT, handoffView(h, c));
+    return new TabcapError("waiting", `session "${h.session}" is waiting: the user took over tab ${h.tab} (${h.input?.event ?? "input"} at ${url})`, nextOf(h), handoffView(h, c));
   }
-  return new TabcapError("waiting", `session "${h.session}" is waiting for the human: ${h.reason} at ${url} (HTTP ${h.status ?? "?"})`, protectionPrefix(h) + CONTINUE_NEXT, handoffView(h, c));
+  return new TabcapError("waiting", `session "${h.session}" is waiting for the human: ${h.reason} at ${url} (HTTP ${h.status ?? "?"})`, nextOf(h), handoffView(h, c));
 }
 
 export type GuardDeps = {
@@ -305,11 +314,11 @@ export type FetchStop = {
   reason: "fetch-stop" | "stop-rule";
 };
 
-export const FETCH_RESUME_NEXT = (site: string) =>
-  `Look at the stopped response first (\`tabcap net body <r-N>\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${site}\`.`;
+export const FETCH_RESUME_NEXT = (s: Pick<FetchStop, "site" | "session" | "request">) =>
+  `Look at the stopped response first (\`tabcap net body ${s.request}${sessionFlag(s.session)}\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${s.site}\`.`;
 
 export function fetchStoppedError(s: FetchStop): TabcapError {
-  return new TabcapError("guard.stopped", `fetches on ${s.site} are stopped: ${s.reason === "stop-rule" ? "site " : ""}rule ${s.rule} fired on ${s.request} (${s.detail})`, FETCH_RESUME_NEXT(s.site), {
+  return new TabcapError("guard.stopped", `fetches on ${s.site} are stopped: ${s.reason === "stop-rule" ? "site " : ""}rule ${s.rule} fired on ${s.request} (${s.detail})`, FETCH_RESUME_NEXT(s), {
     site: s.site,
     reason: s.reason,
     rule: s.rule,
