@@ -12,12 +12,12 @@
 
 | 状态 | docs 标记 | NOTES 线程 | 合计 |
 |---|---|---|---|
-| 已关闭 | 18 | 13 | 31 |
+| 已关闭 | 18 | 30 | 48 |
 | 仍开 | 25 | 12 | 37 |
 | 不再追 | 32 | 8 | 40 |
 | 需作者本机 | 8 | 3 | 11 |
 | 需真实站点 | 7 | 2 | 9 |
-| 已排期 | 0 | 17 | 17 |
+| 已排期 | 0 | 0 | 0 |
 | 合计 | 90 | 55 | 145 |
 
 ## 3. docs 里的标记
@@ -122,7 +122,7 @@
 | 1 | L512 发布 0.7.1 | 作者真实鼠标点击（Cloudflare 验证框、npm 安全密钥）被识别为接管 | 已关闭 | 这是记下的真人实测；其余真人输入见 03:37 |
 | 2 | L512 发布 0.7.1 | `tabcap wait` 一次只收一个条件；npm 的 2FA 页 URL 不变、只能看文字 | 不再追 | 0.7.5-B 的 `handoff wait --until-*`（含 `--until-text`）覆盖了交接的这一用法 |
 | 3 | L512 发布 0.7.1 | Windows 单测偶发超时要不要单独放宽到 30 s | 仍开 | 待作者定 |
-| 4 | L517 0.7.2-A | Windows 上 `Bun.spawn` 能否直接跑 `npm.cmd` | 已排期（发布） | — |
+| 4 | L517 0.7.2-A | Windows 上 `Bun.spawn` 能否直接跑 `npm.cmd` | 已关闭（第一波发布包，PR #31） | — |
 | 5 | L517 0.7.2-A | npm 渠道的真实升级（全局 prefix 无写权限、npm 由 nvm 管理） | 需作者本机 | — |
 | 6 | L517 0.7.2-A | `TABCAP_NPM_REGISTRY` 只改查询地址，不传给 `npm install` | 仍开 | 本波没有包领 |
 | 7 | L522 发布 0.7.2 | 发布 Release、新建公开 tap 仓库要作者在网页上做 | 已关闭 | NOTES 10-19「Homebrew 分发上线」格 |
@@ -138,8 +138,8 @@
 | 17 | L547 合并后 CI 追绿 | 「测试一返回就读录制」的时序断言，再出现按同样套路改 | 仍开 | 常规做法；`scripts/ci-flakes.ts` 记台账 |
 | 18 | L552 Homebrew 分发上线 | 本机 `brew install 1A7432/tabcap/tabcap` 的安装验证 | 已关闭 | 0.7.4 发布格：本机 `brew upgrade tabcap` 到 0.7.4，`tabcap update --check` 识别为 homebrew 渠道（实测） |
 | 19 | L557 update 加 Homebrew 渠道 | 真实 `brew upgrade` 端到端走一遍 | 已关闭 | 同上 |
-| 20 | L562 沙箱里的 Chrome | Linux `No usable sandbox!` 标志行没在 bubblewrap 里实测 | 已排期（发布） | — |
-| 21 | L562 沙箱里的 Chrome | 沙箱内客户端能否连沙箱外守护进程的 socket（各家不同） | 已排期（发布） | 现在只在文档里建议整个 tabcap 放沙箱外 |
+| 20 | L562 沙箱里的 Chrome | Linux `No usable sandbox!` 标志行没在 bubblewrap 里实测 | 已关闭（第一波发布包，PR #31） | — |
+| 21 | L562 沙箱里的 Chrome | 沙箱内客户端能否连沙箱外守护进程的 socket（各家不同） | 已关闭（第一波发布包，PR #31） | 现在只在文档里建议整个 tabcap 放沙箱外 |
 | 22 | L567 CI 提速 | 分片后的实际总时长 | 已关闭 | 0.7.4 发布格：分片后 CI 4 分 39 秒全绿（实测） |
 | 23 | L572 0.7.4 发布 | 用 `tabcap update` 真正跑一次 `brew upgrade` | 已关闭 | 0.7.5 发布格：`tabcap update` 走 homebrew 渠道跑了 `brew upgrade tabcap`，回 `installed`，版本 0.7.5（实测） |
 | 24 | L577 0.7.5-A / B | 站点级 `json:$.code!=0` 在 HTML 文档上命中 | 已关闭 | 0.7.5-C：`json:` 规则只评判 JSON 正文 |
@@ -148,12 +148,12 @@
 | 27 | L577 0.7.5-A / B | Python `ListEnd` 只用假守护进程测过，没接真 e2e | 仍开 | — |
 | 28 | L582 0.7.5-C | 「API 回 HTML 就停」改由 `text:^\s*<` 写，没加新规则种类 | 不再追 | 设计决定，已写进文档 |
 | 29 | L587 0.7.5 发布 | `~/.claude/skills/tabcap` 是未改动的 0.7.3 副本，覆盖与否 | 需作者本机 | 作者本机的状态；发布包的悬空线程清单也列了它 |
-| 30 | L587 0.7.5 发布 | Windows `npm.cmd` 路径 | 已排期（发布） | 同 L517 |
-| 31 | L587 0.7.5 发布 | Linux 沙箱标志行 | 已排期（发布） | 同 L562 |
-| 32 | L592 0.7.6-A | 本机 Zig 0.17 编不了 wireprint，v04w 本机跑不了 | 已排期（发布） | — |
+| 30 | L587 0.7.5 发布 | Windows `npm.cmd` 路径 | 已关闭（第一波发布包，PR #31） | 同 L517 |
+| 31 | L587 0.7.5 发布 | Linux 沙箱标志行 | 已关闭（第一波发布包，PR #31） | 同 L562 |
+| 32 | L592 0.7.6-A | 本机 Zig 0.17 编不了 wireprint，v04w 本机跑不了 | 已关闭（第一波发布包，PR #31） | — |
 | 33 | L592 0.7.6-A | 线指纹画像缓存按参数哈希失效，第一次 `wire probe` 会重采 | 仍开 | — |
 | 34 | L592 0.7.6-A | `ext` 模式的 webdriver 值没量 | 不再追 | 同 04:1029 |
-| 35 | L597 0.7.6 发布 | `ext` 模式 webdriver 值；本机 Zig 0.17 跑不了 v04w | 已排期（发布） | ext 那半不再追（同 04:1029）；Zig 那半同 L592 |
+| 35 | L597 0.7.6 发布 | `ext` 模式 webdriver 值；本机 Zig 0.17 跑不了 v04w | 已关闭（第一波发布包，PR #31） | ext 那半不再追（同 04:1029）；Zig 那半同 L592 |
 | 36 | L602 CI 稳定 | v06j 的 3 s 余量是推断，没有真实时延证据 | 仍开 | 等下次 CI 失败时看 `checks` 计数 |
 | 37 | L602 CI 稳定 | 其他 e2e 里按 `net list` 顺序断言的地方没逐个审 | 仍开 | 本波没有包领 |
 | 38 | L607 0.8-A1 | F5 BIG-IP ASM 只有 `TS` 短前缀，进 backlog；AWS `challenge.js` 没来源，不收 | 不再追 | 在 backlog / 不收 |
@@ -161,16 +161,16 @@
 | 40 | L607 0.8-A1 | 真实站点上的命中与误报 | 需真实站点 | 同 04:1067 |
 | 41 | L612 0.8-A2 / A3 | 实时探测不读响应头与状态码，521 / 412 规则只在 recon 里生效 | 不再追 | 设计取舍，`04` §41.3 已写明 |
 | 42 | L612 0.8-A2 / A3 | 每次导航多一次探测对其他 e2e 时序的影响 | 已关闭 | 0.8.0 发布格：PR #25 第二、三轮 CI 全绿；探测在主世界执行的问题另有 Chrome 包处理 |
-| 43 | L617 PR #25 第一轮 CI | v04w 的 echo 竞态没证实，要在 CI 上 flake-hunt | 已排期（发布） | — |
-| 44 | L622 0.8.0 发布 | v04w 的 echo 竞态 | 已排期（发布） | 同 L617 |
-| 45 | L628 0.8.1-A | 本机 Zig 0.17 编不了 wireprint | 已排期（发布） | 同 L592 |
+| 43 | L617 PR #25 第一轮 CI | v04w 的 echo 竞态没证实，要在 CI 上 flake-hunt | 已关闭（第一波发布包，PR #31） | — |
+| 44 | L622 0.8.0 发布 | v04w 的 echo 竞态 | 已关闭（第一波发布包，PR #31） | 同 L617 |
+| 45 | L628 0.8.1-A | 本机 Zig 0.17 编不了 wireprint | 已关闭（第一波发布包，PR #31） | 同 L592 |
 | 46 | L628 0.8.1-A | 作者实际要加的那几个参数本身的效果 | 需作者本机 | 同 05:390 |
-| 47 | L635 遗留修正 | `fetch --batch` 进入 waiting 后继续发；交接标签关闭即 no-tab；human-takeover 不补探测；§41.3「trace stop 写汇总」；`--until-text` 主帧主世界轮询；`next` 不带 `--session`；CLI 与守护进程无版本握手 | 已排期（guard） | — |
-| 48 | L635 遗留修正 | 导出打码按 kind 白名单、敏感头集合比实时窄；实时打码不覆盖交接与 status；两套 query 打码；两套 `redactDossier` | 已排期（打码） | — |
-| 49 | L635 遗留修正 | `--proxy` userinfo 与 `--chrome-arg` 路径进 manifest；`--drop-chrome-arg` 能删代理开关；`--chrome-arg` 照传危险开关；实时探测在主世界执行 | 已排期（Chrome） | — |
+| 47 | L635 遗留修正 | `fetch --batch` 进入 waiting 后继续发；交接标签关闭即 no-tab；human-takeover 不补探测；§41.3「trace stop 写汇总」；`--until-text` 主帧主世界轮询；`next` 不带 `--session`；CLI 与守护进程无版本握手 | 已关闭（第一波 guard 包，PR #31） | — |
+| 48 | L635 遗留修正 | 导出打码按 kind 白名单、敏感头集合比实时窄；实时打码不覆盖交接与 status；两套 query 打码；两套 `redactDossier` | 已关闭（第一波打码包，PR #31） | — |
+| 49 | L635 遗留修正 | `--proxy` userinfo 与 `--chrome-arg` 路径进 manifest；`--drop-chrome-arg` 能删代理开关；`--chrome-arg` 照传危险开关；实时探测在主世界执行 | 已关闭（第一波 Chrome 包，PR #31） | — |
 | 50 | L635 遗留修正 | config.json 解析失败静默当空、`setup` 整份覆写；未知键静默忽略 | 已关闭（第三波 config 包，分支 w3/config） | 解析不出（或顶层不是对象）时每个读配置的命令回 `bad-input` 并给行列，`setup` 不改写，回放键规则走同一个 `readConfigRaw`；未知键进 `warnings`（`browser start` / `browser status`、`status` 的 `config.warnings`、`setup`），键表 `CONFIG_KEYS` 生成 `skills/tabcap/references/config.md`；`04` §44，单测 `config-strict` / `config-keys` |
 | 51 | L635 遗留修正 | 三套 siteOf；`tools/snapshot.ts` 循环依赖；三套 JSON 路径方言；`replay check --live` 绕过 guard | 已关闭（第二波结构包，PR review-wave2） | — |
-| 52 | L635 遗留修正 | Scoop hash 跟不上版本；release.yml 不要求同一提交 CI 全绿；NOTES 悬空线程（brew upgrade、Windows npm.cmd、Linux 沙箱行、`~/.claude/skills`、v04w） | 已排期（发布） | brew 两条按上表已关闭 |
-| 53 | L635 遗留修正 | types.ts 事件类型已非契约；CLI 三条解析路径；store 只增不减与占位表；HAR `--embed-events` 往返；测试替身重复 | 已排期（types / cli / store / testhelpers） | 本波另外四个包 |
+| 52 | L635 遗留修正 | Scoop hash 跟不上版本；release.yml 不要求同一提交 CI 全绿；NOTES 悬空线程（brew upgrade、Windows npm.cmd、Linux 沙箱行、`~/.claude/skills`、v04w） | 已关闭（第一波发布包，PR #31） | brew 两条按上表已关闭 |
+| 53 | L635 遗留修正 | types.ts 事件类型已非契约；CLI 三条解析路径；store 只增不减与占位表；HAR `--embed-events` 往返；测试替身重复 | 已关闭（第二/三波，PR #32 / #33） | 本波另外四个包 |
 | 54 | L635 遗留修正 | `bundle info --usage` 按 actor 计数要加 `human` | 仍开 | 本波没有包领 |
 | 55 | L635 遗留修正 | docs/04 24 节「待作者审」；docs/03 §5 描述不存在的扩展；`test:range` / `verify` 占位；docs/05 与 docs/09 的 s41 / s42 撞号 | 已关闭 | 本包（文档与流程）：作者 10-21 批量签收、`03` 标状态、删占位脚本、改号并建 `05` §19 场景索引 |
