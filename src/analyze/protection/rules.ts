@@ -85,8 +85,84 @@ function optStr(o: Record<string, unknown>, k: string, c: Ctx, field: string, ma
   return o[k] === undefined ? null : reqStr(o, k, c, field, max);
 }
 
+/** The quantifier at `j` (`+`, `*`, `?`, `{n}`, `{n,}`, `{n,m}`, with a lazy `?`): its length, whether it is unbounded, whether it may match nothing. */
+function quantifierAt(src: string, j: number): { len: number; unbounded: boolean; optional: boolean } | null {
+  const ch = src[j];
+  let q: { len: number; unbounded: boolean; optional: boolean } | null = null;
+  if (ch === "+") q = { len: 1, unbounded: true, optional: false };
+  else if (ch === "*") q = { len: 1, unbounded: true, optional: true };
+  else if (ch === "?") q = { len: 1, unbounded: false, optional: true };
+  else if (ch === "{") {
+    const m = /^\{(\d+)(,(\d*))?\}/.exec(src.slice(j));
+    if (m !== null) q = { len: m[0].length, unbounded: m[2] !== undefined && m[3] === "", optional: Number(m[1]) === 0 };
+  }
+  if (q !== null && src[j + q.len] === "?") q = { ...q, len: q.len + 1 };
+  return q;
+}
+
+/**
+ * Review 10-21 (docs/04 §41.1): does the regex repeat, without bound, a group whose match can end in an
+ * unbounded repeat (`(a+)+`, `(.*)*`, `(\\w+\\s?)*`, `(?:x|y+)*`, `(a+){2,}`)? Such a group can split one
+ * stretch of page text between iterations in exponentially many ways. A group whose iterations end in a
+ * required atom (`([a-z0-9-]+\\.)*`, the usual subdomain pattern) is fine. Escapes and character classes
+ * are skipped. Not a complete ReDoS check: overlapping alternatives such as `(a|aa)+` pass.
+ */
+export function nestedQuantifier(src: string): boolean {
+  // Per open group: does an earlier alternative / the current one end in an unbounded repeat?
+  const groups: Array<{ anyTail: boolean; tail: boolean }> = [];
+  const top = { anyTail: false, tail: false };
+  const cur = (): { anyTail: boolean; tail: boolean } => groups[groups.length - 1] ?? top;
+  /** An atom ending at `j - 1` (`endsUnbounded`: a group whose match can end in an unbounded repeat); returns the index after its quantifier, -1 when nested. */
+  const atom = (j: number, endsUnbounded: boolean): number => {
+    const q = quantifierAt(src, j);
+    const c = cur();
+    if (q?.unbounded === true) {
+      if (endsUnbounded) return -1;
+      c.tail = true;
+    } else if (q !== null && q.optional) c.tail = c.tail || endsUnbounded;
+    else c.tail = endsUnbounded;
+    return j + (q?.len ?? 0);
+  };
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === "\\") {
+      i = atom(i + 2, false);
+    } else if (ch === "[") {
+      let j = i + 1;
+      if (src[j] === "^") j++;
+      if (src[j] === "]") j++;
+      while (j < src.length && src[j] !== "]") j += src[j] === "\\" ? 2 : 1;
+      i = atom(j + 1, false);
+    } else if (ch === "(") {
+      groups.push({ anyTail: false, tail: false });
+      i++;
+      // (?: (?= (?! (?<= (?<! (?<name>
+      if (src[i] === "?") {
+        const m = /^\?(?:[:=!]|<[=!]|<[A-Za-z_$][\w$]*>)/.exec(src.slice(i));
+        i += m === null ? 1 : m[0].length;
+      }
+    } else if (ch === ")") {
+      const g = groups.pop();
+      i = atom(i + 1, g !== undefined && (g.anyTail || g.tail));
+    } else if (ch === "|") {
+      const c = cur();
+      c.anyTail = c.anyTail || c.tail;
+      c.tail = false;
+      i++;
+    } else if (ch === "^" || ch === "$") {
+      i++;
+    } else {
+      i = atom(i + 1, false);
+    }
+    if (i < 0) return true;
+  }
+  return false;
+}
+
 function regex(src: string, c: Ctx, field: string): RegExp {
   if (src.length > MAX_REGEX) bad(c, field, `a regex of at most ${MAX_REGEX} characters`);
+  if (nestedQuantifier(src)) bad(c, field, "a nested unbounded quantifier such as (a+)+ or (.*)* (it can backtrack for minutes on page text); repeat the group a bounded number of times or drop the inner + / *");
   try {
     return new RegExp(src, "i");
   } catch (e) {
