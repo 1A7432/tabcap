@@ -164,7 +164,7 @@ Example: `tabcap site add example --url https://example.com/login --user alice`
 |---|---|---|
 | `--url <entry>` |  | entry URL of the site (required) |
 | `--user <username>` |  | account username (not a secret: shown in listings) (required) |
-| `--domains <a,b>` |  | comma list of the site's domains (default: the entry URL's host) |
+| `--domains <a,b>` |  | comma list of the site's domains (default: the entry URL's host); subdomains count, a leading dot is dropped |
 | `--notes <text>` |  | free-text note |
 | `--password-stdin` |  | read the password from stdin (else an interactive prompt; never an argument) |
 

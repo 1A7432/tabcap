@@ -10,7 +10,7 @@ import { TabcapError } from "../shared/envelope.ts";
 import { readSiteGuards, type SiteGuardConfig } from "../shared/config.ts";
 import { log } from "../shared/log.ts";
 import { parseStopRule, type StopRule } from "./fetch/stoprules.ts";
-import { siteOf } from "./tools/fetch.ts";
+import { siteOf } from "../shared/sites.ts";
 import type { Daemon } from "./state.ts";
 
 /** The parsed rules of one store site; `endRules` (0.7.5-A, docs/04 §38) are checked before the stop rules. */

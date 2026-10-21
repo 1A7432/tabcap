@@ -9,6 +9,7 @@
 // the cookies the local site set.
 
 import { isRecord } from "../../shared/json.ts";
+import { hostInSite, siteHosts } from "../../shared/sites.ts";
 import type { NavType } from "../browser/targets.ts";
 
 export type StateReason = "session-start" | "nav" | "session-stop" | "manual";
@@ -71,17 +72,12 @@ function hostOf(url: string): string | null {
 /**
  * URLs to ask Network.getCookies for when saving a site's session: the entry
  * URL, every stored domain over http and https, and the session's tab URLs on
- * one of those hosts (or a subdomain). Cookies of other sites never enter the
- * site's row.
+ * the site (shared/sites.ts: one of its hosts or a subdomain, docs/04 §26).
+ * Cookies of other sites never enter the site's row.
  */
 export function siteCookieUrls(entryUrl: string, domains: readonly string[], tabUrls: readonly string[]): string[] {
-  const hosts = new Set<string>();
+  const hosts = siteHosts(entryUrl, domains);
   const entryHost = hostOf(entryUrl);
-  if (entryHost !== null) hosts.add(entryHost);
-  for (const d of domains) {
-    const h = d.trim().toLowerCase().replace(/^\.+/, "");
-    if (/^[a-z0-9.-]+$/.test(h) && h !== "") hosts.add(h);
-  }
   const out = new Set<string>();
   if (entryHost !== null) out.add(entryUrl);
   for (const h of hosts) {
@@ -91,7 +87,7 @@ export function siteCookieUrls(entryUrl: string, domains: readonly string[], tab
   }
   for (const u of tabUrls) {
     const h = hostOf(u);
-    if (h !== null && [...hosts].some((x) => h === x || h.endsWith(`.${x}`))) out.add(u);
+    if (h !== null && hostInSite(h, hosts)) out.add(u);
   }
   return [...out];
 }

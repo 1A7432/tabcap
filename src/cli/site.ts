@@ -5,6 +5,7 @@
 
 import { TabcapError } from "../shared/envelope.ts";
 import type { Paths } from "../shared/paths.ts";
+import { normalizeDomain } from "../shared/sites.ts";
 import { HOOK_PROTOCOL, listPlugins, pluginKind, pluginsDir, setEnabled } from "../daemon/hooks/plugins.ts";
 import { DECODE_PROTOCOL } from "../daemon/hooks/decode.ts";
 import { FIXTURE_PROTOCOL } from "../daemon/hooks/fixture.ts";
@@ -28,6 +29,22 @@ function entryUrl(raw: string): URL {
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") throw new TabcapError("usage", `--url must be http(s): ${raw}`, "Pass the full entry URL, e.g. https://example.com/login.");
   return u;
+}
+
+/**
+ * `--domains a,b`: each one stored as the site rule reads it (docs/04 §26,
+ * shared/sites.ts): trimmed, lower case, leading dots dropped, once each.
+ * A value that is not a host name is refused, not stored.
+ */
+export function siteDomains(raw: string): string[] {
+  const out: string[] = [];
+  for (const part of raw.split(",")) {
+    if (part.trim() === "") continue;
+    const d = normalizeDomain(part);
+    if (d === null) throw new TabcapError("usage", `--domains: ${JSON.stringify(part.trim().slice(0, 100))} is not a host name`, "Give host names separated by commas, e.g. --domains example.com,api.example.com (subdomains count without listing them; a leading dot is dropped).");
+    if (!out.includes(d)) out.push(d);
+  }
+  return out;
 }
 
 /** Strip exactly one trailing newline (printf vs echo). */
@@ -88,13 +105,7 @@ export async function siteAdd(p: Paths, args: Record<string, unknown>, readStdin
   const url = entryUrl(typeof args["url"] === "string" ? args["url"] : "");
   const user = typeof args["user"] === "string" ? args["user"] : "";
   if (user === "") throw new TabcapError("usage", "missing --user", "Pass --user <username>.");
-  const domains =
-    typeof args["domains"] === "string"
-      ? args["domains"]
-          .split(",")
-          .map((d) => d.trim().toLowerCase())
-          .filter((d) => d !== "")
-      : [url.hostname];
+  const domains = typeof args["domains"] === "string" ? siteDomains(args["domains"]) : [url.hostname];
   // Fail before asking for the password when the site exists already.
   withStore(p, (s) => {
     if (s.site(name) !== null) throw new TabcapError("conflict", `site "${name}" already exists`, `Run \`tabcap site remove ${name}\` first to replace it.`);

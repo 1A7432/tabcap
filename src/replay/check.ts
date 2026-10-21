@@ -6,8 +6,9 @@
 // (default content-type, location); body — JSON per path (every scalar leaf
 // and every empty container), text by equality, binary by sha256.
 // Target: loopback by default (`replay serve` of the same bundle must give zero
-// differences). A non-loopback target needs --live, a stored site whose
-// domains include the host, and is paced through the store's guard counters
+// differences). A non-loopback target needs --live and a stored site the
+// host is on (docs/04 §26, shared/sites.ts: the entry host or a stored
+// domain, subdomains count), and is paced through the store's guard counters
 // (1 request per 2 s unless --rate). Tests never use --live against a real
 // site. A live check goes out through the proxy of the bundle's account when
 // it is bound to a pool proxy (0.4-D); the result names the proxy, never its URL.
@@ -33,6 +34,7 @@ import { BundleReader } from "../bundle/reader.ts";
 import type { RequestEvent } from "../bundle/types.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
+import { hostInSite, siteHosts } from "../shared/sites.ts";
 import { Store } from "../daemon/store/db.ts";
 import { accountProxy, type AccountProxy } from "./proxyenv.ts";
 import type { HttpClient } from "../daemon/pool/proxy.ts";
@@ -240,16 +242,11 @@ function openLiveGuard(opts: CheckOptions, base: URL, manifestSite: string | nul
     store.close();
     throw new TabcapError("not-found", `no site "${site}" in the store`, "Run `tabcap site list`; add the site with `tabcap site add` first.");
   }
-  let entryHost = "";
-  try {
-    entryHost = new URL(row.entryUrl).hostname;
-  } catch {
-    entryHost = "";
-  }
-  const hosts = new Set([entryHost, ...row.domains].map((d) => d.toLowerCase()).filter((d) => d !== ""));
-  if (!hosts.has(base.hostname.toLowerCase())) {
+  // docs/04 §26: the same site rule as tabcap fetch and the guard (subdomains count).
+  const hosts = siteHosts(row.entryUrl, row.domains);
+  if (!hostInSite(base.hostname, hosts)) {
     store.close();
-    throw new TabcapError("usage", `${base.hostname} is not one of the domains of site "${site}" (${[...hosts].join(", ")})`, "Check --against, or add the domain to the site (tabcap site remove + add with --domains).");
+    throw new TabcapError("usage", `${base.hostname} is not one of the domains of site "${site}" or a subdomain of one (${hosts.join(", ")})`, "Check --against, or add the domain to the site (tabcap site remove + add with --domains).");
   }
   return { site, intervalMs: opts.rate === undefined ? LIVE_INTERVAL_MS : Math.ceil(1000 / opts.rate), store };
 }

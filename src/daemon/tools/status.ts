@@ -12,7 +12,7 @@ import { cachedNames } from "../protection/live.ts";
 import { isRecord } from "../../shared/json.ts";
 import { decodePlugins, pluginsFor } from "../hooks/plugins.ts";
 import type { Daemon } from "../state.ts";
-import { siteOf } from "./fetch.ts";
+import { siteOf } from "../../shared/sites.ts";
 import { redactUrl, type LiveCtx } from "./liveredact.ts";
 
 export const STATUS_SCHEMA = "tabcap-status/0";

@@ -316,7 +316,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": null,
           "flag": "--domains",
-          "help": "comma list of the site's domains (default: the entry URL's host)",
+          "help": "comma list of the site's domains (default: the entry URL's host); subdomains count, a leading dot is dropped",
           "key": "domains",
           "repeatable": false,
           "required": false,
