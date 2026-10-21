@@ -54,6 +54,11 @@ describe("skills/tabcap", () => {
     expect(text.split("\n## Cheat-sheet")[1]?.split("```sh\n")[1]?.split("```")[0]?.trim().split("\n").length).toBe(10);
   });
 
+  test("the Errors line names daemon-version with the restart command (review 10-21)", () => {
+    const line = readFileSync(join(ROOT, SKILL_DIR, "SKILL.md"), "utf8").split("\n").find((l) => l.startsWith("Errors: "));
+    expect(line).toContain("`daemon-version` (`tabcap daemon stop && tabcap daemon start`)");
+  });
+
   test("the three differences from Chrome DevTools MCP (docs/08 §5): named in SKILL.md, explained in references/devtools-mcp.md (0.7-A)", () => {
     expect(readFileSync(join(ROOT, SKILL_DIR, "SKILL.md"), "utf8")).toContain("[Coming from Chrome DevTools MCP](references/devtools-mcp.md): refs are not uids, `net list` hides failed and `data:` requests, `--snapshot` is optional.");
     const text = readFileSync(join(ROOT, SKILL_DIR, "references", "devtools-mcp.md"), "utf8");
