@@ -111,7 +111,7 @@ Example: `tabcap browser start --proxy none --chrome-arg=--lang=en-US`
 | `--foreground` |  | open new tabs as the active tab of the window (still never steals the macOS foreground) |
 | `--executable-path <path>` |  | Chrome for Testing binary (else $TABCAP_CHROME, config.json, cache) |
 | `--chrome-arg <switch>` |  | add a Chrome switch (--name or --name=value; write --chrome-arg=--name=value or --chrome-arg --name=value), after config.json chrome.args: list switches (--enable-features, --disable-features, the blink pair, --load-extension) merge into tabcap's own, others replace tabcap's switch of the same name; refused: --user-data-dir, --remote-debugging-pipe, proxy switches unless --proxy system (repeatable) |
-| `--drop-chrome-arg <switch>` |  | remove one of tabcap's default switches (--name removes it, --disable-features=A,B removes those items), after config.json chrome.dropArgs; drops that match nothing are listed in dropArgsUnmatched; --user-data-dir and --remote-debugging-pipe / -port cannot be dropped (repeatable) |
+| `--drop-chrome-arg <switch>` |  | remove one of tabcap's default switches (--name removes it, --disable-features=A,B removes those items), after config.json chrome.dropArgs; drops that match nothing are listed in dropArgsUnmatched; --user-data-dir and --remote-debugging-pipe / -port cannot be dropped, proxy switches only with --proxy system (repeatable) |
 
 ### `tabcap browser stop`
 

@@ -157,6 +157,25 @@ describe("checkCustomArgs (docs/04 §42)", () => {
     expect(effectiveProxyLabel(parseProxy("none"), buildArgs({ ...base, proxy: parseProxy("none") }))).toBe("none");
   });
 
+  test("dropping a proxy switch: a conflict unless --proxy system, the same next as adding one (review 10-21)", () => {
+    const none = parseProxy("none");
+    const url = parseProxy("http://127.0.0.1:8080");
+    for (const sw of ["--proxy-server", "--proxy-bypass-list", "--proxy-pac-url", "--no-proxy-server", "--proxy-auto-detect", "--proxy-server=127.0.0.1:1"]) {
+      usage(check({ drop: [sw] }, none), "conflicts with --proxy none");
+      usage(check({ drop: [sw] }, url), "conflicts with --proxy http://127.0.0.1:8080");
+      expect(check({ drop: [sw] })).not.toThrow();
+    }
+    const nextOf = (f: () => void): string => {
+      try {
+        f();
+      } catch (e) {
+        if (e instanceof TabcapError) return e.next;
+      }
+      return "";
+    };
+    expect(nextOf(check({ drop: ["--proxy-server"] }, none))).toBe(nextOf(check({ add: ["--proxy-server=http://127.0.0.1:9"] }, none)));
+  });
+
   test("everything else passes, including a debugging port, headless and certificate switches", () => {
     expect(check({ add: ["--remote-debugging-port=9222", "--headless=new", "--ignore-certificate-errors", "--user-agent=X Y/1.0", "--js-flags=--expose-gc"], drop: ["--no-startup-window"] })).not.toThrow();
   });

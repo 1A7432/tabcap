@@ -189,7 +189,7 @@ export const COMMANDS: CommandSpec[] = [
         key: "dropChromeArg",
         kind: "string",
         repeat: true,
-        help: "remove one of tabcap's default switches (--name removes it, --disable-features=A,B removes those items), after config.json chrome.dropArgs; drops that match nothing are listed in dropArgsUnmatched; --user-data-dir and --remote-debugging-pipe / -port cannot be dropped",
+        help: "remove one of tabcap's default switches (--name removes it, --disable-features=A,B removes those items), after config.json chrome.dropArgs; drops that match nothing are listed in dropArgsUnmatched; --user-data-dir and --remote-debugging-pipe / -port cannot be dropped, proxy switches only with --proxy system",
         metavar: "switch",
       },
     ],

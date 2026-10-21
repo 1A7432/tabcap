@@ -144,16 +144,17 @@ export function checkCustomArgs(c: CustomArgs, proxy: ProxyMode): void {
       throw new TabcapError("usage", `custom Chrome arg ${JSON.stringify(a)} is not a switch`, `Write it as --name or --name=value; open pages with \`tabcap navigate\` or \`tabcap tab new\`. ${hint}`);
     }
   }
+  const proxyNext = `Use one of them: --proxy <mode>, or the proxy switch with --proxy system. ${hint}`;
   for (const a of c.add) {
     const n = switchName(a);
     if (RESERVED_ADD.has(n)) throw new TabcapError("usage", `${n} is set by tabcap itself and cannot be a custom Chrome arg`, `tabcap manages the profile and the CDP pipe. ${hint}`);
-    if (PROXY_SWITCHES.has(n) && proxy.kind !== "system") {
-      throw new TabcapError("usage", `custom Chrome arg ${n} conflicts with --proxy ${proxyLabel(proxy)}`, `Use one of them: --proxy <mode>, or the proxy switch with --proxy system. ${hint}`);
-    }
+    if (PROXY_SWITCHES.has(n) && proxy.kind !== "system") throw new TabcapError("usage", `custom Chrome arg ${n} conflicts with --proxy ${proxyLabel(proxy)}`, proxyNext);
   }
   for (const a of c.drop) {
     const n = switchName(a);
     if (RESERVED_DROP.has(n)) throw new TabcapError("usage", `${n} cannot be dropped: tabcap needs it to reach the browser`, hint);
+    // Review 10-21: dropping the switches --proxy none / <url> sets would leave `proxy` naming a mode the browser no longer has.
+    if (PROXY_SWITCHES.has(n) && proxy.kind !== "system") throw new TabcapError("usage", `dropping ${n} conflicts with --proxy ${proxyLabel(proxy)}`, proxyNext);
   }
 }
 
