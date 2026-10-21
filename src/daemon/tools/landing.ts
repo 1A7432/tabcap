@@ -20,7 +20,7 @@ import type { FrameBinding } from "../browser/refs.ts";
 import type { Tab } from "../browser/targets.ts";
 import { inWorld, rootDoc, type FrameDoc } from "../browser/worlds.ts";
 import type { Transport } from "../transport/types.ts";
-import { docIdentity } from "./snapshot.ts";
+import { docIdentity } from "../browser/doc.ts";
 
 const GROUP = "tabcap-landing";
 /** snapshot --interactive: at most this many controls per document are inspected. */

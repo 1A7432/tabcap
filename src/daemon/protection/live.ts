@@ -12,7 +12,7 @@ import { inWorld, rootDoc } from "../browser/worlds.ts";
 import type { Tab } from "../browser/targets.ts";
 import { navCookieParams } from "../capture/cookies.ts";
 import type { Daemon } from "../state.ts";
-import { callResult, docIdentity } from "../tools/snapshot.ts";
+import { callResult, docIdentity } from "../browser/doc.ts";
 import type { Transport } from "../transport/types.ts";
 import { identify, type Detection, type Evidence, type Identification } from "../../analyze/protection/identify.ts";
 import { loadFamilies } from "../../analyze/protection/registry.ts";

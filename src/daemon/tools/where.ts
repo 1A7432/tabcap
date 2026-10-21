@@ -19,7 +19,7 @@ import { scrubValue } from "../secrets.ts";
 import type { Daemon } from "../state.ts";
 import { optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
-import { callResult, docIdentity, resolveRef } from "./snapshot.ts";
+import { callResult, docIdentity, resolveRef } from "../browser/doc.ts";
 
 const USAGE = "tabcap where <ref|text> [--as ref|text] [--top n] [--text] [--write-findings]";
 /** Visible text of the ref's element, and of the page for date disambiguation (characters). */

@@ -13,7 +13,7 @@ import type { Tab } from "../browser/targets.ts";
 import { rootDoc, type FrameDoc } from "../browser/worlds.ts";
 import type { Daemon } from "../state.ts";
 import type { Transport } from "../transport/types.ts";
-import { docIdentity } from "./snapshot.ts";
+import { docIdentity } from "../browser/doc.ts";
 
 /** Record the advisory once per page (tab + document identity) in the session's recording, if it records. */
 export async function adviseChallenge(d: Daemon, t: Transport, tab: Tab, c: ChallengeView | null | undefined): Promise<void> {

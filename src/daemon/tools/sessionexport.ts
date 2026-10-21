@@ -51,7 +51,7 @@ import type { Tab } from "../browser/targets.ts";
 import { inWorld } from "../browser/worlds.ts";
 import type { Daemon } from "../state.ts";
 import { timeoutOf } from "./navigate.ts";
-import { callResult, settle } from "./snapshot.ts";
+import { callResult, settle } from "../browser/doc.ts";
 import { optStr, type Args } from "./args.ts";
 
 export const EXPORT_SCHEMA = "tabcap-session-export/0";

@@ -39,7 +39,7 @@ import type { Tab, Tabs } from "../browser/targets.ts";
 import { inWorld, rootDoc, type FrameDoc } from "../browser/worlds.ts";
 import type { Daemon } from "../state.ts";
 import type { CdpEvent, Transport } from "../transport/types.ts";
-import { docIdentity } from "./snapshot.ts";
+import { docIdentity } from "../browser/doc.ts";
 import { netOff, netOn } from "./wait.ts";
 
 export type Effect = "none" | "dom" | "navigation" | "request" | "popup";
