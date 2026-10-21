@@ -12,3 +12,5 @@
 4. 对已发布的版本跑一次：`gh workflow run homebrew.yml --repo 1A7432/tabcap -f tag=v0.7.2`，然后 `brew install 1A7432/tabcap/tabcap` 验证。
 
 本地渲染：`bun scripts/homebrew-formula.ts --version 0.7.2 --sums <SHA256SUMS> --out /tmp/tabcap.rb && brew style /tmp/tabcap.rb`。
+
+同一个工作流里还有 `scoop` job，从同一份 `SHA256SUMS` 渲染 Scoop 清单并提交到 `main`，见 `packaging/scoop/README.md`。

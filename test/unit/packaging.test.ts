@@ -1,10 +1,11 @@
-// 0.3-G packaging templates (unpublished): Homebrew formula, npm wrapper with
+// 0.3-G packaging templates: Homebrew formula, npm wrapper with
 // per-platform optional dependencies (names filled in by scripts/npm-pack.ts
 // since 0.5-N), Scoop manifest. Checks syntax and that every file points at
 // the archives scripts/release.ts actually produces.
 
 import { describe, expect, test } from "bun:test";
 import { renderFormula } from "../../scripts/homebrew-formula.ts";
+import { compareVersions } from "../../scripts/scoop-manifest.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NPM_PLATFORMS, mainManifest, platformPackageName } from "../../scripts/npm-pack.ts";
@@ -80,19 +81,24 @@ describe("npm wrapper template", () => {
   });
 });
 
-describe("Scoop manifest template", () => {
+// The manifest of the last published release, written by homebrew.yml through
+// scripts/scoop-manifest.ts (a release commit leaves it alone): it may trail
+// this version by one release, never lead it.
+describe("Scoop manifest", () => {
   const m = json(join(PKG, "scoop", "tabcap.json"));
-  test("windows-x64 zip of this version, tabcap.exe, autoupdate from the .sha256 files", () => {
-    const plan = planFor("windows-x64", TOOL_VERSION);
+  test("windows-x64 zip of its own version (not newer than this one), tabcap.exe, autoupdate from the .sha256 files", () => {
+    const version = String(m["version"]);
+    expect(compareVersions(version, TOOL_VERSION)).toBeLessThanOrEqual(0);
+    const plan = planFor("windows-x64", version);
     const x64 = rec(rec(m["architecture"])["64bit"]);
-    expect(m).toMatchObject({ version: TOOL_VERSION, bin: "tabcap.exe", license: "Apache-2.0" });
-    expect(x64["url"]).toBe(`${RELEASES}/v${TOOL_VERSION}/${plan.archive}`);
+    expect(m).toMatchObject({ bin: "tabcap.exe", license: "Apache-2.0" });
+    expect(x64["url"]).toBe(`${RELEASES}/v${version}/${plan.archive}`);
     expect(x64["extract_dir"]).toBe(plan.name);
     expect(String(x64["hash"])).toMatch(/^[0-9a-f]{64}$/);
     const auto = rec(m["autoupdate"]);
     const autoX64 = rec(rec(auto["architecture"])["64bit"]);
-    expect(String(autoX64["url"]).replaceAll("$version", TOOL_VERSION)).toBe(String(x64["url"]));
-    expect(String(autoX64["extract_dir"]).replaceAll("$version", TOOL_VERSION)).toBe(plan.name);
+    expect(String(autoX64["url"]).replaceAll("$version", version)).toBe(String(x64["url"]));
+    expect(String(autoX64["extract_dir"]).replaceAll("$version", version)).toBe(plan.name);
     expect(rec(auto["hash"])).toEqual({ url: "$url.sha256" });
   });
 });
