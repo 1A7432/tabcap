@@ -21,7 +21,7 @@
 // Reproduce: bun test test/unit/replay-rules.test.ts
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { readConfigRaw } from "../shared/config.ts";
+import { cfgKey, readConfigRaw } from "../shared/config.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
 import { isRecord, tryParseJson } from "../shared/json.ts";
@@ -254,18 +254,18 @@ export function rulesFromConfig(file: string, site: string | null): RuleSet {
   const raw = readConfigRaw(file);
   const out: CompiledRule[] = [];
   if (site !== null) {
-    const sites = raw["sites"];
+    const sites = raw[cfgKey("", "sites")];
     if (sites !== undefined && sites !== null) {
       if (!isRecord(sites)) throw new TabcapError("bad-input", "config.json sites is invalid", "Set sites to an object {<site>: {replay: {rules: [...]}}}, or remove it.");
       const entry = sites[site];
       if (entry !== undefined && entry !== null) {
         if (!isRecord(entry)) throw new TabcapError("bad-input", `config.json sites.${site} is invalid`, `Set sites.${site} to an object, or remove it.`);
-        const r = entry["replay"];
+        const r = entry[cfgKey("sites.<site>", "replay")];
         if (r !== undefined && r !== null) out.push(...parseRulesDoc(r, `sites.${site}.replay.rules`, { requireSchema: false, where: `config.json sites.${site}.replay` }));
       }
     }
   }
-  const g = raw["replay"];
+  const g = raw[cfgKey("", "replay")];
   if (g !== undefined && g !== null) out.push(...parseRulesDoc(g, "replay.rules", { requireSchema: false, where: "config.json replay" }));
   return out.length === 0 ? NO_RULES : { rules: out, source: { kind: "config", file, site } };
 }
