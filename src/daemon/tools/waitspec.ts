@@ -88,7 +88,9 @@ export function readPoll(spec: Extract<WaitSpec, { kind: "text" | "selector" | "
   if (!isRecord(value)) return { state: "pending" };
   if (spec.kind === "selector" && typeof value["invalid"] === "string") return { state: "invalid", message: value["invalid"] };
   if (spec.kind === "text") {
-    const hit = typeof value["text"] === "string" && spec.texts.includes(value["text"]) ? value["text"] : (spec.texts[0] ?? "");
+    // Owner 10-21: only a text that was asked for counts (the record is untrusted).
+    const hit = value["text"];
+    if (typeof hit !== "string" || !spec.texts.includes(hit)) return { state: "pending" };
     return { state: "matched", detail: { text: hit, context: typeof value["context"] === "string" ? value["context"] : null } };
   }
   if (spec.kind === "selector") {

@@ -2,9 +2,12 @@
 //
 // - text / selector / fn poll the page every 100 ms (Runtime.evaluate, short
 //   per-call timeout, so a busy page cannot stall the wait); text is checked
-//   in every frame: the main world of the main frame, an isolated world in
-//   each same-process iframe, the main world of each out-of-process iframe
-//   (docs/08 §5, chrome-devtools-mcp wait_for); `--text` may repeat (any);
+//   in every frame (docs/08 §5, chrome-devtools-mcp wait_for), selector in the
+//   main frame; `--text` may repeat (any). Owner 10-21: text and selector run
+//   in tabcap's isolated world `tabcap-wait` of each frame document (the main
+//   frame, same-process iframes, each out-of-process iframe's own document),
+//   so the page neither sees the condition nor changes the result; `--fn` is
+//   the page's own code and stays in its main world;
 // - url is event-driven (root commits and same-document navigations wake it);
 // - idle counts the tab's requests in flight from Network events (seeded from
 //   the recorder when the session records; otherwise Network is enabled for the
@@ -116,7 +119,10 @@ export async function wait(d: Daemon, a: Args, session: string): Promise<unknown
   }
 }
 
-/** Where to look for text: the tab's frames, each as (CDP session, execution context or the main world). */
+/** One frame document to evaluate in: its CDP session and its `tabcap-wait` isolated world (`frame`: "main" or the frame's URL). */
+export type FrameTarget = { sessionId: string; contextId: number; frame: string };
+
+/** Where to look: the tab's frame documents, each in tabcap's isolated world `tabcap-wait` (made once per document). */
 export class FrameScope {
   /** `${session}|${frame}|${loader}` → isolated world context id, or null when it cannot be made. */
   private worlds = new Map<string, number | null>();
@@ -127,30 +133,41 @@ export class FrameScope {
     private readonly tab: Tab,
   ) {}
 
-  async frames(): Promise<Array<{ sessionId: string; contextId: number | null; frame: string }>> {
-    const out: Array<{ sessionId: string; contextId: number | null; frame: string }> = [{ sessionId: this.tab.sessionId, contextId: null, frame: "main" }];
-    const oopifs = this.t.targets().filter((x) => x.type === "iframe" && this.tabs.hostOf(x.sessionId) === this.tab);
+  /**
+   * The main frame first ("main"), then each same-process child frame, then each out-of-process
+   * iframe's own document and its children; `mainOnly`: the main frame alone. A document whose
+   * world cannot be made (navigating) is left out of this round.
+   */
+  async frames(o: { mainOnly?: boolean } = {}): Promise<FrameTarget[]> {
+    const out: FrameTarget[] = [];
+    const oopifs = o.mainOnly === true ? [] : this.t.targets().filter((x) => x.type === "iframe" && this.tabs.hostOf(x.sessionId) === this.tab);
     for (const sid of [this.tab.sessionId, ...oopifs.map((x) => x.sessionId)]) {
       const r = await this.t.send("Page.getFrameTree", {}, sid, 2000).catch(() => null);
       const tree = r !== null && isRecord(r["frameTree"]) ? r["frameTree"] : null;
       if (tree === null) continue;
       const own = isRecord(tree["frame"]) ? tree["frame"] : null;
-      // An out-of-process iframe's own document: its session's main world.
-      if (sid !== this.tab.sessionId && own !== null) out.push({ sessionId: sid, contextId: null, frame: str(own, "url") ?? "iframe" });
-      for (const f of childFrames(tree)) {
-        const id = str(f, "id");
-        if (id === null) continue;
-        const key = `${sid}|${id}|${str(f, "loaderId") ?? ""}`;
-        if (!this.worlds.has(key)) {
-          const w = await this.t.send("Page.createIsolatedWorld", { frameId: id, worldName: "tabcap-wait", grantUniveralAccess: false }, sid, 2000).catch(() => null);
-          const ctx = w === null ? null : w["executionContextId"];
-          this.worlds.set(key, typeof ctx === "number" ? ctx : null);
-        }
-        const ctx = this.worlds.get(key);
-        if (typeof ctx === "number") out.push({ sessionId: sid, contextId: ctx, frame: str(f, "url") ?? "iframe" });
+      const docs = [...(own === null ? [] : [{ f: own, label: sid === this.tab.sessionId ? "main" : (str(own, "url") ?? "iframe") }]), ...(o.mainOnly === true ? [] : childFrames(tree).map((f) => ({ f, label: str(f, "url") ?? "iframe" })))];
+      for (const { f, label } of docs) {
+        const ctx = await this.world(sid, f);
+        if (ctx !== null) out.push({ sessionId: sid, contextId: ctx, frame: label });
       }
     }
     return out;
+  }
+
+  /** The document's `tabcap-wait` world, made on first use; null when Chrome cannot make it now. */
+  private async world(sid: string, f: Record<string, unknown>): Promise<number | null> {
+    const id = str(f, "id");
+    if (id === null) return null;
+    const key = `${sid}|${id}|${str(f, "loaderId") ?? ""}`;
+    if (!this.worlds.has(key)) {
+      const w = await this.t.send("Page.createIsolatedWorld", { frameId: id, worldName: "tabcap-wait", grantUniveralAccess: false }, sid, 2000).catch(() => null);
+      const ctx = w === null ? null : w["executionContextId"];
+      // A failure is not remembered: the next round tries again (the frame may have been navigating).
+      if (typeof ctx !== "number") return null;
+      this.worlds.set(key, ctx);
+    }
+    return this.worlds.get(key) ?? null;
   }
 
   /** A context died (navigation): forget it so the next poll makes a new one. */
@@ -165,7 +182,7 @@ function childFrames(node: Record<string, unknown>, depth = 0): Record<string, u
   return node["childFrames"].filter(isRecord).flatMap((c) => [...(isRecord(c["frame"]) ? [c["frame"]] : []), ...childFrames(c, depth + 1)]);
 }
 
-async function waitPoll(t: Transport, tab: Tab, spec: Extract<WaitSpec, { kind: "text" | "selector" | "fn" }>, deadline: number, timeoutMs: number, scope: FrameScope): Promise<Record<string, unknown>> {
+export async function waitPoll(t: Transport, tab: Tab, spec: Extract<WaitSpec, { kind: "text" | "selector" | "fn" }>, deadline: number, timeoutMs: number, scope: FrameScope): Promise<Record<string, unknown>> {
   const expression = pollExpression(spec);
   if (spec.kind === "fn") {
     // Syntax errors are permanent: report them now instead of polling to the timeout.
@@ -181,7 +198,9 @@ async function waitPoll(t: Transport, tab: Tab, spec: Extract<WaitSpec, { kind: 
   for (;;) {
     guard(tab);
     const left = deadline - Date.now();
-    const targets = spec.kind === "text" ? await scope.frames() : [{ sessionId: tab.sessionId, contextId: null, frame: "main" }];
+    const targets: Array<{ sessionId: string; contextId: number | null; frame: string }> =
+      spec.kind === "fn" ? [{ sessionId: tab.sessionId, contextId: null, frame: "main" }] : await scope.frames({ mainOnly: spec.kind === "selector" });
+    if (!targets.some((f) => f.frame === "main")) lastError = "the main frame's isolated world could not be made (the page may be navigating)";
     polls++;
     for (const f of targets) {
       const r = await t

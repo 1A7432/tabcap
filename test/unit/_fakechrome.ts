@@ -26,6 +26,8 @@ export type FakeChromeConfig = {
   url?: string;
   /** Runtime.evaluate: the first entry whose `when` occurs in the expression answers `{result: {type: "object", value}}`; otherwise undefined. */
   evaluate?: Array<{ when: string; value: unknown }>;
+  /** Runtime.evaluate answers those entries only when it names an execution context (an isolated world); the main world gets undefined. */
+  evaluateNeedsContext?: boolean;
 };
 
 const SCRIPT = String.raw`
@@ -68,7 +70,7 @@ function answer(method, params, sessionId) {
     case "Network.getCookies":
       return { cookies: cfg.cookies ?? [] };
     case "Runtime.evaluate": {
-      const hit = (cfg.evaluate ?? []).find((e) => String(params.expression).includes(e.when));
+      const hit = cfg.evaluateNeedsContext === true && typeof params.contextId !== "number" ? undefined : (cfg.evaluate ?? []).find((e) => String(params.expression).includes(e.when));
       return { result: hit === undefined ? { type: "undefined" } : { type: "object", value: hit.value } };
     }
     default:
