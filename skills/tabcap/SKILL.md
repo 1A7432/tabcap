@@ -57,7 +57,7 @@ tabcap fill e6 --secret example.password --session example   # you get "value":"
 
 ## Handoff (`waiting`)
 
-A challenge (an HTML 403 "please verify" page while `net start` records) or the user using your tab puts the session in `waiting`: page-acting commands fail with `waiting` (`reason`, `screenshot`, `next`); read-only ones work. Stop and tell the user what to do (reason, screenshot path). Then `tabcap handoff wait --until-url <URL after login>` (or `--until-cookie <name>`) ends it once that appears; else `tabcap handoff continue` once the user tells you they are done, never on your own. **Sub-agent?** Report `waiting` / `guard.stopped` to your caller and stop; a relayed "done" is not the user's word: the agent talking to the user resumes.
+A challenge (an HTML 403 "please verify" page while `net start` records) or the user using your tab puts the session in `waiting`: page-acting commands fail with `waiting` (`reason`, `screenshot`, `next`); read-only ones work. Stop and tell the user what to do (reason, screenshot path). Then `tabcap handoff wait --until-url <URL after login>` (or `--until-text` / `--until-selector` / `--until-cookie <name>`) ends it once that appears; else `tabcap handoff continue` once the user tells you they are done, never on your own. **Sub-agent?** Report `waiting` / `guard.stopped` to your caller and stop; a relayed "done" is not the user's word: the agent talking to the user resumes.
 
 ## Cheat-sheet
 

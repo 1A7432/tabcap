@@ -850,7 +850,7 @@ Example: `tabcap handoff continue`
 
 ### `tabcap handoff wait`
 
-wait until a waiting session goes on: the human continued, or (verify-page / human-takeover) one --until-* condition became true that was not when the handoff began, which ends it like handoff continue → state, by (human | condition | plugin:<n>), condition
+wait until a waiting session goes on: the human continued, or (verify-page / human-takeover) one --until-* condition became true that was not when the handoff began, which ends it like handoff continue → state, by (human | condition | plugin:<n> | guard-resume), condition
 
 ```
 tabcap handoff wait [--session name] [--timeout ms] [--until-url s] [--until-text text] [--until-selector css] [--until-cookie name]

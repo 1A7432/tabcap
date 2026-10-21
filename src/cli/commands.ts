@@ -817,7 +817,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--until-cookie", key: "untilCookie", kind: "string", help: "… once a cookie of this name is set for the tab's URL (absent when the handoff began; only the name is compared)", metavar: "name" },
     ],
     summary:
-      "wait until a waiting session goes on: the human continued, or (verify-page / human-takeover) one --until-* condition became true that was not when the handoff began, which ends it like handoff continue → state, by (human | condition | plugin:<n>), condition",
+      "wait until a waiting session goes on: the human continued, or (verify-page / human-takeover) one --until-* condition became true that was not when the handoff began, which ends it like handoff continue → state, by (human | condition | plugin:<n> | guard-resume), condition",
     example: "tabcap handoff wait --until-url /dashboard --timeout 120000",
     action: "handoff.wait",
   },
