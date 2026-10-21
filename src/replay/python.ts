@@ -37,7 +37,7 @@
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { BundleReader } from "../bundle/reader.ts";
-import { isSensitiveHeader, isSensitiveName } from "../bundle/redact.ts";
+import { isSensitiveHeader, isSensitiveHeaderName, isSensitiveName } from "../bundle/redact.ts";
 import type { RequestEvent } from "../bundle/types.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
@@ -1013,8 +1013,27 @@ export type ExportOptions = {
   configDir?: string | undefined;
 };
 
-/** `todoRuntime`: the TODO sentinel and `_need` (chain mode, or any secret TODO parameter); `chainMode` adds verify(). */
-export function generateClientSource(fns: { code: string; types: string[] }[], header: string[], chainMode = false, todoRuntime = chainMode): string {
+/** The credential headers a decode plugin never gets, whatever the recording holds (bundle/redact.ts SENSITIVE_HEADERS). */
+const WITHHELD_ALWAYS: readonly string[] = ["authorization", "cookie", "proxy-authorization", "set-cookie", "x-api-key"];
+const WITHHELD_LINE = /^_WITHHELD = \{[^\n]*\}$/m;
+
+/**
+ * Review 10-21: the header names verify() withholds from a decode plugin, as the daemon does (docs/04 §28):
+ * the credential headers plus every request / response header name of the recording that
+ * isSensitiveHeaderName calls sensitive. A header first seen at run time is not in the list.
+ */
+export function withheldHeaderNames(requests: readonly RequestEvent[]): string[] {
+  const out = new Set<string>(WITHHELD_ALWAYS);
+  for (const r of requests) {
+    for (const h of [r.request.headers, r.response?.headers ?? {}]) for (const name of Object.keys(h)) if (isSensitiveHeaderName(name)) out.add(name.toLowerCase());
+  }
+  return [...out].sort();
+}
+
+/** `todoRuntime`: the TODO sentinel and `_need` (chain mode, or any secret TODO parameter); `chainMode` adds verify(); `withheld`: its `_WITHHELD`. */
+export function generateClientSource(fns: { code: string; types: string[] }[], header: string[], chainMode = false, todoRuntime = chainMode, withheld: readonly string[] = WITHHELD_ALWAYS): string {
+  if (chainMode && !WITHHELD_LINE.test(VERIFY)) throw new TabcapError("internal", "templates/python/_verify.py has no _WITHHELD line", "This is a bug in the template.");
+  const verify = VERIFY.replace(WITHHELD_LINE, () => `_WITHHELD = {${withheld.map(pyStr).join(", ")}}`);
   return [
     ...header,
     RUNTIME.trimEnd(),
@@ -1028,7 +1047,7 @@ export function generateClientSource(fns: { code: string; types: string[] }[], h
     "# ---------------------------------------------------------------- calls",
     "",
     ...fns.flatMap((f) => [f.code, "", ""]),
-    ...(chainMode ? [VERIFY.trimEnd(), "", ""] : []),
+    ...(chainMode ? [verify.trimEnd(), "", ""] : []),
     WIRE.trimEnd(),
     "",
     "",
@@ -1152,7 +1171,7 @@ export function exportPython(opts: ExportOptions): ExportResult {
     files.push(rel);
   };
   const todoRuntime = chainMode || planned.some((p) => p.fn.args.some((a) => a.todo !== undefined));
-  write("client.py", generateClientSource(planned, header, chainMode, todoRuntime));
+  write("client.py", generateClientSource(planned, header, chainMode, todoRuntime, withheldHeaderNames(reader.requests())));
   const cases = planned.map((p) => fixtureCase(p.fn, p.group, ctx, byRef, fixturesDir, files));
   writeFileSync(join(fixturesDir, "index.json"), JSON.stringify({ bundle: reader.manifest.id, session: name, cases }, null, 2) + "\n");
   files.push("fixtures/index.json");
