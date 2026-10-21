@@ -206,7 +206,7 @@ Playwright `connectOverCDP`、puppeteer `connect`、agent-browser `--cdp` 也是
 
 **浏览器基准（`tabcap wire profile`）**
 
-- 基准是 tabcap 启动的那个 Chrome for Testing、用 tabcap 自己的启动参数（`launcher.ts` 的 `buildArgs`），不另起裸 Chrome：只加 `--disable-field-trial-config` 一项就会让 ClientHello 少扩展 `12e0`、`accept-language` 换位置【实测 spike §2.4】。画像记 CfT 版本与参数的 sha256（参数里的本机路径换成 `<profile>` / `<extension>`），缓存按「版本 + 参数哈希」复用。
+- 基准是 tabcap 启动的那个 Chrome for Testing、用 tabcap 自己的启动参数（`launcher.ts` 的 `buildArgs`），不另起裸 Chrome：只加 `--disable-field-trial-config` 一项就会让 ClientHello 少扩展 `12e0`、`accept-language` 换位置【实测 spike §2.4】。画像记 CfT 版本与参数的 sha256（参数按 `04` §42 的规整：`<profile>` / `<extension>`，10-21 起用户参数里的家目录换成 `<home>`、URL 去掉凭据；tabcap 自己的参数规整结果不变），缓存按「版本 + 参数哈希」复用。
 - 在当前会话开一个后台标签，只对这个标签发 `Security.setIgnoreCertificateErrors {ignore:true}`；导航到 `https://localhost:<port>/?sample=i`，再在页面里 `fetch("/fetch?sample=i")`，各 N 次（默认 3），关标签、把会话的当前标签还原。用 `localhost` 而不是 IP 字面量：IP 不带 SNI，JA4 第 4 位不同【实测 spike】。CDP 方式忽略证书时 Chrome 每次导航前会先中止几次握手（`certificate_unknown`），这些连接没有请求、不出报告【实测：一次 3+3 采集 22 条连接、13 次 tlsClientError、6 份报告】。
 - 组件 `profile` 把 6 份报告组成画像：TLS 取全部样本，导航与 fetch 两种头顺序分进 `http.roles`；tabcap 再加顶层 `tabcap` 段。写到 `<cache>/wire/profiles/cft-<version>-<os>-<arch>.json`，报告在同名 `.samples/`。入库的只有 tabcap 采的 CfT 画像（`native/wireprint/corpus/chrome/<major>/<os>-<arch>/<version>.json`）；作者个人浏览器的画像不进仓库。
 

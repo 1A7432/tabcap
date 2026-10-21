@@ -248,12 +248,28 @@ describe("config.json chrome.args / chrome.dropArgs (docs/04 §42)", () => {
 describe("outputs (docs/04 §42)", () => {
   test("manifest: no local profile or extension path, known secrets replaced", () => {
     const args = buildArgsReport({ ...base, profileDir: "/Users/someone/.local/share/tabcap/profiles/default", extensionDir: "/Users/someone/ext", custom: { add: ["--user-agent=tok-SECRET"], drop: [] } }).args;
-    const m = manifestLaunch({ args, extraArgs: ["--user-agent=tok-SECRET"], dropArgs: [] }, (s) => s.replaceAll("SECRET", "<secret:x>"));
+    const m = manifestLaunch({ args, extraArgs: ["--user-agent=tok-SECRET"], dropArgs: [] }, (s) => s.replaceAll("SECRET", "<secret:x>"), { home: "/Users/someone", extensionDir: "/Users/someone/ext" });
     expect(m.args).toContain("--user-data-dir=<profile>");
     expect(m.args).toContain("--load-extension=<extension>");
     expect(m.args).toContain("--user-agent=tok-<secret:x>");
     expect(JSON.stringify(m)).not.toContain("someone");
     expect(m.extraArgs).toEqual(["--user-agent=tok-<secret:x>"]);
+  });
+
+  test("manifest: user switches lose URL credentials and the home path; --load-extension item by item (review 10-21)", () => {
+    const home = "/Users/alice";
+    const add = ["--proxy-server=http://alice:hunter2@127.0.0.1:8080", "--disk-cache-dir=/Users/alice/cache", "--disable-extensions-except=/Users/alice/my-ext", "--load-extension=/Users/alice/my-ext,/opt/ext"];
+    const drop = ["--load-extension=/Users/alice/old-ext"];
+    const args = buildArgsReport({ ...base, profileDir: "/Users/alice/p", extensionDir: "/Users/alice/tabcap-ext", custom: { add, drop } }).args;
+    const m = manifestLaunch({ args, extraArgs: add, dropArgs: drop }, (s) => s, { home, extensionDir: "/Users/alice/tabcap-ext" });
+    expect(m.args).toContain("--proxy-server=http://127.0.0.1:8080");
+    expect(m.args).toContain("--disk-cache-dir=<home>/cache");
+    expect(m.args).toContain("--disable-extensions-except=<home>/my-ext");
+    expect(only(m.args, "--load-extension")).toEqual(["--load-extension=<extension>,<home>/my-ext,/opt/ext"]);
+    expect(m.extraArgs).toEqual(["--proxy-server=http://127.0.0.1:8080", "--disk-cache-dir=<home>/cache", "--disable-extensions-except=<home>/my-ext", "--load-extension=<home>/my-ext,/opt/ext"]);
+    expect(m.dropArgs).toEqual(["--load-extension=<home>/old-ext"]);
+    expect(JSON.stringify(m)).not.toContain("alice");
+    expect(JSON.stringify(m)).not.toContain("hunter2");
   });
 
   test("status --text names custom args only when there are some", () => {

@@ -219,7 +219,7 @@ JA3 与 JA4：JA3 用线上顺序，扩展重排或出现 PSK 就变；JA4 排�
 7. `session`：第一个恢复样本的 `tls.ja4.ja4` 与 `tls.handshake.session_reused`。
 8. `tcp.*` 取参考样本的 `tcp_syn`；连接层报告没有 `tcp_syn`，所以这种报告组出的画像 `tcp` 全为 `null`【实测：两份本地连接层报告组成的画像】。
 9. `http.roles`（0.4-W2）：报告顶层的 `role`（tabcap 的 echo 写），没有时 `sec-fetch-mode: navigate` 记 `navigation`、其余 `other`；每个角色按首次出现的顺序一条，参考是该角色的第一份样本，`headers_order_stable_across_samples` 比较该角色全部样本的非伪头顺序。顶层 `http.*` 仍取参考样本（导航），`check` 的 N1 读它。
-10. 选项（0.4-W2）：`--server <s>`、`--server-host-os <os>` 写进 `capture.server` / `capture.server_host_os`（默认 `wireprint-report 0.1.0` / `unknown`）。tabcap 在组件输出之外加顶层 `tabcap` 段：`cftVersion`、`flags`（启动参数，本机路径换成 `<profile>` / `<extension>`）、`flagsSha256`、`tabcapVersion`、`capturedAt`、`samples{navigation, fetch}`、`psk{navigation, fetch}`、`sessionTickets: "disabled"`。
+10. 选项（0.4-W2）：`--server <s>`、`--server-host-os <os>` 写进 `capture.server` / `capture.server_host_os`（默认 `wireprint-report 0.1.0` / `unknown`）。tabcap 在组件输出之外加顶层 `tabcap` 段：`cftVersion`、`flags`（启动参数，按 `04` §42 规整：`<profile>` / `<extension>` / `<home>`，URL 去凭据）、`flagsSha256`、`tabcapVersion`、`capturedAt`、`samples{navigation, fetch}`、`psk{navigation, fetch}`、`sessionTickets: "disabled"`。
 
 ### 4.3 语料布局与约束
 

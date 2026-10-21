@@ -100,6 +100,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
   const failedSandbox = () => sandboxFailed(logSince(logFile, offset));
   // Remembered, so later commands repeat the cause instead of "not running".
   const sandboxError = () => (d.browserFailure = nestedSandboxError(logFile));
+  const ext = extensionDir();
   const t = await DirectTransport.start({
     executable: exe.path,
     profileDir: profile,
@@ -107,7 +108,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     proxy,
     webdriver,
     custom,
-    extensionDir: extensionDir(),
+    extensionDir: ext,
     // Measured 10-15: with --no-startup-window Chrome never took the macOS
     // foreground, even when the first createTarget opened a window.
     noStartupWindow: true,
@@ -134,6 +135,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     tabs,
     console: new ConsoleLog(t, tabs),
     takeover,
+    extensionDir: ext,
     info: {
       transport: "direct",
       channel: t.channel,
@@ -162,7 +164,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     if (failedSandbox()) sandboxError();
     await d.browserGone();
   });
-  return { ...d.browser.info, alreadyRunning: false, extension: extensionDir(), detectTakeover: takeover !== null };
+  return { ...d.browser.info, alreadyRunning: false, extension: ext, detectTakeover: takeover !== null };
 }
 
 export async function browserStop(d: Daemon): Promise<unknown> {

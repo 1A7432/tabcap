@@ -22,7 +22,8 @@ import { isRecord } from "../../shared/json.ts";
 import { caPath } from "../../wire/certs.ts";
 import { Echo, type EchoReport } from "../../wire/echo.ts";
 import { Wireprint } from "../../wire/native.ts";
-import { cftVersion, flagsSha256, normalizedFlags, profileArch, profileArgs, profileFile, profileOs, reusable, type TabcapSection } from "../../wire/profile.ts";
+import { cftVersion, flagsSha256, profileArch, profileArgs, profileFile, profileOs, reusable, type TabcapSection } from "../../wire/profile.ts";
+import { hostLaunchContext, normalizedLaunchArgs } from "../../shared/launchargs.ts";
 import { WIRE_NOTE, WIRE_SCHEMA, checksOf, claimOf, clientOf, labelsOf, layersOf, runClientReport, type WireResult } from "../../wire/probe.ts";
 import type { Daemon } from "../state.ts";
 import { checkSessionName, optNum, optStr, type Args } from "./args.ts";
@@ -45,10 +46,10 @@ function portOf(a: Args): number {
 }
 
 function browserFacts(d: Daemon): { version: string; flags: string[]; hash: string } {
-  const { t, info } = d.need();
+  const { t, info, extensionDir } = d.need();
   const version = cftVersion(info.version);
   if (version === null) throw new TabcapError("unsupported", `cannot read the browser version from "${info.version}"`, "The baseline needs the Chrome for Testing tabcap launched (`tabcap browser start`).");
-  const flags = normalizedFlags(t.args);
+  const flags = normalizedLaunchArgs(t.args, hostLaunchContext(extensionDir));
   return { version, flags, hash: flagsSha256(flags) };
 }
 

@@ -1083,6 +1083,11 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   2. 再加：逗号列表开关把用户的项并进 tabcap 已有的那一条（同名项用户的替换 tabcap 的，按特性名比较，`Name:参数` / `Name<Trial` 只看 `Name`）；`--enable-features=X` 同时把 X 从 `--disable-features` 里拿掉，反过来也一样（blink 两条同理），所以用户能打开 tabcap 默认关掉的特性。不带值的列表开关（`--disable-features`、`--disable-features=`）不加任何项，tabcap 的那一条照旧（PR #27 Bugbot）。其他开关与 tabcap 同名时用户的替换 tabcap 的；不同名的追加在开关末尾（`about:blank` 这类位置参数之前）。用户自己重复写同一个非列表开关，只留最后一个。
   3. `webdriver` 的值由最后的命令行推出：`--disable-blink-features` 里有 `AutomationControlled` 为 `hidden`，否则 `visible`（例如 `--drop-chrome-arg --disable-blink-features` 或 `--chrome-arg --enable-blink-features=AutomationControlled` 让它变成 `visible`）。
 - **输出里标明**：`browser start` / `browser status` 的回答带 `args`（实际命令行，不含可执行文件路径）、`extraArgs`、`dropArgs`、`dropArgsUnmatched`；浏览器已在跑、这次请求的自定义参数与正在用的不同时，回答 `alreadyRunning:true` 加一条 `note`（先 `browser stop` 再 `start` 才生效）。`tabcap status` 的 `browser` 带 `extraArgs` / `dropArgs`（浏览器没在跑为 `null`），`status --text` 在有自定义参数时于 webdriver 后写 `chrome args +<加的条数> -<删的条数>`。
-- **manifest**：`producer.browser.args`（实际命令行）、`extraArgs`、`dropArgs`。与 `wire` 画像缓存同一套规整（`src/wire/profile.ts` `normalizedFlags`）：`--user-data-dir=<profile>`、`--load-extension=<extension>`，本机路径与用户名不进包；再做已知秘密值替换。旧包没有这三个字段 = 未记录（当时是默认参数表）。
+- **manifest**：`producer.browser.args`（实际命令行）、`extraArgs`、`dropArgs`。三项与 `wire` 画像缓存的参数哈希同一套规整（`src/shared/launchargs.ts` `normalizedLaunchArgs`；10-21 审查后作者定，取代 0.8.1 的「本机路径与用户名不进包」，那句只对下面头两条成立）：
+  - `--user-data-dir=<profile>`；
+  - `--load-extension` 的逗号列表**逐项**：tabcap 自己的 UI 扩展那项写 `<extension>`，用户的项按下一条处理（0.8.1 把整条压成一个 `<extension>`，看不出用户加载了哪些扩展）；
+  - 其余 `--name=value` 的值：URL 形状的（`scheme://…`，列表里的每项也算）去掉 `user:pass@`；以家目录开头的路径（在值开头、`=`、`,` / `;` / 空白或 `file://` 之后）把家目录换成 `<home>`，其余路径段保留（`--disk-cache-dir=<home>/cache`）；
+  - 不带值的开关与位置参数原样；最后做已知秘密值替换。
+  - 仍会进包的：家目录以外的绝对路径（`/opt/…`、`/Volumes/…`）原样；不是 URL 形状的值里写的凭据（比如 `--user-agent` 里的 token）只在它是已知秘密值时才替换。tabcap 自己的命令行规整结果与 0.8.1 相同（单测断言），已缓存的线指纹画像不失效。旧包没有这三个字段 = 未记录（当时是默认参数表）；0.8.1 的包里 `--load-extension` 是整条 `<extension>`。
 - **不管的**：`ext` 模式（作者自己的 Chrome）不是 tabcap 启动的，不受影响。参数改了页面行为（比如重新打开 bfcache 让录制缺事件）由用户负责，tabcap 只把参数标出来。线指纹画像的缓存本来就按启动参数哈希失效（§40 末条）。
 - **验证**：单测（`applyCustomArgs` 的删、合并、覆盖、相反列表、位置参数顺序、`dropArgsUnmatched`；`checkCustomArgs` 的拒绝项与代理冲突；`config.json` 的解析、报错与 `setup` 保留；manifest 写入与规整；`status --text`）；e2e `test/e2e/v081a.e2e.test.ts`（靶场 s71，`05` §17）。
