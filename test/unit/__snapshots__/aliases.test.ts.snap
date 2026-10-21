@@ -6039,7 +6039,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": false,
           "flag": "--all-tools",
-          "help": "one tool per command with its full help (about 80 tools, ~58 KB of definitions in the model's context) instead of the core set",
+          "help": "one tool per command with its full help (about 95 tools, ~84 KB of definitions in the model's context) instead of the core set",
           "key": "allTools",
           "repeatable": false,
           "required": false,

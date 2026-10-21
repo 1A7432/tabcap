@@ -1224,7 +1224,7 @@ export const COMMANDS: CommandSpec[] = [
         flag: "--all-tools",
         key: "allTools",
         kind: "bool",
-        help: "one tool per command with its full help (about 80 tools, ~58 KB of definitions in the model's context) instead of the core set",
+        help: "one tool per command with its full help (about 95 tools, ~84 KB of definitions in the model's context) instead of the core set",
       },
     ],
     summary: "serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human",
