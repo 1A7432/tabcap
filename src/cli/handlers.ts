@@ -11,20 +11,24 @@
 // daemon action has a run and every `--text` a rendering or a json-only reason.
 
 import { readFileSync } from "node:fs";
-import type { Paths } from "../shared/paths.ts";
 import { ok, type Envelope, type FailEnvelope, type OkEnvelope } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
-import type { RunOptions } from "../mcp/tools.ts";
+import type { Paths } from "../shared/paths.ts";
+import { nowMs } from "../shared/time.ts";
 import { hostConfig } from "../mcp/hosts.ts";
+import type { RunOptions } from "../mcp/tools.ts";
 import { runDaemon } from "../daemon/main.ts";
 import { Store } from "../daemon/store/db.ts";
 import { offlineStatus, renderStatusText } from "../daemon/tools/status.ts";
 import { renderTraceText } from "../daemon/trace/table.ts";
-import { renderFingerprintText } from "../fingerprint/fields.ts";
-import { renderWireText, wireResultOf } from "../wire/probe.ts";
+import { renderChainText } from "../analyze/chain.ts";
+import { renderSchemaDiffText, renderShapeText } from "../analyze/shape.ts";
 import { renderWhereText, whereResultOf } from "../analyze/where.ts";
 import { renderUsageText } from "../bundle/usage.ts";
-import { nowMs } from "../shared/time.ts";
+import { renderFingerprintText } from "../fingerprint/fields.ts";
+import { renderCheckText } from "../replay/check.ts";
+import { renderWireText, wireResultOf } from "../wire/probe.ts";
+import { analyzeChain, analyzeDeps, analyzeDiff, analyzeFind, analyzeRecon, analyzeSchemaDiff, analyzeShape, answerWithSaved, depsText, diffText, findText, reconText } from "./analyze.ts";
 import { bundleDecode, bundleExportFixtures, bundleExportHar, bundleImportHar, bundleInfo, bundleRedact } from "./bundle.ts";
 import { listBundles, openRecordings, pruneBundles, renderBundleListText } from "./bundles.ts";
 import { daemonStatus, startDaemon, stopDaemon } from "./client.ts";
@@ -34,6 +38,7 @@ import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintR
 import { guideList, guideOf, renderGuideListText, renderGuideText } from "./guides.ts";
 import { pluginInit } from "./plugin-init.ts";
 import { accountAdd, accountBind, accountList, accountRemove, accountSetState, proxyAdd, proxyCheck, proxyList, proxyRemove, proxySetState } from "./pool.ts";
+import { checkCode, replayCheck, replayExportPython, replayServe, replaySession } from "./replay.ts";
 import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts";
 import { cmdUpdate } from "./update.ts";
 import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
@@ -41,8 +46,12 @@ import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
 /** One command's outcome: the envelope, its exit code (0 ok, 1 error, 2 usage; -1 keep running) and the text printed instead of it. */
 export type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
 
-/** What a handler gets: the command, its parsed arguments, the paths and the caller's working directory. */
-export type Ctx = { spec: CommandSpec; args: Record<string, unknown>; paths: Paths; cwd: string };
+/**
+ * What a handler gets: the command, its parsed arguments, whether `--text`
+ * was given (a flag, also where a positional shares the key `text`, as in
+ * analyze find), the paths and the caller's working directory.
+ */
+export type Ctx = { spec: CommandSpec; args: Record<string, unknown>; text: boolean; paths: Paths; cwd: string };
 
 /** The arguments and the client timeout a daemon command sends. */
 export type Sent = { args: Record<string, unknown>; timeoutMs: number };
@@ -88,7 +97,7 @@ export function local<T>(s: LocalSpec<T>): Handler {
       const result = await s.run(ctx);
       const envelope = ok(s.data === undefined ? result : s.data(result));
       const code = s.code === undefined ? 0 : s.code(result);
-      const text = render !== undefined && ctx.args["text"] === true ? render(result, ctx) : null;
+      const text = render !== undefined && ctx.text ? render(result, ctx) : null;
       return text === null ? { code, envelope } : { code, envelope, text };
     },
     ...(render === undefined ? {} : { rendersText: true }),
@@ -198,6 +207,18 @@ export function handlerTable(host: Host): Readonly<Record<string, Handler>> {
     "bundle prune": local({ run: async ({ paths, args }) => pruneBundles(paths, args, await openRecordings(paths), nowMs()) }),
     "bundle decode": local({ run: ({ paths, args }) => bundleDecode(paths, args) }),
     "bundle export fixtures": local({ run: ({ paths, args, spec }) => bundleExportFixtures(paths, args, spec) }),
+    "analyze find": local({ run: ({ args }) => analyzeFind(args), data: answerWithSaved, render: findText }),
+    "analyze diff": local({ run: ({ args }) => analyzeDiff(args), data: answerWithSaved, render: diffText }),
+    "analyze deps": local({ run: ({ args }) => analyzeDeps(args), data: answerWithSaved, render: depsText }),
+    "analyze chain": local({ run: ({ args }) => analyzeChain(args), render: (r, { args }) => renderChainText(r, { reveal: args["reveal"] === true }) }),
+    "analyze recon": local({ run: ({ args, paths }) => analyzeRecon(args, paths.config), data: (r) => r.out, render: reconText }),
+    "analyze shape": local({ run: ({ args }) => analyzeShape(args), render: renderShapeText }),
+    // Exit 1 when an endpoint drifted (the envelope is still ok: the comparison itself worked).
+    "analyze schema-diff": local({ run: ({ args }) => analyzeSchemaDiff(args), code: (r) => (r.drift ? 1 : 0), render: renderSchemaDiffText }),
+    "replay serve": custom(({ spec, args }) => replayServe(spec, args)),
+    "replay session": local({ run: ({ spec, args }) => replaySession(spec, args) }),
+    "replay export-python": local({ run: ({ spec, args }) => replayExportPython(spec, args) }),
+    "replay check": local({ run: ({ args }) => replayCheck(args), code: checkCode, render: renderCheckText }),
     "wire serve": custom(({ paths, args }) => wireServe(paths, args)),
     "wire version": local({ run: ({ paths }) => wireVersion(paths) }),
     "wire ca-path": local({ run: ({ paths }) => wireCaPath(paths) }),

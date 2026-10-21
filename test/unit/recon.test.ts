@@ -25,7 +25,7 @@ import {
   type Dossier,
   type ReconPage,
 } from "../../src/analyze/recon.ts";
-import { runAnalyze } from "../../src/cli/analyze.ts";
+import { runCommand } from "../../src/cli/main.ts";
 import { analyzeDossierMask, redactDossier } from "../../src/analyze/redact.ts";
 import { summarize } from "../../src/daemon/main.ts";
 import { Store } from "../../src/daemon/store/db.ts";
@@ -353,7 +353,7 @@ describe("output", () => {
   test("files: exports/dossier.json + .md, 0600, overwritten on re-run; analyze recon prints the paths and the receipt", async () => {
     const dir = tmp("tabcap-recon-");
     await cookiesBundle(dir);
-    const r = await runAnalyze(["analyze", "recon", dir]);
+    const r = await runCommand(["analyze", "recon", dir]);
     expect(r.code).toBe(0);
     if (!r.envelope.ok) throw new Error("analyze recon failed");
     const data = r.envelope.data;
@@ -371,7 +371,7 @@ describe("output", () => {
     }
     const before = statSync(json).mtimeMs;
     await Bun.sleep(5);
-    const again = await runAnalyze(["analyze", "recon", dir, "--text"]);
+    const again = await runCommand(["analyze", "recon", dir, "--text"]);
     expect(again.text?.startsWith("# Recon dossier")).toBe(true);
     expect(statSync(json).mtimeMs).toBeGreaterThanOrEqual(before);
     expect(existsSync(md)).toBe(true);
@@ -385,14 +385,14 @@ describe("output", () => {
     await buildBundle(dir, { name: "redact", created: C, seed: 34 }, async (b) => {
       await b.request({ url: `${O}/orders?access_token=${SECRET}&lang=zh`, type: "document", mime: "text/html", body: "<!doctype html><title>Orders</title><p>hello world</p>", ts: C + 100 });
     });
-    const plain = await runAnalyze(["analyze", "recon", dir]);
+    const plain = await runCommand(["analyze", "recon", dir]);
     if (!plain.envelope.ok || !isRecord(plain.envelope.data)) throw new Error("analyze recon failed");
     const page = isRecord(plain.envelope.data["page"]) ? plain.envelope.data["page"] : {};
     expect(String(page["url"])).toContain("access_token=<redacted:");
     expect(String(page["url"])).toContain("lang=zh");
     expect(JSON.stringify(plain.envelope.data).includes(SECRET)).toBe(false);
     expect(readFileSync(join(dir, "exports", "dossier.json"), "utf8").includes(SECRET)).toBe(false);
-    const revealed = await runAnalyze(["analyze", "recon", dir, "--reveal"]);
+    const revealed = await runCommand(["analyze", "recon", dir, "--reveal"]);
     if (!revealed.envelope.ok || !isRecord(revealed.envelope.data)) throw new Error("analyze recon --reveal failed");
     const rpage = isRecord(revealed.envelope.data["page"]) ? revealed.envelope.data["page"] : {};
     expect(String(rpage["url"])).toContain(SECRET);
@@ -415,7 +415,7 @@ describe("output", () => {
     process.env["TABCAP_HOME"] = home;
     try {
       for (const argv of [[], ["--reveal"], ["--text"]]) {
-        const r = await runAnalyze(["analyze", "recon", dir, ...argv]);
+        const r = await runCommand(["analyze", "recon", dir, ...argv]);
         if (!r.envelope.ok) throw new Error(`analyze recon ${argv.join(" ")} failed`);
         for (const out of [JSON.stringify(r.envelope), r.text ?? "", readFileSync(join(dir, "exports", "dossier.json"), "utf8"), readFileSync(join(dir, "exports", "dossier.md"), "utf8")]) {
           expect([argv, out.includes(PW)]).toEqual([argv, false]);

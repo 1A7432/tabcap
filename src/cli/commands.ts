@@ -1272,11 +1272,6 @@ export function specOf(path: string): CommandSpec {
   return c;
 }
 
-/** Every spelling of every flag of a command (for the hand-written bundle / analyze parsers). */
-export function flagNames(c: CommandSpec): string[] {
-  return c.flags.flatMap(spellingsOf);
-}
-
 /** Every spelling of one flag: the name and its alias. */
 export function spellingsOf(f: FlagSpec): string[] {
   return [f.flag, ...(f.alias === undefined ? [] : [f.alias])];
@@ -1426,11 +1421,6 @@ export function helpTopic(word: string): string | null {
   const title = g === undefined ? `${TOOL_NAME} ${word} — subcommands:` : `${g.title} — ${cmds.length} command(s):`;
   const first = cmds[0]?.path.join(" ") ?? word;
   return [title, ...cmds.map(groupLine), "", `Options and an example: ${TOOL_NAME} help <command>, e.g. ${TOOL_NAME} help ${first}. Every browser command also takes --session <name>; most take --timeout <ms>.`].join("\n");
-}
-
-/** Short list of a command group (`tabcap replay --help`): its subcommands, or null when `group` is no group. */
-export function helpGroup(group: string): string | null {
-  return COMMANDS.some((c) => c.path[0] === group && c.path.length > 1 && c.internal !== true) ? helpTopic(group) : null;
 }
 
 /** Levenshtein distance (insert / delete / substitute, each 1). */
@@ -1614,7 +1604,8 @@ export function matchCommand(words: readonly string[]): CommandSpec | null {
   return best;
 }
 
-export type ParsedCommand = { args: Record<string, unknown>; session: string | null; help: boolean };
+/** `given`: the flags on the command line by their main spelling (`--text` even where a positional shares its key, as in analyze find). */
+export type ParsedCommand = { args: Record<string, unknown>; session: string | null; help: boolean; given: ReadonlySet<string> };
 
 /** A one-dash word the spec declares as a flag spelling (`-o`, `-o=v`); any other word starting with one dash is positional. */
 function shortFlag(c: CommandSpec, a: string): boolean {
@@ -1636,6 +1627,7 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
   let session: string | null = null;
   let help = false;
   let rest = false;
+  const given = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] ?? "";
     if (rest || a === "--" || (!a.startsWith("--") && !shortFlag(c, a))) {
@@ -1651,6 +1643,7 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
     const name = eq > 0 ? a.slice(0, eq) : a;
     const spec = c.flags.find((f) => spellingsOf(f).includes(name));
     if (spec === undefined) throw new TabcapError("usage", `unknown option ${name}`, usage);
+    given.add(spec.flag);
     let value: string | undefined;
     if (spec.kind === "bool") {
       if (eq > 0) throw new TabcapError("usage", `${name} takes no value`, usage);
@@ -1678,7 +1671,7 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
       args[spec.key] = n;
     } else args[spec.key] = value;
   }
-  if (help) return { args, session, help };
+  if (help) return { args, session, help, given };
   for (const [k, v] of Object.entries(c.fixed ?? {})) args[k] = v;
   const required = c.pos.length - (c.optional ?? 0);
   for (let i = 0; i < c.pos.length; i++) {
@@ -1687,7 +1680,7 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
     if (key.endsWith("...") && last) {
       if (pos.length > i) args[key.slice(0, -3)] = c.restList === true ? pos.slice(i) : pos.slice(i).join(" ");
       else if (i < required) throw new TabcapError("usage", `missing <${key.slice(0, -3)}>`, usage);
-      return { args, session, help };
+      return { args, session, help, given };
     }
     const v = pos[i];
     if (v === undefined) {
@@ -1695,5 +1688,5 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
     } else args[key] = v;
   }
   if (pos.length > c.pos.length) throw new TabcapError("usage", c.quiet === true ? `unexpected argument #${c.pos.length + 1} (value not shown)` : `unexpected argument: ${pos[c.pos.length] ?? ""}`, usage);
-  return { args, session, help };
+  return { args, session, help, given };
 }

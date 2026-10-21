@@ -13,7 +13,7 @@ import { decodeBundle } from "../../src/bundle/decode.ts";
 import { DecodeHost, DecodeSession } from "../../src/daemon/hooks/decode.ts";
 import { decodePlugins } from "../../src/daemon/hooks/plugins.ts";
 import { MAX_ARRAY_ITEMS, MAX_FIELDS, MAX_SHAPE_DEPTH, diffEndpoint, flatOf, inferShape, parseShapeTypes, schemaDiff, shape, stringFormat, typeText, type EndpointShape, type Shape } from "../../src/analyze/shape.ts";
-import { runAnalyze } from "../../src/cli/analyze.ts";
+import { runCommand } from "../../src/cli/main.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { LIST_DRIFT, LIST_V1, LIST_V2, S42_ITEMS_JSON } from "../e2e/site.ts";
 import { b64, buildBundle, tmp } from "./_analyze.ts";
@@ -233,7 +233,7 @@ describe("analyze shape over a bundle", () => {
     const b = await buildBundle(dir("w"), { name: "s", created: C, seed: 4 }, async (x) => {
       await x.request({ url: `${O}/api/list`, mime: "application/json", body: LIST_V1, ts: C + 1 });
     });
-    const out = await runAnalyze(["analyze", "shape", b, "--write"]);
+    const out = await runCommand(["analyze", "shape", b, "--write"]);
     expect(out.code).toBe(0);
     const file = join(b, "exports", "shape.json");
     expect(out.envelope.ok && isRecord(out.envelope.data) ? out.envelope.data["written"] : null).toBe(file);
@@ -241,7 +241,7 @@ describe("analyze shape over a bundle", () => {
     if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
     const saved: unknown = JSON.parse(readFileSync(file, "utf8"));
     expect(isRecord(saved) ? [saved["schema"], Array.isArray(saved["endpoints"]) ? saved["endpoints"].length : -1] : null).toEqual(["tabcap-shape/0", 1]);
-    const text = await runAnalyze(["analyze", "shape", b, "--text"]);
+    const text = await runCommand(["analyze", "shape", b, "--text"]);
     expect(text.text?.split("\n")).toContain("  $.items[].price  string(float)");
   });
 });
@@ -336,7 +336,7 @@ describe("diff table", () => {
     expect(r.drift).toBe(true);
     for (const v of ["Blue mug", "12.50", "EUR"]) expect(JSON.stringify(r).includes(v)).toBe(false);
 
-    const cli = await runAnalyze(["analyze", "schema-diff", a, b, "--text"]);
+    const cli = await runCommand(["analyze", "schema-diff", a, b, "--text"]);
     expect(cli.code).toBe(1);
     expect(cli.envelope.ok).toBe(true);
     expect(cli.text?.split("\n")).toEqual([
@@ -349,7 +349,7 @@ describe("diff table", () => {
       "new GET /api/new",
       "schema-diff: 1 drift, 1 same, 1 new, 1 gone",
     ]);
-    const same = await runAnalyze(["analyze", "schema-diff", a, b, "--template", "GET /api/search"]);
+    const same = await runCommand(["analyze", "schema-diff", a, b, "--template", "GET /api/search"]);
     expect(same.code).toBe(0);
     const gone = schemaDiff(a, b, { template: "GET /api/old" });
     expect(gone.endpoints.map((e) => e.verdict)).toEqual(["gone"]);

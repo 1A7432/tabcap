@@ -14,8 +14,6 @@ import { paths } from "../shared/paths.ts";
 import { binaryVersion, downloadCft } from "../daemon/transport/direct/cft.ts";
 import { hostPlatform, type CftPlatform } from "../daemon/transport/direct/launcher.ts";
 import { send, status as daemonPing } from "./client.ts";
-import { runAnalyze } from "./analyze.ts";
-import { runReplay } from "./replay.ts";
 import { OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, helpAll, helpFor, helpTopic, matchCommand, unknownCommandName, unknownCommandNext, parseCommand, spellingsOf, type CommandSpec } from "./commands.ts";
 import { applyFilters, filterOptions, hasFilters, type FilterOptions } from "../shared/filter.ts";
 import { applyBudget, outputLimit } from "../shared/budget.ts";
@@ -60,7 +58,7 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
   }
   const key = c.path.join(" ");
   const h = handlerOf(HANDLERS, key) ?? {};
-  const ctx: Ctx = { spec: c, args: parsed.args, paths: paths(), cwd: process.cwd() };
+  const ctx: Ctx = { spec: c, args: parsed.args, text: parsed.given.has("--text"), paths: paths(), cwd: process.cwd() };
   if (c.action === undefined) {
     if (h.run === undefined) throw new TabcapError("internal", `no handler for ${key}`, "This is a bug.");
     return await h.run(ctx);
@@ -77,7 +75,7 @@ async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly st
     if (out !== null) return out;
   }
   const code = env.ok ? 0 : env.error.code === "usage" ? 2 : 1;
-  const text = env.ok && parsed.args["text"] === true && h.render !== undefined ? h.render(env.data) : null;
+  const text = env.ok && ctx.text && h.render !== undefined ? h.render(env.data) : null;
   return text === null ? { code, envelope: env } : { code, envelope: env, text };
 }
 
@@ -221,7 +219,8 @@ export async function run(argv: readonly string[], opts: RunOptions = {}): Promi
   }
 }
 
-async function runCommand(argv: readonly string[], opts: RunOptions = {}): Promise<Outcome> {
+/** One command without the output layer (filters, budget): help, version, unknown commands, then the registry and the handler table. */
+export async function runCommand(argv: readonly string[], opts: RunOptions = {}): Promise<Outcome> {
   try {
     const words = argv.filter((a) => !a.startsWith("-"));
     if (argv.length === 0) {
@@ -233,8 +232,6 @@ async function runCommand(argv: readonly string[], opts: RunOptions = {}): Promi
     }
     const help = helpRequest(argv);
     if (help !== null) return { code: help.code, envelope: ok({ help: help.text }), text: help.text };
-    if (argv[0] === "analyze") return await runAnalyze(argv);
-    if (argv[0] === "replay") return await runReplay(argv);
     const c = matchCommand(words);
     if (c === null) {
       const got = unknownCommandName(words);
