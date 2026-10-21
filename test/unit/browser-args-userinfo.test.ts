@@ -3,7 +3,8 @@
 // Review 10-21 (owner decision): a URL value there has its userinfo removed
 // (`scheme://user:pass@host` -> `scheme://host`); nothing else changes, the
 // home directory included (an answer is not evidence; the manifest has its
-// own rules). The browser is the fake in _fakechrome.ts; the pure part is
+// own rules). Review wave 3: `tabcap status`'s `browser.extraArgs` / `dropArgs`
+// too. The browser is the fake in _fakechrome.ts; the pure part is
 // launchargs.ts's withoutUrlCredentials.
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -75,6 +76,31 @@ describe.skipIf(!FAKE_CHROME)("browser start / browser status answers (fake brow
         expect(a["extraArgs"]).toEqual(["--start-url=https://a.example/x"]);
       }
       expect(d.browser?.info.args).toContain(arg);
+    },
+    SLOW_IO_MS,
+  );
+
+  test(
+    "tabcap status's browser.extraArgs / dropArgs lose URL credentials as well (review wave 3)",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "tabcap-bargs-"));
+      roots.push(dir);
+      const p = paths({ TABCAP_HOME: dir });
+      mkdirSync(p.config, { recursive: true, mode: 0o700 });
+      const d = new Daemon(p);
+      daemons.push(d);
+      const run = (action: string, args: Record<string, unknown> = {}) => handleCommand(d, { action, args, session: "a" }, () => undefined);
+      const exe = fakeChrome(dir, {});
+      const started = await run("browser.start", { executablePath: exe, proxy: "none", chromeArg: ["--start-url=https://alice:secretpw@a.example/x"], dropChromeArg: ["--homepage=https://bob:droppw@b.example/"] });
+      if (!started.ok) throw new Error(JSON.stringify(started));
+      const status = await run("status");
+      if (!status.ok || !isRecord(status.data) || !isRecord(status.data["browser"])) throw new Error(JSON.stringify(status));
+      const browser = status.data["browser"];
+      expect(JSON.stringify(browser)).not.toContain("secretpw");
+      expect(JSON.stringify(browser)).not.toContain("droppw");
+      expect(browser["extraArgs"]).toEqual(["--start-url=https://a.example/x"]);
+      expect(browser["dropArgs"]).toEqual(["--homepage=https://b.example/"]);
+      expect(d.browser?.info.dropArgs).toEqual(["--homepage=https://bob:droppw@b.example/"]);
     },
     SLOW_IO_MS,
   );
