@@ -1,11 +1,3 @@
-# Third-party material, local reference only
-evidence/ext/
-evidence/pretty/
-evidence/daemon/
-evidence/skill-latest/
-# Task briefs, local only
-evidence/tasks/
-
 # Build and tooling
 node_modules/
 dist/
@@ -13,6 +5,10 @@ dist/
 *.local
 .tabcap-cache/
 *.bun-build
+
+# CI artefact staging (ci.yml collects logs here) and the uv warm-up project (removed on success)
+ci-logs/
+.uv-warm/
 
 # Export products and browser profiles never go into the repo
 fixtures/**/exports/
