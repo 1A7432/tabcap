@@ -74,4 +74,4 @@ tabcap where e12                            # which response carries this value
 tabcap analyze deps <bundle> --select unresolved
 ```
 
-Errors: `waiting` (hand over) · `guard.login-limit` (ask, then `--confirm`) · `not-running` · `no-tab` (navigate, or `tab list`) · `stale-ref` (snapshot again) · `needs-await` · `dialog` (`dialog accept|dismiss`) · `timeout` · `covered` (an overlay is in front; never close consent or timeout prompts without the user) · `not-delivered` / `move-timeout` (look before clicking again) · `usage`.
+Errors: `waiting` (hand over) · `guard.login-limit` (ask, then `--confirm`) · `not-running` · `daemon-version` (`tabcap daemon stop && tabcap daemon start`) · `no-tab` (navigate, or `tab list`) · `stale-ref` (snapshot again) · `needs-await` · `dialog` (`dialog accept|dismiss`) · `timeout` · `covered` (an overlay is in front; never close consent or timeout prompts without the user) · `not-delivered` / `move-timeout` (look before clicking again) · `usage`.
