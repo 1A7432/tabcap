@@ -2,6 +2,20 @@
 
 [English](CHANGELOG.md) | 中文
 
+## Unreleased
+
+### 审查修正
+
+- `tabcap status`：会话因停手规则等待时，顶层 `next` 改成与 guard 自己的回答一致（先 `net body r-N` 看响应，再 `handoff continue` 或 `guard resume --site`），不再套验证页的措辞。
+- `analyze chain --text --reveal` 打出录到的原值；此前文本渲染层自带一套打码、无视 `--reveal`（JSON 输出是对的）。
+- `analyze recon`：人接管的交接不再和此前的 fetch 停手熔断配对；熔断只配同一 reason 的交接。
+- 浏览器已在运行时 `browser start`：`note` 也会指出与运行中浏览器不同的 `--proxy` / `--webdriver`，和自定义开关一样。
+- `tabcap update`：注册表回答的版本串先 trim 再交给 npm、Homebrew keg 检查和回答里的 `latest`。
+- `handoff wait --until-text` 的值写进交接 `resumed` 事件前先做已知秘密替换，与 `cmd` 事件一致。
+- 文档与 skill：MCP 核心集共 24 个工具（不是 24 + 3），`--all-tools` 是 95 个、约 84 KB；`net list` 工具描述写每页 30；`protection` 事件进 docs/04 §4.2，§35 补上 0.7.x–0.8.x 的字段；docs/07 §7 按守护进程侧的 `tabcap_handoff_wait` 描述；MCP 排除清单写明 `update`、`daemon run`、`handoff wait`；references/recording.md 写了 `--webdriver`、`--chrome-arg`、`--drop-chrome-arg`；SKILL.md 列全四个 `--until-*`；README 文档清单补 docs/14；packaging/npm/README.md 不再说平台包未发布；文档里的 `bbl` 占位符清掉；CHANGELOG.zh-CN 的 0.3.0–0.5.0 补齐英文版的小节。
+- 测试：新增 54 条单测（实时防护探测的守护进程侧、沙箱 `unsupported` 接线、`Tabs.markClosed` 回落、隔离世界、`--until-selector` usage、status `next`、recon 交接配对、chain reveal、浏览器运行中的 note、update trim、条件值替换）；e2e v075b 等 handoff wait 真正开始而不是固定睡 1 s，v075a 按特征挑请求而不是录制下标，v04w 删掉恒为真的门控，v08a 在 Linux 以外要求有 WebGL 上下文。
+- 卫生：`.gitignore` 加 `ci-logs/`、`.uv-warm/`，删旧的 `evidence/` 条目；`settle.ts` 补 chrome-devtools-mcp 的许可证头；删死导出；`bun.lock` 不再钉住镜像源。
+
 ## 0.8.1（2026-10-21）
 
 ### 自定义 Chrome 启动参数

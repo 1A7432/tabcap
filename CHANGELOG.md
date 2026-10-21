@@ -2,6 +2,20 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### Review fixes
+
+- `tabcap status`: the top-level `next` for a session waiting on a stop rule now says what the guard's own answer says (look at the response with `net body r-N`, then `handoff continue` or `guard resume --site`), instead of the verification-page wording.
+- `analyze chain --text --reveal` prints the recorded values; the text rendering kept its own redaction and ignored `--reveal` (the JSON output was right).
+- `analyze recon`: a human take-over handoff is no longer paired with an earlier fetch-stop breaker; a breaker pairs only with a handoff of the same reason.
+- `browser start` while the browser is running: the `note` also names a `--proxy` or `--webdriver` that differs from the running browser's, as it already did for custom switches.
+- `tabcap update`: the version the registry answers is trimmed before it reaches npm, the Homebrew keg check and the answer's `latest`.
+- A `handoff wait --until-text` value goes through the known-secret replacement before it is written to the handoff `resumed` event, as the `cmd` event already did.
+- Docs and skill: the MCP core set is 24 tools in total (not 24 + 3) and `--all-tools` is 95 tools, about 84 KB; the `net list` tool description says 30 per page; the `protection` event is in docs/04 §4.2 and §35 lists the 0.7.x–0.8.x fields; docs/07 §7 describes the daemon-side `tabcap_handoff_wait`; the MCP exclusion lists name `update`, `daemon run` and `handoff wait`; references/recording.md documents `--webdriver`, `--chrome-arg` and `--drop-chrome-arg`; SKILL.md lists all four `--until-*`; the README lists docs/14; packaging/npm/README.md no longer calls the platform packages unpublished; the `bbl` placeholder is gone from the docs; CHANGELOG.zh-CN 0.3.0–0.5.0 carry the English subsections.
+- Tests: 54 new unit tests (the daemon side of the live protection probe, the sandbox `unsupported` wiring, `Tabs.markClosed`'s fallback, isolated worlds, `--until-selector` usage, status `next`, recon handoff pairing, chain reveal, the browser running note, update trim, condition scrub); e2e v075b waits for the handoff wait to start instead of sleeping 1 s, v075a picks requests by feature instead of recording index, v04w drops a gate that was always true, v08a requires a WebGL context off Linux.
+- Hygiene: `.gitignore` covers `ci-logs/` and `.uv-warm/` and drops the old `evidence/` lines; `settle.ts` carries its chrome-devtools-mcp license header; dead exports removed; `bun.lock` no longer pins a registry mirror.
+
 ## 0.8.1 (2026-10-21)
 
 ### Your own Chrome switches
