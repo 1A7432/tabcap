@@ -956,6 +956,32 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap bundle info ./b --usage --text --business-code '$.code=0'",
   },
   {
+    path: ["bundle", "list"],
+    pos: [],
+    flags: [
+      { flag: "--site", key: "site", kind: "string", help: "only the recordings of this store site", metavar: "name" },
+      { flag: "--limit", key: "limit", kind: "number", help: "at most this many, newest first (max 1000)", default: 50, metavar: "n" },
+      { flag: "--text", key: "text", kind: "bool", help: "one line per recording (start, state, size, site, session, directory) instead of JSON" },
+    ],
+    summary:
+      "the recordings in the store's bundle index (each `net start`), newest first: id, dir, site, session, startedAt, finishedAt, bytes on disk, state (recording | finished | unfinished | missing). Recordings have no total size limit; `bundle prune` removes old ones",
+    example: "tabcap bundle list --site example --limit 10 --text",
+  },
+  {
+    path: ["bundle", "prune"],
+    pos: [],
+    flags: [
+      { flag: "--keep", key: "keep", kind: "number", help: "keep the N newest recordings, delete the older ones", metavar: "n" },
+      { flag: "--older-than", key: "olderThan", kind: "string", help: "delete the recordings started longer ago than this: a whole number with s, m, h, d or w (30d, 12h)", metavar: "duration" },
+      { flag: "--site", key: "site", kind: "string", help: "only the recordings of this store site", metavar: "name" },
+      { flag: "--dry-run", key: "dryRun", kind: "bool", help: "only list what would be deleted (also the default without --yes)" },
+      { flag: "--yes", key: "yes", kind: "bool", help: "delete for real: the directories and their index rows" },
+    ],
+    summary:
+      "delete old recordings found through the store's bundle index: --keep N or --older-than <duration>, a dry run that lists them unless --yes; a recording the daemon still has open is never deleted, nor anything that is not a bundle directory; index rows whose directory is gone are forgotten. For the human (not an MCP tool)",
+    example: "tabcap bundle prune --older-than 30d --yes",
+  },
+  {
     path: ["bundle", "decode"],
     pos: ["bundle"],
     flags: [{ flag: "--plugin", key: "plugin", kind: "string", help: "only this decode plugin (installed; naming it is the opt-in, it need not be enabled); default: every enabled decode plugin", metavar: "name" }],
@@ -1224,7 +1250,7 @@ export const COMMANDS: CommandSpec[] = [
         flag: "--all-tools",
         key: "allTools",
         kind: "bool",
-        help: "one tool per command with its full help (about 95 tools, ~84 KB of definitions in the model's context) instead of the core set",
+        help: "one tool per command with its full help (about 96 tools, ~84 KB of definitions in the model's context) instead of the core set",
       },
     ],
     summary: "serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human",
@@ -1261,7 +1287,7 @@ export function currentCommands(): CommandSpec[] {
   return COMMANDS.filter((c) => c.internal !== true);
 }
 
-const BUNDLE_PATHS = ["bundle export har", "bundle import har", "bundle redact", "bundle info", "bundle decode", "bundle export fixtures"];
+const BUNDLE_PATHS = ["bundle export har", "bundle import har", "bundle redact", "bundle info", "bundle decode", "bundle export fixtures", "bundle list", "bundle prune"];
 export const BUNDLE_USAGE: string[] = BUNDLE_PATHS.map((p) => usageOf(specOf(p)));
 
 function posName(c: CommandSpec, p: string): string {

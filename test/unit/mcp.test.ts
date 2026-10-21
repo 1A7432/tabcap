@@ -244,7 +244,7 @@ describe("tools/list --all-tools: generated from the command table", () => {
   });
 
   test("one tool per command except the listed exclusions, plus tabcap_handoff_wait", () => {
-    expect(Object.keys(EXCLUDED).sort()).toEqual(["account add", "daemon run", "fingerprint serve", "handoff wait", "mcp", "proxy add", "replay serve", "schema", "site add", "update", "wire serve"]);
+    expect(Object.keys(EXCLUDED).sort()).toEqual(["account add", "bundle prune", "daemon run", "fingerprint serve", "handoff wait", "mcp", "proxy add", "replay serve", "schema", "site add", "update", "wire serve"]);
     for (const k of Object.keys(EXCLUDED)) expect(specOf(k).path.join(" ")).toBe(k);
     const expected = COMMANDS.filter((c) => EXCLUDED[c.path.join(" ")] === undefined).map((c) => `tabcap_${c.path.join("_")}`);
     expect(TOOLS.map((t) => t.def.name)).toEqual([...expected, HANDOFF_WAIT]);
