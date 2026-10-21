@@ -15,7 +15,7 @@ import type { Daemon } from "../state.ts";
 import { callResult, docIdentity } from "../browser/doc.ts";
 import type { Transport } from "../transport/types.ts";
 import { identify, type Detection, type Evidence, type Identification } from "../../analyze/protection/identify.ts";
-import { loadFamilies } from "../../analyze/protection/registry.ts";
+import { loadFamilies, type LoadedFamilies } from "../../analyze/protection/registry.ts";
 import type { Family } from "../../analyze/protection/rules.ts";
 import { log } from "../../shared/log.ts";
 import { GLOBALS_FN, MAX_FRAMES, MAX_RESOURCES, RESOURCES_FN, globalPaths, parseCookies, parseGlobals, parseResources } from "./probe.ts";
@@ -73,8 +73,28 @@ export async function probeTab(t: Transport, tab: Tab, families: readonly Family
   return { cookies, resources: loaded?.resources ?? null, frames: loaded?.frames ?? null, dom, globals };
 }
 
-export function familiesFor(d: Daemon): { families: Family[]; warnings: string[] } {
-  return loadFamilies(join(d.paths.config, "protection"));
+/** Families per running browser (or per daemon without one): read and compiled once, not per navigation. */
+const loaded = new WeakMap<object, LoadedFamilies>();
+
+/** Built-ins plus config/protection/*.json, read from disk now (`browser start`, review 10-21). */
+export function readLiveFamilies(configDir: string): LoadedFamilies {
+  return loadFamilies(join(configDir, "protection"));
+}
+
+/** `browser start`: the families read for this browser; its probes use them until the next start. */
+export function keepLiveFamilies(browser: object, f: LoadedFamilies): void {
+  loaded.set(browser, f);
+}
+
+/** The families the live probe uses (and the skipped user files, `warnings`): the running browser's, read at its start. */
+export function familiesFor(d: Daemon): LoadedFamilies {
+  const key: object = d.browser ?? d;
+  let have = loaded.get(key);
+  if (have === undefined) {
+    have = readLiveFamilies(d.paths.config);
+    loaded.set(key, have);
+  }
+  return have;
 }
 
 /** config.json `protection.live` read at `browser start` (review 10-21); on while no browser ran it (unit tests). */
@@ -117,10 +137,14 @@ export function cachedNames(tab: Tab | undefined): string[] {
   return liveHints(have.found).map((h) => h.name);
 }
 
-/** Answer field: `{protection: [...]}` when anything ≥ LIVE_MIN was identified, else nothing. */
-export async function protectionField(d: Daemon, t: Transport, tab: Tab): Promise<{ protection?: LiveHint[] }> {
+/**
+ * Answer fields of navigate / snapshot: `{protection: [...]}` when anything ≥ LIVE_MIN was identified, and
+ * `warnings` naming the user rule files the probe skipped (review 10-21; nothing when there are none).
+ */
+export async function protectionField(d: Daemon, t: Transport, tab: Tab): Promise<{ protection?: LiveHint[]; warnings?: string[] }> {
   const hints = liveHints(await liveIdentify(d, t, tab));
-  return hints.length === 0 ? {} : { protection: hints };
+  const warnings = liveOn(d) ? familiesFor(d).warnings : [];
+  return { ...(hints.length === 0 ? {} : { protection: hints }), ...(warnings.length === 0 ? {} : { warnings: [...warnings] }) };
 }
 
 function record(d: Daemon, tab: Tab, detections: readonly Detection[]): void {

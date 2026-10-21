@@ -26,6 +26,7 @@ import { logOffset, logSince, nestedSandboxError, sandboxFailed } from "../trans
 import { optBool, optStr, optStrList, type Args } from "./args.ts";
 import { withoutUrlCredentials } from "../../shared/launchargs.ts";
 import { stopTrace } from "./trace.ts";
+import { keepLiveFamilies, readLiveFamilies } from "../protection/live.ts";
 
 /** Review 10-21: the browser info as `browser start` / `browser status` answer it, URL values without their userinfo. */
 function shownInfo(info: BrowserInfo): BrowserInfo {
@@ -134,6 +135,8 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     throw sandboxError();
   }
   const tabs = new Tabs(t, foreground);
+  // Review 10-21 (docs/04 §41.1): the live probe's families are read and compiled once per browser start.
+  const liveFamilies = protection.live ? readLiveFamilies(d.paths.config) : null;
   // 0.7.1-A: the take-over listener on every owned tab (direct mode; off with handoff.detectTakeover:false).
   const takeover = handoff.detectTakeover
     ? new TakeoverWatch(t, tabs, (tab, r, at, inWindow) => {
@@ -162,7 +165,8 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
       extraArgs: custom.add,
       dropArgs: custom.drop,
       dropArgsUnmatched: t.unmatchedDrops,
-      warnings: isolationWarnings(t.args, custom),
+      // Review 10-21: plus the user protection rule files the live probe skipped (read once, here).
+      warnings: [...isolationWarnings(t.args, custom), ...(liveFamilies?.warnings ?? [])],
       protectionLive: protection.live,
       foreground,
       front: t.front,
@@ -170,6 +174,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     },
   };
   const running = d.browser;
+  if (liveFamilies !== null) keepLiveFamilies(running, liveFamilies);
   void t.closed.then(async (reason) => {
     if (d.browser !== running) return;
     log.warn("browser connection closed", { reason });

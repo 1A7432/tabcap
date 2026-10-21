@@ -39,7 +39,7 @@ export type BrowserInfo = {
   extraArgs: string[];
   dropArgs: string[];
   dropArgsUnmatched: string[];
-  /** Review 10-21: switches in `args` that weaken the browser's isolation, one sentence each (docs/04 §42); [] when none. */
+  /** Review 10-21: switches in `args` that weaken the browser's isolation, one sentence each (docs/04 §42), then the user protection rule files skipped at this start (§41.1); [] when none. */
   warnings: string[];
   /** Review 10-21: config.json `protection.live` at start; false = no live protection probe (docs/04 §41.3). */
   protectionLive: boolean;
