@@ -239,7 +239,7 @@
   // "traceWindows": [ { "fromSeq": 120, "toSeq": 388 } ],  // 每个开 / 关窗口一条，两端是开、关时写的 note 事件的 seq；开着时 toSeq 为 null；没开过追踪则无此字段
   "counts": { "events": 412, "requests": 97, "bodies": 91, "blobBytes": 18234567,
               "bodyMissing": { "redirect": 3, "not-modified": 2, "navigated": 1 } },
-  "redaction": null,                               // 导出副本里是 {"rules": "default@1", "applied": 1760500950000, "salt": "<仅本地副本保留>"}
+  "redaction": null,                               // 导出副本里是 {"rules": "default@3", "applied": 1760500950000}（salt 只在原包的 exports/<name>.salt，§8）
   "imported": null,                                // 或 {"from": "har", "creator": {"name": "WebInspector", "version": "537.36"}, "lossy": ["initiator", "timing.cdp"]}
   "notes": ""
 }
@@ -248,11 +248,14 @@
 ## 8. 脱敏（导出时）
 
 - 触发：`tabcap bundle export har` 默认开，`--no-redact` 关；`tabcap bundle redact <in> <out>` 生成脱敏副本。原包永不原地改。
-- 规则来源：`redaction.json`（可改），默认规则：
+- 规则来源：`redaction.json`（可改），默认规则 `default@3`（10-21 作者定；`default@2` 只处理 request / ws / state / action / note / finding 几种事件与事件顶层的 `url` / `from` / `title`，guard、handoff、protection、cmd、console 事件与 manifest 的启动参数原样出包）：
   - 请求/响应头：`cookie`、`set-cookie`、`authorization`、`proxy-authorization`、`x-api-key`，以及名字含 `token` / `secret` / `session` / `auth` 的头。
   - query、表单、JSON 字段：名字含 `(token|secret|passw|session|sid|auth|api[-_]?key)`，或有一段正好是 `pass` / `pwd`（按非字母数字、驼峰、字母数字交界切段：`user_pass`、`userPass`、`login-pwd`、`Pwd2` 算，`bypass`、`passport`、`compass`、`passenger` 不算；`pass` / `pwd` 为 `default@2`，0.4 作者定。`ticket` 曾在 0.7-E 加入一天，作者 10-17 定去掉：CAS 回跳 URL 里的票据对回放是录制时的常量，而这张名单同时决定 export-python 把哪些输入当 secret）。
   - 值模式：18 位身份证、11 位手机号、邮箱、JWT（`xxx.yyy.zzz` 且 base64url）。
   - `state` 事件（cookies / storage）整体打码。
+  - **每种事件递归遍历**（`default@3`）：`request` 的头与正文（含 `decoded` 视图）、`ws` 正文、`state` blob、`action.value`、`note.text`、`finding.claim` 按上面各自的规则；事件里其余每个字符串（任意深度，数组逐项）：字段名是 `url` / `from` / `…Url`，或整串像 URL（`scheme://…`，或以 `/`、`?` 开头，且不含空白）的，走 URL 规则（query 按名字打码，其余部分走值模式）；`--开关=值` 形式的只处理值部分（值像 URL 走 URL 规则，否则走值模式）；其余走值模式。由此覆盖 guard 事件的 `detail.url`（URL 规则）与 `detail.detail`、handoff 的 `question` 与 `condition.value`、protection 的 `detections[].matched[].where`、cmd 的 `argv`（其中的 URL 走 URL 规则）/ `input` / `outputSummary` / `error`、console 的 `text` / `args`，以及以后新加的字段。不改：信封字段（`seq` `ts` `mono` `kind` `actor` `tab` `cmd`）、id 形状的引用（`r-12`、`c-3`、`n-5`、`r-12:34`）、blob 引用、`request.cdp` 里浏览器的 id、库里的名字（事件顶层的 `site` / `account`，`session` 事件的 `name`：证据包与库靠名字关联，§8.1）。
+  - manifest：`producer.browser.args` / `extraArgs` / `dropArgs` 逐项按上条的 `--开关=值` 规则，`session.tabs[].firstUrl` 走 URL 规则，`notes` 走值模式；名字与 id 不改。
+- 两遍：第一遍对整个视图（manifest 与全部事件）收集按名字规则或值模式打了码的值；第二遍在上面遍历到的**每个**字符串里把这些值（≥ 6 字符）换成同一个占位符。所以 request URL 里按名字打了码的 token，出现在 cmd 的 `argv`、guard 的 `detail.url`（哪怕参数名不敏感）或任何自由文本里，也是同一个占位符。
 - 占位符：`«r:<类别>:<sha256(salt+值) 前 8 位>»`。同一个值在整包里映射到同一个占位符，所以 `diff` 的「会话值 / 常量」分类在脱敏副本上不变。salt 只存在本地原包的 `exports/<name>.salt`，不进副本。
 - 脱敏后 `manifest.redaction` 记规则版本和时间；正文 blob 被改写的，哈希按新内容重算，`counts` 重算。
 - **打码不等于安全**：响应正文里的自由文本（地址、姓名）靠规则抓不全，导出给别人前人要再看一眼。这句写进 README。

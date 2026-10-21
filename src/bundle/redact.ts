@@ -2,7 +2,8 @@
 // bundle is never modified, except that the per-export salt is written to the
 // source's exports/<name>.salt (§8: the salt never goes into the copy).
 //
-// Rules "default@2" (default@1 + `pass` / `pwd` as name segments, owner 2026-10-16).
+// Rules "default@3" (owner 2026-10-21): default@2 applied to every event kind.
+// default@2 = default@1 + `pass` / `pwd` as name segments (owner 2026-10-16).
 // `ticket` was added for one day (0.7-E) and removed again on the owner's
 // decision 2026-10-17: a CAS return URL's ticket is a constant of the
 // recording for replay, and the name list also classifies replay inputs.
@@ -17,8 +18,17 @@
 // Placeholder: «r:<kind>:<first 8 hex of sha256(salt + value)>». The kind is
 // derived from the value only, so one value maps to one placeholder across
 // headers, URLs, bodies and state, which keeps `diff` classifications intact.
-// Two passes: pass 1 collects every value masked by a name rule; pass 2 also
-// replaces those exact values wherever else they appear (min length 6).
+// Events (default@3): request headers / bodies, ws payloads, state blobs,
+// action.value, note.text and finding.claim keep their own rules; every other
+// string of every event is walked: URL-shaped strings (and `url` / `from` /
+// `*Url` fields) by the URL rule, `--switch=value` by its value, the rest by
+// the value patterns. Envelope fields, ids (r-12, c-3, n-5), blob refs and the
+// store names (site, account) are not values and stay. The manifest's browser
+// args / extraArgs / dropArgs, tabs[].firstUrl and notes are walked the same way.
+// Two passes: pass 1 collects every value masked by a name rule (manifest and
+// all events); pass 2 also replaces those exact values in every walked string
+// (min length 6), so a token masked in a request URL reads the same in a cmd
+// argv or a guard detail.
 // Decoded views (0.6-B, docs/04 §28) are plaintext of a body: redacted like
 // a body of their own mime type; their error / note texts are scrubbed.
 
@@ -35,7 +45,7 @@ import { BundleReader, type BundleView } from "./reader.ts";
 import type { Headers, Manifest, RawEvent } from "./types.ts";
 import { BundleWriter } from "./writer.ts";
 
-export const RULES_VERSION = "default@2";
+export const RULES_VERSION = "default@3";
 
 const SENSITIVE_HEADERS = new Set(["cookie", "set-cookie", "authorization", "proxy-authorization", "x-api-key"]);
 const SENSITIVE_HEADER_PARTS = ["token", "secret", "session", "auth"];
@@ -306,18 +316,52 @@ function redactDecoded(r: Redactor, side: Record<string, unknown>, rewrite: Blob
   }
 }
 
-function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewrite): void {
-  for (const key of ["url", "from"]) {
-    const v = e[key];
-    if (typeof v === "string") e[key] = r.url(v);
+/** A whole string shaped like a URL: `scheme://…`, a path (`/…`) or a bare query (`?…`), without whitespace. */
+const URL_SHAPED = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|[/?])\S*$/;
+/** Fields that hold a URL whatever it looks like. */
+const URL_KEY = /^(?:url|from)$|Url$/;
+/** A command-line switch with a value (`--proxy-server=…`): the value is redacted, the switch kept. */
+const SWITCH = /^(--?[A-Za-z0-9][A-Za-z0-9_.-]*=)([\s\S]*)$/;
+/** Ids that are never values: r-12, c-3, n-5, r-12:34 (a ws frame). */
+const ID_SHAPED = /^[a-z]-\d+(?::\d+)?$/;
+/** Top-level event fields left alone: the envelope (docs/04 §3) and the store names (§8.1: bundle and store join on them). */
+const KEEP_KEYS: ReadonlySet<string> = new Set(["seq", "ts", "mono", "kind", "actor", "tab", "cmd", "site", "account"]);
+
+/** default@3: one string of an event or of the manifest. */
+function redactString(r: Redactor, s: string, key: string | null): string {
+  if (s === "" || isBlobRef(s) || ID_SHAPED.test(s)) return s;
+  if (key !== null && URL_KEY.test(key)) return r.url(s);
+  const sw = SWITCH.exec(s);
+  if (sw !== null && sw[1] !== undefined && sw[2] !== undefined) return sw[1] + redactString(r, sw[2], null);
+  return URL_SHAPED.test(s) ? r.url(s) : r.scrubText(s);
+}
+
+/** default@3: every string under `v` (in place for records and arrays); array items take their field's key. */
+function walk(r: Redactor, v: unknown, key: string | null): unknown {
+  if (typeof v === "string") return redactString(r, v, key);
+  if (Array.isArray(v)) return v.map((x) => walk(r, x, key));
+  if (isRecord(v)) {
+    for (const [k, x] of Object.entries(v)) v[k] = walk(r, x, k);
+    return v;
   }
-  if (typeof e["urlFragment"] === "string") e["urlFragment"] = r.scrubText(e["urlFragment"]);
-  if (typeof e["title"] === "string") e["title"] = r.scrubText(e["title"]);
+  return v;
+}
+
+/** Walk the fields of `o` except those in `except` (already redacted by their own rule, or not values). */
+function walkFields(r: Redactor, o: Record<string, unknown>, except: ReadonlySet<string>): void {
+  for (const [k, x] of Object.entries(o)) if (!except.has(k)) o[k] = walk(r, x, k);
+}
+
+/** Request / response side fields with their own rules (headers, bodies, decoded views). */
+const SIDE_OWN: ReadonlySet<string> = new Set(["headers", "postData", "body", "decoded"]);
+
+function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewrite): void {
   const kind = e["kind"];
+  const own = new Set(KEEP_KEYS);
 
   if (kind === "request") {
-    const init = e["initiator"];
-    if (isRecord(init) && typeof init["url"] === "string") init["url"] = r.url(init["url"]);
+    // cdp ids are the browser's, never values
+    for (const k of ["request", "response", "cdp"]) own.add(k);
     const req = e["request"];
     if (isRecord(req)) {
       const ctype = headerOf(req["headers"], "content-type");
@@ -334,6 +378,7 @@ function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewri
         }
       }
       redactDecoded(r, req, rewrite);
+      walkFields(r, req, SIDE_OWN);
     }
     const resp = e["response"];
     if (isRecord(resp)) {
@@ -348,8 +393,10 @@ function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewri
         }
       }
       redactDecoded(r, resp, rewrite);
+      walkFields(r, resp, SIDE_OWN);
     }
   } else if (kind === "ws") {
+    own.add("payload");
     const p = e["payload"];
     if (isRecord(p) && typeof p["inline"] === "string" && e["opcode"] !== 2) {
       const out = r.text(p["inline"], null);
@@ -362,17 +409,37 @@ function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewri
       }
     }
   } else if (kind === "state") {
+    own.add("blob");
     if (isBlobRef(e["blob"])) {
       const nb = rewrite(e["blob"], (b) => r.stateBlob(b));
       if (nb !== null) e["blob"] = nb.ref;
     }
   } else if (kind === "action") {
+    own.add("value");
     if (typeof e["value"] === "string") e["value"] = r.scrubText(e["value"]);
   } else if (kind === "note") {
+    own.add("text");
     if (typeof e["text"] === "string") e["text"] = r.scrubText(e["text"]);
   } else if (kind === "finding") {
+    own.add("claim");
     if (typeof e["claim"] === "string") e["claim"] = r.scrubText(e["claim"]);
+  } else if (kind === "session") {
+    // the session's name, as in manifest.session.name
+    own.add("name");
   }
+  walkFields(r, e, own);
+}
+
+/** default@3: the manifest's values (browser switches, first URLs, notes); names and ids stay. */
+function redactManifest(r: Redactor, m: Manifest): void {
+  for (const t of m.session.tabs) if (t.firstUrl !== null) t.firstUrl = r.url(t.firstUrl);
+  const b = m.producer.browser;
+  if (b !== undefined && b !== null) {
+    if (b.args !== undefined) b.args = b.args.map((a) => redactString(r, a, null));
+    if (b.extraArgs !== undefined) b.extraArgs = b.extraArgs.map((a) => redactString(r, a, null));
+    if (b.dropArgs !== undefined) b.dropArgs = b.dropArgs.map((a) => redactString(r, a, null));
+  }
+  if (typeof m.notes === "string") m.notes = r.scrubText(m.notes);
 }
 
 export type RedactedView = BundleView & {
@@ -385,7 +452,7 @@ export type RedactOptions = { salt: string; knownSecrets?: readonly string[]; no
 /** Redact a bundle view in memory (used by HAR export and redactBundle). */
 export function redactView(src: BundleView, opts: RedactOptions): RedactedView {
   const r = new Redactor(opts.salt, opts.knownSecrets ?? []);
-  const run = (): { events: RawEvent[]; rewritten: Map<string, Uint8Array> } => {
+  const run = (): { manifest: Manifest; events: RawEvent[]; rewritten: Map<string, Uint8Array> } => {
     const rewritten = new Map<string, Uint8Array>();
     const rewrite: BlobRewrite = (ref, fn) => {
       const bytes = src.readBlob(ref);
@@ -396,19 +463,18 @@ export function redactView(src: BundleView, opts: RedactOptions): RedactedView {
       rewritten.set(newRef, out);
       return { ref: newRef, size: out.length };
     };
+    const manifest: Manifest = structuredClone(src.manifest);
+    redactManifest(r, manifest);
     const events = src.events.map((e) => {
       const copy = structuredClone(e);
       redactEvent(r, copy, rewrite);
       return copy;
     });
-    return { events, rewritten };
+    return { manifest, events, rewritten };
   };
-  run(); // pass 1: collect values masked by name rules
+  run(); // pass 1: collect values masked by name rules, over the manifest and every event
   r.startSecondPass();
-  const { events, rewritten } = run();
-
-  const manifest: Manifest = structuredClone(src.manifest);
-  for (const t of manifest.session.tabs) if (t.firstUrl !== null) t.firstUrl = r.url(t.firstUrl);
+  const { manifest, events, rewritten } = run();
   manifest.redaction = { rules: RULES_VERSION, applied: (opts.now ?? nowMs)() };
   return {
     manifest,
