@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.8.1 (2026-10-21)
 
 ### Your own Chrome switches
 
