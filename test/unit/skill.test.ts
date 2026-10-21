@@ -49,7 +49,7 @@ describe("skills/tabcap", () => {
   test("SKILL.md is at most 8 KB and links every topic file under references/ (0.5-C)", () => {
     const text = readFileSync(join(ROOT, SKILL_DIR, "SKILL.md"), "utf8");
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(8192);
-    for (const topic of ["guides", "recording", "analysis", "pools", "trace-and-probes", "replay", "mcp", "devtools-mcp", "commands"]) expect(text).toContain(`(references/${topic}.md)`);
+    for (const topic of ["guides", "recording", "analysis", "pools", "trace-and-probes", "replay", "mcp", "devtools-mcp", "commands", "config"]) expect(text).toContain(`(references/${topic}.md)`);
     expect(text).toContain("Read `file` when you need the rest");
     expect(text.split("\n## Cheat-sheet")[1]?.split("```sh\n")[1]?.split("```")[0]?.trim().split("\n").length).toBe(10);
   });

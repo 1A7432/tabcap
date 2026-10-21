@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COMMANDS, SCHEMA_ID, helpAll, schema } from "../../src/cli/commands.ts";
 import { run } from "../../src/cli/main.ts";
-import { GUIDES_FILE, REFERENCE_FILE, ROOT, generatedDocs } from "../../scripts/gen-docs.ts";
+import { CONFIG_FILE, GUIDES_FILE, REFERENCE_FILE, ROOT, SKILL_FILE, configDoc, generatedDocs } from "../../scripts/gen-docs.ts";
+import { CONFIG_KEYS } from "../../src/shared/config.ts";
 import { GUIDES } from "../../src/cli/guides.ts";
 
 const pkg: unknown = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
@@ -61,8 +62,8 @@ describe("tabcap schema", () => {
 });
 
 describe("generated docs (bun run gen:docs)", () => {
-  test("the skill's references/commands.md and references/guides.md are up to date with their registries", () => {
-    expect(generatedDocs().map((d) => d.file)).toEqual([REFERENCE_FILE, GUIDES_FILE]);
+  test("the skill's references/commands.md, references/guides.md and references/config.md are up to date with their registries", () => {
+    expect(generatedDocs().map((d) => d.file)).toEqual([REFERENCE_FILE, GUIDES_FILE, CONFIG_FILE]);
     for (const d of generatedDocs()) {
       if (d.current !== d.wanted) throw new Error(`${d.file} is out of date: run \`bun run gen:docs\` and commit the result`);
     }
@@ -79,6 +80,24 @@ describe("generated docs (bun run gen:docs)", () => {
       expect(readme).toContain("skills/tabcap/references/commands.md");
     }
     for (const doc of [ref]) expect(doc).not.toMatch(/[Dd]eprecated/);
+  });
+
+  test("references/config.md: one row per CONFIG_KEYS key with its type, default, sentence and docs/04 section (review wave 3)", () => {
+    const doc = configDoc();
+    expect(doc.startsWith("<!-- GENERATED from src/shared/config.ts")).toBe(true);
+    expect(doc).toContain("| Key | Type | Default | Meaning | docs/04 |");
+    const rows = doc.split("\n").filter((l) => l.startsWith("| `"));
+    expect(rows).toHaveLength(46);
+    const cell = (s: string) => s.replace(/\|/g, "\\|");
+    for (const [layer, keys] of Object.entries(CONFIG_KEYS)) {
+      for (const [key, info] of Object.entries(keys)) {
+        const path = layer === "" ? key : `${layer}.${key}`;
+        expect(rows).toContain(`| \`${path}\` | \`${cell(info.type)}\` | ${info.default === "—" ? "—" : `\`${cell(info.default)}\``} | ${cell(info.about)} | ${info.doc ?? "—"} |`);
+      }
+    }
+    expect(rows[0]).toStartWith("| `chrome` |");
+    expect(rows).toContain("| `sites.<site>.guard.stopOn` | `string[] (stop rules)` | `[]` | a match stops the site's fetches and hands the session to the human (`waiting`, reason stop-rule) | §18 |");
+    expect(readFileSync(join(ROOT, SKILL_FILE), "utf8")).toContain("(references/config.md)");
   });
 
   test("references/guides.md has every guide with every step command (0.7-A)", () => {

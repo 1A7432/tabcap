@@ -1128,6 +1128,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 `config.json`（`<config>/config.json`）是人手写的文件，按不可信输入读。以前文件存在却解析不出时整份当成 `{}`，各节的「写错的值报 `bad-input`、不悄悄替换」在这一层失效。
 
+- **键表以 `skills/tabcap/references/config.md` 为准（由代码生成）**：每一层有哪些键、类型、默认值、一句说明、规范在本文哪一节，都在那张表里；它由 `src/shared/config.ts` `CONFIG_KEYS` 经 `bun run gen:docs` 生成，`test/unit/schema.test.ts` 查它与代码有没有漂移（与 `references/commands.md` 同一做法）。各键的行为仍以本文对应各节为准。
 - **读不出就报错**：文件存在但不是合法 JSON（多一个结尾逗号、少引号、开头带 BOM……）或顶层不是 JSON 对象时，每个读它的命令（`tabcap setup`、`browser start`、`net start`、`fetch`、`trace start`、`proxy check`、`replay serve` / `replay check`（含 `--live`）、`bundle export fixtures` 等）都回 `bad-input`，不回落默认值。`message` 写文件路径、第一个语法错误的行列（从 1 数）和解析器原话，例如 `config.json is not valid JSON at line 4, column 1 (Property name must be a string literal): /…/config.json`；`next` 说改那一处，或把文件挪走（没有文件就是默认值）。Bun 的 `JSON.parse` 只说错在哪一类、不给位置，行列由 `src/shared/json.ts` `jsonSyntaxErrorAt` 按 RFC 8259 再扫一遍得出（只在解析失败时）。读不了的（权限、是个目录）回 `io`。文件不存在仍是全部默认值。
 - **`tabcap setup` 不改写读不出的文件**：回同一个错误，先于 `--executable-path` 的检查与下载；不备份、不改写（以前会把整份覆写成只剩 `chrome` / `proxy` / `webdriver`，`sites`、`pool` 等全丢）。
 - **一个读取函数**：`src/shared/config.ts` `readConfigRaw`；回放键规则（`sites.<站点>.replay` 与 `replay`，§31）也经它读，以前自己解析一遍、坏文件时当没有规则。

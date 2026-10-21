@@ -2,7 +2,9 @@
 // full command reference) from the command registry (src/cli/commands.ts),
 // the same source as `--help` and `tabcap schema --json`, and (0.7-A)
 // skills/tabcap/references/guides.md from the task guides (src/cli/guides.ts),
-// the same source as `tabcap guide`. The READMEs are written by hand and carry
+// the same source as `tabcap guide`, and (review wave 3) skills/tabcap/references/config.md
+// from the config.json key table (src/shared/config.ts CONFIG_KEYS), the same source as
+// the readers and the unknown-key warnings. The READMEs are written by hand and carry
 // no generated table (they link to the reference).
 // test/unit/schema.test.ts fails when a committed file is out of date.
 
@@ -10,12 +12,14 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, groupedCommands, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
 import { GUIDES, type Guide } from "../src/cli/guides.ts";
+import { CONFIG_KEYS } from "../src/shared/config.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export const SKILL_DIR = "skills/tabcap";
 export const SKILL_FILE = `${SKILL_DIR}/SKILL.md`;
 export const REFERENCE_FILE = `${SKILL_DIR}/references/commands.md`;
 export const GUIDES_FILE = `${SKILL_DIR}/references/guides.md`;
+export const CONFIG_FILE = `${SKILL_DIR}/references/config.md`;
 
 const cell = (s: string) => s.replace(/\|/g, "\\|");
 
@@ -119,6 +123,29 @@ export function guidesDoc(): string {
     .concat("\n");
 }
 
+/** The config.json key table for the skill (references/config.md), from src/shared/config.ts CONFIG_KEYS. */
+export function configDoc(): string {
+  const rows = Object.entries(CONFIG_KEYS).flatMap(([layer, keys]) =>
+    Object.entries(keys).map(([key, k]) => {
+      const dflt = k.default === "—" ? "—" : `\`${cell(k.default)}\``;
+      return `| \`${layer === "" ? key : `${layer}.${key}`}\` | \`${cell(k.type)}\` | ${dflt} | ${cell(k.about)} | ${k.doc ?? "—"} |`;
+    }),
+  );
+  return [
+    "<!-- GENERATED from src/shared/config.ts (CONFIG_KEYS) by `bun run gen:docs`; do not edit by hand. -->",
+    "",
+    "# config.json keys",
+    "",
+    "`config.json` is in tabcap's config directory (`~/.config/tabcap/` on macOS, `$XDG_CONFIG_HOME/tabcap/` or `~/.config/tabcap/` on Linux, `%LOCALAPPDATA%\\tabcap\\config\\` on Windows; `tabcap setup` answers its path as `config`). Every key is optional; `<site>` stands for a store site name (`tabcap site list`). A file that is not valid JSON, or not a JSON object, is a `bad-input` error naming the line and column for every command that reads it, and `tabcap setup` does not rewrite it. A key this table does not list at its level is not an error: `browser start` / `browser status` (`warnings`), `tabcap status` (`config.warnings`) and `tabcap setup` (`warnings`) name it, e.g. `config.json: unknown key fetch.minIntervalMS (did you mean minIntervalMs?)`. `replay` and `sites.<site>.replay` hold replay key rules, which refuse unknown keys. The last column is the section of docs/04 (the evidence bundle spec in the tabcap repository) that specifies the key.",
+    "",
+    "| Key | Type | Default | Meaning | docs/04 |",
+    "|---|---|---|---|---|",
+    ...rows,
+  ]
+    .join("\n")
+    .concat("\n");
+}
+
 function readOr(file: string): string {
   try {
     return readFileSync(file, "utf8");
@@ -127,11 +154,12 @@ function readOr(file: string): string {
   }
 }
 
-/** The generated files as they should be: the command reference and the task guides. */
+/** The generated files as they should be: the command reference, the task guides and the config.json key table. */
 export function generatedDocs(root: string = ROOT): { file: string; current: string; wanted: string }[] {
   return [
     { file: REFERENCE_FILE, current: readOr(join(root, REFERENCE_FILE)), wanted: referenceDoc() },
     { file: GUIDES_FILE, current: readOr(join(root, GUIDES_FILE)), wanted: guidesDoc() },
+    { file: CONFIG_FILE, current: readOr(join(root, CONFIG_FILE)), wanted: configDoc() },
   ];
 }
 
