@@ -24,7 +24,7 @@
 // action.value, note.text and finding.claim keep their own rules; every other
 // string of every event is walked: URL-shaped strings (and `url` / `from` /
 // `*Url` fields) by the URL rule, `--switch=value` by its value, the rest by
-// the value patterns. Envelope fields, ids (r-12, c-3, n-5), blob refs and the
+// the value patterns (a URL's userinfo is dropped, owner 10-21). Envelope fields, ids (r-12, c-3, n-5), blob refs and the
 // store names (site, account) are not values and stay. The manifest's browser
 // args / extraArgs / dropArgs, tabs[].firstUrl and notes are walked the same way.
 // Two passes: pass 1 collects every value masked by a name rule (manifest and
@@ -55,6 +55,8 @@ const SENSITIVE_NAME = /(token|secret|passw|session|sid|auth|api[-_]?key)/i;
 /** Words that are sensitive only as a whole name segment (substrings such as bypass or passport are not). */
 const SENSITIVE_WORDS: ReadonlySet<string> = new Set(["pass", "pwd"]);
 const KNOWN_MIN_LENGTH = 6;
+/** `scheme://user[:pass]@` up to the authority's last `@` (RFC 3986 §3.2): dropped by the URL rule. */
+const URL_USERINFO = /^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/;
 
 type PatternKind = "jwt" | "email" | "cnid" | "mobile";
 
@@ -238,7 +240,9 @@ export class Redactor {
       .join("&");
   }
 
-  url(u: string): string {
+  /** default@3 URL rule: userinfo dropped (review 10-21), the query by the name rule, the rest by the value patterns. */
+  url(raw: string): string {
+    const u = raw.replace(URL_USERINFO, "$1");
     const hash = u.indexOf("#");
     const frag = hash < 0 ? "" : u.slice(hash);
     const rest = hash < 0 ? u : u.slice(0, hash);
