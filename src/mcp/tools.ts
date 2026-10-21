@@ -42,6 +42,18 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   "handoff wait": "use tabcap_handoff_wait",
 };
 
+/**
+ * Flags only the human passes (review 10-21, owner decision): an agent must not choose the browser binary
+ * or its switches (they can turn off the sandbox, web security, certificate checks). They are in no tool's
+ * schema, and tabcap_run refuses a command line that has them.
+ */
+export const HUMAN_ONLY_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  "browser start": ["--chrome-arg", "--drop-chrome-arg", "--executable-path"],
+};
+const HUMAN_ONLY_WHY = "for the human: pass them in a shell, or put them in config.json chrome.args (chrome.dropArgs, chrome.executablePath)";
+
+const humanOnly = (c: CommandSpec): readonly string[] => HUMAN_ONLY_FLAGS[c.path.join(" ")] ?? [];
+
 /** `--text` / `--json` only change what the CLI prints; a tool always returns the envelope. (`html --text` is data: its key is textContent.) */
 const renderOnly = (f: FlagSpec): boolean => f.kind === "bool" && ((f.flag === "--text" && f.key === "text") || (f.flag === "--json" && f.key === "json"));
 
@@ -109,7 +121,7 @@ function commandTool(c: CommandSpec): Tool {
     add(name, schema, { prop: name, to: "pos", list, choices, required: i < nRequired });
   });
   for (const f of c.flags) {
-    if (renderOnly(f)) continue;
+    if (renderOnly(f) || humanOnly(c).includes(f.flag)) continue;
     const type = f.repeat === true ? "list" : f.kind === "bool" ? "boolean" : f.kind === "string" ? "string" : "number";
     add(propOf(f.flag), flagSchema(f), { prop: propOf(f.flag), to: "flag", flag: f.flag, type, required: f.required === true });
   }
@@ -235,6 +247,11 @@ export async function runArgv(run: RunFn, args: Record<string, unknown>): Promis
   if (c !== null && !runnable(c)) {
     const name = c.path.join(" ");
     throw new TabcapError("usage", `tabcap ${name} is not available over MCP: ${EXCLUDED[name] ?? "internal"}`, "Run it in a terminal yourself, or ask the human to.");
+  }
+  const used = c === null ? [] : humanOnly(c).filter((f) => argv.some((a) => a === f || a.startsWith(`${f}=`)));
+  if (c !== null && used.length > 0) {
+    const name = c.path.join(" ");
+    throw new TabcapError("usage", `tabcap ${name} ${used.join(" / ")} is not available over MCP: ${HUMAN_ONLY_WHY}`, `Ask the human to run \`tabcap ${name}\` with them in a terminal or to put them in config.json; you can run \`tabcap ${name}\` without them.`);
   }
   return run(argv, {});
 }
