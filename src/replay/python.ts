@@ -10,8 +10,8 @@
 // bodies are NOT reproduced (docs/03 §6): those functions raise
 // NotImplementedError with a TODO marker. Inputs with a sensitive name (the
 // `bundle redact` name rule default@2: passw / token / secret / session / sid /
-// auth / api key anywhere in the name, pass / pwd as a name segment, and
-// sensitive headers) are never written into any generated file,
+// auth / api key anywhere in the name, pass / pwd as a name segment; headers by
+// the one sensitive-header test isSensitiveHeaderName, review 10-21) are never written into any generated file,
 // in any mode: they become parameters defaulting to TODO (TODO_SECRET) and
 // their recorded values stay out of fixtures. Request headers (0.6-E): only those
 // a browser does not add itself (keptHeader: content-type, authorization, a
@@ -37,7 +37,7 @@
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { BundleReader } from "../bundle/reader.ts";
-import { isSensitiveHeader, isSensitiveHeaderName, isSensitiveName } from "../bundle/redact.ts";
+import { isSensitiveHeaderName, isSensitiveName } from "../bundle/redact.ts";
 import type { RequestEvent } from "../bundle/types.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
@@ -364,7 +364,8 @@ function encryptedField(doc: unknown): string | null {
   return null;
 }
 
-const isSensitive = (loc: ParamLocation, name: string): boolean => isSensitiveName(name) || (loc === "header" && isSensitiveHeader(name));
+/** Review 10-21: headers by the one sensitive-header test (as export, live output and decode plugins), other names by the name rule. */
+const isSensitive = (loc: ParamLocation, name: string): boolean => (loc === "header" ? isSensitiveHeaderName(name) : isSensitiveName(name));
 
 /** How a prefixed / quoted header value is described in docstrings (docSafe would turn a quote into `_`). */
 function wrapNote(prefix: string | undefined, suffix: string | undefined): string {

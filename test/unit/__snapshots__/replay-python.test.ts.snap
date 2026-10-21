@@ -266,16 +266,19 @@ def get_api_feed(session: Session, *, base_url: str | None = None) -> Reply[GetA
     return Reply(_send(session, "GET", url, params, headers, None))
 
 
-def post_api_search(session: Session, *, page: int, q: str, t: int | None = None, base_url: str | None = None) -> Reply[PostApiSearchResponse]:
+def post_api_search(session: Session, *, page: int, q: str, x_csrf: Any = TODO, t: int | None = None, base_url: str | None = None) -> Reply[PostApiSearchResponse]:
     """POST /api/search (2 sample(s): r-10, r-11).
 
-    header x-csrf: constant-or-session
+    header x-csrf: varying -> x_csrf
     cookie sid: constant-or-session
     cookie theme: constant-or-session
     json $.page: varying -> page
     json $.q: varying -> q
     json $.t: timestamp -> t
     """
+    # TODO: secret input; pass it in (tabcap never writes it)
+    #   - header x-csrf: secret input
+    _need("TODO: secret input; pass it in (tabcap never writes it)", x_csrf=x_csrf)
     body = {
         "q": q,
         "page": page,
@@ -287,7 +290,7 @@ def post_api_search(session: Session, *, page: int, q: str, t: int | None = None
     headers: list[tuple[str, str | None]] = [
         ("content-type", "application/json"),
         ("x-client-build", "2026.10"),
-        ("x-csrf", session.value("header:x-csrf", "csrf-41d8cd98f00b")),
+        ("x-csrf", x_csrf),
     ]
     return Reply(_send(session, "POST", url, params, headers, _json_bytes(body)))
 
