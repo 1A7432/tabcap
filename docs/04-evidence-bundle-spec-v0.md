@@ -1,4 +1,4 @@
-# 证据包规范 v0（草案，待审）
+# 证据包规范 v0（作者 2026-10-21 签收；之后的改动按 AGENTS.md 先提案）
 
 2026-10-15。对应 `03` §5 `bundle` 模块与 §10 第 1 条。本文定义**录制器写什么、分析命令读什么、怎么和 HAR 互转**。先定格式再写代码；格式一旦有样例文件，样例就是测试的 oracle。
 
@@ -34,7 +34,7 @@
 - `blobs/` 写法：先写临时文件，`fsync`，再 `rename` 到哈希名；同内容只存一份。
 - `raw/` 默认开（lab 阶段要靠它查录制器漏没漏），以后再议默认关。（已定 a）
 
-### 2.1 CLI 回答：信封与公共字段名（0.7-C，10-17 主循环定需求；表与改名按实现定案，待作者审）
+### 2.1 CLI 回答：信封与公共字段名（0.7-C，10-17 主循环定需求；表与改名按实现定案，作者 2026-10-21 批量签收）
 
 每条命令打印一个 JSON 信封：成功 `{ok:true, data}`，失败 `{ok:false, error:{code, message, next}}`；`data` 超过输出预算时换成 `{summary, file, bytes, truncated:true}`（§24）。下表是**回答里**（`data`）的公共字段名；包内落盘格式（§3–§7 的事件、manifest、`decoded.jsonl`）不受它约束，保留原名（例如事件与 blob 引用里的 `size`、信封的 `ts`）。外部格式（HAR 1.2 的 `bodySize` / `startedDateTime` / `time`，CDP 的 `requestId` / `timestamp`）也照原样。
 
@@ -136,7 +136,7 @@
 
 - `type:"script"` 和 `document` 的正文不受 §5.2 第 4 条的大小上限约束；内联脚本随主文档正文一起在。加载顺序就是 `seq`。
 - `state` 新增 `what:"env"`：在隔离世界读 `navigator` / `screen` / 时区 / 语言 / UA 等**只读**属性的快照（不改页面，不注 hook）。
-  0.4-G 起 env 快照多两个字段（`source`、`fields` 10-16 作者定；字段名写法、1 KB 上限与事件其余字段按实现定案，待作者审）：`source` 说明快照从哪来，`fields` 是字段表本身（内联，没有 `blob`）。`tabcap fingerprint probe` 写 `{tab, what:"env", source:"fingerprint-probe", origin:<探针页的源>, count:<字段数>, reason:"manual", fields:[{name, value}|{name, hash:"sha256:…"}|{name, error}]}`：字段名是 `signals.ts` 的 IDL 名（同一 API 多个值时括号写参数，如 `WebGLRenderingContext.prototype.getParameter(VENDOR)`，或 `()` 后写结果成员，如 `Intl.DateTimeFormat.prototype.resolvedOptions().timeZone`），按代码单元序排列；值是 JSON 标量或标量数组、JSON ≤ 1 KB，超过的只留其 JSON 文本的 sha256；canvas、audio 只留字节的 sha256；所有文本过守护进程的已知秘密值替换。探针页由 tabcap 自己提供（`07` §5），在页面自己的 world 里读、只读；这一条不依赖 `sample` profile，录制中都会写。`tabcap fingerprint diff <包> --ref <名>` 取包里最后一条 `what:"env"`，与 `fingerprint probe --ref` 一样逐字段给 `same` / `differs` / `missing`（本浏览器缺、参照里有）/ `extra`（本浏览器有、参照里缺）；一个字段带 `error` 算「缺」，两边都缺为 `same`（0.4-G2 作者裁定方向）。
+  0.4-G 起 env 快照多两个字段（`source`、`fields` 10-16 作者定；字段名写法、1 KB 上限与事件其余字段按实现定案，作者 2026-10-21 批量签收）：`source` 说明快照从哪来，`fields` 是字段表本身（内联，没有 `blob`）。`tabcap fingerprint probe` 写 `{tab, what:"env", source:"fingerprint-probe", origin:<探针页的源>, count:<字段数>, reason:"manual", fields:[{name, value}|{name, hash:"sha256:…"}|{name, error}]}`：字段名是 `signals.ts` 的 IDL 名（同一 API 多个值时括号写参数，如 `WebGLRenderingContext.prototype.getParameter(VENDOR)`，或 `()` 后写结果成员，如 `Intl.DateTimeFormat.prototype.resolvedOptions().timeZone`），按代码单元序排列；值是 JSON 标量或标量数组、JSON ≤ 1 KB，超过的只留其 JSON 文本的 sha256；canvas、audio 只留字节的 sha256；所有文本过守护进程的已知秘密值替换。探针页由 tabcap 自己提供（`07` §5），在页面自己的 world 里读、只读；这一条不依赖 `sample` profile，录制中都会写。`tabcap fingerprint diff <包> --ref <名>` 取包里最后一条 `what:"env"`，与 `fingerprint probe --ref` 一样逐字段给 `same` / `differs` / `missing`（本浏览器缺、参照里有）/ `extra`（本浏览器有、参照里缺）；一个字段带 `error` 算「缺」，两边都缺为 `same`（0.4-G2 作者裁定方向）。
 - 挑战相关的 cookie / storage 变化：在每条 `document` / `script` 请求完成后多取一次 `state`，让「哪段脚本跑完后多了哪个 cookie」能从时间线上读出来。
 - `manifest.sample`：`{challengeRequests:["r-…"], scripts:[{request:"r-…", sha256, inline:false}], env:"<state seq>"}` 索引，由录制器在 `session stop` 时生成。
 
@@ -265,14 +265,14 @@
 - **表**：`sites`（名字、入口网址、域名列表、备注）、`accounts`（站点、用户名、密码、可选 TOTP 种子，默认空；0.4-D 加 `proxy`、`state`、`cool_until`、`last_used_at`、`fail_streak`）、`login_recipes`（P2）、`sessions`（P2：最近会话 cookie、保存时间、最后验证时间）、`guard_counters`（0.4-D 加账号维度）、`bundles`（证据包索引）、`proxies`（0.4-D：代理名、scheme、host、port、用户名、密码、bypass 与健康状态）。
 - **录入：推荐人手填，不强制**（10-16 作者定）：`tabcap site add example --url … --user …`（站点的第一个账号）与 `tabcap account add example --user …`（同一站点的第二个、第三个账号；`--totp-stdin` 时 stdin 两行：密码、TOTP 种子）。推荐人在自己的终端里交互输入或 `--password-stdin`，这样明文不经过模型；人也可以把值交给 AI 一次，由 AI 用 `--password-stdin` 从管道存入（不需要终端），此后只用引用。两条路都不走命令行参数，输出里不出现；扩展表单从当前标签预填入口网址（P2）。不在人手动登录时自动抓密码。
 - **AI 看到的**：`tabcap site list` 给站点名、入口网址、账号名（不打码）。命令只写引用：`tabcap session start --site example`、`tabcap fill <ref> --secret example.password`。守护进程取值填入页面。
-- **会话要先绑站点（0.6-R，按实现定案，待作者审）**：`fill --secret` 只在 `session start <name> --site <s>` 绑过站点的会话里取值。`net start`、`navigate` 照旧隐式建会话（不变），但这样的会话没有绑定；`session start --site` 失败后再 `net start --session <同名>` 建出来的也是。对未绑定会话 `fill --secret` 报 `not-found`，不碰页面、不计登录次数，`next` 是 `tabcap session stop <name>` 再 `tabcap session start <name> --site <s>`（账号的标签必须开在它自己的浏览器上下文里，所以先停）。以前未绑定会话会取该站点的第一个账号。`session start --site` 失败什么都不留：站点不在库里、账号不可用、会话已有标签等检查都在建任何东西之前；账号的浏览器上下文开了以后再出错，上下文当场销毁，不留给后来同名的隐式会话。【实测 v06r：失败的 `session start --site` 后 `session list` 里没有这个名字；`net start` 建出的未绑定会话里 `fill --secret` 被拒、密码框仍为空；照 `next` 做后登录成功】绑到站点 A 的会话 `--secret B.*` 仍按旧规则取 B 的第一个账号（未改，待作者定）。
+- **会话要先绑站点（0.6-R，按实现定案，作者 2026-10-21 批量签收）**：`fill --secret` 只在 `session start <name> --site <s>` 绑过站点的会话里取值。`net start`、`navigate` 照旧隐式建会话（不变），但这样的会话没有绑定；`session start --site` 失败后再 `net start --session <同名>` 建出来的也是。对未绑定会话 `fill --secret` 报 `not-found`，不碰页面、不计登录次数，`next` 是 `tabcap session stop <name>` 再 `tabcap session start <name> --site <s>`（账号的标签必须开在它自己的浏览器上下文里，所以先停）。以前未绑定会话会取该站点的第一个账号。`session start --site` 失败什么都不留：站点不在库里、账号不可用、会话已有标签等检查都在建任何东西之前；账号的浏览器上下文开了以后再出错，上下文当场销毁，不留给后来同名的隐式会话。【实测 v06r：失败的 `session start --site` 后 `session list` 里没有这个名字；`net start` 建出的未绑定会话里 `fill --secret` 被拒、密码框仍为空；照 `next` 做后登录成功】绑到站点 A 的会话 `--secret B.*` 仍按旧规则取 B 的第一个账号（未改，待作者定）。
 - **输出替换**：守护进程对所有 CLI 输出、日志、`snapshot` / `evaluate` / `read_page` 的文本结果，把库里已知的秘密值替换成 `<secret:example.password>`；`cmd.input`、`action.value` 里也只有引用。AI 即使故意 `evaluate` 读密码框，拿到的也是占位符。截图里密码框本来就是圆点。
 - 页面把密码回显到请求里（登录 POST 的表单体）时，正文原样进包，这是事实不能改；导出时 §8 的规则按名字和值两路打码，值的来源包括库里的密码。本地原包默认 `0700` 且不进仓库。
 - **代理凭据**（0.4-D）：代理密码只走 `--password-stdin` 或交互提示；替换表里每个代理有三种写法：密码本身、`user:pass@host:port`、`base64(user:pass)`（Chrome 把 `Proxy-Authorization: Basic …` 报在 `Network.requestWillBeSentExtraInfo` 里，录制器会写进 `raw/cdp.jsonl`），一律替换成 `<secret:proxy.<name>>`。录制器写 `raw/cdp.jsonl` 与 `events.jsonl` 时只替换代理凭据（站点密码仍按上一条原样留在登录请求里）。Chrome 只拿到 `host:port`，认证由守护进程在浏览器会话上用 `Fetch.enable {handleAuthRequests:true}` → `Fetch.authRequired` → `Fetch.continueWithAuth` 应答；这是插桩，开着时每条命令输出带 `fetchAuth:"on"`。
 - manifest 记 `session.site`、`session.account`、`session.proxy`（0.4-D，名字），证据包与库之间只靠站点名关联。
 - 验证：`06` §2 的「凭据不泄漏」检查、A2.9。
 
-### 8.2 会话导出 `session export`（0.6-F，10-16 作者定设计；细节按实现定案，待作者审）
+### 8.2 会话导出 `session export`（0.6-F，10-16 作者定设计；细节按实现定案，作者 2026-10-21 批量签收）
 
 `tabcap session export --for requests|httpx|playwright --out <file> [--origin <url 或 host>] [--tab t2]`：把会话当前标签（或 `--tab`）已登录的会话交给脚本。导出源默认是标签页面的源；`--origin` 可以是任意源（0.6-P：单页应用调用的 API 源，标签上不必有它的 frame），写裸 host（`api.example.com`、`127.0.0.1:4311`）时 scheme 取录制里发往该 host 的最近一条请求，没有就用 `https`。和 `replay session` 一样，**文件里就是活的凭据**，这是设计本身，不打码。
 
@@ -285,7 +285,7 @@
 - **输出**：`{file, for, origin, mode:"0600", cookies:n, headers:[名字], storage:{localStorage:n, sessionStorage:n}, source:{headers:{request:"r-N"|null, origin:<源>|null, auto:bool}, storage:<源>|null}, skipped?, omitted?, note}`（0.6-P 起 `source.headers` 是对象，原来的 `"none"` 成了 `request:null`），只有路径、计数和头名，不出任何值；守护进程的已知秘密替换照常作用于输出。录制中照常写 `cmd` 事件（`outputSummary` 是计数），包里不写别的。
 - 验证：`test/unit/session-export.test.ts`（头选择表、64 KB 上限、文件权限、三种格式、生成的 httpx 客户端对本地服务器实际发出的 cookie 与头；0.6-P 的 `authSource` 回退、`originArg`）、`test/e2e/v06f.e2e.test.ts`（s07 带 token 变体，对照靶场日志）、`test/e2e/v06p.e2e.test.ts`（`05` s60：标签在 A 上 `--origin <B>` 拿到页面发往 B 的 `Authorization` 与 B 的 cookie；不给 `--origin` 自动回退到 B）。
 
-### 8.3 实时输出脱敏（0.6-E，10-16 作者定；细节按实现定案，待作者审）
+### 8.3 实时输出脱敏（0.6-E，10-16 作者定；细节按实现定案，作者 2026-10-21 批量签收）
 
 真实项目试用里 `net show` 明文打出 `access-token`、`Authorization: Bearer …` 和会话 cookie，`net list` 打出 URL 里的 token；只有 HAR 导出打了码。现在守护进程的实时输出也按 §8 的名字规则（`default@2`，0.7-E 起 `default@2`）显示成 `<redacted:<名字>>`：
 
@@ -408,9 +408,9 @@
 - **导入包的解码链**：`manifest.imported` 存在时，`wireEncoding` 作为链前缀（DevTools 已解压的正文也一样）；自录的包链为 `[]`。
 - **`find --save` 的 grade**：有命中记「实测」，0 命中记「推断」，actor 固定 `ai`；未收尾的包拒绝 `--save`。
 - **`finding.evidence`** 的联合类型加 `{console: seq}`。
-- **looks-signature** 按字面：hex 或 base64 字符集且长度 32 / 40 / 64 / 128，与 looks-random 互斥。0.7-E（待作者审）：形如业务编号的值不算——全是数字、前面最多 4 个字母、字母与数字之间最多一个 `-` / `_`（`^[A-Za-z]{0,4}[-_]?\d+$`，如 `AB` + 30 位数字）；真实站点把这样的长编号当成了签名【实测：上手验收，站点匿名】。looks-random 未改。
+- **looks-signature** 按字面：hex 或 base64 字符集且长度 32 / 40 / 64 / 128，与 looks-random 互斥。0.7-E（按实现定案，作者 2026-10-21 批量签收）：形如业务编号的值不算——全是数字、前面最多 4 个字母、字母与数字之间最多一个 `-` / `_`（`^[A-Za-z]{0,4}[-_]?\d+$`，如 `AB` + 30 位数字）；真实站点把这样的长编号当成了签名【实测：上手验收，站点匿名】。looks-random 未改。
 - **无值的 query 键（0.7-E）**：`?queryList&id=1` 里没有 `=` 的 `queryList` 不是参数（它在 URL 里点名方法或视图，没有值）：`analyze diff` / `deps` / `chain` 都不把它当输入，`replay export-python` 把它原样留在 URL 字面量里（生成的 `_send` 在 URL 已带 query 时把参数接在后面，不让 httpx 改写成 `queryList=`）。【实测 单测 `test/unit/diff.test.ts`、`test/unit/replay-chain.test.ts`】
-- **`analyze deps` 的类（0.6-E 补，10-16 作者定；表与值形状按实现定案，待作者审）**：有来源的类 = 来源种类（`set-cookie` > `response` > `action` > `request` > `constant` > `timestamp`）；没有来源时按顺序判：cookie 是 `unrecorded`；**`caller-input`**（调用方自己选的值）= 不是 cookie、没有 `looks-signature` / `looks-random` 提示、名字不敏感（§8 的名字规则与头规则），且名字在下表里，或这组请求录到的每个值都是「普通值」（< 6 位的数字、`true` / `false`、`yyyy-mm[-dd]` 或 `yyyy/mm[/dd]` 日期（可带 `Thh:mm[:ss]`）、一个 ≤ 24 字符的单词：字母开头，只含字母、`_`、`-`）；其余 `computed-in-page`。名字表（比较时转小写、去掉 `_` `-` `.`，去掉 `[n]`）：`page pageno pagenum pageindex pagesize perpage size limit offset count from to since until startdate enddate date period interval year month week day groupby sort sortby order orderby q query keyword search lang locale`。`caller-input` 不进 `unresolved`、不写 finding；`analyze chain` 把它列在 `inputs`（不在 `todo`）；`analyze chain` 的默认目标「最后一条有数据的 xhr / fetch / document」指**开始时间最晚**的那条（`timing.start`，没有就用 `mono`；事件顺序只在并列或缺时间时兜底；0.6-E：请求编号在响应写入时才分配，登录 POST 可能排在数据请求之后）；`replay export-python` 的链模式把它生成为普通参数、默认值是录到的第一个样本的值（JSON 叶子保留类型），没有 TODO。
+- **`analyze deps` 的类（0.6-E 补，10-16 作者定；表与值形状按实现定案，作者 2026-10-21 批量签收）**：有来源的类 = 来源种类（`set-cookie` > `response` > `action` > `request` > `constant` > `timestamp`）；没有来源时按顺序判：cookie 是 `unrecorded`；**`caller-input`**（调用方自己选的值）= 不是 cookie、没有 `looks-signature` / `looks-random` 提示、名字不敏感（§8 的名字规则与头规则），且名字在下表里，或这组请求录到的每个值都是「普通值」（< 6 位的数字、`true` / `false`、`yyyy-mm[-dd]` 或 `yyyy/mm[/dd]` 日期（可带 `Thh:mm[:ss]`）、一个 ≤ 24 字符的单词：字母开头，只含字母、`_`、`-`）；其余 `computed-in-page`。名字表（比较时转小写、去掉 `_` `-` `.`，去掉 `[n]`）：`page pageno pagenum pageindex pagesize perpage size limit offset count from to since until startdate enddate date period interval year month week day groupby sort sortby order orderby q query keyword search lang locale`。`caller-input` 不进 `unresolved`、不写 finding；`analyze chain` 把它列在 `inputs`（不在 `todo`）；`analyze chain` 的默认目标「最后一条有数据的 xhr / fetch / document」指**开始时间最晚**的那条（`timing.start`，没有就用 `mono`；事件顺序只在并列或缺时间时兜底；0.6-E：请求编号在响应写入时才分配，登录 POST 可能排在数据请求之后）；`replay export-python` 的链模式把它生成为普通参数、默认值是录到的第一个样本的值（JSON 叶子保留类型），没有 TODO。
 - **带前缀的头值（0.6-E）**：`x-*` / `authorization` 头的值与响应叶子直接比不上时，去掉开头的 `Bearer ` / `Basic ` / `Token ` / `JWT `（大小写不限，后跟空格或制表符）和成对的首尾引号（`"` 或 `'`）再比；这样的来源多 `prefix`（去掉的开头，含引号）与 `suffix`（去掉的结尾引号，没有时不写），`analyze chain` 的 `provides` 同样带上。`--write-findings` 去掉前后缀后复读叶子，一致记「实测」。`export-python` 的参数是去掉前后缀的值，发送时拼回（`"Bearer " + authorization`），`verify()` 照旧从上一步答复的路径取。
 - **`export-python` 的请求头（0.6-E）**：默认只发 `content-type`、`authorization`、非 Chrome 默认值的 `accept`（默认值 = `*/*`、导航的 `text/html,application/xhtml+xml,…`、图片的 `image/avif,…`、样式的 `text/css,*/*;q=0.1`）、源与请求不同的 `referer`，以及不在浏览器默认头表（§8.2 `session export` 的那张：禁止请求头、`sec-*`、客户端提示、缓存与条件请求头等）里的头；被去掉的头也不生成参数。`--browser-headers` 照录到的全部发送（0.6-E 之前的行为）。
 - **链的默认目标（0.6-E 定规则，0.6-C 统一）**：`analyze chain` 不给 `--request` 时，与 `replay export-python` 的链模式用**同一条规则**（`src/analyze/chain.ts` `latestTarget`）：有数据的 xhr / fetch / document 请求（2xx、录到非空正文）里**开始时间最晚**的那条（`timing.start`，没有用 `mono`；事件顺序只在开始时间相同或缺失时兜底），都没有就取这几类里有响应、开始最晚的。`export-python` 只在 `--include` / `--exclude` 选中的请求里挑；事件顺序与开始时间相反时两者选同一条（`test/unit/replay-chain.test.ts`）。0.7-E：`export-python --request r-N` 与 `analyze chain --request` 同义（隐含链模式；目标不在导出的请求里时 `not-found` 并说原因，与 `--no-chain` 同用是用法错误）。
@@ -439,7 +439,7 @@
 解码插件（0.6-B）用同一个插件目录与启用列表，清单带 `kind:"decode"`，协议是 stdin / stdout 上的 JSON 行，见 §28；已有的 mitmproxy addon，`response(flow)` 的函数体通常可以原样搬进模板 `templates/plugins/decode-python/` 的 `decode(flow)`。
 按实现定案：登录尝试在 `fill --secret ...password` 时计数、按会话实例计、`--confirm` 的那次也计；`waiting` 用失败信封（`ok:false`，退出码 1），命令执行期间撞上则本条直接返回 `waiting` 并把原结果放 `error.result`；只拦 AI 的操作命令，不拦页面自己的请求；`raw/cdp.jsonl` 里同一登录 POST 的原始行是明文的第二处，与 `raw/` 的 0600 一致；`session stop` 不清 `waiting`，只有 `handoff continue` 清；处理程序命令组叫 `plugin`，启用列表 `plugins/enabled.json`，目录组或他人可写则拒用；密码少于 3 字符不做替换，`site add` 对少于 8 字符的密码告警；站点名 `[A-Za-z0-9_-]{1,64}`；识别规则目前只有「录制中的 HTML 403」，其余形态按范围规则等靶场场景。
 
-0.6-I 站点停手规则（10-16 作者定设计；下列细节按实现定案，待作者审）：`config.json` `sites.<站点名>.guard: {stopOn:[规则…], consecutiveNon200:N}`，规则语法与 `tabcap fetch --stop-on`（§26）相同。guard 对会话里**每一条录下的最终响应**求值：类型限 `document` / `xhr` / `fetch`（页面 XHR、`tabcap fetch`、导航），重定向中间跳（`bodyMissing:"redirect"`）、预检（`other`）、静态资源与脚本、没有状态码的失败请求不算；URL 归哪个库站点按 §26 的同一规则（先会话绑定的站点，再入口主机或 `domains`），只有该站点配了 `guard` 才查。正文类规则（`empty-body`、`json:`、`text:`）只在正文确知时求值：`finished` 且存了正文（204 / 304 当空正文），被 `--bodies` 跳过、未完成、被逐出的只跑状态码规则；文本按 `net body` 的规则解码并做已知秘密值替换。`consecutiveNon200`：按会话 × 站点计数，任何 2xx 归零，其余状态（含 3xx 最终响应、4xx、5xx）加一，到 N 即命中（规则名 `consecutiveNon200:N`），命中后清空。**排序依据（10-16 作者定）**：按响应到达时间排，即响应完成的 CDP 单调时刻（与该请求 `timing.end` 相同；页面没读正文、`end` 为 null 的用 `timing.responseStart`，再没有用 `timing.start`，都没有的排在最后），不按录制器写出事件的顺序——页面不读正文的响应按 §5.2 规则 9 晚 1 s 写出，会写在其后完成的请求之后【实测：s55 第一版页面不读正文时，`fetch` 的 500 先于更早的页面 200 写出】。判定时机不变：每条请求写出时，把它插到到达顺序里的位置，看包含它的那段连续非 2xx 有多长，够 N 即命中（每个会话 × 站点保留最近 256 条）。命中时：响应照常录下；写 `guard` breaker（§4.2）与 `handoff` waiting（附截图）；该站点所有会话的 `fetch` 以 `guard.stopped` 拒绝，本会话的页面操作命令（`waiting` 那一组）也以 `guard.stopped` 拒绝（不是 `waiting`），只读命令照常并带 `handoff` 字段；触发它的那条命令：`fetch` 回 `fetch.stopped`（`reason:"stop-rule"`，带 `result`），其他命令回 `guard.stopped` 并把原结果放 `error.result`。解除：`handoff continue`（人或 agent 判断后）同时解除该会话引起的站点停止；`guard resume --site` 也同时结束该站点规则引起的 `waiting`（回 `handoffResumed`）。停手期间不再求值、不计数。不冷却账号、不调用 challenge 处理程序。`fetch --stop-on` 是每次调用的覆盖：给了它，这一次的响应不跑站点的 `stopOn`（照 0.6-A 只跑 `fetch.stopOn` + `--stop-on`，命中照旧 `fetch-stop`、不进 `waiting`），但仍计入 `consecutiveNon200`。配置里的坏规则：`net start` 直接 `bad-input`；录制中改坏的只记日志、不查。登录次数限制不变。0.7.5-A 起同一对象还收 `endOn`（列表结束规则，先于 `stopOn` 与计数判定，命中不停手，§38）。
+0.6-I 站点停手规则（10-16 作者定设计；下列细节按实现定案，作者 2026-10-21 批量签收）：`config.json` `sites.<站点名>.guard: {stopOn:[规则…], consecutiveNon200:N}`，规则语法与 `tabcap fetch --stop-on`（§26）相同。guard 对会话里**每一条录下的最终响应**求值：类型限 `document` / `xhr` / `fetch`（页面 XHR、`tabcap fetch`、导航），重定向中间跳（`bodyMissing:"redirect"`）、预检（`other`）、静态资源与脚本、没有状态码的失败请求不算；URL 归哪个库站点按 §26 的同一规则（先会话绑定的站点，再入口主机或 `domains`），只有该站点配了 `guard` 才查。正文类规则（`empty-body`、`json:`、`text:`）只在正文确知时求值：`finished` 且存了正文（204 / 304 当空正文），被 `--bodies` 跳过、未完成、被逐出的只跑状态码规则；文本按 `net body` 的规则解码并做已知秘密值替换。`consecutiveNon200`：按会话 × 站点计数，任何 2xx 归零，其余状态（含 3xx 最终响应、4xx、5xx）加一，到 N 即命中（规则名 `consecutiveNon200:N`），命中后清空。**排序依据（10-16 作者定）**：按响应到达时间排，即响应完成的 CDP 单调时刻（与该请求 `timing.end` 相同；页面没读正文、`end` 为 null 的用 `timing.responseStart`，再没有用 `timing.start`，都没有的排在最后），不按录制器写出事件的顺序——页面不读正文的响应按 §5.2 规则 9 晚 1 s 写出，会写在其后完成的请求之后【实测：s55 第一版页面不读正文时，`fetch` 的 500 先于更早的页面 200 写出】。判定时机不变：每条请求写出时，把它插到到达顺序里的位置，看包含它的那段连续非 2xx 有多长，够 N 即命中（每个会话 × 站点保留最近 256 条）。命中时：响应照常录下；写 `guard` breaker（§4.2）与 `handoff` waiting（附截图）；该站点所有会话的 `fetch` 以 `guard.stopped` 拒绝，本会话的页面操作命令（`waiting` 那一组）也以 `guard.stopped` 拒绝（不是 `waiting`），只读命令照常并带 `handoff` 字段；触发它的那条命令：`fetch` 回 `fetch.stopped`（`reason:"stop-rule"`，带 `result`），其他命令回 `guard.stopped` 并把原结果放 `error.result`。解除：`handoff continue`（人或 agent 判断后）同时解除该会话引起的站点停止；`guard resume --site` 也同时结束该站点规则引起的 `waiting`（回 `handoffResumed`）。停手期间不再求值、不计数。不冷却账号、不调用 challenge 处理程序。`fetch --stop-on` 是每次调用的覆盖：给了它，这一次的响应不跑站点的 `stopOn`（照 0.6-A 只跑 `fetch.stopOn` + `--stop-on`，命中照旧 `fetch-stop`、不进 `waiting`），但仍计入 `consecutiveNon200`。配置里的坏规则：`net start` 直接 `bad-input`；录制中改坏的只记日志、不查。登录次数限制不变。0.7.5-A 起同一对象还收 `endOn`（列表结束规则，先于 `stopOn` 与计数判定，命中不停手，§38）。
 
 ## 19. 0.3-C 裁决（10-15）
 
@@ -451,11 +451,11 @@
 
 按实现定案：`--trusted` 的降级只有「确认不了绘制」一种，元素无盒子仍报 `page`；散布只有代码开关；`type --trusted` 不做绘制确认，只靠每条 5 s 超时；`--delay` 指两个字符之间的间隔；默认 `type` 与 `--insert` 都标 `eventShape:"insert"`；`unreadByPage` 只在 1 s 时查一次；这类 `finished` 请求进 HAR 时 `time` 为 -1（HAR 1.2 未规定负值，沿用现有约定）；升格的探针页去掉了指纹与 CDP 探针段，只保留输入事件记录。
 
-## 21. 0.4-F 按实现定案（10-16，待作者审）
+## 21. 0.4-F 按实现定案（10-16，作者 2026-10-21 批量签收）
 
 追踪模式实现时按字面解的几处：`trace start` 不要求在录制，未录制时只在内存里计数（`trace status` 可见），`signal` 只写进正在录的包，输出带 warning；`net start` 时追踪已开则这份包从此开一个窗口；`firstN` 按 (api, 调用位置 url:line:col) 跨文档计「带栈的事件」条数（不是每文档每次命中）；一条事件只有一个 `stack`（首次命中的栈）；`get` / `call` 的 `args` 为 null（函数调用断点的暂停里拿不到原生函数的实参），只有 `event` 有 `args`；worker 不读 `value`；`window.devicePixelRatio` 在 CfT 155 上是全局对象自有的访问器、原型链上没有，按「else skip and say so」跳过，`trace status` 的 `skipped` 写明原因；窗口两端用 `note` 事件的 seq；`trace list` 的 `--api` 精确匹配、`--script` 子串匹配；`trace start` 自己的输出带那句提示（即「trace start 之后的第一条输出」），`trace status` 也带。
 
-## 22. 0.4-J `recon` 侦查档案（10-16 作者定范围；文件字段按实现定案，待作者审）
+## 22. 0.4-J `recon` 侦查档案（10-16 作者定范围；文件字段按实现定案，作者 2026-10-21 批量签收）
 
 作者定：`recon` v0 只答四问（技术栈、数据通道清单与覆盖率、cookie 分类、防护识别），产出 `exports/dossier.json` + `exports/dossier.md`，回执进 `cmd` end 的 `outputSummary.receipt`，不另立 kind；`--probe` 推 0.5。
 
@@ -466,11 +466,11 @@
 - `cookies`：`{name, carrier:"cookie"|"header"|"query"|"body", origin, setBy:[r-N…], lifetime:{kind:"session"}|{kind:"persistent",expires}|null, flags:{httpOnly,secure,sameSite}|null, role, requiredBy:[{request,input,via,grade}]}`；`origin` 为 `{kind:"set-cookie",request}` / `{kind:"session-start"}` / `{kind:"unrecorded"}`，非 cookie 的 csrf 输入为 `{kind:"deps", class, request?, path?, cookie?, grade}`。
 - `protection`：`{source:"guard", kind, request, url, status, handedToHuman:{question,screenshot}|null, resumedBy, grade:"实测"}`、`{source:"response", signal, label, name, count, requests, grade:"推断"}`（只有头名字，不写值）；0.8-A 起另有 `{source:"family", family, name, vendor, category, confidence, layers, matched, combination, grade:"推断"}`（§41.2，排在最前），`cf-mitigated` / `x-amzn-waf-action` / `x-datadome` 三条从 response 信号移进家族规则。0.8-A 顶层加 `fingerprinting:[{technique, family, apis, callers:[{url, count}], attributedTo}]`，`grades.protection` 加 `family:"推断"`。
 
-## 23. 0.4-I 按实现定案（10-16，待作者审）
+## 23. 0.4-I 按实现定案（10-16，作者 2026-10-21 批量签收）
 
 帧路径 ref 实现时按字面解的几处：录制器至今不写 `action` 事件（0.3-B 起的现状，见 NOTES），所以「`action` 事件带 `frame`」落在动作命令自己身上：`click` / `hover` / `fill` / `upload`（以及带帧 ref 参数的 `evaluate --function`）的输出多一个 `frame`（帧路径，根文档不写），因而进了该命令 `cmd` 结束事件的 `outputSummary.frame`；`cmd` 开始事件的 `input.ref` 保留原样的 ref 字符串（`f2/f1/e7`）。将来真正写 `action` 事件时，`target.frame` 就填这个帧路径。帧头里的 same-origin / cross-origin 相对父帧的 security origin（s22 的 `f2/f1/f1` 与它的父帧同在 B 源，所以是 same-origin）。只有带子帧的页面在 `snapshot` / `outline` 的 JSON 里有 `frames` 字段、头里有 `frames` 行；遮挡项在帧里时带 `frame`，含 iframe 的遮挡项带那个 iframe 的帧路径 `layerFrame`（iframe 里的关闭按钮并进 `close`，choices 不并，0.3-D 的 `OVERLAY_EXPECTED` 不变）；根文档 ref 的动作输出不带 `frame`。没有子帧的页面，输出的字段和行与 0.4-I 之前相同。
 
-## 24. 0.5-C 输出预算的导出文件（10-16 作者定规则；文件名与摘要按实现定案，待作者审）
+## 24. 0.5-C 输出预算的导出文件（10-16 作者定规则；文件名与摘要按实现定案，作者 2026-10-21 批量签收）
 
 作者定：命令回答的 `data` 序列化后超过 `TABCAP_OUTPUT_LIMIT` 字节（默认 16384，环境变量可改）时，整份 `data` 写进文件，回答的 `data` 换成 `{summary, file, bytes, truncated:true}`；命令带 `--full` 时原样全打。`net list` / `console list`（分页）与 `snapshot`（`--max-chars`）有自己的机制，不受此限。
 
@@ -478,13 +478,13 @@
 - `summary`：顶层每个标量字段原样（字符串 200 字符以内），数组、对象与更长的字符串换成长度；非对象的 `data` 记 `{type, length}`。命令自带的摘要叠加在上面：`analyze deps` 加 `inputs`（前 10 个请求的输入数，0.7-C 起；总数在 `inputCount`）与 `unresolved`（未解析数），`recon` / `analyze recon` 加档案的 `summary` 块与 `page`，`trace list` 加 `rows: [{api, script, count}]` 与 `totals`，`where` 加前 5 个 `candidates`、`candidateCount` 与 `query`。
 - **0.7-C：摘要不再只剩长度**。凡回答可能超限的命令都有自己的摘要：关键计数加前 10 个 id / 键（`SUMMARY_FIRST`），长字符串只给字符数。`net show`（头的个数与前 10 个名字、`postData` / `body` 的 `bytes` 与路径）、`net body`（`previewChars`；`--grep` 的 `matchCount` 与前 10 个 `{line, col}`；`--lines` 的 `lineCount` 与行号）、`net grep`（`requestCount`、前 10 行 `{id, url, count}`、`skippedCount`）、`analyze find`（`hitCount`、前 10 个 `{ref, part, path, match, decode}`、`searched` 的四个计数、`suspectEncrypted` 的 ref）、`analyze deps`（`requests`、`inputCount`、前 10 个请求的输入数 `inputs`、`edges`、`unresolved` 与前 10 条 `unresolvedFirst`）、`analyze chain`（`stepCount`、前 10 步的 `id`、`todo` 与 `todoFirst`、`inputs`）、`analyze diff`（`bundles`、`groupCount`、前 10 组 `{key, samples, sessions}`、`summary`）、`analyze shape`（`endpointCount`、前 10 个 `{key, exchanges, notJson}`、`unshaped`）、`analyze schema-diff`（`summary`、`bundles`、`endpointCount`、前 10 个变化的端点及其增删改个数）、`bundle info`（`counts`、`kinds`、`issueCount` 与前 10 条 `{line, kind}`；`--usage` 时 `hostCount`、前 10 个 `{host, actor, requests}`、登录次数、`stops`、`windows`）、`replay check`（`totals`、`rowCount`、前 10 个不是 same 的 `{id, result}`、`skipped`）、`status`（守护进程 / 浏览器是否在跑、`sessionCount` 与前 10 个会话的状态 / 录制 / trace、`conflictCount` 与前 10 个 `{code, session}`、`handoff`）、`trace list`（`rowCount` 加前 10 行）、`bundle export fixtures`（前 10 个文件、`failed` 与前 10 条、`notPreferred`、`skipped`）、`fetch --batch`（前 10 个结果的 `{ok, id, status}` 或错误码）、`console show`（`textChars`）。分页与自带上限的 `net list` / `console list` / `snapshot` 照旧不受预算约束，不需要摘要。【实测 单测 `test/unit/disclosure07c.test.ts`：每条命令喂一份超过 16 KB 的合成回答，断言摘要有这些键、列表 ≤10 项、摘要 <4 KB】
 - 按实现定案：`TABCAP_OUTPUT_LIMIT=0` 关闭预算，非整数的值按默认；`schema` 也不受此限（CLI 契约整份输出；`schema --json` 本来就是文本）；`screenshot` 不收 `--full`（0.4 已把旧 `--full` 改名 `--full-page`，仍是未知选项），它的回答只有路径，不会超；预算在 CLI 输出层做（过滤之后，见 `08` §5），超限时 CLI 向守护进程问一次当前会话的录制包位置；`cmd` 结束事件的 `outputSummary` 照旧取自完整结果。
-- 0.7-F（10-17，待作者审）：`file` 是平台原生路径，Windows 上分隔符是 `\`（如 `C:\Users\…\tabcap\outputs\20261017-101549-analyze-find.json`），与回答里其它路径字段（包目录 `dir`、`bundle`、截图路径）一样都由 `node:path` 拼出，不归一成 `/`；代理拿它直接读文件即可。单测按平台分隔符断言（`dirname(file)` 等于 `join(<cache>, "outputs")`）。
+- 0.7-F（10-17，按实现定案，作者 2026-10-21 批量签收）：`file` 是平台原生路径，Windows 上分隔符是 `\`（如 `C:\Users\…\tabcap\outputs\20261017-101549-analyze-find.json`），与回答里其它路径字段（包目录 `dir`、`bundle`、截图路径）一样都由 `node:path` 拼出，不归一成 `/`；代理拿它直接读文件即可。单测按平台分隔符断言（`dirname(file)` 等于 `join(<cache>, "outputs")`）。
 
-## 25. 0.5-F 命令内搜索（10-16 作者定「做」；字段按实现定案，待作者审）
+## 25. 0.5-F 命令内搜索（10-16 作者定「做」；字段按实现定案，作者 2026-10-21 批量签收）
 
 不加新的事件 kind，证据包格式不变。`snapshot --grep / --css / --xpath / --ref --depth`、`html`、`net body --grep / --lines / --at / --pretty`、`net grep` 都是只读命令：守护进程照常给每次调用写一对 `cmd` 事件（`outputSummary` 只留顶层标量），此外不往包里写任何东西（`net body --out` 仍是拷一份正文到指定路径，与 0.3-F 相同）。`html` 只写 `cmd` 事件：读 outerHTML / innerHTML / textContent / 属性走 tabcap 的隔离世界，页面脚本看不到、也不会被调用。正文搜索读的是包里的 blob（CDP 交出的正文已解压）：先按 UTF-8 解码，不是 UTF-8 时按该请求事件的 `response.charset` 解码，都不行算二进制；所有文本先做已知秘密值替换再搜索、切片，所以正则搜不到、片段里也看不到库里的秘密值。`net body --file`（0.5-F2）把同样的解码、脱敏（、`--pretty`）后的全文写到打开中的录制的 `exports/bodies/<r-N>[.pretty].<ext>`（无录制则 `<cache>/outputs/bodies/<时间戳>-<r-N>…`），0600，重复调用覆盖；二进制正文原样写出并报 `scrubbed:false`。`--pretty` 的 JS 断行只插入换行与缩进（不删字符），`--at` 收的是原始正文的 1 起行列（`trace list`、控制台栈帧给的就是这个），带 `--pretty` 时映射到美化后的行。
 
-## 26. 0.6-A `tabcap fetch`（10-16 作者定设计；字段与下列细节按实现定案，待作者审）
+## 26. 0.6-A `tabcap fetch`（10-16 作者定设计；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
 
 爬虫的请求由会话里已登录的标签发出并录进包：`tabcap fetch <url> …`（agent 用，`--batch <file.jsonl>` 按序跑多条）与守护进程的 `POST /fetch`（脚本用，`templates/python/_tabcap_fetch.py`）。机制（标记头、Request 阶段剥离、发起栈兜底）见 `07` §8。包格式只多 `request.fetchId`（§5.1）、`cmd` 结束事件的 `outputSummary.requests`（§4.1）与 `guard` 的 `fetch-stop`（§4.2），0.6-P 再加 `request.fetchCredentials` 与 `cmd` 开始事件 `input.credentials`（§34），不加新 kind。
 
@@ -496,7 +496,7 @@
 - **其他错误**：页面的 CORS 拦下 → `fetch.blocked`，`reason` 是 Chrome 写进控制台的那句（已脱敏），`request` 是录下的失败请求，`credentials` 是这次的模式（0.6-P；`next` 的规则见 §34）；页面里请求失败（连不上等）→ `page`；在页面里超时 → `timeout`。`fetch` 和其他动页面的命令一样受 `waiting`（§4.2）与账号小时预算约束。
 - **端点** `POST /fetch`：与 `/command` 同一监听、同一鉴权（POSIX 上 0600 的 Unix 套接字，Windows 上回环 TCP + 每次启动的 bearer token）；请求体 `{session, tab?, url, method?, headers?:{名:值}|[[名,值]…], body?(文本)|json?(任意 JSON 值)|form?:{字段:值}|[[字段,值]…], credentials?("include"|"same-origin"|"omit"，0.6-P), timeoutMs?, stopOn?, rawBody?}`，回与命令行相同的信封；不收 `batch`、`out`。请求体是不可信 JSON：形状不对一律 `usage`，不会让守护进程出错。每次调用一个命令窗口（`argv:null`）。
 
-## 27. 0.6-D 守护进程修补（10-16 作者定六条；字段按实现定案，待作者审）
+## 27. 0.6-D 守护进程修补（10-16 作者定六条；字段按实现定案，作者 2026-10-21 批量签收）
 
 来自作者另一个项目在真实站点上试 v0.5.0 的报告（10-16）。不加新的事件 kind，请求事件格式不变。
 
@@ -510,7 +510,7 @@
 - **图片验证码提示**：作者原话「guard 识别图片验证码也不一定转交，模型能自己过就过吧。就告诉模型有个什么东西拦着，它自己判断要不要喊人」。在根文档与帧（至多 16 个）的隔离世界里扫可见的 `<img>` / `<canvas>` 与文本输入框（`browser/captcha.ts`，纯函数判定）：图片的 src / id / class / alt / title / 附近标签含 captcha / verify / 验证码 / 校验码，或输入框的 name / id / placeholder / 标签像 captcha / vcode / verifyCode / 验证码 / 校验码且在登录表单旁（所在表单有密码框；不在表单里时页面上有密码框）。图片与输入框在同一表单里配对。`snapshot` / `outline` 的头多一行 `challenge  image-captcha img [e12] → input [e13]; read the image (screenshot --ref e12) or hand over (ask the human to type it)`（帧里的加 `· in f2`），JSON 多 `challenge: {kind, image, input, advisory:true[, frame]}`；对该表单的 `fill` / `click` 输出带 `challenge: {kind, image, input}`；录制中每个页面（标签 + 文档身份）写一条 `guard` `{event:"challenge"}`（`guard` 事件的新 `event` 值，§4.2）。不进 `waiting`，不拦命令，原有的挑战（HTML 403 验证页）照旧转交。
 - **一账号一浏览器上下文**：`session start --site <s>`（带或不带 `--account`，含 `auto`）只要绑上账号，`direct` 模式就给它单独一个 `Target.createBrowserContext {disposeOnDetach:false}`（账号绑了池代理时再加 `proxyServer` / `proxyBypassList`，同 0.4-D）；cookie 照 0.4-D 恢复与回写（开始时 `Storage.setCookies`，cookie 状态快照、`session stop`、关浏览器前 `Storage.getCookies`）。没有账号的会话用默认 context。会话已有标签时绑账号报 `conflict`（与 0.4-D 对池账号的规则相同，现在对所有账号）。`ext` 模式只有一个 cookie 罐，没有 context，规则不变（`ext.no-context`）。
 
-## 28. 0.6-B 解码插件（10-16 作者定设计；字段按实现定案，待作者审）
+## 28. 0.6-B 解码插件（10-16 作者定设计；字段按实现定案，作者 2026-10-21 批量签收）
 
 作者定：按站点、按方向用 host / path / content type 匹配；解码器是进程外程序，stdin / stdout 上一行一个 JSON；密钥放插件自己的配置，不进 tabcap 的库，也不进证据包；明文作为「派生视图」存在原正文旁边，`find`、`where`、`deps`、`recon`、`replay check` 都读它。作者补充（10-16）：已有 mitmproxy addon / Burp 扩展里的解密代码要能少改就复用：协议仍是这份 JSON 行，另附 Python runner 模板 `templates/plugins/decode-python/`。
 
@@ -567,7 +567,7 @@
 // 解不了：{"by","version","direction","mime":null,"blob":null,"bytes":null,"ok":false,"error":"…"}；插件回答带 note 时多一个 "note"
 ```
 
-**录制中启用 / 停用（0.7-E，待作者审）**：录制器每个正文都重读已启用的解码插件（只在 `enabled.json` 或插件目录变了时重读，每次两个 stat），所以录制中 `plugin enable` 从下一个正文起生效、`plugin disable` 从下一个正文起停；之前写下的正文不补视图（录完后 `bundle decode` 补）。`tabcap status` 的 `recording.decodePlugins` 是这份录制到目前为止用过的插件（开始时启用的加上之后启用过的）。以前插件表在 `net start` 时定下，录制中启用的插件对这份录制无效【实测：上手验收 B1；v06b 新增一条：录制中 enable、reload 后出视图，之前的正文没有】。
+**录制中启用 / 停用（0.7-E，按实现定案，作者 2026-10-21 批量签收）**：录制器每个正文都重读已启用的解码插件（只在 `enabled.json` 或插件目录变了时重读，每次两个 stat），所以录制中 `plugin enable` 从下一个正文起生效、`plugin disable` 从下一个正文起停；之前写下的正文不补视图（录完后 `bundle decode` 补）。`tabcap status` 的 `recording.decodePlugins` 是这份录制到目前为止用过的插件（开始时启用的加上之后启用过的）。以前插件表在 `net start` 时定下，录制中启用的插件对这份录制无效【实测：上手验收 B1；v06b 新增一条：录制中 enable、reload 后出视图，之前的正文没有】。
 
 没有插件匹配的一侧没有 `decoded` 字段。`net list` 的索引项带响应视图的 `decoded:{by, version, mime, blob, bytes}`；`net show` 两侧各列 `decoded`（by、version、ok、mime、bytes、path / blob 或 error）。
 
@@ -594,11 +594,11 @@
 
 【实测 10-17：`test/unit/decode-plugins.test.ts` 的 0.6-V 五条（`decodeSkip`、录制路径、`bundle decode` 的 `skipped`、失败 → 放弃 → 无视图 / `appended 1` / `superseded 1` / 重跑 0、读者的 rank 规则）；e2e `v06b` 5/5 未受影响】
 
-**脚手架 `tabcap plugin init --kind decode [<dir>] [--name <n>] [--force]`**（0.7-D，按实现定案，待作者审）：模板五个文件在构建时用 `import … with { type: "text" }` 嵌进二进制（`src/cli/plugin-init.ts`），发布包、npm、源码三种装法都能用，不必知道模板落在哪；`templates/plugins/decode-python/` 仍是源，单测断言嵌入的文本与磁盘上的文件逐字节相同。插件只从 `<config>/plugins/<name>/`（真目录，不认符号链接，目录名等于 `name`）发现，所以只给 `--name` 时直接写到那里；给了 `<dir>` 就写到 `<dir>`（相对调用者的工作目录），`name` 默认取目录名，不在插件目录里时回答的 `next` 先说把目录挪过去。写 `manifest.json`（只把 `name` 换成插件名，其余与模板逐字相同）、`plugin.py`、`runner.py`、`pyproject.toml`、`config.example.json`；`config.json` 只在不存在时从样板建（0600），**任何时候都不覆盖**。目录非空时拒绝（`conflict`），`--force` 改写五个模板文件、不碰 `config.json` 与其它文件；新建的目录 0700。回答 `{name, kind:"decode", dir, installed, files, kept, next}`：`installed` 表示已在插件目录，`files` 是本次写的文件，`kept` 是保留未动的（`config.json`），`next` 两步：改 `plugin.py`、`config.json` 与 `manifest.json` 的 `match`（模板匹配的是靶场 `127.0.0.1` `/s42/api/*`），然后 `tabcap plugin enable <name>`。`--kind` 必填，目前只认 `decode`（挑战处理程序没有模板），其它值报 `usage`。装上不等于启用，`plugin init` 不启用。【实测 10-17：`test/unit/plugin-init.test.ts` 7/7，含经插件注册表 `listPlugins` / `setEnabled` / `decodePlugins` 加载、用 `uv run` 跑生成的插件解 s42 正文；`bun run build` 后把 `dist/tabcap` 拷到仓库外运行 `plugin init`，五个文件与模板相同（`manifest.json` 只差 `name`），`plugin list` 看到它且无错误】
+**脚手架 `tabcap plugin init --kind decode [<dir>] [--name <n>] [--force]`**（0.7-D，按实现定案，作者 2026-10-21 批量签收）：模板五个文件在构建时用 `import … with { type: "text" }` 嵌进二进制（`src/cli/plugin-init.ts`），发布包、npm、源码三种装法都能用，不必知道模板落在哪；`templates/plugins/decode-python/` 仍是源，单测断言嵌入的文本与磁盘上的文件逐字节相同。插件只从 `<config>/plugins/<name>/`（真目录，不认符号链接，目录名等于 `name`）发现，所以只给 `--name` 时直接写到那里；给了 `<dir>` 就写到 `<dir>`（相对调用者的工作目录），`name` 默认取目录名，不在插件目录里时回答的 `next` 先说把目录挪过去。写 `manifest.json`（只把 `name` 换成插件名，其余与模板逐字相同）、`plugin.py`、`runner.py`、`pyproject.toml`、`config.example.json`；`config.json` 只在不存在时从样板建（0600），**任何时候都不覆盖**。目录非空时拒绝（`conflict`），`--force` 改写五个模板文件、不碰 `config.json` 与其它文件；新建的目录 0700。回答 `{name, kind:"decode", dir, installed, files, kept, next}`：`installed` 表示已在插件目录，`files` 是本次写的文件，`kept` 是保留未动的（`config.json`），`next` 两步：改 `plugin.py`、`config.json` 与 `manifest.json` 的 `match`（模板匹配的是靶场 `127.0.0.1` `/s42/api/*`），然后 `tabcap plugin enable <name>`。`--kind` 必填，目前只认 `decode`（挑战处理程序没有模板），其它值报 `usage`。装上不等于启用，`plugin init` 不启用。【实测 10-17：`test/unit/plugin-init.test.ts` 7/7，含经插件注册表 `listPlugins` / `setEnabled` / `decodePlugins` 加载、用 `uv run` 跑生成的插件解 s42 正文；`bun run build` 后把 `dist/tabcap` 拷到仓库外运行 `plugin init`，五个文件与模板相同（`manifest.json` 只差 `name`），`plugin list` 看到它且无错误】
 
 **靶场**：s42（`docs/05`），插件 `test/e2e/plugins/xor-decode/`（Bun 脚本，密钥在它自己的 `config.json`）。【实测 10-16，本机 CfT 155：`test/e2e/v06b.e2e.test.ts` 5/5；`test/unit/decode-*.test.ts`，含 `uv run` 跑 Python runner】
 
-## 29. 0.6-J 点击落点（10-16 作者定设计；字段按实现定案，待作者审）
+## 29. 0.6-J 点击落点（10-16 作者定设计；字段按实现定案，作者 2026-10-21 批量签收）
 
 来自作者另一个项目的真实站点试用（10-16）：layui、antd、Element UI 上 DOM `click` 无障碍元素返回成功却什么都没发生，处理程序在子元素上（`lay-event` 的 span、内层按钮）或只认可信事件。0.6-D 的 `effect:"none"` 只能事后说没反应，这一格让点击落对地方。不加事件 kind，录制格式不变；只读，不改页面。
 
@@ -608,7 +608,7 @@
 - **`snapshot --interactive`**：交互视图里每个带 DOM 节点的控件（无障碍交互角色）跑同一判定，(b) 的在行尾加 `landing="child"`；(c) 不标（点击不会落到子元素上）。每个文档一次 `getEventListeners {depth:-1}` 加一次页面调用；每文档至多检查 300 个控件，监听元素超过 2000 个的文档整份不标。默认（非 `--interactive`）快照不检查。
 - 检查本身出错（页面脚本异常、节点在中途被换掉等）只记日志，点击照旧点目标、快照照旧不标；不加新的错误码。
 
-## 30. 0.6-H 账号使用证据 `bundle info --usage`（10-16 作者定设计；字段与下列细节按实现定案，待作者审）
+## 30. 0.6-H 账号使用证据 `bundle info --usage`（10-16 作者定设计；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
 
 作者的红线要求每次运行都有证据：每个账号登录几次、每个主机多少请求、最短间隔、空正文与业务错误码。以前靠手数。`tabcap bundle info <bundle> --usage [--text] [--business-code '<$.路径>=<ok 值>']... [--actor page|fetch|evaluate|other] [--all-hosts]` 离线读包（不连守护进程、不发请求），输出 `tabcap-usage/0`；不带 `--usage` 的 `bundle info` 不变。`--text`、`--business-code`、`--actor`、`--all-hosts` 只能和 `--usage` 同用，否则 `usage` 错误；`--actor` 的值不是这四个之一也是 `usage`。**只有计数与名字，不含任何值**（不写 URL 路径、头值、正文、cookie、账号以外的凭据）。
 
@@ -636,10 +636,10 @@
 - **业务错误码**：`--business-code '$.code=0'` 可重复，路径写法同 `--stop-on json:`（`$`、`.键`、`[下标]`），`=` 之后能按 JSON 解析的按 JSON 比（`0` 是数字），否则按字符串。只判断能解析成 JSON 对象或数组的响应正文（≤ 8 MiB）：路径上的值与 ok 值不相等就算错误，**路径上没有值也算错误**（「其余一律算错」）；多条规则时，任一条不满足即算该响应一次错误。HTML、二进制、空正文不判断。
 - **停手**：`guard` 的 `breaker` 事件各一条：`kind` 是事件的 `reason`（`fetch-stop`、或 §4.2 的其他熔断原因，缺则 `breaker`），`request` 是事件的 `request`，`rule` 是事件的 `rule`。`resume` 不算。
 - **窗口**：列出的行里的每个请求（0.6-S：不含 `skipped` 的，`--actor` 时只含该 actor）的墙钟开始时刻（`ts − (mono − timing.start)`，缺失时取 `ts`）落入对齐到 UTC 整 10 分钟（600000 ms 的倍数）的窗口；只列有请求的窗口，按时间升序。
-- **`--text`**：一屏文本表：先一行 `actors page n  fetch n  evaluate n  other n`，再每个主机 × actor 一行（主机、actor、请求数、最短 / 平均间隔、1 s 突发、空正文、预检、业务错误、字节），有不进表的就再一行 `skipped: loopback <n> request(s) on <主机…> (--all-hosts lists them); data: <n> (no host)`，随后是各行的方法与状态码分布、停手、窗口和 note，可直接贴进运行记录。`logins` 行的账号名照旧显示（§8.1 允许 agent 看账号名；隔壁项目试用者对 `--text` 里出现账号名有意见，按转述记在 NOTES，待作者审）。
+- **`--text`**：一屏文本表：先一行 `actors page n  fetch n  evaluate n  other n`，再每个主机 × actor 一行（主机、actor、请求数、最短 / 平均间隔、1 s 突发、空正文、预检、业务错误、字节），有不进表的就再一行 `skipped: loopback <n> request(s) on <主机…> (--all-hosts lists them); data: <n> (no host)`，随后是各行的方法与状态码分布、停手、窗口和 note，可直接贴进运行记录。`logins` 行的账号名照旧显示（§8.1 允许 agent 看账号名；隔壁项目试用者对 `--text` 里出现账号名有意见，按转述记在 NOTES，按实现定案，作者 2026-10-21 批量签收）。
 - 退出：包缺失 `not-found`；包没收尾（录制中或中断）照常读，不报错（与 `bundle info` 一致）。
 
-## 31. 0.6-C 回放键规则与夹具导出（10-16 作者定设计；字段按实现定案，待作者审）
+## 31. 0.6-C 回放键规则与夹具导出（10-16 作者定设计；字段按实现定案，作者 2026-10-21 批量签收）
 
 作者定（来自真实项目试用：离线回放三个站点要手写三种匹配规则，一个要分开表单体和 JSON 体，一个要忽略易变的 `_t` 参数、先解密请求体再比；`replay serve` 只认 method + path + 排序 query + 正文 sha256，加密正文的站点一条都配不上）：一份规则文件，`replay serve`、`replay check` 与新命令 `bundle export fixtures` 共用；夹具的输出格式可插拔，项目里手写的离线回放脚本可以删掉。
 
@@ -768,7 +768,7 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 
 **靶场**：不加新页，复用 s06（t / nonce / sig）、s07（表单登录）、s42（加密正文，`xor-decode`）；夹具插件 `test/e2e/plugins/fixture-harness/`（Bun 脚本，每个夹具出一个 `cases/<r-N>.json`）。【实测 10-16，本机 CfT：`test/e2e/v06c.e2e.test.ts` 7/7；`test/unit/replay-rules.test.ts`、`test/unit/fixtures-export.test.ts`】
 
-## 32. 0.6-G 响应形状与 schema 漂移（10-16 作者定设计；字段与下列细节按实现定案，待作者审）
+## 32. 0.6-G 响应形状与 schema 漂移（10-16 作者定设计；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
 
 作者定：`tabcap analyze shape <bundle> [--request r-N | --template "<METHOD> <路径模板>"] [--types <类型,…>|all] [--text] [--write]` 按端点推断响应形状（类型树，带出现次数）与请求形状（query 名、请求体字段），schema `tabcap-shape/0`，`--write` 存进包的 `exports/shape.json`；`tabcap analyze schema-diff <旧包> <新包> [--template …] [--types …] [--text] [--write]` 按端点比较两份形状，有漂移时退出码 1（可放 cron）。输出里从不出现值：只有类型、格式、字段名，和不超过 8 个、字段名不敏感（`bundle redact` 的名字规则）的枚举字面量。只读，不发请求，不写事件。
 
@@ -788,15 +788,15 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 - **不计没有响应的交换（0.6-V，作者定上面 (b)）**：`outcome:"incomplete"` 的交换（没有响应：被导航打断、SSE 等）默认不推断形状，与 §9.1 HAR 导出默认不导出 incomplete 一致；计入 `excluded.incomplete`，`--types`（含 `all`）不改变这一条；`--request r-N` 仍不过滤。`excluded` 从数字改为 `{types, incomplete}`（未分发，不留兼容）。`--text` 头行另写「N without a response left out」。【实测 10-17：`test/unit/offline06s.test.ts` 里 (b) 那条——一个端点带一条 incomplete、按 `xhr,fetch` 导出 HAR 再导入——现在默认、`--types xhr,fetch`、`--types all` 三种都是 `same`】
 - **靶场**：s06 加 `GET /api/list` 与变体 `?v=2`（`title` 改名 `name`、`price` 由小数字符串变数字、加 `currency`；`docs/05` s06）。【实测 10-16，本机 CfT 155：`test/e2e/v06g.e2e.test.ts` 3/3；`test/unit/shape.test.ts`】
 
-## 33. 0.6-L 页面内解码·观察模式 `trace start --decode`（10-16 brief + 两处实测修正；字面与下列细节按实现定案，待作者审）
+## 33. 0.6-L 页面内解码·观察模式 `trace start --decode`（10-16 brief + 两处实测修正；字面与下列细节按实现定案，作者 2026-10-21 批量签收）
 
 观察模式借页面的解密：站点把 API 响应体加密、靠页面自己的 JS 解出明文；解码插件（§28）要密钥与算法，页面两者都有、每次都在跑。`tabcap trace start --decode`（`--no-decode` 关闭；config.json `trace.decode` 设默认）在页面上装三个 sink 断点，把页面交给 `JSON.parse` 的明文归属到加密响应，写进 `decoded.jsonl`（§28 的 sidecar 形状）成为 `by:"page"` 的 `decoded` 视图；`find` / `where` / `deps` / `recon` / `replay check` 经内置链步骤 `page` 读它。**对页面做什么（作者 10-16 定的表述，0.6-L2）：不改页面状态；在页面里只调用原生 `console.dirxml`（log-point，见下）；不拿页面函数处理 tabcap 的数据；`CryptoKey` 永不读。**守卫要读 `console.dirxml` 和它的 `name`，页面若在这两处装了 getter，getter 会执行（页面也就能察觉观察模式——它本来就能从时序察觉）；守卫能被同名函数骗过，后果是页面拿到它自己的明文、tabcap 这次退回作用域。`--decode` 时**不装签名断点**（作者 10-16 定）：不读 signals.json、不设 API 断点、instrumentation 只留 scriptFirstStatement 安装通道；`--apis` 与 `--decode` 同给报 `usage`。证据包规范之外它是诊断组命令，不进 MCP core、不进 SKILL.md 本体（文档在 `skills/tabcap/references/trace-and-probes.md`）。
 
 sink 与断点（D1；spike exp2/exp3，e2e【实测】）：
 - `JSON.parse`——明文源，condition `typeof arguments[0] === "string" && arguments[0].length >= 32`（exp2：2000 次短 parse 的 heavy 页带 condition 中位 +15 ms，不带 +837 ms）；
 - `TextDecoder.prototype.decode`、`SubtleCrypto.prototype.decrypt`——只计 `evidenceHits`，不给行（D1）；TextDecoder 带 condition `byteLength >= 32`，decrypt 调用稀少不设。
-- **修正（待作者审）：sink 常装**。brief D3「每 suspect 5 s 窗口装断点」与页面竞态必输：arm 由录制 index 推送驱动，而页面的 fetch→解密→`JSON.parse` 在同一微任务串里结束（s59 xor【实测】，首轮 e2e 三次全 miss）。改为 decode 开启即常装：每个 realm 在其 scriptFirstStatement 暂停里装好（0.4-F 的安装通道，JS 内建断点**不**跨 realm 共享，逐 realm 装；同进程重复报 "already exists"、容忍），armed 窗口只做归属。
-- **修正（待作者审）：hold 10 s 补匹配**。微任务串还可以再赢一次：暂停时 armed 为空的 walk 结果先暂存（≤8 个、10 s 过期；0.6-W 起 ≤256，且有别的嫌疑在场、没有 scope-string 命中时也先暂存，见 0.6-W 节），arm 一到由 `matchHeld` 补判（归属规则不变）。信封 parse（`{"code":0,"data":…}` 那层）没有明文、其 suspect 也不会命中，自然过期——`drops.plaintextMissing` 里的这类计数是语义内的噪声（「该次暂停没找到明文」），不是错误。
+- **修正（按实现定案，作者 2026-10-21 批量签收）：sink 常装**。brief D3「每 suspect 5 s 窗口装断点」与页面竞态必输：arm 由录制 index 推送驱动，而页面的 fetch→解密→`JSON.parse` 在同一微任务串里结束（s59 xor【实测】，首轮 e2e 三次全 miss）。改为 decode 开启即常装：每个 realm 在其 scriptFirstStatement 暂停里装好（0.4-F 的安装通道，JS 内建断点**不**跨 realm 共享，逐 realm 装；同进程重复报 "already exists"、容忍），armed 窗口只做归属。
+- **修正（按实现定案，作者 2026-10-21 批量签收）：hold 10 s 补匹配**。微任务串还可以再赢一次：暂停时 armed 为空的 walk 结果先暂存（≤8 个、10 s 过期；0.6-W 起 ≤256，且有别的嫌疑在场、没有 scope-string 命中时也先暂存，见 0.6-W 节），arm 一到由 `matchHeld` 补判（归属规则不变）。信封 parse（`{"code":0,"data":…}` 那层）没有明文、其 suspect 也不会命中，自然过期——`drops.plaintextMissing` 里的这类计数是语义内的噪声（「该次暂停没找到明文」），不是错误。
 
 suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `find` 的熵规则（`looksEncrypted`）或 JSON 里有 ≥64 字符的 base64/hex 叶子（0.6-L2 起还有裸 token，见下节）→ arm 5 s；候选 = sha256(整段 body 文本，熵规则命中时) + sha256(每个叶子)，0.6-L2 起末尾再加 sha256(原始 body 文本)（页面拿着原文解密时也能对上，如 axios 的 `transformResponse(data)`）。
 
@@ -824,7 +824,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - 行的优先级（D4）：ok 的插件视图 > ok 的 page 视图（page 行后写也顶不掉插件行）；同 rank 后行赢；inline 视图按同一 rank 裁定；`request:null` 的行不 overlay 任何请求。
 - **启用的解码插件提示（0.6-U，来自真实项目复测 10-17：插件匹配了流量，观察模式几乎不出 `by:"page"` 行，用户不知为何）**：`trace start --decode` 的回答在有已启用的解码插件（§28，`plugin enable` 过且清单有效）时多两个字段：`decodePlugins: [<插件名>…]`（按名字排序）与 `decodePluginsNotice`（一句话：插件已写过视图（解出或失败）的响应体不再观察，插件视图又优先于 page 视图（D4），所以插件匹配流量时 `by:"page"` 行很少；想看页面就 `tabcap plugin disable <name>`）。开始时还不知道会话的流量会不会被匹配，所以只看「有没有已启用的」，不看主机。没有已启用的解码插件时这两个字段都不出现；`alreadyOn` 的回答不带。【实测 单测 `test/unit/trace06u.test.ts`，假插件目录】
 - 停与清场：`trace stop` / `net stop` 连 sink 断点一并移除，armed 清空计 `drops.afterStop`。
-- **`decode` 块**（`trace start --decode`、`trace status`、`trace stop`；0.7-C 起默认是紧凑形，按实现定案，待作者审）：`{on, weakRows, rows:{strong, weak, unattributed}, pending, dropped}`。`--verbose`（`trace status` / `trace stop`）在同一块里再加背后的计数器。字段：
+- **`decode` 块**（`trace start --decode`、`trace status`、`trace stop`；0.7-C 起默认是紧凑形，按实现定案，作者 2026-10-21 批量签收）：`{on, weakRows, rows:{strong, weak, unattributed}, pending, dropped}`。`--verbose`（`trace status` / `trace stop`）在同一块里再加背后的计数器。字段：
 
 | 字段 | 形 | 含义 |
 |---|---|---|
@@ -880,12 +880,12 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 依据（隔壁项目真实站点 A，10-17，匿名化；ground truth 是解码插件对 91 条加密网关响应给出的明文）：P0 召回 11%——91 条里 76 条的 base64 是 MIME 式（每 76 字符一个换行），页面解密前先去空白，作用域里的字符串和原文、叶子都对不上哈希，一条 strong 也没有；10 条 strong 全是不带换行的 64 字节短 body，与插件明文 10/10 一致。（换行，strong）交叉表：（无，有）10、（有，无）76、（无，无）5。P1：一条 64 字节密文（明文 ≤48 字节）下挂了 895 字节的 weak 明文，那是页面从 localStorage 解析用户信息；一条 unattributed 行与某个原始响应体逐字节相同（1450 字节，axios `transformResponse` 解析的信封；测试方【推断】页面在 tabcap 索引该响应之前就 parse 了，原文排除没赶上）；`net body <id>` 不读 page 视图；`--decode` 藏在诊断组的 `trace start` 下，从录制流程找不到。
 
-改动（作者 10-17 的 brief A–F；下列字面按实现定案，待作者审）：
+改动（作者 10-17 的 brief A–F；下列字面按实现定案，作者 2026-10-21 批量签收）：
 
 - **四种形式（A）**。每个密文候选（熵规则命中的整段 body、JSON 叶子、裸 token）按页面可能拿着的形式各算一份 sha256，至多 4 份：`stripped`（去掉 `\r` `\n` `\t` 空格，与原文不同时）、`unquoted`（去掉一对首尾双引号）、`urldecoded`（`decodeURIComponent` 改变了它时；含孤立 `%` 解不开就不算）、`raw`。顺序是变换过的在前、`raw` 在后：两种形式同时在作用域里时（mime 页面的 `s59Xor(data)` 里有去空白后的 `data`，外层 `env` 往下一层是带换行的原文），`evidence.match` 取变换过的那份——它只因为页面自己做了规整才存在，离解密调用更近。原始 body 文本的 sha（0.6-L2）仍排在所有候选之后，形式记 `raw`。叶子和裸 token 的判定也先规整（去空白、去一对引号、URL 解码）再看是不是 ≥64 字符的 base64 / hex：MIME 式叶子、带引号或 URL 编码的裸 body 以前根本不进嫌疑。裸 token 的候选仍是 trim 后的 body 文本（页面 `atob(body.trim())` 照旧以 `raw` 对上）。strong 行加 `evidence.matchForm: "raw" | "stripped" | "unquoted" | "urldecoded"`，`match` 仍是命中的那个 sha；weak / unattributed 行没有这个字段。
 - **明文长度上限（B）**。每个候选给出它最多能解出的明文字节数：base64 → floor(去空白后长度 × 3 / 4)，hex（全是十六进制且长度为偶数）→ 长度 / 2，熵规则命中的整段 body → 它的字节长度；一个嫌疑的上限取其候选中最大的。**假设：加密前没有压缩**（gzip 后再加密的站点，明文可以比密文长，见下一条的豁免）。明文的 UTF-8 字节数超过某嫌疑的上限，就不可能出自它：该嫌疑退出 single-suspect（weak）和 unattributed 的候选；剩下恰好一个能装下的嫌疑就是 weak，多于一个就是 unattributed、`candidates` 只列能装下的；一个都没有就丢掉这次暂停，计 `drops.noFit`。**scope-string（strong）不受上限约束**：作用域里有密文本身，压缩的站点也照常出 strong 行。hold 中的暂停在 arm 到来时按同一规则判，判成 noFit 也就地丢弃（不再等下一个 arm）。
 - **信封竞态（C）**。unattributed 行和 weak 行一样先 settle 500 ms 再写；flush 时再对一遍原文 sha（`rawShas`），也再查一遍 50 行上限（超出计 `unattributedCapped`）。每当一个原始 body 被索引，settle 队列和 hold 里明文 sha 等于它的条目立即丢弃，计 `drops.rawBody`。50 行上限不变。
-- **`net body` 读 page 视图（D）**。默认和 `--decoded` 都按 D4 的 rank（ok 插件视图 > ok page 视图，同 rank 后行赢）解析视图：索引里的内联视图（录制时的插件）叠上 `decoded.jsonl` sidecar（`bundle decode` 的行和观察模式的 page 行），经 `src/analyze/views.ts` 的 `decodedPayload` 读（blob 缺失或超过 32 MiB 的不算视图），与 `analyze find` 同一条路；录制中与录制后一样。page 视图的回答里 `decoded` 多一个 `link`。没有视图时 `--decoded` 仍报 `not-found`；body 是观察模式会武装的那种（与 `suspectOf` 同一规则：`find` 的熵规则、≥64 字符的 base64 / hex 叶子或裸 token）时，`next` 先指 `tabcap trace start --decode`，再说插件。偏离 brief 一处（待作者审）：brief 写的是「过 `looksEncrypted`」，但带 base64 `data` 的 JSON 信封本身熵只有约 6 bit/字节，永远过不了 `looksEncrypted`——真实站点那 91 条正是这种，所以提示用观察模式自己的嫌疑规则（它包含 `looksEncrypted`）。
+- **`net body` 读 page 视图（D）**。默认和 `--decoded` 都按 D4 的 rank（ok 插件视图 > ok page 视图，同 rank 后行赢）解析视图：索引里的内联视图（录制时的插件）叠上 `decoded.jsonl` sidecar（`bundle decode` 的行和观察模式的 page 行），经 `src/analyze/views.ts` 的 `decodedPayload` 读（blob 缺失或超过 32 MiB 的不算视图），与 `analyze find` 同一条路；录制中与录制后一样。page 视图的回答里 `decoded` 多一个 `link`。没有视图时 `--decoded` 仍报 `not-found`；body 是观察模式会武装的那种（与 `suspectOf` 同一规则：`find` 的熵规则、≥64 字符的 base64 / hex 叶子或裸 token）时，`next` 先指 `tabcap trace start --decode`，再说插件。偏离 brief 一处（按实现定案，作者 2026-10-21 批量签收）：brief 写的是「过 `looksEncrypted`」，但带 base64 `data` 的 JSON 信封本身熵只有约 6 bit/字节，永远过不了 `looksEncrypted`——真实站点那 91 条正是这种，所以提示用观察模式自己的嫌疑规则（它包含 `looksEncrypted`）。
 - **可发现性（E）**。`net start` 的 summary 加一句「encrypted API responses: add `trace start --decode` …」（在分号之后，help 索引只取第一个子句，索引大小不变：6490 B，上限 8 KB【实测】）；`references/recording.md` 加一句。`net body` 的 summary 与 `--decoded` 的说明改为「decoded view（插件，或 `trace start --decode` 的 page 视图）」。
 - `trace status` / `trace stop` 的 `decode.drops` 多 `noFit`。
 
@@ -911,7 +911,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - 当场判不 `forget` 任何嫌疑，没人认领的嫌疑整整 5 s 窗口都在场，把之后的暂停都拖进同一条错路（其 debug 日志里在场嫌疑从 3 涨到 42）。
 - 本地复刻页（XHR，加 3 个页面取回却从不 parse 的加密响应）在 05:03 的构建上 0/40 strong；改用 `fetch()` 是 39/40（`text()` 要等流读完，通常晚于 arm）。其 74 行原型（即下面的 A）：复刻页 40/40 连续三次；真实站点对照解码插件明文 51/51；单测 1155/1155；v06l 12/13。
 
-改动（作者 10-17 定 A，「按 A 修」；下列字面按实现定案，待作者审）：
+改动（作者 10-17 定 A，「按 A 修」；下列字面按实现定案，作者 2026-10-21 批量签收）：
 
 - **当场只判 scope-string**：strong 行照旧立即写。其他结果（single-suspect / unattributed / no-fit / 没有在场嫌疑）一律进 hold（明文、作用域 sha、证据帧、`at` = 暂停时刻），sweep 排在 `GRACE_MS + 50` ms。例外：没读到明文（log-point 守卫失败、作用域里也没有）而有嫌疑在场的暂停当场判——它归哪个嫌疑都只会计 `plaintextMissing` / `tooLarge`，等也不变。
 - **重配（`matchHeld`，每次 arm、每次 sweep）**：hold 里的暂停从旧到新、各自按那一刻的在场嫌疑重判（每个先摘下再判；前一个写入时 forget 的嫌疑后一个就看不到）：scope-string 立即判（strong）；其他结果等到 `at + GRACE_MS`（1.5 s）之后，按那一刻的在场嫌疑判 weak / unattributed / no-fit（规则同 0.6-Q，weak 受 `trace.weakRows` 管）；那一刻没有在场嫌疑就继续 hold、等下一个 arm，`HOLD_MS`（10 s）到期计 `drops.orphan`。纯函数 `heldVerdict` / `heldWaits` / `passHeld` 在 `observe.ts`，单测 `test/unit/observe06l.test.ts`。
@@ -926,19 +926,19 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 **B 进 0.7（作者定）**：在 `Fetch.requestPaused` 的 Response 阶段按 `networkId` 武装（页面拿到 body 之前），从根上消掉这个竞态。代价【推断】：要开 Fetch 拦截、对每个响应放行，会改页面时序——属于 AGENTS.md 里「会改页面行为的插桩」，要默认关或显式模式。grace 是在那之前的近似：parse 与 arm 隔了超过 1.5 s，或 grace 结束时恰好只有一个装得下的别的嫌疑在场，仍会错配（weak 行，受 `trace.weakRows` 管）。
 
-## 34. 0.6-P `fetch --credentials` 与 `session export --origin`（10-17 主循环定需求；字段与下列细节按实现定案，待作者审）
+## 34. 0.6-P `fetch --credentials` 与 `session export --origin`（10-17 主循环定需求；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
 
 【实测】作者邻近项目 10-17 用 0.6.0 跑真实站点（站点匿名）：页面在一个源、API 在另一个源。网关回 `Access-Control-Allow-Origin: *`，`tabcap fetch` 写死 `credentials:"include"`，Chrome 拒读（"must not be the wildcard '*' when the request's credentials mode is 'include'"）、报 `fetch.blocked`；另一个后端发重复的 `Access-Control-Allow-Credentials: true, true`，同样被拒（"is 'true, true' which must be 'true'"）。页面自己的代码用 `withCredentials: false`，能通。旧提示「先导航到同源页面」让 Origin / Referer 变成 API 源，后端回 403；只有 `omit` 可行。同一个单页应用的 `session export` 给出 `headers: []`：它只看发往页面源的请求，认证头却发往 API 源。
 
 - **`--credentials include|same-origin|omit`**（默认 `include`，即原行为）：就是页面 `fetch()` 的 `credentials` 选项（Fetch 规范 RequestCredentials）。`--batch` 每行可带 `credentials`；命令行的 `--credentials` 是没写的行的默认值（与 `--timeout` 同）。`POST /fetch` 收 `credentials` 字段；`_tabcap_fetch.py` 的 `fetch(..., credentials=None)`（`None` = 守护进程默认）。值不在这三个里 → `usage`。
 - **记在包里**：这次 fetch 的每个 `request` 事件（含重定向跳、预检）带 `fetchCredentials`（§5.1）；`cmd` 开始事件的 `input.credentials` 总是写出所用模式（没给就是 `"include"`），`--batch` 写成 `input.batch:{requests:n, credentials:{<模式>:<行数>}}`。成功信封不加字段；`fetch.blocked` 的错误带 `credentials`。
 - **`fetch.blocked` 的 `next`**：模式是 `include`、且 Chrome 的理由以 "when the request's credentials mode is 'include'" 收尾并点名 `Access-Control-Allow-Origin` 的通配 `*` 或 `Access-Control-Allow-Credentials`（缺失、重复如 `true, true`）时，`next` 先给「改用 `--credentials omit`（`POST /fetch`：`"credentials": "omit"`）；那样不带 cookie，API 用头认证（如 `Authorization`）时没问题」，再给「或先把标签导航到目标源的页面再发，那样请求的 Origin / Referer 变成目标源，有的后端会拒」。其余 CORS 理由（如没有 ACAO）只给导航那条。【实测：s60 两种理由的 Chrome 原文，CfT 155】ACAC 缺失那一种的原文没有靶场对照【推断：同一模板】。
-- **不做 `--referrer`**：页面 `fetch()` 的 `referrer` 只能是同源 URL（或 `about:client` / 空串），跨源值被浏览器忽略换成 `about:client`（Fetch 规范 Request 构造步骤）【推断：读规范，未实测】；想要别的 Referer 只能导航到那个源，这就回到上面的第二条。理由写进 NOTES（待作者审）。
+- **不做 `--referrer`**：页面 `fetch()` 的 `referrer` 只能是同源 URL（或 `about:client` / 空串），跨源值被浏览器忽略换成 `about:client`（Fetch 规范 Request 构造步骤）【推断：读规范，未实测】；想要别的 Referer 只能导航到那个源，这就回到上面的第二条。理由写进 NOTES（按实现定案，作者 2026-10-21 批量签收）。
 - **`session export --origin <url 或 host>`**（§8.2）：头取自录制里发往该源的最近一条带选中头的请求（不论哪个标签），cookie 加上该源的（`Network.getCookies` 带它的根 URL），与页面的并列；标签上没有该源的 frame 时 storage 读页面的。裸 host 的 scheme 取录制里的，没有用 `https`。
-- **不给 `--origin` 的回退**：照旧选页面源；选出的头里没有敏感头时，改取录到的「最近一条带敏感头的请求里敏感头最多」的 host（并列取更晚），`source.headers:{request, origin, auto:true}`，`note` 说明并建议 `--origin`；那个源的 cookie 也一并取（`--origin` 同理）【按实现定案，待作者审：需求只说回退头】。值永不打印（原规则）。
+- **不给 `--origin` 的回退**：照旧选页面源；选出的头里没有敏感头时，改取录到的「最近一条带敏感头的请求里敏感头最多」的 host（并列取更晚），`source.headers:{request, origin, auto:true}`，`note` 说明并建议 `--origin`；那个源的 cookie 也一并取（`--origin` 同理）【按实现定案，作者 2026-10-21 批量签收：需求只说回退头】。值永不打印（原规则）。
 - 验证：`test/unit/fetch06a.test.ts`（规格、CLI、helper、`cmd` 输入、提示规则、假浏览器上逐请求的 `fetchCredentials`）、`test/unit/session-export.test.ts`、`test/e2e/v06p.e2e.test.ts`（`05` s60）。
 
-## 35. 0.7-B `tabcap status` 与 conflicts（10-17 作者定需求；字段与规则文字按实现定案，待作者审）
+## 35. 0.7-B `tabcap status` 与 conflicts（10-17 作者定需求；字段与规则文字按实现定案，作者 2026-10-21 批量签收）
 
 【实测】作者邻近项目 10-17 用 tabcap 跑真实站点的 agent，大半时间花在隐含状态上：会话卡在 `waiting`，`guard resume` 解不开；启用着的解码插件让观察模式的 page 视图排不上；`net start` 隐式造出的会话没绑站点，`fill --secret` 失败；忘了还开着的录制和 trace 窗口。这些状态原先散在 `daemon status`、`session list`、`trace status`、`plugin list`、`handoff status` 和 guard 输出里。作者接受 tabcap 用文字解释自己的状态（`conflicts`）。
 
@@ -950,7 +950,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   - `plugins`：已启用的 `{decode:[名字], challenge:[名字]}`；
   - `handoff[]`：在等人的会话 `{session, reason, site, url, since, screenshot}`（`url` 是 guard 交接时的那条请求，0.7-E）；
   - `conflicts[]`：`{code, session, message, next}`，规则按下列顺序生成（`src/daemon/tools/status.ts`，纯函数，输入是上面的事实）；
-  - `next`（0.7-E，待作者审）：先做什么。有会话在 `waiting` 时每个这样的会话一句「告诉用户（附截图路径），人在浏览器里做完后 `tabcap handoff continue --session <s>`」，`; ` 连接；否则第一条冲突的 `next`；都没有为 `null`。
+  - `next`（0.7-E，按实现定案，作者 2026-10-21 批量签收）：先做什么。有会话在 `waiting` 时每个这样的会话一句「告诉用户（附截图路径），人在浏览器里做完后 `tabcap handoff continue --session <s>`」，`; ` 连接；否则第一条冲突的 `next`；都没有为 `null`。
 - **规则**（`next` 一律写成可直接执行的命令，带 `--session`）：
   - (a) `waiting-and-fetch-stop`：会话在 `waiting`，且有 fetch 停手落在它身上；`guard resume --site` 只解停手、不结束等待（例外：等待与停手出自本会话同一条站点停手规则时 `guard resume` 两个都解，此时不报）。`next`：人在浏览器里做完后 `tabcap handoff continue --session <s>`；停手由别的会话触发时再加 `tabcap guard resume --site <site>`（`handoff continue` 只解本会话触发的）。
   - (b) `decode-plugin-outranks-page`：会话在观察模式（`trace start --decode`）且有已启用的解码插件（0.7-E 起录制每个正文都重读插件表，所以有没有录制都看已启用的）；插件视图优先于 page 视图、插件解过的正文不再观察（§33 D4）。`next`：`tabcap plugin disable <name>`（一个插件写名字，多个写 `<name>`）；有录制时注明「从下一个正文起生效，已解过的正文保留插件视图」。0.7-E 前有录制时还要 `net stop` 与 `net start`（录制沿用开始时的插件），已作废。
@@ -961,7 +961,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **MCP**：`tabcap_status` 进核心集，替下 `handoff status`（`status` 已列出等人的会话与原因；`handoff status` 仍可经 `tabcap_run`）；核心集仍 24 个工具，定义 9047 B【实测：`test/unit/mcp.test.ts` 打印】。
 - 验证：`test/unit/status07b.test.ts`（五条规则的正反例与顺序、(c) 不对普通浏览会话报、`--text`、无浏览器守护进程上的回答、无守护进程的回退）、`test/e2e/v07b.e2e.test.ts`（靶场 s07 / s15 与 `xor-decode`：绑定录制会话 + 标签在库内站点的未绑会话出 (c)，`data:` 页上的未绑会话不出；第 6 次 `fetch /api/limited --stop-on status>=400` 同时停 fetch 并进 `waiting` 出 (a)，`guard resume` 后 `handoff status` 仍是 `waiting`；`trace start --decode` 出 (b) 与 (e)，`net start` 后 (e) 消失、(b) 的 `next` 加上换录制）。
 
-## 36. 0.7-E 上手验收后的发布前修正（10-17 主循环定范围；细节按实现定案，待作者审）
+## 36. 0.7-E 上手验收后的发布前修正（10-17 主循环定范围；细节按实现定案，作者 2026-10-21 批量签收）
 
 来源【实测】：邻近项目的 agent 只看 SKILL.md 与 `tabcap guide`，在一个真实站点和本地复刻上跑五个配方，结论「可以发布」，另有两处卡新人、几处小问题（站点匿名）。
 
@@ -976,7 +976,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **`waiting` 的截图与 `status`**：guard 在交接后 0.4 s 才拍截图，而且要排在触发它的那条命令之后用标签，所以那条命令自己的 `waiting` 回答、紧跟着的 `status` / `handoff status` 都是 `screenshot: null`，约 0.5 s 后才有路径；截图本来就存在数据目录的 `shots/` 下，与有没有录制无关（`net stop` 之后 `status` 照样列出）【实测：复现脚本，`navigate` 到第 6 次的 403 验证页】。现在这三处都等正在拍的截图（最多 5 s）；`status` 的会话多 `url`、`handoff[]` 多 `url`、顶层多 `next`（§35）。验收报告里「没有录制时触发」与代码不符：guard 只看录制里的响应，没有录制不会进 `waiting`；当时看到的应是截图还没拍完【推断】。
 - 验证：`bun test test/unit`、`bunx tsc --noEmit -p .`、`bun run validate:skill`、`bun run gen:docs`；e2e v06b、v06a、v07b、v04a、v03b、v06c 与 `tabcap.e2e`（结果见 NOTES 0.7-E）。
 
-## 37. 0.7.1-A 人接管识别（10-17 作者定需求；字段与下列细节按实现定案，待作者审）
+## 37. 0.7.1-A 人接管识别（10-17 作者定需求；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
 
 来源：公开仓库的第一次外部评审（10-17）指出，`03` §3 的「人可以随时接管」是论点里最重要、却没验证的一条：之前的交还都由工具触发（验证页、站点停手规则、显式 `handoff`），「人正在操作 AI 的标签」根本没有识别。作者定先做它，再做别的功能。
 
@@ -991,7 +991,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **验证**：单测 `test/unit/takeover071a.test.ts`（窗口与 grace、判定表、载荷解析、配置、监听器源码只含那四种事件且不读键值）；e2e `test/e2e/v071a.e2e.test.ts`（靶场 s62，`05` §12）。
 - 【待验】真人的 OS 输入：本格只能用 CDP 注入模拟。真人的鼠标、键盘、触控板是否同样 `isTrusted:true`、到达守护进程的时延、拖动滚动条（视口滚动条与元素滚动条）、浏览器自动填充、输入法组合、Chrome 自己的快捷键会不会出现在页面的 `keydown` 里，都没有由人在本机实际操作量过（`07` §1.1）。
 
-## 38. 0.7.5-A 列表结束 `endOn`（10-20 作者定需求；字段与下列细节按实现定案，待作者审）
+## 38. 0.7.5-A 列表结束 `endOn`（10-20 作者定需求；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
 
 来源：真实项目抓取（10-20）。站点停手规则是 `json:$.code!=0`，翻到第 21 页时接口回 `{"code":203,…}`（意思是「没有更多了」），规则命中，整个站点停手、会话进 `waiting`，要人来 `guard resume`。作者定：这类返回码标成「列表结束」，**命中只结束当前这一次请求，站点照常可用**。
 
@@ -1003,7 +1003,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **证据包**：每条结束规则命中的响应写一次 `guard {event:"end", site, account:null, rule, request:"r-N", detail:{rule, detail, request, url, status[, fetchId]}}`（同一请求只写一次；`site` 是库站点名，`fetch` 不在库站点下时是 URL 的主机，同 §26）。不写 `breaker`、`handoff`。
 - **验证**：单测（规则解析、配置、guard 判定先后与计数、fetch 回答、batch、端点、Python 客户端）；e2e `test/e2e/v075a.e2e.test.ts`（靶场 s64，`05` §14）。
 
-## 39. 0.7.5-B 交接按条件自动结束 `handoff wait --until-*`（10-20 作者定需求；字段与下列细节按实现定案，待作者审）
+## 39. 0.7.5-B 交接按条件自动结束 `handoff wait --until-*`（10-20 作者定需求；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
 
 来源：真实项目抓取（10-20）。作者在 tabcap 的浏览器里点了一下，会话进入 `human-takeover`；登录完成后，作者对主循环说「登好了」，但后台子代理收到的是转述，不能当作者本人的确认，又没法弹权限确认，流程卡住。作者定（10-20，原话「我明确同意改成『代理事先设好、客观可查的条件满足了也算』」）：**交接除了人说做完、AI 执行 `handoff continue` 之外，也可以由代理事先设好的、客观可查的条件结束。**
 
@@ -1019,7 +1019,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **验证**：单测（参数、基线与「先见过不成立」、各原因、竞态、MCP 参数）；e2e `test/e2e/v075b.e2e.test.ts`（靶场 s65，`05` §14）。
 - 【待验】真人登录：靶场里人的输入用 `e2e.human-input` 模拟（§37）；跨域单点登录把 cookie 种在别的域、`Network.getCookies` 按标签 URL 看不到的情形，没在真实站点上量过。
 
-## 40. 0.7.6-A 默认隐藏 `navigator.webdriver`（10-20 作者定需求；字段与下列细节按实现定案，待作者审）
+## 40. 0.7.6-A 默认隐藏 `navigator.webdriver`（10-20 作者定需求；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
 
 来源：作者 10-20 改项目要求，「要求默认隐藏 webdriver」，选方案 A（启动参数，不注入脚本）。此前 `docs/10` 写着「不隐藏 webdriver」，一并删去。
 
@@ -1029,7 +1029,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **不管的**：`ext` 模式接管作者自己的 Chrome，不是 tabcap 启动的，本节不改它，值未量【待验】。只隐藏这一个信号：CDP 连接本身的痕迹、Chrome for Testing 自身的特征、其他指纹都不处理。线指纹画像（`11`）的缓存按启动参数哈希失效，换参数后第一次 `wire probe` 重新采集。
 - **验证**：单测（`buildArgs` 默认带、`visible` 不带；`--webdriver` / `config.json` 的解析与报错；manifest 读写；`status --text`）；e2e `test/e2e/v076a.e2e.test.ts`（靶场 s66，`05` §15）。
 
-## 41. 0.8-A 防护家族识别（10-20 作者定需求；本节为设计草案，待作者审）
+## 41. 0.8-A 防护家族识别（10-20 作者定需求；已实现（0.8.0），作者 2026-10-21 批量签收）
 
 来源：作者 10-20「不做针对和绕过，但是家族化模式识别流水线可以搞……至少要让用户或者说 agent 知道碰到的是啥」；同日定：规则自己从公开来源写、本地对照 scrapfly/Antibot-Detector（NPOSL-3.0，代码与规则数据不进仓库，只学思路和方式）、**三层都做**、家族面向 Antibot-Detector 看齐。家族清单与来源见 `docs/14`。recon v0（§22）的 `PROTECTION_SIGNALS` 里三条厂商头名（`cf-mitigated`、`x-amzn-waf-action`、`x-datadome`）并入本节的规则表；`x-iinfo`（Imperva，来源偏弱、不进表，`docs/14` §5）与限流 / HTML 403 等通用信号照旧留在 `PROTECTION_SIGNALS`。
 
