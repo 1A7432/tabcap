@@ -129,9 +129,11 @@ export async function cmdUpdate(args: Record<string, unknown>): Promise<unknown>
     // a path that does not resolve is matched as given
   }
   const channel = channelOf(resolved);
-  const latest = await latestVersion(envVar("NPM_REGISTRY") ?? DEFAULT_REGISTRY);
-  const lat = parseVersion(latest);
-  if (lat === null) throw new TabcapError("bad-input", `the registry's latest tabcap version is not major.minor.patch: ${JSON.stringify(latest)}`, `Retry later, or look at ${RELEASES_URL}.`);
+  const raw = await latestVersion(envVar("NPM_REGISTRY") ?? DEFAULT_REGISTRY);
+  const lat = parseVersion(raw);
+  if (lat === null) throw new TabcapError("bad-input", `the registry's latest tabcap version is not major.minor.patch: ${JSON.stringify(raw)}`, `Retry later, or look at ${RELEASES_URL}.`);
+  // Only the checked value goes on: the answer, the npm argument and the Homebrew keg path (never the raw string).
+  const latest = lat.join(".");
   const cmp = compareVersions(cur, lat);
   const base = { current, latest, updateAvailable: cmp < 0, channel, executable, releases: RELEASES_URL };
   const install = ["install", "-g", `tabcap@${latest}`];
