@@ -11,6 +11,7 @@
 import { join } from "node:path";
 import { cachedNames } from "../protection/live.ts";
 import { readConfigWarnings } from "../../shared/config.ts";
+import { withoutUrlCredentials } from "../../shared/launchargs.ts";
 import { isRecord } from "../../shared/json.ts";
 import { decodePlugins, pluginsFor } from "../hooks/plugins.ts";
 import type { Daemon } from "../state.ts";
@@ -299,8 +300,9 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
             mode: b.t.kind,
             tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length,
             webdriver: b.info.webdriver,
-            extraArgs: b.info.extraArgs,
-            dropArgs: b.info.dropArgs,
+            // Review wave 3: URL values without their userinfo, as browser start / browser status show them (§42).
+            extraArgs: withoutUrlCredentials(b.info.extraArgs),
+            dropArgs: withoutUrlCredentials(b.info.dropArgs),
             warnings: b.info.warnings,
             protectionLive: b.info.protectionLive,
           },
