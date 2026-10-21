@@ -32,7 +32,7 @@ import { FETCH_USAGE, parseFetchSpec, targetUrl, type FetchCredentials, type Fet
 import { allSiteRules } from "../siterules.ts";
 import { exportBody } from "./bodyexport.ts";
 import { decodeBody } from "./netsearch.ts";
-import { redactFlatHeaders } from "./liveredact.ts";
+import { redactFlatHeaders, redactRuleDetail } from "./liveredact.ts";
 import type { Args } from "./args.ts";
 
 /** Text bodies up to this size come back inline (`body`); larger or binary ones as a file (`bodyFile`). */
@@ -323,34 +323,38 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
       throw new TabcapError("internal", `the page got the response of ${fetchId} (HTTP ${helper.status}) but the recording has no request for it`, "Run `tabcap net list` to look for it; rerun with TABCAP_LOG=debug and report the output.", { fetchId });
     }
     const env = buildEnvelope(d, rec, recorded, { fetchId, waitedMs: slot.waitedMs, spec });
+    // docs/04 §8.3: a json: rule's detail on a sensitive name is shown as <redacted:name> unless reveal (the guard events keep it)
+    const shown = (detail: string): string => (spec.reveal ? detail : redactRuleDetail(detail, { scrub: (s) => d.secrets.scrub(s) }));
     // 0.7.5-A: an end rule comes before every stop rule; the list has ended, nothing stops.
     const end = d.guard.endHit(session, recorded.entry.id) ?? firstStop([...ends.site, ...ends.own], { status: env.status, bytes: env.bytes, text: env.text });
     if (end !== null) {
       d.guard.noteEnd(rec, session, { site: where.key, request: recorded.entry.id, url: target.href, status: env.status, tab: tab.id, fetchId }, end);
-      return { ...env.data, end: { rule: end.rule, detail: end.detail } };
+      return { ...env.data, end: { rule: end.rule, detail: shown(end.detail) } };
     }
     // 0.6-I: a site stop rule fired on this very response (the guard already stopped the site and the session waits).
     const site = d.guard.stopRuleHit(session, recorded.entry.id);
     if (site !== null) {
+      const detail = shown(site.detail);
       throw new TabcapError(
         "fetch.stopped",
-        `site stop rule ${site.rule} fired on ${recorded.entry.id} (${site.detail}); the session waits and fetches on ${site.site} are refused from now on`,
+        `site stop rule ${site.rule} fired on ${recorded.entry.id} (${detail}); the session waits and fetches on ${site.site} are refused from now on`,
         STOP_RULE_NEXT({ site: site.site, request: recorded.entry.id }),
-        { site: site.site, reason: "stop-rule", rule: site.rule, detail: site.detail, request: recorded.entry.id, fetchId, result: { ...env.data, stopped: { rule: site.rule, detail: site.detail } } },
+        { site: site.site, reason: "stop-rule", rule: site.rule, detail, request: recorded.entry.id, fetchId, result: { ...env.data, stopped: { rule: site.rule, detail } } },
       );
     }
     const hit = firstStop(rules, { status: env.status, bytes: env.bytes, text: env.text });
     if (hit === null) return env.data;
-    const data = { ...env.data, stopped: hit };
+    const detail = shown(hit.detail);
+    const data = { ...env.data, stopped: { rule: hit.rule, detail } };
     d.guard.stopFetch(
       rec,
       { site: where.key, session, rule: hit.rule, detail: hit.detail, request: recorded.entry.id, fetchId, url: target.href, status: env.status, since: Date.now(), reason: "fetch-stop" },
       { tab: tab.id, account: bound !== null && bound.site === where.site ? bound.account : null },
     );
-    throw new TabcapError("fetch.stopped", `stop rule ${hit.rule} fired on ${recorded.entry.id} (${hit.detail}); fetches on ${where.key} are refused from now on`, `Look at the response (\`tabcap net body ${recorded.entry.id}\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${where.key}\`.`, {
+    throw new TabcapError("fetch.stopped", `stop rule ${hit.rule} fired on ${recorded.entry.id} (${detail}); fetches on ${where.key} are refused from now on`, `Look at the response (\`tabcap net body ${recorded.entry.id}\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${where.key}\`.`, {
       site: where.key,
       rule: hit.rule,
-      detail: hit.detail,
+      detail,
       request: recorded.entry.id,
       fetchId,
       result: data,

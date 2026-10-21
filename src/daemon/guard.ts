@@ -48,6 +48,7 @@ import { HOOK_PROTOCOL, parseChallengeOutput, pluginsFor, runHook } from "./hook
 import { scrubValue, type Secrets } from "./secrets.ts";
 import { firstStop, type StopRule } from "./fetch/stoprules.ts";
 import { decodeBody } from "./tools/netsearch.ts";
+import { redactRuleDetail, redactUrl, type LiveCtx } from "./tools/liveredact.ts";
 
 export const LOGIN_LIMIT = 1;
 
@@ -144,14 +145,17 @@ export type HandoffBaseline = { url: string | null; cookies: string[] | null };
 /** 0.7-E: how long an answer waits for a hand-off screenshot still being taken. */
 export const SHOT_WAIT_MS = 5000;
 
-/** Public view of a handoff (CLI output and the `waiting` error). */
-export function handoffView(h: Handoff): Record<string, unknown> {
+/** Live output (docs/04 §8.3): the envelope scrubber replaces known secrets afterwards, so the redaction needs none here. */
+const SHOWN: LiveCtx = { scrub: (s) => s };
+
+/** Public view of a handoff (CLI output and the `waiting` error); its url and rule detail redacted (docs/04 §8.3). */
+export function handoffView(h: Handoff, c: LiveCtx = SHOWN): Record<string, unknown> {
   return {
     session: h.session,
     state: h.state,
     reason: h.reason,
     site: h.site,
-    url: h.url,
+    url: redactUrl(h.url, c),
     status: h.status,
     request: h.request,
     tab: h.tab,
@@ -160,7 +164,7 @@ export function handoffView(h: Handoff): Record<string, unknown> {
     handlers: h.handlers.map((x) => ({ plugin: x.plugin, status: x.status, cmd: x.cmd, answer: x.answer, note: x.note, error: x.error })),
     resumedAt: h.resumedAt,
     resumedBy: h.resumedBy,
-    ...(h.rule === undefined ? {} : { rule: h.rule, detail: h.ruleDetail ?? null }),
+    ...(h.rule === undefined ? {} : { rule: h.rule, detail: h.ruleDetail === undefined ? null : redactRuleDetail(h.ruleDetail, c) }),
     ...(h.input === undefined ? {} : { input: h.input }),
     ...(h.condition === undefined ? {} : { condition: h.condition }),
     ...(h.protection === undefined || h.protection.length === 0 ? {} : { protection: h.protection }),
@@ -168,14 +172,16 @@ export function handoffView(h: Handoff): Record<string, unknown> {
   };
 }
 
-export function waitingError(h: Handoff): TabcapError {
+export function waitingError(h: Handoff, c: LiveCtx = SHOWN): TabcapError {
+  const url = redactUrl(h.url, c);
   if (h.reason === "stop-rule") {
-    return new TabcapError("guard.stopped", `session "${h.session}" is stopped: site rule ${h.rule ?? "?"} fired on ${h.request ?? "?"} (${h.ruleDetail ?? `HTTP ${h.status ?? "?"}`})`, protectionPrefix(h) + STOP_RULE_NEXT(h), handoffView(h));
+    const detail = h.ruleDetail === undefined ? `HTTP ${h.status ?? "?"}` : redactRuleDetail(h.ruleDetail, c);
+    return new TabcapError("guard.stopped", `session "${h.session}" is stopped: site rule ${h.rule ?? "?"} fired on ${h.request ?? "?"} (${detail})`, protectionPrefix(h) + STOP_RULE_NEXT(h), handoffView(h, c));
   }
   if (h.reason === "human-takeover") {
-    return new TabcapError("waiting", `session "${h.session}" is waiting: the user took over tab ${h.tab} (${h.input?.event ?? "input"} at ${h.url})`, protectionPrefix(h) + TAKEOVER_NEXT, handoffView(h));
+    return new TabcapError("waiting", `session "${h.session}" is waiting: the user took over tab ${h.tab} (${h.input?.event ?? "input"} at ${url})`, protectionPrefix(h) + TAKEOVER_NEXT, handoffView(h, c));
   }
-  return new TabcapError("waiting", `session "${h.session}" is waiting for the human: ${h.reason} at ${h.url} (HTTP ${h.status ?? "?"})`, protectionPrefix(h) + CONTINUE_NEXT, handoffView(h));
+  return new TabcapError("waiting", `session "${h.session}" is waiting for the human: ${h.reason} at ${url} (HTTP ${h.status ?? "?"})`, protectionPrefix(h) + CONTINUE_NEXT, handoffView(h, c));
 }
 
 export type GuardDeps = {

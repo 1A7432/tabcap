@@ -292,13 +292,13 @@
 
 真实项目试用里 `net show` 明文打出 `access-token`、`Authorization: Bearer …` 和会话 cookie，`net list` 打出 URL 里的 token；只有 HAR 导出打了码。现在守护进程的实时输出也按 §8 的规则（敏感头判定与名字规则，与导出同一份）显示成 `<redacted:<名字>>`：
 
-- **范围**：`net show`（URL、请求 / 响应头、postData 的内联文本与 blob 的 `head`；超过 2 KB 的内联正文落成 `exports/post/<id>.redacted.txt`；`bytes` 仍是录到的字节数，0.7-C 前叫 `size`）、`net list`（每行的 `url`，`--kind ws` 的帧 URL）、`net body`（答案里的 `url`；它不输出头）、`fetch` 与 `POST /fetch`（信封里选出的响应头；`location` 按 URL 规则）、`recon`（答案与 `exports/dossier.json` / `.md` 里的页面 URL、guard 检测的 URL）、`trace list`（每行的脚本 URL；行里不带参数值）。
-- **规则**：§8 敏感头判定为敏感的头，整值换成 `<redacted:头名小写>`；`cookie` / `set-cookie` 保留 cookie 名和属性，每个值都换（§8 的 state 规则：全部值）；`location` / `referer` / `content-location` 头与各处 URL 只换名字敏感的 query 参数，其余逐字不变（fragment 不动）；请求体：JSON（对象 / 数组）里任意深度名字敏感的键（有改动才紧凑重排，否则原文），表单体逐字段。值规则（邮箱、手机号等）不用在实时输出上。
+- **范围**：`net show`（URL、请求 / 响应头、postData 的内联文本与 blob 的 `head`；超过 2 KB 的内联正文落成 `exports/post/<id>.redacted.txt`；`bytes` 仍是录到的字节数，0.7-C 前叫 `size`）、`net list`（每行的 `url`，`--kind ws` 的帧 URL）、`net body`（答案里的 `url`；它不输出头）、`fetch` 与 `POST /fetch`（信封里选出的响应头；`location` 按 URL 规则）、`recon`（答案与 `exports/dossier.json` / `.md` 里的页面 URL、guard 检测的 URL）、`trace list`（每行的脚本 URL；行里不带参数值）；10-21 起（作者定）另有交接与状态的输出面：`handoff status`、`handoff wait` 与 `waiting` / `guard.stopped` 错误（data 里交接视图的 `url` 与规则 `detail`，`handoff status` 的 `others[].url`，错误文字里的 URL 与 detail）、`tabcap status`（JSON 里会话的 `url` 与 `handoff[].url`；`--text` 的 `WAITING … at <url>` 读同一字段）、`fetch` 与 `POST /fetch` 的 `end.detail` / `stopped.detail`（含 `fetch.stopped` 的 data 与错误文字）。字段名不变；守护进程写进包的 `guard` / `handoff` 事件照录原值。
+- **规则**：§8 敏感头判定为敏感的头，整值换成 `<redacted:头名小写>`；`cookie` / `set-cookie` 保留 cookie 名和属性，每个值都换（§8 的 state 规则：全部值）；`location` / `referer` / `content-location` 头与各处 URL 只换名字敏感的 query 参数，其余逐字不变（fragment 不动）；请求体：JSON（对象 / 数组）里任意深度名字敏感的键（有改动才紧凑重排，否则原文），表单体逐字段；`json:` 停止 / 结束规则的 detail（`$.路径 is 值`）在路径最后一个名字敏感时，值显示成 `<redacted:名字>`（下标取数组字段的名字：`$.tokens[0]` → `tokens`），其它 detail（状态码、空正文、`text:` 命中位置、`no value`）原样。值规则（邮箱、手机号等）不用在实时输出上。
 - **库里的秘密**：整值是库里已知秘密的，仍显示 `<secret:<站点>.<字段>>`（§8.1 的替换照常作用于所有输出，`--reveal` 也不例外）。
-- **`--reveal`**：上述命令都收（`POST /fetch` 收 `reveal: true`），打印录到的原值；只在人要求时用。
+- **`--reveal`**：上述命令都收（`POST /fetch` 收 `reveal: true`），打印录到的原值；只在人要求时用。`status`、`handoff status` / `handoff wait` 与 `waiting` / `guard.stopped` 错误不收 `--reveal`（原值在 `net show` / `net list --reveal` 里看）。
 - **离线分析的输出（0.7.3）**：`analyze diff`（JSON 与 `--text`）、`analyze deps`、`analyze chain`、`analyze recon` 也按同一套规则脱敏——cookie 值、§8 敏感头判定为敏感的请求头、§8 名字规则命中的 query / JSON / form 值显示成 `<redacted:<sha256 前 8 位>>`；同一个值在整份回答里是同一个占位符，所以 `diff` 的对照仍成立。分类 / 依赖计算仍读原值，只换输出层；`--reveal`（这几个子命令）打印原值。`analyze shape` 本来只出类型、格式与非敏感字段的枚举字面量，没有值可换。
 - **不变**：证据包照原样记录（请求事件不改，它就是证据），HAR 导出照旧打码；`analyze` 系列命令的内部计算读原包，只有上面列出的输出层被换。
-- 验证：`test/unit/liveredact.test.ts`（规则表）、`test/unit/sensitive-headers.test.ts`（一张头名表对照导出、实时、离线分析、会话导出、解码插件五条路径的结论）、`test/e2e/v06e.e2e.test.ts`（`05` s07 token 变体：`sid` cookie、`Authorization`、`x-csrf`（10-21 起，敏感头判定合一）、URL 的 `token` 参数打码，`--reveal` 还原，包里是原值）。
+- 验证：`test/unit/liveredact.test.ts`（规则表）、`test/unit/liveredact-handoff.test.ts`（交接视图、两种错误、status、规则 detail）、`test/unit/sensitive-headers.test.ts`（一张头名表对照导出、实时、离线分析、会话导出、解码插件五条路径的结论）、`test/e2e/v06e.e2e.test.ts`（`05` s07 token 变体：`sid` cookie、`Authorization`、`x-csrf`（10-21 起，敏感头判定合一）、URL 的 `token` 参数打码，`--reveal` 还原，包里是原值）。
 
 ## 9. 与 HAR 互转
 

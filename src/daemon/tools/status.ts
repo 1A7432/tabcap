@@ -13,6 +13,7 @@ import { isRecord } from "../../shared/json.ts";
 import { decodePlugins, pluginsFor } from "../hooks/plugins.ts";
 import type { Daemon } from "../state.ts";
 import { siteOf } from "./fetch.ts";
+import { redactUrl, type LiveCtx } from "./liveredact.ts";
 
 export const STATUS_SCHEMA = "tabcap-status/0";
 
@@ -245,6 +246,8 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
   const extra = new Set<string>([...d.recorders.keys(), ...d.tracers.keys(), ...d.sites.keys(), ...d.guard.all().filter((h) => h.state === "waiting").map((h) => h.session), ...d.guard.allFetchStops().map((s) => s.session)]);
   for (const n of [...extra].sort()) add(n);
   const stops = d.guard.allFetchStops();
+  // docs/04 §8.3: URLs shown with sensitive query parameters redacted (status has no --reveal)
+  const c: LiveCtx = { scrub: (s) => d.secrets.scrub(s) };
   const sessions: StatusSession[] = names.map((name) => {
     const bound = d.sites.get(name) ?? null;
     const tabs = b === null ? [] : b.tabs.sessionTabs(name);
@@ -264,7 +267,7 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
       tabSite: site === null ? tabSiteOf(d, currentUrl) : null,
       tabs: tabs.length,
       current,
-      url: currentUrl,
+      url: currentUrl === null ? null : redactUrl(currentUrl, c),
       recording: r === undefined ? null : { bundle: r.dir, since: recordingSince(r.status()), entries: r.index.length, decodePlugins: r.decodePlugins },
       state: waiting ? "waiting" : "running",
       reason: waiting ? h.reason : null,
@@ -298,7 +301,7 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
     handoff: d.guard
       .all()
       .filter((h) => h.state === "waiting")
-      .map((h) => ({ session: h.session, reason: h.reason, site: h.site, url: h.url, since: h.since, screenshot: h.screenshot })),
+      .map((h) => ({ session: h.session, reason: h.reason, site: h.site, url: redactUrl(h.url, c), since: h.since, screenshot: h.screenshot })),
   };
   const conflicts = conflictsOf(facts);
   return { ...facts, conflicts, next: nextOf(facts, conflicts) };
