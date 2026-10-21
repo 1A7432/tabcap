@@ -4,8 +4,9 @@
 //   answers set-cookie sid plus {csrf, token} (the site's journal `sids`,
 //   `csrfs`, `tokens`); the page sends `authorization: Bearer <token>` +
 //   `x-csrf: <csrf>` with the cookie sid to /api/data. docs/04 §8 rule:
-//   `x-csrf` is not sensitive, the `sid` cookie and `Authorization` are, and
-//   the URL parameter `token` has a sensitive name. The password comes from
+//   the `sid` cookie, `Authorization` and (one sensitive-header test since
+//   2026-10-21) `x-csrf` are sensitive, and the URL parameter `token` has a
+//   sensitive name. The password comes from
 //   the store (`fill --secret`), so it stays `<secret:range-demo.password>`.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -77,7 +78,7 @@ describe.skipIf(!enabled)("tabcap 0.6-E L2 (live output redaction on s07)", () =
     removeHome(home, import.meta.file);
   });
 
-  test("net show / net list / net body / recon: sid cookie, Authorization and the token URL parameter redacted, x-csrf not; --reveal prints them; the bundle keeps them", async () => {
+  test("net show / net list / net body / recon: sid cookie, Authorization, x-csrf and the token URL parameter redacted; --reveal prints them; the bundle keeps them", async () => {
     const S = ["--session", "s07e"];
     const st = await ok("session", "start", "s07e", "--site", SITE);
     const bundle = s((await ok("net", "start", ...S))["bundle"]);
@@ -99,7 +100,7 @@ describe.skipIf(!enabled)("tabcap 0.6-E L2 (live output redaction on s07)", () =
     const id = (path: string) => s(rows.find((r) => s(r["url"]).includes(path))?.["id"]);
     const data = await ok("net", "show", id("/api/data"), ...S);
     const dh = rec(rec(data["request"])["headers"]);
-    expect(dh["x-csrf"]).toBe(csrf);
+    expect(dh["x-csrf"]).toBe("<redacted:x-csrf>");
     expect(dh["authorization"]).toBe("<redacted:authorization>");
     expect(dh["cookie"]).toBe("sid=<redacted:sid>");
     const login = await ok("net", "show", id("/api/login"), ...S);
