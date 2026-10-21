@@ -131,6 +131,34 @@ describe("store: sites, accounts, secrets", () => {
   });
 });
 
+describe("guard counters: account hourly windows (review 10-21)", () => {
+  test("windows that started more than 48 hours ago are dropped whenever an account counter is written; session rows stay", () => {
+    const h = 3_600_000;
+    const t0 = 1_760_000_000_000 - (1_760_000_000_000 % h);
+    const s = Store.open(config);
+    s.noteAccountRequest("example", "alice", t0);
+    s.noteAccountLogin("other", "bob", t0 + h);
+    s.noteLoginAttempt("example", "s1", t0);
+    s.noteRequest("example", "replay-check", t0);
+    const windows = (): Array<[string, number]> => {
+      const db = new Database(storePath(config), { readonly: true });
+      try {
+        return (db.query("SELECT account, window_start FROM guard_counters WHERE account IS NOT NULL ORDER BY window_start, account").all() as Array<Record<string, unknown>>).map((r) => [String(r["account"]), Number(r["window_start"])]);
+      } finally {
+        db.close();
+      }
+    };
+    s.noteAccountRequest("example", "alice", t0 + 48 * h); // t0 started exactly 48 h ago: kept
+    expect(windows()).toEqual([["alice", t0], ["bob", t0 + h], ["alice", t0 + 48 * h]]);
+    s.noteAccountLogin("example", "carol", t0 + 49 * h); // now t0 (any account, any site) is older than 48 h; bob's window is 48 h old
+    expect(windows()).toEqual([["bob", t0 + h], ["alice", t0 + 48 * h], ["carol", t0 + 49 * h]]);
+    expect(s.accountCounter("example", "alice", t0 + 48 * h)).toMatchObject({ requests: 1 });
+    expect(s.guardCounter("example", "s1").loginAttempts).toBe(1);
+    expect(s.requestCounter("example", "replay-check").requests).toBe(1);
+    s.close();
+  });
+});
+
 describe("tabcap site add | list | remove (CLI side)", () => {
   test("password from stdin only; output and listing never carry it", async () => {
     const p = paths({ TABCAP_HOME: root });
