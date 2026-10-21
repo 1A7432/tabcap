@@ -67,7 +67,7 @@
 | `kind` | string | 见 §4 |
 | `actor` | `"human"` \| `"ai"` \| `"system"` | 谁引起的。默认 `ai`；会话等人、且之后看到了人的输入（「人在操作」，§16、§37）期间录制器写的事件为 `human`，人的输入本身（`action {op:"input"}`）也是 `human`；守护进程自己的动作（cookie 快照、`guard`、`handoff`、`protection` 等）→ `system`。（P1 原规则「命令窗口内 `ai`、否则 `human`」已由 §16 作废，10-21 写入侧类型对齐时补改本行。） |
 | `tab` | string \| null | 包内标签 id，`t1`、`t2`…，按挂接顺序分配；与 Chrome 的 tabId 的对应关系在 `tab` 事件和 manifest 里 |
-| `cmd` | string \| null | 引起本事件的 AI 命令 id（`c-<seq>`），没有则 null |
+| `cmd` | string \| null | 引起本事件的 AI 命令 id（`c-<seq>`），没有则 null。事件按它**发生**时打开的命令窗口记；`request` 写在请求结束时（§4.1），所以取它**开始**（`requestWillBeSent`）时打开的窗口，不取写入时的：正文晚到、写在下一条命令里、命令结束后或 `net stop` 时才收尾的，仍记开始时那条（与 §37 的 `actor` 同一做法；10-21 审查第三波起，此前取写入时的窗口）；`tabcap fetch` 发出的请求固定是发出它的命令（§5.1 `fetchId`）；WebSocket 握手（`type:"websocket"`）取握手写出时（响应到达）的窗口 |
 
 读者规则：不认识的 `kind` 跳过；不认识的字段原样保留并透传。
 
@@ -88,7 +88,7 @@
 
 **`ws`**：`{tab, ws:"r-<握手请求 seq>", phase:"frame"|"close"|"error", direction:"send"|"recv", opcode:1|2, payload:{inline:string}|{blob:"sha256:…", size}|null, reason}`。握手本身是一条 `type:"websocket"` 的 `request`。帧正文超过 blob 上限时 `payload:null`，`reason` 写明（`payload too large: <n> bytes > <上限>`）；其余帧 `reason:null`。
 
-**`cmd`**：两条（§14 裁决）：开始 `{id:"c-<seq>", phase:"start", actor:"ai", argv:[...]|null, input:{...}}`，结束 `{phase:"end", ref:"c-<seq>", ok:bool, error, durationMs, outputSummary}`。每次 CLI / skill / MCP 调用一对，是「AI 操作窗口」的依据；窗口内事件的 `cmd` 字段引用开始那条的 id。`outputSummary` 是结果的小摘要（顶层标量）；命令有回执时带 `outputSummary.receipt`（短字符串对象，`09` §13.3 草案，不另立 kind）：0.4-J 起 `recon` 写 `{dossier:"exports/dossier.json"}`。0.6-A 起 `fetch` 的结束事件总带 `outputSummary.requests`：该命令发出的全部 `r-N`（按 `fetchId` 归属，含重定向跳与预检；命令失败、被停手规则拦下时也写），正文、`bodyBase64` 不进摘要；被停手的错误不带 `result`（响应在 `request` 事件里）。
+**`cmd`**：两条（§14 裁决）：开始 `{id:"c-<seq>", phase:"start", actor:"ai", argv:[...]|null, input:{...}}`，结束 `{phase:"end", ref:"c-<seq>", ok:bool, error, durationMs, outputSummary}`。每次 CLI / skill / MCP 调用一对，是「AI 操作窗口」的依据；窗口内事件的 `cmd` 字段引用开始那条的 id（`request` 看它开始时在哪个窗口里，§3）。`outputSummary` 是结果的小摘要（顶层标量）；命令有回执时带 `outputSummary.receipt`（短字符串对象，`09` §13.3 草案，不另立 kind）：0.4-J 起 `recon` 写 `{dossier:"exports/dossier.json"}`。0.6-A 起 `fetch` 的结束事件总带 `outputSummary.requests`：该命令发出的全部 `r-N`（按 `fetchId` 归属，含重定向跳与预检；命令失败、被停手规则拦下时也写），正文、`bodyBase64` 不进摘要；被停手的错误不带 `result`（响应在 `request` 事件里）。
 
 **`console`**（0.2 新增）：`{tab, level:"log"|"info"|"warn"|"error"|"debug", source:"console"|"exception"|"network"|"security"|"other", text, args:[...截断后的参数摘要], url, line, col, stack:string|null}`。来自 `Runtime.consoleAPICalled`、`Runtime.exceptionThrown`、`Log.entryAdded`；单条 `text` 超过 4 KB 截断并标 `truncated:true`。站点在签名校验失败、接口异常时常把线索吐在这里，`find` 也搜它。
 

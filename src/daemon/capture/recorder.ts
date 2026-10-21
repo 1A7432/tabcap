@@ -110,7 +110,7 @@ export type NetEntry = {
   outcome: "finished" | "failed" | "incomplete";
   blob: string | null;
   bodyMissing: string | null;
-  /** The command window the event was written in (`c-<seq>`), or null. */
+  /** The event's `cmd`: the command window open when the request started (`c-<seq>`), its own for a `tabcap fetch`, or null. */
   cmd: string | null;
   /** Written from the Fetch body because the page never read it (docs/04 §5.2 rule 9). */
   unreadByPage?: boolean;
@@ -177,6 +177,13 @@ type Pending = {
   fetchCredentials: FetchCredentials | null;
   /** 0.7.1-A: who sent it, decided when it started (a request the human's click sent stays theirs after `handoff continue`). */
   actor: Actor;
+  /**
+   * The command window open when it started (requestWillBeSent; docs/04 §3, §4.1),
+   * the event's `cmd` unless `fetchCmd` is set. Decided then, like `actor`: a
+   * body that arrives after the command ended (or during the next one) does not
+   * move the request to another window.
+   */
+  cmd: string | null;
 };
 
 /** Which `tabcap fetch` a request belongs to (0.6-A), and its credentials mode (0.6-P). */
@@ -601,6 +608,7 @@ export class Recorder {
       fetchCmd: null,
       fetchCredentials: null,
       actor: this.actor(),
+      cmd: this.cmdRef(),
     };
     const missing: { reason: BodyMissingReason; detail: string | null } =
       missingReason !== null
@@ -778,6 +786,7 @@ export class Recorder {
       fetchCmd: fetch?.cmd ?? null,
       fetchCredentials: fetch?.credentials ?? null,
       actor: this.actor(),
+      cmd: this.cmdRef(),
     });
   }
 
@@ -1179,8 +1188,9 @@ export class Recorder {
       kind: "request",
       actor: q.actor,
       tab: this.bundleTab.get(q.tab.id) ?? null,
-      // 0.6-A: a `tabcap fetch` request belongs to its own command window, whatever else is open.
-      cmd: q.fetchCmd ?? this.cmdRef(),
+      // 0.6-A: a `tabcap fetch` request belongs to its own command window, whatever else is open;
+      // any other request to the window open when it started (docs/04 §3), not when it is written.
+      cmd: q.fetchCmd ?? q.cmd,
       ...(q.fetchId === null ? {} : { fetchId: q.fetchId }),
       ...(q.fetchId === null || q.fetchCredentials === null ? {} : { fetchCredentials: q.fetchCredentials }),
       nav: q.nav,

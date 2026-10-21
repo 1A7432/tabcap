@@ -30,7 +30,11 @@ export type Envelope = {
   kind: string;
   actor: Actor;
   tab: string | null;
-  /** The AI command window (`c-<seq>`) the event belongs to, or null. */
+  /**
+   * The AI command window (`c-<seq>`) the event belongs to, or null. A `request`
+   * takes the window open when it started (requestWillBeSent), not the one open
+   * when it was written; a `tabcap fetch` request always its own command's (§3, §5.1).
+   */
   cmd: string | null;
 };
 
