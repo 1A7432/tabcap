@@ -321,6 +321,7 @@
 | `entry._webSocketMessages` | `ws` 事件，形状与 Chrome DevTools 相同：`{type:"send"\|"receive", time, opcode, data}` |
 | 自定义字段（`_` 前缀，HAR 允许） | `_seq` `_id` `_tab` `_actor` `_cmd` `_nav` `_resourceType` `_initiator` `_bodyMissing` `_fromServiceWorker` `_protocol` |
 | `log._events`（仅 `--embed-events`） | 整条 `events.jsonl` 原样数组，使「我们的包 → HAR → 我们的包」无损 |
+| `log._manifest`（仅 `--embed-events`，10-21 审查后作者定） | 整个 manifest（导出打码时是打码后的那份：`redaction` 记规则版本，`firstUrl`、启动参数、`notes` 按 §8 处理），导入时与 `_events` 一起恢复 |
 
 默认丢弃并在命令输出里列出：`action`、`screenshot`、`state`、`finding`、`note`、`cmd`（除非 `--embed-events`）。
 
@@ -329,6 +330,7 @@
 ### 9.2 导入 `tabcap bundle import har <file> -o <bundle>`
 
 - `entries` 按 `startedDateTime` 排序后分配 `seq`；`pages` → `nav`；`_webSocketMessages` → `ws`；有 `log._events` 就整体恢复。
+- 同时有 `log._manifest`（10-21 审查后作者定）：manifest 也照原样恢复——`mode`（`humanRecorder` 等）、`record`、`producer.browser`（`webdriver`、`args` / `extraArgs` / `dropArgs`）、`session`、`traceWindows`、`redaction`、`notes`、`id`、`created`、`finished`；`counts` 按导入的事件与 blob 重算，`imported` 记这次导入，`mode.raw` 写 `false`（HAR 不带 `raw/cdp.jsonl`，原包有 raw 时 `lossy` 列 `raw`），`lossy` 不再列 `manifest`。`_manifest` 与 manifest.json 同样校验，畸形报 `bad-input`，什么都不写。没有 `_manifest` 的 HAR（旧导出、别的工具）照旧：manifest 按默认值重建（`humanRecorder:false`、无 `record`、`browser` 只有 name / version），`lossy` 列 `manifest`。
 - 正文：`content.text` 存在时，`encoding:"base64"` 先解码；若 `content-encoding` 头存在且字节像压缩流（gzip 魔数 / 尝试 br 解码成功），解压后存、`wireEncoding` 记原值；解不开就原样存并 `bodyMissing:null`、`body.decodeFailed:true`，让 `find` 的解码链再试。
 - `manifest.imported` 记来源与 `lossy` 列表；`actor` 一律 `"human"`（外部包无法区分），`tab` 一律 `t1`。
 - **资源类型**（没有 `_resourceType` 时，0.6-N，作者 10-16 定；固定表，按序取第一个命中的）：
@@ -346,7 +348,7 @@
 
 ### 9.3 往返性质（写成测试）
 
-1. 我们的包 → HAR（`--embed-events`）→ 包：`events.jsonl` 逐行相等（允许 `seq` 重编、浮点时间 1 ms 内）。
+1. 我们的包 → HAR（`--embed-events`）→ 包：`events.jsonl` 逐行相等（允许 `seq` 重编、浮点时间 1 ms 内）；manifest 除 `counts`、`imported`、`mode.raw` 外逐字段相等（10-21 起，`test/unit/har-manifest.test.ts`）。
 2. 我们的包 → HAR（默认）→ 包：每条 `request` 的 `method/url/status/headers/body 哈希` 相等。
 3. DevTools 对靶场同一流程导出的 HAR → 包：`find` 命中集合与我们自己录的包相同。
 
@@ -389,7 +391,7 @@
 3. **HAR `timings`**：`blocked / dns / connect / ssl` 未知填 `-1`；`send / wait / receive` 按 HAR 1.2 必须 ≥ 0，未知填 `0`；`entry.time` 未知填 `-1`。
 4. **导入已解压但仍带 `content-encoding` 头的正文**（DevTools 导出常见）：解压失败且字节是合法 UTF-8 文本时视为「已解压」，不标 `decodeFailed`，`wireEncoding` 仍记头里的原值；只有解压失败且像二进制时才标 `decodeFailed: true`。
 
-按实现定案的：§7 示例里副本 manifest 不带 salt（§8 为准，§7 注释作废）；`body.base64` 表示「二进制正文，HAR 里用 base64」；HAR 无正文时按状态码推原因，其余 `unsupported` 并写 `detail`；导入时 `headersSource:"event"`、状态 0 视为失败、忽略 HAR 自带的 `_actor` / `_tab`；`_events` 恢复保留原 `seq`，lossy 列出 `blobs` 与 `manifest`；`counts.bodies` 为带正文 blob 的请求数、`blobBytes` 为去重后总字节；脱敏占位符的类别按值类型（jwt / email / cnid / mobile / secret）而不是按位置，保证同值同占位符；cookie 逐值打码保留名字，authorization 保留方案名；脱敏副本不含 `raw/` 与 `exports/`；`ws` 只有 `frame` 进 `_webSocketMessages`；`dropped` 列出所有未进 HAR 的 kind；`events.jsonl` 只在关闭时 fsync（进程崩溃不丢，断电可能丢最后 100 ms）。可编辑的 `redaction.json` 与 `knownSecrets` 接 `store` 留到后续格。
+按实现定案的：§7 示例里副本 manifest 不带 salt（§8 为准，§7 注释作废）；`body.base64` 表示「二进制正文，HAR 里用 base64」；HAR 无正文时按状态码推原因，其余 `unsupported` 并写 `detail`；导入时 `headersSource:"event"`、状态 0 视为失败、忽略 HAR 自带的 `_actor` / `_tab`；`_events` 恢复保留原 `seq`，lossy 列出 `blobs` 与 `manifest`（10-21 审查后：HAR 带 `log._manifest` 时 manifest 一并恢复，`lossy` 不再列 `manifest`，§9.2）；`counts.bodies` 为带正文 blob 的请求数、`blobBytes` 为去重后总字节；脱敏占位符的类别按值类型（jwt / email / cnid / mobile / secret）而不是按位置，保证同值同占位符；cookie 逐值打码保留名字，authorization 保留方案名；脱敏副本不含 `raw/` 与 `exports/`；`ws` 只有 `frame` 进 `_webSocketMessages`；`dropped` 列出所有未进 HAR 的 kind；`events.jsonl` 只在关闭时 fsync（进程崩溃不丢，断电可能丢最后 100 ms）。可编辑的 `redaction.json` 与 `knownSecrets` 接 `store` 留到后续格。
 
 ## 14. 格 3 裁决（10-15）
 

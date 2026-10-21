@@ -12,10 +12,10 @@ import { sha256Hex } from "../shared/ids.ts";
 import { isRecord, num, rec, str } from "../shared/json.ts";
 import { isoToTs, nowMs, tsToIso } from "../shared/time.ts";
 import { toBytes } from "./blobs.ts";
-import { TOOL_NAME, TOOL_VERSION } from "./manifest.ts";
+import { TOOL_NAME, TOOL_VERSION, parseManifest } from "./manifest.ts";
 import { parseInlineOrBlob, parseRequest, toRawEvent, toResourceType, type BundleView } from "./reader.ts";
 import { blobRefsOf, redactView } from "./redact.ts";
-import type { Headers, RawEvent, RequestEvent, ResourceType, UnsequencedEvent } from "./types.ts";
+import type { Headers, Manifest, RawEvent, RequestEvent, ResourceType, UnsequencedEvent } from "./types.ts";
 import { BundleWriter } from "./writer.ts";
 import { dropIgnoredQuery, pickRule, type RuleSet } from "../replay/rules.ts";
 
@@ -81,6 +81,8 @@ export type HarLog = {
   pages: HarPage[];
   entries: HarEntry[];
   _events?: RawEvent[];
+  /** With `_events` (review 10-21): the whole manifest (the redacted one when the export is), restored on import. */
+  _manifest?: Manifest;
 };
 export type HarDocument = { log: HarLog };
 
@@ -429,7 +431,10 @@ export function exportHar(source: BundleView, opts: ExportOptions = {}): ExportR
     entries,
   };
   if (producer.browser) log.browser = { name: producer.browser.name, version: producer.browser.version };
-  if (opts.embedEvents === true) log._events = [...events];
+  if (opts.embedEvents === true) {
+    log._events = [...events];
+    log._manifest = structuredClone(view.manifest);
+  }
   return { har: { log }, pages: pages.length, entries: entries.length, dropped: opts.embedEvents === true ? {} : dropped, skipped, redacted: Boolean(opts.redact) };
 }
 
@@ -460,6 +465,8 @@ type HarIn = {
   pages: HarPageIn[];
   entries: HarEntryIn[];
   events: unknown[] | null;
+  /** `log._manifest` as found (validated with `_events` on import). */
+  manifest: unknown;
 };
 
 const badHar = (where: string, what: string) =>
@@ -546,7 +553,7 @@ function parseHar(json: unknown): HarIn {
   const nameVersion = (o: Record<string, unknown> | null) => (o === null ? null : { name: str(o, "name") ?? "", version: str(o, "version") ?? "" });
   const eventsRaw = log["_events"];
   if (eventsRaw !== undefined && !Array.isArray(eventsRaw)) throw badHar("log", "_events is not an array");
-  return { creator: nameVersion(creatorRaw), browser: nameVersion(browserRaw), pages, entries, events: eventsRaw ?? null };
+  return { creator: nameVersion(creatorRaw), browser: nameVersion(browserRaw), pages, entries, events: eventsRaw ?? null, manifest: log["_manifest"] ?? null };
 }
 
 // ------------------------------------------------------------ import: bodies
@@ -648,35 +655,52 @@ function parseEmbeddedEvents(raw: readonly unknown[]): RawEvent[] {
   return events;
 }
 
+/** `log._manifest` of a tabcap export (review 10-21): validated like manifest.json; a bad one is bad-input before anything is written. */
+function parseEmbeddedManifest(raw: unknown): Manifest {
+  try {
+    return parseManifest(raw);
+  } catch (e) {
+    if (e instanceof TabcapError && e.code === "unsupported") throw e;
+    throw badHar("log._manifest", e instanceof Error ? e.message.replace(/^manifest\.json: /, "") : String(e));
+  }
+}
+
 export async function importHar(harJson: unknown, outDir: string, opts: ImportOptions = {}): Promise<ImportResult> {
   const har = parseHar(harJson);
   const embedded = har.events === null ? null : parseEmbeddedEvents(har.events);
+  // The manifest comes back only with the events it describes (an `--embed-events` export).
+  const restored = embedded === null || har.manifest === null ? null : parseEmbeddedManifest(har.manifest);
   ensureEmptyDir(outDir);
   const now = opts.now ?? nowMs;
   const firstUrl = har.pages[0]?.title ?? har.entries[0]?.url ?? null;
   const w = await BundleWriter.open(outDir, {
     now,
     ...(opts.sizeCap === undefined ? {} : { sizeCap: opts.sizeCap }),
-    init: {
-      producer: { tool: TOOL_NAME, version: TOOL_VERSION, browser: har.browser },
-      session: { name: opts.name ?? basename(outDir), tabs: [{ tab: "t1", chromeTabId: null, owned: false, firstUrl }] },
-      mode: { capture: "passive", trace: false, raw: false, humanRecorder: false },
-      imported: { from: "har", creator: har.creator, lossy: [] },
-    },
+    ...(restored !== null
+      ? // HAR carries no raw/cdp.jsonl, so the imported bundle has none (restoreFromEvents lists `raw` as lossy).
+        { manifest: { ...restored, mode: { ...restored.mode, raw: false }, imported: { from: "har", creator: har.creator, lossy: [] } } }
+      : {
+          init: {
+            producer: { tool: TOOL_NAME, version: TOOL_VERSION, browser: har.browser },
+            session: { name: opts.name ?? basename(outDir), tabs: [{ tab: "t1", chromeTabId: null, owned: false, firstUrl }] },
+            mode: { capture: "passive", trace: false, raw: false, humanRecorder: false },
+            imported: { from: "har", creator: har.creator, lossy: [] },
+          },
+        }),
   });
 
   let result: ImportResult;
   try {
-    result = embedded !== null ? await restoreFromEvents(w, har, embedded, outDir) : await importEntries(w, har, outDir);
+    result = embedded !== null ? await restoreFromEvents(w, har, embedded, outDir, restored) : await importEntries(w, har, outDir);
   } catch (e) {
     await w.close({ finished: null }); // leave it visibly unfinished, never complete
     throw e;
   }
-  await w.close();
+  await w.close(restored?.finished === undefined ? {} : { finished: restored.finished });
   return result;
 }
 
-async function restoreFromEvents(w: BundleWriter, har: HarIn, events: readonly RawEvent[], outDir: string): Promise<ImportResult> {
+async function restoreFromEvents(w: BundleWriter, har: HarIn, events: readonly RawEvent[], outDir: string, manifest: Manifest | null): Promise<ImportResult> {
   const refs = new Set<string>();
   for (const e of events) {
     w.appendRestored(e);
@@ -687,7 +711,8 @@ async function restoreFromEvents(w: BundleWriter, har: HarIn, events: readonly R
     if (refs.has(ref) && !w.blobs.has(ref)) await w.putBlob(bytes);
   }
   const missingBlobs = [...refs].filter((r) => !w.blobs.has(r));
-  const lossy = ["manifest", ...(missingBlobs.length > 0 ? ["blobs"] : [])];
+  // Without `_manifest` the manifest is rebuilt from defaults; with it only raw/ (never in a HAR) can be missing.
+  const lossy = [...(manifest === null ? ["manifest"] : manifest.mode.raw ? ["raw"] : []), ...(missingBlobs.length > 0 ? ["blobs"] : [])];
   w.updateManifest((m) => {
     m.imported = { from: "har", creator: har.creator, lossy };
   });
