@@ -770,7 +770,11 @@ query：`URLSearchParams` 解出的名值对，去掉 `ignoreQuery` 命中的名
 
 0.6-S 的 `prefer` 与预检只有单测（`test/unit/offline06s.test.ts`：一个键先 403 后 200、一个键两条 200、一个键只有 500 / 502、一条预检；`serve` 的头与路由、`check` 的 `notPreferred`、夹具的选择与编号、预检的跳过与 `serve` 的回答），没有加靶场页【实测 10-17，单测】。
 
-**`replay check --live`**（0.3-B 起；审查第二波 10-21 补成文）：目标不是回环地址时必须带 `--live`，并要一个库站点（`--site`，否则包的 `session.site`），`--against` 的主机必须在该站点上——按 §26 的站点规则（入口主机或 `domains`，含子域，去前导点；0.3-B 起到审查第二波前只认精确主机）。不在站点上回 `usage`，什么都不发。
+**`replay check --live`**（0.3-B 起；审查第二波 10-21 作者批，补成文并加护栏）：它是**独立的通道**——请求由 CLI 进程直接发出（账号绑了池代理时走那个代理，0.4-D），不经守护进程、不经浏览器、不录进包，所以守护进程 guard 的停手规则、`consecutiveNon200`、账号小时预算都不作用在它的回答上（它不用账号，也不计账号预算）。它能做到的护栏如下：
+
+- **目标**：目标不是回环地址时必须带 `--live`，并要一个库站点（`--site`，否则包的 `session.site`），`--against` 的主机必须在该站点上——按 §26 的站点规则（入口主机或 `domains`，含子域，去前导点；0.3-B 起到审查第二波前只认精确主机）。不在站点上回 `usage`，什么都不发。
+- **限速**：间隔取 `--rate` 换算的毫秒数（没给时 2000 ms），但不低于该站点的 `fetch.minIntervalMs`（`config.json` `sites.<站点>.fetch` 盖在 `fetch` 上，默认 3000 ms；与 `tabcap fetch` 同一份配置，§26「命令行不能绕过限速」的红线同样适用）。间隔从上一条请求的开始（同站点任何一次 `check --live`，记在库的 `guard_counters`）或本次运行上一条回答结束、两者取较晚者算起，与 `fetch` 的限速同一口径；请求逐条发，没有并发。`--rate` 快于下限时按下限走，`warnings` 写 `--rate <n> is faster than fetch.minIntervalMs of site <s> (<ms> ms): paced at one request per <ms> ms instead`；`warnings` 总有一句 `live target: requests paced at one per <ms> ms after the previous answer (fetch.minIntervalMs of site <s>: <ms> ms) and counted for site <s>`。`config.json` 的 `fetch` 写坏时回 `bad-input`，什么都不发。
+- **停手**：发第一条之前问一次正在运行的守护进程（它的 `status` 回答里各会话的 `guardStops`，只读、不开命令窗口）：该站点（或目标的 `host:port`）有 fetch 停手（§26 的 `fetch-stop` 或 0.6-I 站点规则的 `stop-rule`）时拒绝，`guard.stopped`，`extra` 带 `site`、`reason`、`rule`、`request`，`next` 是先看那条响应（`tabcap net body <r-N> [--session <s>]`），由人（或 agent 判断后）决定再 `tabcap guard resume --site <站点>`，然后重跑。守护进程没在运行时照常发，`warnings` 写 `the daemon is not running: this live check is not under its guard, so fetch stops and stop rules are not checked`；守护进程在运行却答不了（版本不同、超时）时回同一个错误码（`daemon-version`、`timeout`）与它的 `next`，不发。运行中途不再问（停手状态只在守护进程内存里，§26）。
 
 **靶场**：不加新页，复用 s06（t / nonce / sig）、s07（表单登录）、s42（加密正文，`xor-decode`）；夹具插件 `test/e2e/plugins/fixture-harness/`（Bun 脚本，每个夹具出一个 `cases/<r-N>.json`）。【实测 10-16，本机 CfT：`test/e2e/v06c.e2e.test.ts` 7/7；`test/unit/replay-rules.test.ts`、`test/unit/fixtures-export.test.ts`】
 

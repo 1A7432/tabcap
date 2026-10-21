@@ -9,8 +9,15 @@
 // differences). A non-loopback target needs --live and a stored site the
 // host is on (docs/04 §26, shared/sites.ts: the entry host or a stored
 // domain, subdomains count), and is paced through the store's guard counters
-// (1 request per 2 s unless --rate). Tests never use --live against a real
-// site. A live check goes out through the proxy of the bundle's account when
+// (1 request per 2 s unless --rate). Review wave 2 (docs/04 §31 「replay check
+// --live」): a live check is its own channel, outside the daemon, with the
+// daemon's guardrails it can read: never faster than the site's (else the
+// global) config.json fetch.minIntervalMs, counted from the later of the
+// previous request's start and end like tabcap fetch (a faster --rate is
+// paced at the floor, with a warning); refused while the daemon holds a fetch
+// stop on the site; a warning when no daemon runs (its stop rules cannot be
+// checked). No account budget (it uses no account). Tests never use --live
+// against a real site. A live check goes out through the proxy of the bundle's account when
 // it is bound to a pool proxy (0.4-D); the result names the proxy, never its URL.
 // Decoded bodies (0.6-B): when the recorded response has a decode plugin's
 // view and that plugin is enabled, the answer is decoded by the same plugin
@@ -30,11 +37,13 @@
 // Oracle: the bundle (recorded status / headers / blobs). Reproduce:
 //   bun test test/unit/replay-check.test.ts test/unit/replay-integration.test.ts
 
+import { join } from "node:path";
 import { BundleReader } from "../bundle/reader.ts";
 import type { RequestEvent } from "../bundle/types.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
 import { hostInSite, siteHosts } from "../shared/sites.ts";
+import { readFetchConfig } from "../shared/config.ts";
 import { Store } from "../daemon/store/db.ts";
 import { accountProxy, type AccountProxy } from "./proxyenv.ts";
 import type { HttpClient } from "../daemon/pool/proxy.ts";
@@ -203,7 +212,15 @@ export type CheckOptions = {
   rules?: RuleSet;
   /** `--prefer` (0.6-S): overrides every rule's prefer. */
   prefer?: PreferMode;
+  /** --live: the daemon's fetch stops (the CLI asks the running daemon); absent: as if no daemon runs. */
+  guardState?: () => Promise<LiveGuardState>;
 };
+
+/** A fetch stop the daemon holds (docs/04 §26): the site, the rule, the response that fired it and its session. */
+export type LiveStop = { site: string; rule: string; request: string; session: string; reason: string };
+
+/** What a live check knows of the daemon's guard: not running, or its fetch stops. */
+export type LiveGuardState = { running: false } | { running: true; stops: LiveStop[] };
 
 /** Reasons a recorded body cannot be compared (not a difference). */
 const EMPTY_BY_DESIGN = new Set(["no-content", "not-modified", "redirect"]);
@@ -230,7 +247,18 @@ function requestHeaders(r: RequestEvent, withCookies: boolean): globalThis.Heade
   return h;
 }
 
-type LiveGuard = { site: string; intervalMs: number; store: Store };
+type LiveGuard = {
+  site: string;
+  /** The pace: --rate (else LIVE_INTERVAL_MS), never below minIntervalMs. */
+  intervalMs: number;
+  /** config.json fetch.minIntervalMs of the site (sites.<s>.fetch over fetch). */
+  minIntervalMs: number;
+  /** --rate asked for a shorter interval than minIntervalMs. */
+  capped: boolean;
+  store: Store;
+  /** When the previous request of this run ended (its answer read or failed), else null. */
+  lastEndAt: number | null;
+};
 
 function openLiveGuard(opts: CheckOptions, base: URL, manifestSite: string | null): LiveGuard {
   const site = opts.site ?? manifestSite;
@@ -248,7 +276,32 @@ function openLiveGuard(opts: CheckOptions, base: URL, manifestSite: string | nul
     store.close();
     throw new TabcapError("usage", `${base.hostname} is not one of the domains of site "${site}" or a subdomain of one (${hosts.join(", ")})`, "Check --against, or add the domain to the site (tabcap site remove + add with --domains).");
   }
-  return { site, intervalMs: opts.rate === undefined ? LIVE_INTERVAL_MS : Math.ceil(1000 / opts.rate), store };
+  // docs/04 §26: the command line cannot get around the fetch pacing (owner's red line).
+  let minIntervalMs: number;
+  try {
+    minIntervalMs = readFetchConfig(join(opts.configDir, "config.json"), site).minIntervalMs;
+  } catch (e) {
+    store.close();
+    throw e;
+  }
+  const asked = opts.rate === undefined ? LIVE_INTERVAL_MS : Math.ceil(1000 / opts.rate);
+  return { site, intervalMs: Math.max(asked, minIntervalMs), minIntervalMs, capped: opts.rate !== undefined && asked < minIntervalMs, store, lastEndAt: null };
+}
+
+/** The daemon's fetch stop that covers this live check (the site, or the target's host:port as a stop key), else null. */
+function stopFor(state: LiveGuardState, site: string, base: URL): LiveStop | null {
+  if (!state.running) return null;
+  return state.stops.find((s) => s.site === site || s.site === base.host) ?? null;
+}
+
+function liveStoppedError(s: LiveStop): TabcapError {
+  const flag = s.session === "default" ? "" : ` --session ${s.session}`;
+  return new TabcapError(
+    "guard.stopped",
+    `replay check --live refused: fetches on ${s.site} are stopped (rule ${s.rule} fired on ${s.request})`,
+    `Look at the stopped response first (\`tabcap net body ${s.request}${flag}\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${s.site}\`, then run the check again.`,
+    { site: s.site, reason: s.reason, rule: s.rule, request: s.request },
+  );
 }
 
 export async function check(opts: CheckOptions): Promise<CheckResult> {
@@ -279,9 +332,26 @@ export async function check(opts: CheckOptions): Promise<CheckResult> {
     guard?.store.close();
     throw e;
   }
+  // A fetch stop the daemon holds on the site refuses the live check before anything is sent.
+  let daemonRunning = true;
+  if (guard !== null) {
+    try {
+      const state = opts.guardState === undefined ? { running: false as const } : await opts.guardState();
+      const stop = stopFor(state, guard.site, base);
+      if (stop !== null) throw liveStoppedError(stop);
+      daemonRunning = state.running;
+    } catch (e) {
+      guard.store.close();
+      throw e;
+    }
+  }
   const warnings: string[] = [];
   if (!reader.isComplete()) warnings.push("bundle is not finished: recording in progress or interrupted");
-  if (guard !== null) warnings.push(`live target: requests paced at one per ${guard.intervalMs} ms and counted for site ${guard.site}`);
+  if (guard !== null) {
+    if (guard.capped) warnings.push(`--rate ${opts.rate ?? ""} is faster than fetch.minIntervalMs of site ${guard.site} (${guard.minIntervalMs} ms): paced at one request per ${guard.intervalMs} ms instead`);
+    warnings.push(`live target: requests paced at one per ${guard.intervalMs} ms after the previous answer (fetch.minIntervalMs of site ${guard.site}: ${guard.minIntervalMs} ms) and counted for site ${guard.site}`);
+    if (!daemonRunning) warnings.push("the daemon is not running: this live check is not under its guard, so fetch stops and stop rules are not checked");
+  }
   if (egress !== null) warnings.push(`live target: sent through proxy ${egress.proxy} (account ${egress.site}.${egress.account})`);
   if (opts.withCookies) warnings.push("--with-cookies: the recorded cookie header is sent; it may have expired (docs/03 §4: sessions expire)");
 
@@ -370,8 +440,10 @@ async function checkOne(
   const bytes = "bytes" in body ? body.bytes : new Uint8Array(0);
   const method = r.method.toUpperCase();
   if (guard !== null) {
-    const last = guard.store.requestCounter(guard.site, LIVE_SCOPE).lastRequestAt;
-    const wait = last === null ? 0 : last + guard.intervalMs - now();
+    // Like tabcap fetch's limiter: the interval runs from the later of the previous start (this or another run) and end.
+    const lastStart = guard.store.requestCounter(guard.site, LIVE_SCOPE).lastRequestAt;
+    const last = Math.max(lastStart ?? -Infinity, guard.lastEndAt ?? -Infinity);
+    const wait = Number.isFinite(last) ? last + guard.intervalMs - now() : 0;
     if (wait > 0) await sleep(wait);
     guard.store.noteRequest(guard.site, LIVE_SCOPE, now());
   }
@@ -385,6 +457,7 @@ async function checkOne(
       ...(egress === null ? {} : { proxy: egress.url }),
     });
   } catch (e) {
+    if (guard !== null) guard.lastEndAt = now();
     row.result = "error";
     const msg = e instanceof Error ? e.message : String(e);
     row.error = egress === null ? msg : egress.scrub(msg); // a proxy error may echo the credentialed URL
@@ -395,6 +468,7 @@ async function checkOne(
   const servedId = /^(r-\d+);n=\d+(?:;|$)/.exec(res.headers.get("x-tabcap-replay") ?? "")?.[1];
   if (servedId !== undefined && servedId !== r.id) row.notes.push(`the replay server answered with ${servedId} (same match key, cycling); restart it for a one-to-one check`);
   const got = new Uint8Array(await res.arrayBuffer());
+  if (guard !== null) guard.lastEndAt = now();
   if (got.length > MAX_RESPONSE_BYTES) row.notes.push(`answer over ${MAX_RESPONSE_BYTES} bytes`);
   if (res.status !== row.status.recorded) row.diffs.status = true;
   const hd = compareHeaders(opts.headers, r, res.headers, target);

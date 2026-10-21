@@ -87,7 +87,7 @@
 | 多层 / 跨源 iframe | ✓ 帧路径 ref，深 3 层的跨源帧里 fill、click、where [run] | – | 部分：同源帧展开，跨源帧要 `frame` 切入；录到的 HAR 缺第 3 层帧文档、跨源帧文档无正文 [run] | – | – |
 | 加密正文 | 标出（熵 + 解码链路径）[run]；明文靠用户写的 decode 插件：s21 装上示例插件后 `find` / `where` 命中、`net body --decoded` 看到明文 [run] | – | – （HAR 里只有密文 [run]；签名参数「回到浏览器」[A6]） | – | – |
 | 登录 / 验证交给人 | ✓ 每站每会话只试一次登录，验证页进 `waiting` [tabcap] | 录制前由人完成 2FA [I8] | 录制前由人登录 [A3] | ✓ 一次性链接，人在 unbrowse.ai 完成 [U6] | – |
-| 线上请求按站点限速、计数 | ✓ `replay check --live` 按站点计数、默认 0.5 次/秒 [tabcap] | – | 文字建议加延迟 [A8] | – | – |
+| 线上请求按站点限速、计数 | ✓ `replay check --live` 按站点计数，不快于该站点的 `fetch.minIntervalMs`（默认 3 s 一条），守护进程停手时拒绝 [tabcap] | – | 文字建议加延迟 [A8] | – | – |
 | MCP | ✓ `tabcap mcp`（暴露 tabcap 自己的命令）[tabcap] | – | ✓ agent-browser 的 `mcp` [A10] | ✓ 托管 MCP，本地 stdio 代理 [U1, U8] | – |
 | 在哪跑 | 本机 | 本机 + OpenAI API [I6] | 本机 | 托管 [U8] | 本机 |
 | 许可证 | Apache-2.0 | AGPL-3.0 [I10] | Apache-2.0 | 客户端 MIT [U8] | — |
