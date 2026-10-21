@@ -240,7 +240,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": null,
           "flag": "--drop-chrome-arg",
-          "help": "remove one of tabcap's default switches (--name removes it, --disable-features=A,B removes those items), after config.json chrome.dropArgs; drops that match nothing are listed in dropArgsUnmatched; --user-data-dir and --remote-debugging-pipe / -port cannot be dropped",
+          "help": "remove one of tabcap's default switches (--name removes it, --disable-features=A,B removes those items), after config.json chrome.dropArgs; drops that match nothing are listed in dropArgsUnmatched; --user-data-dir and --remote-debugging-pipe / -port cannot be dropped, proxy switches only with --proxy system",
           "key": "dropChromeArg",
           "repeatable": true,
           "required": false,

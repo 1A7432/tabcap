@@ -1075,7 +1075,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **只拒绝会让 tabcap 自己失灵的**（`usage`，浏览器不起来）：
   - 加：`--user-data-dir`（profile 由 tabcap 管：池账号 cookie、port 模式的 `DevToolsActivePort`）、`--remote-debugging-pipe`。
   - 删：上面两个，再加 `--remote-debugging-port`（port 模式靠它）。
-  - `--proxy` 不是 `system` 时再加代理开关（`--proxy-server`、`--proxy-bypass-list`、`--proxy-pac-url`、`--no-proxy-server`、`--proxy-auto-detect`）：两处代理互相打架，用其中一个。`--proxy system` 时可以加，此时回答的 `proxy` 为 `"chrome-arg"`。
+  - `--proxy` 不是 `system` 时再加代理开关（`--proxy-server`、`--proxy-bypass-list`、`--proxy-pac-url`、`--no-proxy-server`、`--proxy-auto-detect`）：两处代理互相打架，用其中一个。`--proxy system` 时可以加，此时回答的 `proxy` 为 `"chrome-arg"`。删的方向同样（10-21 审查后作者定）：`--proxy` 不是 `system` 时 `--drop-chrome-arg` / `chrome.dropArgs` 命中这五个开关之一也回 `usage`，`next` 与加的方向相同；否则删掉 tabcap 为 `none` / `<url>` 设的 `--proxy-server` 后浏览器改为直连，回答的 `proxy` 却仍写 `none` / URL。
   - 其余一律照传，包括 `--remote-debugging-port=<n>`（pipe 模式下另开一个调试端口，本机任何进程都能连上浏览器，由用户自己决定）、`--headless`、`--user-agent`、证书相关参数。
 - **合并规则**（纯函数，`launcher.ts` `applyCustomArgs`；Chrome 对重复开关只认最后一个）：
   1. 先删：`--drop-chrome-arg --name` 删掉所有同名开关；`--name=a,b` 对逗号列表开关（`--enable-features`、`--disable-features`、`--enable-blink-features`、`--disable-blink-features`、`--load-extension`）只从列表里删这几项（列表空了整条去掉），对其他开关只删完全相同的那一条。什么都没删到的记进 `dropArgsUnmatched`，不报错（同一份配置在不同平台上用，比如 Linux 没有 `--use-mock-keychain`）。
