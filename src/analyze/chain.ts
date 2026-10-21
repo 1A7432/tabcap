@@ -19,7 +19,7 @@
 
 import { TabcapError } from "../shared/envelope.ts";
 import type { RequestEvent } from "../bundle/types.ts";
-import { redactUrl } from "../daemon/tools/liveredact.ts";
+import { AnalyzeRedactor } from "./redact.ts";
 import { DepsGraph, type DepsClass, type InputLocation } from "./deps.ts";
 import type { StepName } from "./decoders.ts";
 
@@ -194,17 +194,20 @@ export function chain(bundleDir: string, opts: ChainOptions = {}): ChainResult {
 const label = (t: { location: string; name: string; path?: string }) => `${t.location} ${t.path ?? t.name}`;
 
 /**
- * `analyze chain --text`. 0.7-E: step URLs show sensitive query parameters as
- * `<redacted:name>` (the docs/04 §8.3 URL rule, e.g. an `access_token=` in a
- * return URL). Since 0.7.3 the CLI redacts the answer itself (analyze/redact.ts
- * redactChain, before this runs) and `--reveal` turns both off, so `reveal`
- * prints the step URLs as given, like the JSON answer; export-python reads the
- * unredacted chain (chainOf), not this text.
+ * `analyze chain --text`. 0.7-E: step URLs show sensitive query parameters
+ * redacted (the docs/04 §8.3 URL rule, e.g. an `access_token=` in a return
+ * URL); since 2026-10-21 with the offline-analysis placeholder
+ * `<redacted:<sha256 8>>` (analyze/redact.ts), not the live `<redacted:name>`.
+ * Since 0.7.3 the CLI redacts the answer itself (redactChain, before this
+ * runs) and `--reveal` turns both off, so `reveal` prints the step URLs as
+ * given, like the JSON answer; export-python reads the unredacted chain
+ * (chainOf), not this text.
  */
 export function renderChainText(r: ChainResult, o: { reveal?: boolean } = {}): string {
   const lines = [`chain to ${r.target} in ${r.bundle}: ${r.steps.length} step(s), ${r.todo.length} TODO, ${r.inputs.length} caller input(s)`];
+  const red = new AnalyzeRedactor();
   r.steps.forEach((s, i) => {
-    const url = o.reveal === true ? s.url : redactUrl(s.url, { scrub: (x) => x });
+    const url = o.reveal === true ? s.url : red.url(s.url);
     lines.push("", `${i + 1}. ${s.id} ${s.method} ${url.length > 100 ? url.slice(0, 99) + "…" : url}`);
     for (const p of s.provides) lines.push(`   provides ${p.kind === "set-cookie" ? `set-cookie ${p.cookie ?? ""}` : `response ${p.path ?? "(text)"}`} → ${p.to.request} ${label(p.to)}${p.prefix === undefined ? "" : ` (prefix ${JSON.stringify(p.prefix)})`}`);
     for (const n of s.needs) {

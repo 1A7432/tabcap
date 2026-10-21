@@ -16,7 +16,7 @@
 // field names (shape.ts), and analyze find searches a text the caller supplied,
 // so neither is touched here.
 
-import { isSensitiveHeaderName, isSensitiveName } from "../bundle/redact.ts";
+import { isPlaceholder, isSensitiveHeaderName, isSensitiveName, redactQueryPairs } from "../bundle/redact.ts";
 import { sha256Hex } from "../shared/ids.ts";
 import type { DiffResult } from "./diff.ts";
 import type { DepsResult } from "./deps.ts";
@@ -25,22 +25,12 @@ import type { Dossier } from "./recon.ts";
 import type { ParamLocation } from "./diff.ts";
 import type { InputLocation } from "./deps.ts";
 
-const ALREADY_MASKED = /^(?:<redacted:[^>]*>|<secret:[^>]*>|«r:[^»]*»|<masked>)$/;
-
-const decode = (raw: string): string => {
-  try {
-    return decodeURIComponent(raw.replace(/\+/g, " "));
-  } catch {
-    return raw;
-  }
-};
-
 /** One value → one placeholder for the whole command answer. */
 export class AnalyzeRedactor {
   private readonly seen = new Map<string, string>();
 
   mask(value: string): string {
-    if (value === "" || ALREADY_MASKED.test(value) || value.startsWith("<redacted:")) return value;
+    if (value === "" || isPlaceholder(value)) return value;
     const have = this.seen.get(value);
     if (have !== undefined) return have;
     const p = `<redacted:${sha256Hex(value).slice(0, 8)}>`;
@@ -59,23 +49,9 @@ export class AnalyzeRedactor {
     return isSensitiveName(name) ? this.mask(value) : value;
   }
 
-  /** A URL: only query parameters with a sensitive name change; path and fragment stay. */
+  /** A URL: only query parameters with a sensitive name change; path and fragment stay (bundle/redact.ts redactQueryPairs). */
   url(u: string): string {
-    const q = u.indexOf("?");
-    if (q < 0) return u;
-    const hash = u.indexOf("#", q);
-    const query = hash < 0 ? u.slice(q + 1) : u.slice(q + 1, hash);
-    const out = query
-      .split("&")
-      .map((pair) => {
-        const eq = pair.indexOf("=");
-        if (eq <= 0) return pair;
-        const name = decode(pair.slice(0, eq));
-        if (!isSensitiveName(name)) return pair;
-        return `${pair.slice(0, eq)}=${this.mask(decode(pair.slice(eq + 1)))}`;
-      })
-      .join("&");
-    return `${u.slice(0, q + 1)}${out}${hash < 0 ? "" : u.slice(hash)}`;
+    return redactQueryPairs(u, (_name, value) => this.mask(value));
   }
 }
 
