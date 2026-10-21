@@ -852,7 +852,26 @@ export class Guard {
       { tab: o.tab },
     );
     log.info("guard: the human took over", { session, tab: o.tab, event: o.event });
+    this.probeProtection(h);
     return h;
+  }
+
+  /**
+   * Owner 10-21 (docs/04 §41.3): a take-over takes no screenshot, so its tab is probed in the
+   * background instead (in the tab's turn; identifyTab answers the cache when this navigation was
+   * probed). Names found replace `h.protection` (the view, `next` and the waiting notice read it);
+   * a failed or empty probe keeps the cached ones. The `handoff` waiting event is already written.
+   */
+  private probeProtection(h: Handoff): void {
+    const identify = this.deps.identifyTab;
+    if (identify === undefined) return;
+    this.track(
+      identify(h.tab)
+        .then((families) => {
+          if (families.length > 0) h.protection = families;
+        })
+        .catch((x: unknown) => log.debug("guard: take-over probe failed", { tab: h.tab, error: String(x) })),
+    );
   }
 
   /** 0.7.1-A: human input seen while the session waits (any reason): from now on the human is operating. */
