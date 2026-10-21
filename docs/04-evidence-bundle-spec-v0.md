@@ -1054,7 +1054,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 ### 41.1 规则文件 `tabcap-protection/0`
 
-- 一家一个 JSON。内置的在 `src/analyze/protection/families/<id>.json`（打包进二进制）；用户的在 `config/protection/<id>.json`，同 `id` 覆盖内置、新 `id` 追加。用户文件按不可信输入校验（未知键拒绝、大小 ≤ 32 KB、正则编译失败报错并点名文件与字段），坏文件跳过并在回答的 `warnings` 里列出，不影响其他家族。
+- 一家一个 JSON。内置的在 `src/analyze/protection/families/<id>.json`（打包进二进制）；用户的在 `config/protection/<id>.json`，同 `id` 覆盖内置、新 `id` 追加。用户文件按不可信输入校验（未知键拒绝、大小 ≤ 32 KB、正则 ≤ 512 字符、正则编译失败报错并点名文件与字段），坏文件跳过并在回答的 `warnings` 里列出，不影响其他家族。**正则的风险**（10-21 审查后作者定）：这些正则在守护进程里对页面能控制的文字求值（cookie 值、资源与 iframe URL、挑战页正文），写出灾难性回溯的正则会让页面卡住整个守护进程；所以另外拒绝明显的嵌套量词——一个组的匹配能以无界重复（`+`、`*`、`{n,}`，后面只跟可选的部分也算）结尾、这个组本身又被无界重复，如 `(a+)+`、`(.*)*`、`(\w+\s?)*`、`(?:x|y+)*`、`(a+){2,}`；每次重复都以必有的字符收尾的组（内置用的子域写法 `([a-z0-9-]+\.)*`）不算。这不是完整的 ReDoS 检查，`(a|aa)+` 这类重叠分支查不出来，写用户规则时自己留意。内置家族过同一道检查。
 - 顶层：`{schema:"tabcap-protection/0", id:<kebab>, name, vendor, category:"anti-bot"|"captcha"|"fingerprint", version:<正整数>, sources:[{url, note?}](内置必填), rules:[…], combinations?:[…]}`。
 - 规则：`{id, kind, confidence:1–100, standalone?:true, note}` 加按 `kind` 的匹配字段；层由 `kind` 决定（0.8-A1 实现定：不另写 `layer`，免得两处不一致）：
   - L1（录到的流量，或实时的 cookie 名 / 资源 URL）：`cookie {name, nameRegex?, valueShape?}`（`valueShape` 是对值的正则，只用于判断形状，**值从不输出**）；`request {url}`（正则对完整 URL，主机 + 路径；可加 `type`、`method`）；`responseHeader {name, value?}`；`requestHeader {name}`；`challenge {status?:[…], text?}`（只对 document / HTML 正文，`text` 正则，正文截 64 KB 求值）；`requestBody {url?, text}`（POST 正文里的字段名，如 `g-recaptcha-response`）。
