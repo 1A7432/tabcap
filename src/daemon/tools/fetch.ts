@@ -21,7 +21,7 @@ import { isRecord, num, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
 import type { FetchRecord, Recorder } from "../capture/recorder.ts";
 import type { FetchReg } from "../capture/fetchmark.ts";
-import { fetchStoppedError, originOf, STOP_RULE_NEXT } from "../guard.ts";
+import { fetchStoppedError, originOf, sessionFlag, STOP_RULE_NEXT } from "../guard.ts";
 import type { Daemon } from "../state.ts";
 import type { Tab, Tabs } from "../browser/targets.ts";
 import type { ConsoleLog } from "../capture/console.ts";
@@ -338,7 +338,7 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
       throw new TabcapError(
         "fetch.stopped",
         `site stop rule ${site.rule} fired on ${recorded.entry.id} (${detail}); the session waits and fetches on ${site.site} are refused from now on`,
-        STOP_RULE_NEXT({ site: site.site, request: recorded.entry.id }),
+        STOP_RULE_NEXT({ session, site: site.site, request: recorded.entry.id }),
         { site: site.site, reason: "stop-rule", rule: site.rule, detail, request: recorded.entry.id, fetchId, result: { ...env.data, stopped: { rule: site.rule, detail } } },
       );
     }
@@ -351,7 +351,7 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
       { site: where.key, session, rule: hit.rule, detail: hit.detail, request: recorded.entry.id, fetchId, url: target.href, status: env.status, since: Date.now(), reason: "fetch-stop" },
       { tab: tab.id, account: bound !== null && bound.site === where.site ? bound.account : null },
     );
-    throw new TabcapError("fetch.stopped", `stop rule ${hit.rule} fired on ${recorded.entry.id} (${detail}); fetches on ${where.key} are refused from now on`, `Look at the response (\`tabcap net body ${recorded.entry.id}\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${where.key}\`.`, {
+    throw new TabcapError("fetch.stopped", `stop rule ${hit.rule} fired on ${recorded.entry.id} (${detail}); fetches on ${where.key} are refused from now on`, `Look at the response (\`tabcap net body ${recorded.entry.id}${sessionFlag(session)}\`); continue only when the human (or you, after checking) decides to: \`tabcap guard resume --site ${where.key}\`.`, {
       site: where.key,
       rule: hit.rule,
       detail,

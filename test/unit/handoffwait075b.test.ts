@@ -148,9 +148,9 @@ describe("guard: baseline and condition", () => {
   });
 
   test("the waiting hints name handoff wait as the other way out", () => {
-    expect(CONTINUE_NEXT).toContain("tabcap handoff wait --until-url");
-    expect(CONTINUE_NEXT).toContain("tabcap handoff continue");
-    expect(TAKEOVER_NEXT).toContain("tabcap handoff wait --until-url");
+    expect(CONTINUE_NEXT("default")).toContain("tabcap handoff wait --until-url");
+    expect(CONTINUE_NEXT("default")).toContain("tabcap handoff continue");
+    expect(TAKEOVER_NEXT("default")).toContain("tabcap handoff wait --until-url");
   });
 });
 

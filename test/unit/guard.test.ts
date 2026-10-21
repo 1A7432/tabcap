@@ -118,14 +118,14 @@ describe("guard: waiting state", () => {
     expect(g.blocking("s", "snapshot", null)).toBeNull();
     expect(g.blocking("other", "navigate", "http://127.0.0.1:9/elsewhere")?.session).toBe("s");
     expect(g.blocking("other", "navigate", "http://127.0.0.1:10/")).toBeNull();
-    expect(g.waitingNotice("s")).toEqual({ state: "waiting", reason: "verify-page", screenshot: "/tmp/shot.png", next: CONTINUE_NEXT });
+    expect(g.waitingNotice("s")).toEqual({ state: "waiting", reason: "verify-page", screenshot: "/tmp/shot.png", next: CONTINUE_NEXT("s") });
     expect(rec.events.map((e) => [e["kind"], e["event"] ?? e["state"]])).toEqual([
       ["guard", "breaker"],
       ["handoff", "waiting"],
     ]);
     expect(rec.events[0]).toMatchObject({ site: "example", account: "alice", detail: { reason: "verify-page", request: "r-12", status: 403 } });
     expect(rec.events[1]).toMatchObject({ reason: "verify-page", question: expect.any(String), timeoutMs: null, answerRef: null, screenshot: "/tmp/shot.png" });
-    expect(CONTINUE_NEXT).toContain("tabcap handoff continue");
+    expect(CONTINUE_NEXT("s")).toContain("tabcap handoff continue --session s");
     expect(g.resume("s", "human").state).toBe("resumed");
     expect(g.blocking("s", "click", null)).toBeNull();
     expect(rec.events[2]).toMatchObject({ kind: "handoff", state: "resumed", by: "human" });
@@ -152,7 +152,7 @@ describe("guard: waiting state", () => {
       if (h === null) throw new Error("not blocked");
       const e = waitingError(h);
       expect(e.code).toBe("waiting");
-      expect(e.next).toBe(CONTINUE_NEXT);
+      expect(e.next).toBe(CONTINUE_NEXT("s"));
       expect(e.message).toBe(waitingError(g.blocking("s", "click", null) ?? h).message);
       expect(ACTION_COMMANDS.has(action)).toBe(false);
     }

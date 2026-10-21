@@ -14,7 +14,7 @@ import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
 import type { Tab } from "../browser/targets.ts";
 import { cookieArray } from "../capture/cookies.ts";
-import { handoffView, type Handoff, type HandoffBaseline } from "../guard.ts";
+import { MCP_CONTINUE, MCP_WAIT, handoffView, sessionFlag, type Handoff, type HandoffBaseline } from "../guard.ts";
 import type { Daemon } from "../state.ts";
 import type { Transport } from "../transport/types.ts";
 import { optNum, optStr, type Args } from "./args.ts";
@@ -152,7 +152,7 @@ export async function handoffWait(d: Daemon, a: Args, session: string): Promise<
     throw new TabcapError(
       "usage",
       `session "${session}" waits because a site stop rule fired; that needs a decision, not a condition`,
-      `Look at the response (\`tabcap net body ${h.request ?? "<r-N>"}\`), decide with the user, then \`tabcap handoff continue\`${h.site === null ? "" : ` or \`tabcap guard resume --site ${h.site}\``}; \`tabcap handoff wait\` without --until-* waits for that.`,
+      `Look at the response (\`tabcap net body ${h.request ?? "<r-N>"}${sessionFlag(session)}\`), decide with the user, then \`tabcap handoff continue${sessionFlag(session)}\`${h.site === null ? "" : ` or \`tabcap guard resume --site ${h.site}\``}; \`tabcap handoff wait${sessionFlag(session)}\` without --until-* waits for that (over MCP: ${MCP_CONTINUE}, ${MCP_WAIT}).`,
     );
   }
   const b = conds.length > 0 ? d.need() : d.browser;
@@ -193,7 +193,7 @@ export async function handoffWait(d: Daemon, a: Args, session: string): Promise<
             session,
             h,
             `${list} already ${conds.length === 1 ? "holds" : "hold"} and ${conds.length === 1 ? "was" : "were"} not seen otherwise during this handoff, so it cannot show that the user is done; session "${session}" still waits`,
-            "Ask the user; when they tell you they are done, run `tabcap handoff continue`. Or wait on something that appears only once they are done (the URL after login, a cookie the login sets).",
+            `Ask the user; when they tell you they are done, run \`tabcap handoff continue${sessionFlag(session)}\`. Or wait on something that appears only once they are done (the URL after login, a cookie the login sets) (over MCP: ${MCP_CONTINUE}, ${MCP_WAIT}).`,
             started,
           );
         }
@@ -204,7 +204,7 @@ export async function handoffWait(d: Daemon, a: Args, session: string): Promise<
           session,
           h,
           `session "${session}" still waits for the user after ${timeoutMs} ms${conds.length === 0 ? "" : ` (no --until-* condition became true)`}`,
-          `Run \`tabcap handoff wait\` again (over MCP: tabcap_handoff_wait) to keep waiting, or when the user tells you they are done, \`tabcap handoff continue\`; until then do not act on this site.`,
+          `Run \`tabcap handoff wait${sessionFlag(session)}\` again (over MCP: ${MCP_WAIT}) to keep waiting, or when the user tells you they are done, \`tabcap handoff continue${sessionFlag(session)}\` (over MCP: ${MCP_CONTINUE}); until then do not act on this site.`,
           started,
         );
       }

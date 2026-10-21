@@ -223,10 +223,10 @@ describe("the guard's take-over state", () => {
     expect(g.blocking("other", "navigate", "http://127.0.0.1:9/s62")).toBeNull();
     const e = waitingError(h);
     expect(e.code).toBe("waiting");
-    expect(e.next).toBe(TAKEOVER_NEXT);
+    expect(e.next).toBe(TAKEOVER_NEXT("w"));
     expect(e.message).toContain("took over tab t1 (pointerdown at http://127.0.0.1:9/s62)");
-    expect(handoffView(h)).toMatchObject({ reason: "human-takeover", input: { event: "pointerdown", at: 1234 }, next: TAKEOVER_NEXT });
-    expect(g.waitingNotice("w")).toEqual({ state: "waiting", reason: "human-takeover", screenshot: null, next: TAKEOVER_NEXT });
+    expect(handoffView(h)).toMatchObject({ reason: "human-takeover", input: { event: "pointerdown", at: 1234 }, next: TAKEOVER_NEXT("w") });
+    expect(g.waitingNotice("w")).toEqual({ state: "waiting", reason: "human-takeover", screenshot: null, next: TAKEOVER_NEXT("w") });
     // a second take-over while waiting does not start a new hand-off
     expect(g.takeover("w", { tab: "t1", url: "x", event: "keydown", at: 2 }, rec)).toBe(h);
     expect(rec.events).toHaveLength(1);
@@ -289,7 +289,7 @@ describe("daemon answers (no browser)", () => {
     d.guard.takeover("a", { tab: "t1", url: "http://127.0.0.1:9/s62", event: "pointerdown", at: 42 }, undefined);
     const click = await handleCommand(d, { action: "click", args: { ref: "e1" }, session: "a" }, () => undefined);
     expect(click.ok).toBe(false);
-    expect(err(click)).toMatchObject({ code: "waiting", reason: "human-takeover", input: { event: "pointerdown", at: 42 }, screenshot: null, next: TAKEOVER_NEXT });
+    expect(err(click)).toMatchObject({ code: "waiting", reason: "human-takeover", input: { event: "pointerdown", at: 42 }, screenshot: null, next: TAKEOVER_NEXT("a") });
     const st = await handleCommand(d, { action: "status", args: {}, session: "a" }, () => undefined);
     const data = st.ok && isRecord(st.data) ? st.data : {};
     expect(data["next"]).toBe('session "a": the user took over its tab (human-takeover); do not act on the page; when they say they are done: `tabcap handoff continue --session a`');
