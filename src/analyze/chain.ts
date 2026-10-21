@@ -196,12 +196,15 @@ const label = (t: { location: string; name: string; path?: string }) => `${t.loc
 /**
  * `analyze chain --text`. 0.7-E: step URLs show sensitive query parameters as
  * `<redacted:name>` (the docs/04 §8.3 URL rule, e.g. an `access_token=` in a
- * return URL); the JSON answer keeps the URLs as recorded (export-python reads it).
+ * return URL). Since 0.7.3 the CLI redacts the answer itself (analyze/redact.ts
+ * redactChain, before this runs) and `--reveal` turns both off, so `reveal`
+ * prints the step URLs as given, like the JSON answer; export-python reads the
+ * unredacted chain (chainOf), not this text.
  */
-export function renderChainText(r: ChainResult): string {
+export function renderChainText(r: ChainResult, o: { reveal?: boolean } = {}): string {
   const lines = [`chain to ${r.target} in ${r.bundle}: ${r.steps.length} step(s), ${r.todo.length} TODO, ${r.inputs.length} caller input(s)`];
   r.steps.forEach((s, i) => {
-    const url = redactUrl(s.url, { scrub: (x) => x });
+    const url = o.reveal === true ? s.url : redactUrl(s.url, { scrub: (x) => x });
     lines.push("", `${i + 1}. ${s.id} ${s.method} ${url.length > 100 ? url.slice(0, 99) + "…" : url}`);
     for (const p of s.provides) lines.push(`   provides ${p.kind === "set-cookie" ? `set-cookie ${p.cookie ?? ""}` : `response ${p.path ?? "(text)"}`} → ${p.to.request} ${label(p.to)}${p.prefix === undefined ? "" : ` (prefix ${JSON.stringify(p.prefix)})`}`);
     for (const n of s.needs) {
