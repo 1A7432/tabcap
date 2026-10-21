@@ -8,9 +8,19 @@ import { envVar } from "../../shared/env.ts";
 import { log } from "../../shared/log.ts";
 import { Tabs } from "../browser/targets.ts";
 import { ConsoleLog } from "../capture/console.ts";
-import type { Daemon } from "../state.ts";
+import type { BrowserInfo, Daemon } from "../state.ts";
 import { DirectTransport } from "../transport/direct/index.ts";
-import { checkCustomArgs, effectiveProxyLabel, parseProxy, parseWebdriver, resolveExecutable, webdriverOf, type CustomArgs } from "../transport/direct/launcher.ts";
+import {
+  HIDE_WEBDRIVER_FLAG,
+  applyCustomArgs,
+  checkCustomArgs,
+  effectiveProxyLabel,
+  parseProxy,
+  parseWebdriver,
+  resolveExecutable,
+  webdriverOf,
+  type CustomArgs,
+} from "../transport/direct/launcher.ts";
 import { logOffset, logSince, nestedSandboxError, sandboxFailed } from "../transport/direct/sandbox-check.ts";
 import { optBool, optStr, optStrList, type Args } from "./args.ts";
 
@@ -27,12 +37,46 @@ function customArgsOf(a: Args, configFile: string): CustomArgs {
   return { add: [...cfg.add, ...optStrList(a, "chromeArg")], drop: [...cfg.drop, ...optStrList(a, "dropChromeArg")] };
 }
 
+/**
+ * `browser start` while the browser runs: the `note` (docs/04 §42) when this call asks for something the
+ * running browser does not have and that only a `browser stop` + `browser start` applies: other custom
+ * Chrome args, or an explicit --proxy / --webdriver (or its config.json default) that differs from the
+ * running one. Proxy and webdriver are worked out as a fresh start would (webdriver follows the final
+ * command line, §42 rule 3; a proxy switch among the custom args under --proxy system reads
+ * `chrome-arg`). A value a fresh start would refuse is not compared here. Null: nothing differs.
+ */
+export function runningNote(
+  want: { custom: CustomArgs; proxy: string | null; webdriver: string | null },
+  info: Pick<BrowserInfo, "extraArgs" | "dropArgs" | "proxy" | "webdriver">,
+): string | null {
+  const parts: string[] = [];
+  if (JSON.stringify(want.custom) !== JSON.stringify({ add: info.extraArgs, drop: info.dropArgs })) parts.push("other custom Chrome args");
+  if (want.proxy !== null) {
+    const label = attempt(() => effectiveProxyLabel(parseProxy(want.proxy), want.custom.add));
+    if (label !== null && label !== info.proxy) parts.push(`another proxy (${info.proxy})`);
+  }
+  if (want.webdriver !== null) {
+    const mode = attempt(() => parseWebdriver(want.webdriver));
+    const wd = mode === null ? null : webdriverOf(applyCustomArgs(mode === "hidden" ? [HIDE_WEBDRIVER_FLAG] : [], want.custom).args);
+    if (wd !== null && wd !== info.webdriver) parts.push(`webdriver ${info.webdriver} (not ${wd})`);
+  }
+  return parts.length === 0 ? null : `the running browser has ${parts.join(", ")}; run \`tabcap browser stop\`, then \`tabcap browser start\` for these to apply`;
+}
+
+function attempt<T>(f: () => T): T | null {
+  try {
+    return f();
+  } catch {
+    return null;
+  }
+}
+
 export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
   if (d.browser !== null) {
     const info = d.browser.info;
-    const want = customArgsOf(a, d.paths.configFile);
-    const same = JSON.stringify(want) === JSON.stringify({ add: info.extraArgs, drop: info.dropArgs });
-    return { ...info, alreadyRunning: true, ...(same ? {} : { note: "the running browser has other custom Chrome args; run `tabcap browser stop`, then `tabcap browser start` for these to apply" }) };
+    const cfgNow = readConfig(d.paths.configFile);
+    const note = runningNote({ custom: customArgsOf(a, d.paths.configFile), proxy: optStr(a, "proxy") ?? cfgNow.proxy, webdriver: optStr(a, "webdriver") ?? cfgNow.webdriver }, info);
+    return { ...info, alreadyRunning: true, ...(note === null ? {} : { note }) };
   }
   const cfg = readConfig(d.paths.configFile);
   // 0.7.1-A: a bad `handoff` value fails here, before anything starts (docs/04 §37).
