@@ -735,8 +735,11 @@ export class Guard {
     h.state = "resumed";
     h.resumedAt = Date.now();
     h.resumedBy = by;
-    if (condition !== null) h.condition = condition;
-    this.recorder?.(session)?.event("handoff", { state: "resumed", reason: h.reason, question: null, timeoutMs: null, answerRef, by, ...(condition === null ? {} : { condition }) }, { tab: h.tab });
+    // The condition value is the AI's own argument (e.g. --until-text): the same known-secret
+    // replacement as the `cmd` event's argv (docs/04 §8.1); the recorder itself only replaces proxy credentials.
+    const cond = condition === null ? null : { kind: condition.kind, value: this.deps.secrets.scrub(condition.value) };
+    if (cond !== null) h.condition = cond;
+    this.recorder?.(session)?.event("handoff", { state: "resumed", reason: h.reason, question: null, timeoutMs: null, answerRef, by, ...(cond === null ? {} : { condition: cond }) }, { tab: h.tab });
     this.emitState(session, "resumed");
     return h;
   }
