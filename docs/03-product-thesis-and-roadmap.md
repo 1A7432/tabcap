@@ -53,18 +53,18 @@
 
 | 模块 | 做什么 | 参照 |
 |---|---|---|
-| `bridge` | 本地守护进程 + 两条可替换的传输层：`direct`（默认，`setup` 下载 Chrome for Testing、独立 profile、守护进程直连 CDP）和 `ext`（阶段 2，扩展挂 `chrome.debugger` 接管你自己的 Chrome）。两种模式都不弹授权框、不抢焦点；会话 = 标签组；自己开的 / 借来的标签分开管；对话框当页锁；被控标签有可见标记。人那一面的 UI 由同一个扩展提供，`direct` 下随浏览器自动装上 | `07`、私有笔记 |
+| `bridge` | 本地守护进程 + 两条可替换的传输层：`direct`（默认，`setup` 下载 Chrome for Testing、独立 profile、守护进程直连 CDP）和 `ext`（阶段 2，扩展挂 `chrome.debugger` 接管你自己的 Chrome；**未做（阶段 2 backlog）**）。两种模式都不弹授权框、不抢焦点；会话 = 标签组；自己开的 / 借来的标签分开管；对话框当页锁；被控标签有可见标记（**未做（阶段 2 backlog）**）。人那一面的 UI 由同一个扩展提供，`direct` 下随浏览器自动装上（**未做（阶段 2 backlog）**：仓库里没有扩展，`07` §1.1） | `07`、私有笔记 |
 | `capture` | 录制器。在专用的工作 Chrome 里，人探路时也一直录（接受调试横幅）。人操作和 AI 操作用同一套，时间线上标明是谁做的。请求完成时立刻取响应体和响应头；记发起请求的 JS 调用栈、相关脚本源码、cookie / storage 快照、WebSocket 消息、截图 | 私有笔记（反着做） |
 | `bundle` | 证据包格式：一个目录 + manifest，可导出为标准 HAR；导出时自动打码 cookie、token、证件号 | — |
 | `store` | 站点与账号库：站点名、入口网址、域名列表、账号与密码、登录配方、最近会话 cookie、guard 计数、证据包索引；0.4 起加代理池 `proxies`（名字、scheme、host、port、用户名、密码、bypass、健康状态、连续失败数、上次检查 / 成功时间、延迟、重查时间）与账号池列（`accounts` 加 `proxy`、`state`、`cool_until`、`last_used_at`、`fail_streak`；`guard_counters` 加账号维度：站点、账号、小时窗口、请求数、登录数）。`bun:sqlite` 单文件 `~/.config/<名>/state.db`，0600，零安装【实测】。推荐人手动录入（CLI 交互或扩展表单），也可以由人把值交给 AI 一次、经 `--password-stdin` 存入（`04` §8.1，10-16 作者定），不在人登录时自动抓密码。AI 只见站点名、入口网址、账号名和 `<secret:站点.password>` 引用；守护进程把所有输出里出现的已知秘密值替换成引用 | DrissionPage 的 d/s 模式、私有笔记 |
-| `sample` | 挑战样本包。把一次保护挑战**黑盒**录成可离线分析的样本：页面加载的脚本原样（含内联、顺序、响应头）、环境快照（navigator/screen/时区/语言/UA 等可读属性）、挑战请求/响应全文、观察到的输入→输出、时序与复现元数据。交给用户或作者自己的离线分析项目；**工具只录不析**（见 §6、§10.8） | — |
+| `sample` | **未做（占位，`04` §4.3 的 P2/P3 条目）**。挑战样本包。把一次保护挑战**黑盒**录成可离线分析的样本：页面加载的脚本原样（含内联、顺序、响应头）、环境快照（navigator/screen/时区/语言/UA 等可读属性）、挑战请求/响应全文、观察到的输入→输出、时序与复现元数据。交给用户或作者自己的离线分析项目；**工具只录不析**（见 §6、§10.8） | — |
 | `analyze` | `find`（用页面文字反查接口，自动解压、解码）、`diff`（多次录制对比，给参数分类）、`deps`（值依赖链）、`shape`（0.6-G：按端点推断响应 / 请求形状，类型树 + 格式 + 出现次数，不含值）、`schema-diff`（0.6-G：两次录制按端点比字段增删与类型变化，漂移时退出码 1）、`trace`（从调用栈定位 JS 函数；`trace start --decode` 观察模式 0.6-L / L2 / Q / W：站点把响应体加密时，借页面自己的解密，log-point 取 `JSON.parse` 实参按密文 sha256 归属（关联分 strong / weak，无命中先等 1.5 s grace）、作为 `decoded` 视图 `by:"page"` 归档，上限 16 MiB，开着时不装签名断点，`04` §33） | Integuru 的依赖图思路、`04` §32 §33 |
-| `recon` | 站点侦查档案（`09` §1）。v0（0.4）只答四问：技术栈、数据通道清单与覆盖率、cookie 分类、防护识别（只识别）；只读已录证据和当前页面，不发请求，写进证据包 `exports/dossier.json` + `.md`；`--probe` 主动探测推 0.5 | — |
-| `handoff` | 人在回路：AI 卡住或拿不准时暂停，同时在浏览器（标签横条、扩展角标）和终端提示，不发系统通知；人处理完继续；确认题的答案写进证据，记为【人确认】 | 私有笔记 |
+| `recon` | 站点侦查档案（`09` §1）。v0（0.4）只答四问：技术栈、数据通道清单与覆盖率、cookie 分类、防护识别（只识别）；只读已录证据和当前页面，不发请求，写进证据包 `exports/dossier.json` + `.md`。0.8 起加防护家族识别（`04` §41、`14`）：离线 `recon` 按规则表认家族；`navigate` / `tab new` / `go` / `reload` 之后对标签做一次只读的实时探测，认出的家族进命令回答、`status` 与交接，录制中写 `protection` 事件（`04` §4.2、§41.3）。`--probe` 主动探测未做，在 `09` §13 的 backlog | — |
+| `handoff` | 人在回路：AI 卡住或拿不准时暂停，同时在浏览器（标签横条、扩展角标；**未做（阶段 2 backlog）**）和终端提示，不发系统通知；现状是终端（`waiting` 回答里的原因、截图路径与 `next`）加 `tabcap status`；人处理完继续；确认题的答案写进证据，记为【人确认】 | 私有笔记 |
 | `fetch` | 爬虫的请求由已登录的标签发出并录下（0.6-A）：`tabcap fetch <url>` / `--batch`（agent）与守护进程 `POST /fetch`（脚本，附 Python 助手）；请求在 tabcap 隔离世界里用页面自己的 `fetch()` 发，带页面的 cookie、受页面的 CORS 规则；同源请求靠标记头确定地归到命令（上线前剥掉），跨源靠发起栈；按主机限速（默认请求间隔 3 s，命令行不能绕过）；停手规则命中即停该站点，等人或 agent 决定 `guard resume` | `04` §26、`07` §8 |
 | `guard` | 账号保护：按站点 / 账号配预算（登录次数、请求间隔、每小时上限）；探测模式只发单次请求；响应突然变空、状态码模式突变、出现验证页 → 熔断并交给人 | — |
 | `replay` | 从证据生成客户端（Python httpx / curl_cffi 优先），重放并逐项比对；离线回放服务器（按请求匹配吐出录到的响应），给爬虫做离线测试；多样本回归。匹配键可配（0.6-C）：一份回放键规则文件（或 config.json 里跟着站点走）说每类请求忽略哪些 query / 正文字段、正文按表单 / JSON / 解码明文 / 不比，`replay serve`、`replay check` 与 `bundle export fixtures`（每条交换一个夹具，格式可由夹具插件定）共用 | derive-client、私有笔记、`04` §31 |
-| `watch` | 定时重放，字段结构或签名方式变了就告警；字段结构这一半今天可以用 cron 跑 `analyze schema-diff <昨天的包> <今天的包>`（0.6-G，有漂移退出码 1） | `04` §32 |
+| `watch` | **未做（占位，阶段 3；`04` 没有对应的 P2/P3 条目）**。定时重放，字段结构或签名方式变了就告警；字段结构这一半今天可以用 cron 跑 `analyze schema-diff <昨天的包> <今天的包>`（0.6-G，有漂移退出码 1） | `04` §32 |
 | `wire` | 线路层诊断（0.4-W2）：本机 127.0.0.1 上的 TLS echo（Bun 终结 TLS，原始 ClientHello 与解密后的请求交给原生组件 `native/wireprint/` 出报告）；浏览器基准 = tabcap 集成的 Chrome for Testing 按 tabcap 自己的启动参数采的画像；`wire probe` 拿生成的 Python 客户端对比基准，按 tls / h2 / headers 三层说哪层不同、哪些字段不同。只诊断，不说原因、不给改值建议；作者个人浏览器的画像不进仓库 | `11`、`07` §6 |
 | `status` | `tabcap status [--text]`（0.7-B）：一个回答看全守护进程、浏览器、各会话（站点与账号、录制、等人、trace、fetch 停手）、已启用插件和等人的会话，外加 `conflicts`——纯函数规则对这些事实生成的句子，每条带 `code` 和可直接执行的 `next`（等人又停手、解码插件压过观察模式、标签在库内站点却未绑定的会话、浏览器没了的录制、没录制的 trace）；只读，不进录制 | `04` §35 |
 | 接口 | 命令行统一 JSON 信封；同时提供 MCP 和 skill；报错写成「下一步该做什么」 | 私有笔记 |
@@ -90,13 +90,13 @@
 
 ### 阶段 1：共用浏览器 + 录制 + 反查（自用就见效）
 
-- `bridge` 最小版：`setup`（下载 Chrome for Testing、建 profile、自动装 UI 扩展）、`browser start/stop`、`direct` 传输层；工具集参照常见 agent 浏览器（navigate、snapshot、click、fill、evaluate、screenshot、标签与会话管理）。`--executable-path` 可指向已装的 Chrome 二进制加独立 profile（此时 UI 扩展装不上，退回手动）。
-- `capture` + `bundle`：AI 操作的主动录制；人介入时刻的录制（截图与导航，操作级录制在阶段 2）。
-- `analyze find`、`analyze diff`。
-- 命令行 + skill。
-- `handoff` 最小版：AI 撞上验证码、风控或拿不准就停下，在终端说明原因并给截图路径，人处理完说「继续」。协议化状态机、浏览器侧按钮、人接管识别在阶段 2。
-- `guard` 最小版：每站点每会话登录尝试 1 次，再试要显式确认；响应出现 403 / 429 或验证页特征就停下交人。预算、熔断、探测模式在阶段 2。
-- `store` 最小版：`site add`（密码交互输入或 stdin）、`session start --site`、`fill --secret 站点.password`、守护进程输出替换。登录配方与会话复用在阶段 2。
+- **已做（UI 扩展未做）**。`bridge` 最小版：`setup`（下载 Chrome for Testing、建 profile、自动装 UI 扩展）、`browser start/stop`、`direct` 传输层；工具集参照常见 agent 浏览器（navigate、snapshot、click、fill、evaluate、screenshot、标签与会话管理）。`--executable-path` 可指向已装的 Chrome 二进制加独立 profile（此时 UI 扩展装不上，退回手动）。
+- **已做**。`capture` + `bundle`：AI 操作的主动录制；人介入时刻的录制（截图与导航，操作级录制在阶段 2）。
+- **已做**。`analyze find`、`analyze diff`。
+- **已做**。命令行 + skill。
+- **已做**。`handoff` 最小版：AI 撞上验证码、风控或拿不准就停下，在终端说明原因并给截图路径，人处理完说「继续」。协议化状态机、浏览器侧按钮、人接管识别在阶段 2。
+- **已做**。`guard` 最小版：每站点每会话登录尝试 1 次，再试要显式确认；响应出现 403 / 429 或验证页特征就停下交人。预算、熔断、探测模式在阶段 2。
+- **已做**。`store` 最小版：`site add`（密码交互输入或 stdin）、`session start --site`、`fill --secret 站点.password`、守护进程输出替换。登录配方与会话复用在阶段 2。
 
 验收：
 1. `tabcap setup` 一条命令从零到可用，全程不点任何对话框、不进 `chrome://extensions`；连续使用一天不出现任何授权弹框；用户在别的应用里打字时，AI 操作不把浏览器拉到前台。
@@ -108,18 +108,18 @@
 
 ### 阶段 2：人在回路 + 账号保护 + 复现
 
-- `handoff` 完整版：协议化状态机、浏览器侧提示与按钮、确认题、人接管时 AI 暂停、人介入时刻的操作级录制。
-- `guard` 完整版：预算、熔断、探测模式。
-- `store` 完整版：登录配方（`login <站点>` 一条命令重登）、最近会话 cookie 复用与过期检测、证据包索引；`replay` 和 `watch` 先用旧会话，过期才重登，重登受 guard 限次。
-- `bridge` 的 `ext` 传输层：扩展挂 `chrome.debugger` 接管用户自己的 Chrome；扩展上 Chrome Web Store（unlisted）供一键安装。
-- `analyze deps`、`analyze trace`。
-- `replay`：生成客户端 + 逐项比对；离线回放服务器。
+- **部分**（人接管时 AI 暂停已做，0.7.1-A，`04` §37；状态只有 `waiting` / `resumed`；浏览器侧提示与按钮、确认题、操作级录制未做）。`handoff` 完整版：协议化状态机、浏览器侧提示与按钮、确认题、人接管时 AI 暂停、人介入时刻的操作级录制。
+- **部分**（预算、熔断已做，0.4-D、0.6-A、0.6-I；探测模式未做，`probe` 只占位，`04` §4.2）。`guard` 完整版：预算、熔断、探测模式。
+- **部分**（会话 cookie 存库与恢复、证据包索引的写入已做；`login` 登录配方、过期检测未做）。`store` 完整版：登录配方（`login <站点>` 一条命令重登）、最近会话 cookie 复用与过期检测、证据包索引；`replay` 和 `watch` 先用旧会话，过期才重登，重登受 guard 限次。
+- **未做（阶段 2 backlog）**。`bridge` 的 `ext` 传输层：扩展挂 `chrome.debugger` 接管用户自己的 Chrome；扩展上 Chrome Web Store（unlisted）供一键安装。
+- **已做**（0.4）。`analyze deps`、`analyze trace`。
+- **已做**。`replay`：生成客户端 + 逐项比对；离线回放服务器。
 
 ### 阶段 3：维护与扩展
 
-- `watch` 漂移告警、多样本回归。
-- 插件：hook 套件、反混淆、作者自己的 JS 分析研究项目、线路层（TLS / h2 指纹）诊断外部工具。
-- MCP 接口；CDP 兼容端点（`07` §2），让 Playwright / DrissionPage 等也能接；考虑支持 Firefox（扩展没有 `chrome.debugger`，要走 WebDriver BiDi，另行调研）。
+- **未做**（字段漂移这一半可用 cron 跑 `analyze schema-diff`，§5 `watch`）。`watch` 漂移告警、多样本回归。
+- **部分**（解码、夹具、挑战处理程序三类插件已做，§5 插件；线路层诊断已做，并入本仓库 `native/wireprint/`；hook 套件、反混淆未做）。插件：hook 套件、反混淆、作者自己的 JS 分析研究项目、线路层（TLS / h2 指纹）诊断外部工具。
+- **部分**（MCP 已做，0.5-A；CDP 兼容端点、Firefox 未做）。MCP 接口；CDP 兼容端点（`07` §2），让 Playwright / DrissionPage 等也能接；考虑支持 Firefox（扩展没有 `chrome.debugger`，要走 WebDriver BiDi，另行调研）。
 
 ## 8. 决策
 
@@ -142,6 +142,8 @@
 - **浏览器过关、脚本跑量**（10-16 作者定，0.6-F）：登录、验证、需要人点的那一步留在浏览器里（人在回路，§3）；过了之后 `tabcap session export --for requests|httpx` 把标签的 cookie、页面真正发的认证头（`Authorization`、`access-token`、`x-csrf` …）和 localStorage / sessionStorage 里的 token 交给脚本（0600 文件，值不打印，`04` §8.2），批量请求由脚本自己发；少量、必须带浏览器上下文的请求仍走浏览器（0.6-A `fetch`）。全程 `net start` 录着，脚本拿到的头来自哪条录下的请求在输出里写明（`source.headers`）。会话过期就回浏览器重新过关、再导一次。
 - **回放的匹配键可配**（0.6-C，10-16 作者定，来自同一次试用：离线回放三个站点要手写三种规则，加密正文的站点 `replay serve` 一条都配不上）：一份规则文件 `tabcap-replay-rules/0`（也可放 config.json 的 `replay` / `sites.<名>.replay`），`replay serve`、`replay check`、`bundle export fixtures` 共用；默认规则就是原来的行为；夹具格式可插拔（夹具插件），项目里手写的离线回放脚本可以删掉（`04` §31）。
 - **原生化的第一个组件是 `analyze`**，不是壳：Zig 导出 C ABI，经 `bun:ffi` 接入；触发条件是实测 `find` 或 `diff` 在真实包上超过 2 s，或 `deps` 落地时。触发前先把 TS 版和夹具做扎实，TS 版加夹具就是原生版的 oracle。
+- **默认隐藏 `navigator.webdriver`**（10-20 作者定，0.7.6-A）：启动工具自己的 Chrome for Testing 时加 `--disable-blink-features=AutomationControlled`，不往页面注入脚本；`browser start --webdriver visible` 或 `config.json` `webdriver` 关掉；当前值写进 `browser status` / `status` 与证据包 manifest（`04` §40）。
+- **自定义 Chrome 启动参数**（10-21 作者定，0.8.1-A）：`browser start --chrome-arg <arg>`（加或覆盖）与 `--drop-chrome-arg <arg>`（删 tabcap 的默认参数），`config.json` `chrome.args` / `chrome.dropArgs` 作默认值；不影响实际使用的全部不拒绝，只拒绝会让 tabcap 自己失灵的；证据包 manifest 记 `browser.args`（`04` §42）。
 
 待定：
 1. **仓库边界**：仓库只放本项目自己的代码、靶场与合成数据；不出现任何真实站点的数据、账号或第三方专有材料。
@@ -157,7 +159,7 @@
 
 1. **证据包先定规范**：清单文件 + 事件流（请求、操作、交接、确认，一行一条）+ 按内容哈希去重的正文 + 截图。能导出也能导入 HAR，DevTools / Charles / mitmproxy 的包也能用分析命令。先写规范和期望样例，再写代码。
 2. **人机交接当协议设计**：状态分 AI 在跑 / 等人（原因 + 问题）/ 人在操作 / 恢复，两边都能切换；AI 侧 `handoff ask` 阻塞等答复（带超时）；确认题答案记为【人确认】。识别人接管：CDP 发的输入在页面上也是 `isTrusted=true`，靠守护进程记录自己发输入的时间窗来区分【推断，待验】。
-3. **默认最少打扰**：插桩会改变页面行为，影响证据真实性，也可能连累真实账号。默认只开 Network 与 Page；需要调用栈或动态代码时，显式进入追踪模式并提前告诉人。
+3. **默认最少打扰**：插桩会改变页面行为，影响证据真实性，也可能连累真实账号。默认只开 Network 与 Page；需要调用栈或动态代码时，显式进入追踪模式并提前告诉人。例外：0.8 的实时防护探测（`04` §41.3）只读、默认开，每次导航多一次探测，开关是 `config.json` `protection.live`。
 4. **录包要过的硬骨头**：正文在请求完成时立刻取并加大缓冲，再对 XHR / Fetch / Document 三类默认开 `Fetch` 拦截补齐跳转竞态（【实测】spike 2，`04` §5.2 第 8 条）；取不到写明原因（重定向、304、导航取消、流式）；Service Worker、跨源 iframe、页面弹出的新窗口要自动挂上并归进同一份证据【实测 10-15 spike 1：`direct` 模式下跨源 iframe 与 Service Worker 经 `Target.setAutoAttach {flatten:true}` 自动挂上，子会话各自收到自己的 Network 事件；弹窗也挂上，前提是守护进程对每个挂上的会话发 `Runtime.runIfWaitingForDebugger`（`07` §1.1）；`ext` 模式的 `chrome.debugger` 支持阶段 2 再验】；应用层加密的响应，在追踪模式下记录页面解析后的明文；protobuf 等二进制做无 schema 解码。
 5. **本地靶场先行**：一组本地小网站，每个演示一种通用模式（token 链、签名参数、加密响应、SPA 跳转、弹窗登录、WebSocket、Service Worker、跨源 iframe、模拟验证页）。同时用作端到端测试、演示和合规的验证对象；不拿第三方网站做测试。
 6. **给 AI 的接口**：命令少、统一 JSON、输出有界（大正文只回路径和摘要）、报错写下一步、id 稳定；命令行优先，MCP 后补。页面内容一律标为不可信数据；提交、支付、删除这类写操作默认要人确认。
