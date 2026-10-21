@@ -1,6 +1,6 @@
 // `tabcap wire serve | version | ca-path`: run in the CLI process (no daemon).
 // `wire profile` and `wire probe` need the browser and go to the daemon
-// (src/daemon/tools/wire.ts); their `--text` is rendered in src/cli/main.ts.
+// (src/daemon/tools/wire.ts); their `--text` is rendered in src/cli/handlers.ts.
 
 import { ok, type Envelope } from "../shared/envelope.ts";
 import type { Paths } from "../shared/paths.ts";
