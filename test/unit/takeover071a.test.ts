@@ -21,8 +21,7 @@ import {
   parseTakeoverPayload,
   type TakeoverDeps,
 } from "../../src/daemon/browser/takeover.ts";
-import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
-import { BLOCKED_WHILE_WAITING, Guard, TAKEOVER_NEXT, handoffView, waitingError, type GuardRecorder } from "../../src/daemon/guard.ts";
+import { BLOCKED_WHILE_WAITING, Guard, TAKEOVER_NEXT, handoffView, waitingError } from "../../src/daemon/guard.ts";
 import { handleCommand } from "../../src/daemon/main.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
 import { Daemon } from "../../src/daemon/state.ts";
@@ -32,6 +31,7 @@ import { HANDOFF_DEFAULTS, parseHandoffConfig } from "../../src/shared/config.ts
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { paths } from "../../src/shared/paths.ts";
+import { FakeRec as BaseRec } from "./_fakes.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -44,20 +44,10 @@ const tmp = (): string => {
 };
 
 /** A recording stand-in: collects the events the guard and the take-over write. */
-class FakeRec implements GuardRecorder {
-  readonly events: Array<Record<string, unknown>> = [];
-  constructor(readonly session: string) {}
-  onIndexed(_fn: (e: NetEntry) => void): () => void {
-    return () => undefined;
+class FakeRec extends BaseRec {
+  constructor(session: string) {
+    super(session, { eventOptions: true });
   }
-  event(kind: string, fields: Record<string, unknown>, o: { tab?: string | null; actor?: string; cmd?: null } = {}): number | null {
-    this.events.push({ kind, ...fields, _tab: o.tab ?? null, _actor: o.actor ?? "system", _cmd: o.cmd === null ? null : "window" });
-    return this.events.length;
-  }
-  cmdStart(): string | null {
-    return null;
-  }
-  cmdEnd(): void {}
 }
 
 function guard(): Guard {

@@ -6,27 +6,11 @@
 // stored secret's placeholder `<secret:example.password>` (secrets.ts).
 
 import { describe, expect, test } from "bun:test";
-import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
-import { Guard, handoffView, type GuardRecorder } from "../../src/daemon/guard.ts";
+import { Guard, handoffView } from "../../src/daemon/guard.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
+import { FakeRec } from "./_fakes.ts";
 
 const PW = "guard-cond-Pa55word";
-
-class FakeRec implements GuardRecorder {
-  readonly events: Array<Record<string, unknown>> = [];
-  constructor(readonly session: string) {}
-  onIndexed(_fn: (e: NetEntry) => void): () => void {
-    return () => undefined;
-  }
-  event(kind: "guard" | "handoff", fields: Record<string, unknown>): number | null {
-    this.events.push({ kind, ...fields });
-    return this.events.length;
-  }
-  cmdStart(): string | null {
-    return null;
-  }
-  cmdEnd(): void {}
-}
 
 function setup(): { g: Guard; rec: FakeRec } {
   const secrets = new Secrets();
