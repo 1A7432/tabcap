@@ -12,8 +12,9 @@
 //     its own cipher list without GREASE, sends SETTINGS 1:4096;2:0;4:65535;
 //     5:16384;3:100;6:65536 and no client hints), asserted as verdicts and
 //     field names, never hash values.
-// The probe part needs the generated client to speak HTTP/2 (0.4-E: httpx[http2],
-// uv): without that template it is skipped with the reason printed.
+// The probe part runs the generated client (httpx[http2], templates/python/
+// pyproject.toml since 0.4-E) with uv: without uv it is skipped locally and
+// fails under CI.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -22,7 +23,6 @@ import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { profileArch, profileOs } from "../../src/wire/profile.ts";
-import PYPROJECT from "../../templates/python/pyproject.toml" with { type: "text" };
 import { startSmokeSite, type Site } from "./site.ts";
 import { removeHome } from "./_daemon.ts";
 
@@ -61,12 +61,9 @@ async function ok(...args: string[]): Promise<Record<string, unknown>> {
 
 const json = (file: string): Record<string, unknown> => rec(JSON.parse(readFileSync(file, "utf8")));
 
-/** The generated client speaks HTTP/2 (0.4-E); before that the probe's expectations do not apply. */
-const CLIENT_H2 = PYPROJECT.includes("httpx[http2]");
 /** uv runs the generated client; missing uv skips locally and fails under CI. */
 const UV_MISSING = Bun.which("uv") === null;
-if (enabled && !CLIENT_H2) console.warn("[v04w] probe test SKIPPED: the generated client does not use HTTP/2 yet (needs 0.4-E: httpx[http2] run with uv)");
-if (enabled && CLIENT_H2 && UV_MISSING) console.warn(`[v04w] uv is not on PATH: the probe test ${process.env["CI"] === undefined ? "is SKIPPED" : "FAILS under CI"}`);
+if (enabled && UV_MISSING) console.warn(`[v04w] uv is not on PATH: the probe test ${process.env["CI"] === undefined ? "is SKIPPED" : "FAILS under CI"}`);
 
 describe.skipIf(!enabled)("tabcap 0.4-W2 L2 (wire echo, browser baseline, probe)", () => {
   let profileFile = "";
@@ -143,7 +140,7 @@ describe.skipIf(!enabled)("tabcap 0.4-W2 L2 (wire echo, browser baseline, probe)
     expect(recs(after["tabs"]).length).toBe(recs(before["tabs"]).length);
   }, 180_000);
 
-  test.skipIf(!CLIENT_H2 || (UV_MISSING && process.env["CI"] === undefined))("wire probe: export-python client vs the baseline → tls, h2, headers differ; one finding per layer", async () => {
+  test.skipIf(UV_MISSING && process.env["CI"] === undefined)("wire probe: export-python client vs the baseline → tls, h2, headers differ; one finding per layer", async () => {
     if (UV_MISSING) throw new Error("uv is not on PATH (the generated client runs with uv)");
     const S = ["--session", "w"];
     // the recording the client is generated from: its own session (bundle names are per session and second)
