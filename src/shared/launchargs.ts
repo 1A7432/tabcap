@@ -44,6 +44,17 @@ function cleanValue(v: string, home: RegExp | null): string {
   return home === null ? out : out.replace(home, "$1<home>");
 }
 
+/**
+ * Pure: the command line as `browser start` / `browser status` answer it (review 10-21): only a URL
+ * value's userinfo is removed from each `--name=value`; paths stay (an answer is not evidence).
+ */
+export function withoutUrlCredentials(args: readonly string[]): string[] {
+  return args.map((a) => {
+    const eq = a.indexOf("=");
+    return !a.startsWith("--") || eq < 0 ? a : `${a.slice(0, eq)}=${cleanValue(a.slice(eq + 1), null)}`;
+  });
+}
+
 /** Pure: `args` with the machine-specific parts replaced, in launch order (what the manifest records and the wire hash covers). */
 export function normalizedLaunchArgs(args: readonly string[], ctx: LaunchArgsContext): string[] {
   const home = homePattern(ctx.home);

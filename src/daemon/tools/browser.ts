@@ -24,6 +24,12 @@ import {
 } from "../transport/direct/launcher.ts";
 import { logOffset, logSince, nestedSandboxError, sandboxFailed } from "../transport/direct/sandbox-check.ts";
 import { optBool, optStr, optStrList, type Args } from "./args.ts";
+import { withoutUrlCredentials } from "../../shared/launchargs.ts";
+
+/** Review 10-21: the browser info as `browser start` / `browser status` answer it, URL values without their userinfo. */
+function shownInfo(info: BrowserInfo): BrowserInfo {
+  return { ...info, args: withoutUrlCredentials(info.args), extraArgs: withoutUrlCredentials(info.extraArgs), dropArgs: withoutUrlCredentials(info.dropArgs), dropArgsUnmatched: withoutUrlCredentials(info.dropArgsUnmatched) };
+}
 
 /** The UI extension directory, when this build has one (docs/07 §1); absent in the MVP. */
 function extensionDir(): string | null {
@@ -77,7 +83,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     const info = d.browser.info;
     const cfgNow = readConfig(d.paths.configFile);
     const note = runningNote({ custom: customArgsOf(a, d.paths.configFile), proxy: optStr(a, "proxy") ?? cfgNow.proxy, webdriver: optStr(a, "webdriver") ?? cfgNow.webdriver }, info);
-    return { ...info, alreadyRunning: true, ...(note === null ? {} : { note }) };
+    return { ...shownInfo(info), alreadyRunning: true, ...(note === null ? {} : { note }) };
   }
   const cfg = readConfig(d.paths.configFile);
   // 0.7.1-A: a bad `handoff` value fails here, before anything starts (docs/04 §37).
@@ -169,7 +175,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     if (failedSandbox()) sandboxError();
     await d.browserGone();
   });
-  return { ...d.browser.info, alreadyRunning: false, extension: ext, detectTakeover: takeover !== null };
+  return { ...shownInfo(d.browser.info), alreadyRunning: false, extension: ext, detectTakeover: takeover !== null };
 }
 
 export async function browserStop(d: Daemon): Promise<unknown> {
@@ -201,7 +207,7 @@ export function browserStatus(d: Daemon): unknown {
   if (b === null) return { running: false };
   return {
     running: true,
-    ...b.info,
+    ...shownInfo(b.info),
     sessions: b.tabs.sessions.size,
     tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length,
     refusedFocusCalls: b.t.refusedFocusCalls,
