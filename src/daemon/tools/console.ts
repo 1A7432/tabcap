@@ -2,7 +2,7 @@
 // buffer (last 500 messages, kept whether or not the session records).
 // Names and paging follow chrome-devtools-mcp's list_console_messages /
 // get_console_message (docs/08 §5): `--types`, `--page-size` / `--page-idx`
-// (100 per page by default, `--page-size 0`: every buffered message), `--include-stack-traces`.
+// (30 per page by default, `--page-size 0`: every buffered message), `--include-stack-traces`.
 
 import { TabcapError } from "../../shared/envelope.ts";
 import { atLeast, CONSOLE_TYPES, isLevel, whereOf, type StoredConsole } from "../capture/console.ts";
