@@ -1,3 +1,9 @@
+/**
+ * @license
+ * Copyright 2025 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Drives the post-action wait (tools/postwait.ts) over CDP, and the
 // `--snapshot` option of the interactive commands (docs/08 §5). Runs inside
 // the command's tab job (Tabs.run), so the command timeout bounds it and a
@@ -6,6 +12,13 @@
 // frameRequestedNavigation / frameNavigated (navigation started),
 // Page.loadEventFired / frameStoppedLoading (finished), dialog openings; the
 // DOM check is a page-side MutationObserver (observes, changes nothing).
+//
+// Reimplemented after chrome-devtools-mcp's WaitForHelper
+// (src/utils/WaitForHelper.ts, commit e9000381f414bf5fd5fb83a9164fabfb8e0987b3,
+// read 2026-10-15; Apache-2.0, see NOTICE). Modifications for tabcap: the wait
+// is driven by raw CDP events through the pure state machine in
+// tools/postwait.ts instead of Puppeteer's waitForNavigation, and a JavaScript
+// dialog ends it at once.
 
 import { isRecord, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
