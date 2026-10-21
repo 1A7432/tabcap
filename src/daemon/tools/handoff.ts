@@ -4,6 +4,7 @@ import { TabcapError } from "../../shared/envelope.ts";
 import { handoffView } from "../guard.ts";
 import type { Daemon } from "../state.ts";
 import { optNum, optStr, type Args } from "./args.ts";
+import { redactUrl } from "./liveredact.ts";
 import { saveSiteSession } from "./session.ts";
 
 export async function handoffStatus(d: Daemon, _a: Args, session: string): Promise<unknown> {
@@ -17,7 +18,7 @@ export async function handoffStatus(d: Daemon, _a: Args, session: string): Promi
     others: d.guard
       .all()
       .filter((x) => x.session !== session && x.state === "waiting")
-      .map((x) => ({ session: x.session, state: x.state, reason: x.reason, url: x.url })),
+      .map((x) => ({ session: x.session, state: x.state, reason: x.reason, url: redactUrl(x.url, { scrub: (s) => d.secrets.scrub(s) }) })),
   };
 }
 

@@ -519,6 +519,30 @@ describe("the fetch flow (fake browser)", () => {
     ]);
   });
 
+  test("review 2026-10-21: a json: end / stop rule on a sensitive name shows <redacted:name> in end.detail / stopped.detail and the message unless reveal; the guard events keep the value", async () => {
+    const { d, rec, b } = await fetchHome(ORIGIN, (u) => ({ status: 200, body: u.includes("end") ? '{"sid":"sid-END-42"}' : '{"auth":{"token":"tok-STOP-41"}}' }));
+    const c = rec.cmdStart({ tab: null, argv: null, input: {} });
+    const end = await fetchRun(d, b, { url: "/api/end", endOn: ["json:$.sid!=x"] }, "s1", { cmd: c });
+    expect(isRecord(end) && end["end"]).toEqual({ rule: "json:$.sid!=x", detail: "$.sid is <redacted:sid>" });
+    const endR = await fetchRun(d, b, { url: "/api/end", endOn: ["json:$.sid!=x"], reveal: true }, "s1", { cmd: c });
+    expect(isRecord(endR) && endR["end"]).toEqual({ rule: "json:$.sid!=x", detail: '$.sid is "sid-END-42"' });
+    const err = await fetchRun(d, b, { url: "/api/stop", stopOn: ["json:$.auth.token!=x"] }, "s1", { cmd: c }).catch((e: unknown) => e);
+    expect(err instanceof TabcapError && err.code).toBe("fetch.stopped");
+    if (!(err instanceof TabcapError)) return;
+    expect(err.extra).toMatchObject({ rule: "json:$.auth.token!=x", detail: "$.auth.token is <redacted:token>" });
+    expect(isRecord(err.extra["result"]) && err.extra["result"]["stopped"]).toEqual({ rule: "json:$.auth.token!=x", detail: "$.auth.token is <redacted:token>" });
+    expect(err.message).toContain("($.auth.token is <redacted:token>)");
+    expect(err.message).not.toContain("tok-STOP-41");
+    expect(guardResume(d, { site: "127.0.0.1:9" }, "s1")).toMatchObject({ resumed: true });
+    const errR = await fetchRun(d, b, { url: "/api/stop", stopOn: ["json:$.auth.token!=x"], reveal: true }, "s1", { cmd: c }).catch((e: unknown) => e);
+    expect(errR instanceof TabcapError && errR.extra["detail"]).toBe('$.auth.token is "tok-STOP-41"');
+    await rec.stop();
+    const guard = readFileSync(join(rec.dir, "events.jsonl"), "utf8").trim().split("\n").map((l): unknown => JSON.parse(l)).filter(isRecord).filter((e) => e["kind"] === "guard");
+    const details = guard.map((g) => (isRecord(g["detail"]) ? g["detail"]["detail"] : null));
+    expect(details).toContain('$.sid is "sid-END-42"');
+    expect(details).toContain('$.auth.token is "tok-STOP-41"');
+  });
+
   test("bodies over 8 KB go to bodyFile (scrubbed); rawBody returns base64; --out writes the given file", async () => {
     const big = JSON.stringify({ pad: "x".repeat(9000) });
     const { d, rec, b } = await fetchHome(ORIGIN, (u) => ({ status: 200, body: u.includes("big") ? big : '{"s":"hello"}' }));

@@ -1,5 +1,5 @@
 // Live output redaction (0.6-E, docs/04 §8.3): the `bundle redact` name rule
-// (default@2, src/bundle/redact.ts) applied to what the daemon prints, not to
+// (docs/04 §8, src/bundle/redact.ts) applied to what the daemon prints, not to
 // what it records. The bundle stays the evidence (request events unchanged);
 // HAR export redacts as before. Shown as `<redacted:<name>>`:
 //   headers  the value of a header that bundle/redact.ts isSensitiveHeaderName
@@ -10,6 +10,8 @@
 //   URLs     query parameters with a sensitive name (the rest of the URL as is)
 //   bodies   form fields and JSON keys (any depth) with a sensitive name, in a
 //            request body text (net show postData)
+//   details  a json: stop / end rule's `$.path is value` when the path's last
+//            name is sensitive (fetch end / stopped, handoff detail; 2026-10-21)
 // A value that is, as a whole, a known store secret keeps its
 // `<secret:site.field>` placeholder (docs/04 §8.1), which the envelope
 // scrubber writes; `--reveal` (the human asked) skips this redaction, never
@@ -91,6 +93,31 @@ export function redactFlatHeaders(h: Readonly<Record<string, string>>, c: LiveCt
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(h)) out[k] = redactHeaderValue(k, v, c);
   return out;
+}
+
+/** `$.a.b[0].c is <value>`: the detail of a json: stop / end rule (fetch/stoprules.ts firstStop). */
+const RULE_DETAIL = /^(\$\S*) is ([\s\S]+)$/;
+
+/**
+ * A stop / end rule's detail as printed (fetch end / stopped, handoff detail, guard.stopped): a json:
+ * rule's value shows as <redacted:name> when the path's last name is sensitive (an index takes its
+ * array field's name: `$.tokens[0]` → tokens); every other detail (status, empty body, text match,
+ * `no value`) as it is.
+ */
+export function redactRuleDetail(detail: string, c: LiveCtx): string {
+  const m = RULE_DETAIL.exec(detail);
+  if (m === null || m[1] === undefined || m[2] === undefined || m[2] === "no value") return detail;
+  const name = [...m[1].matchAll(/\.([A-Za-z0-9_$-]+)/g)].at(-1)?.[1];
+  if (name === undefined || !isSensitiveName(name)) return detail;
+  let value = m[2];
+  try {
+    const v: unknown = JSON.parse(value);
+    if (typeof v === "string") value = v;
+  } catch {
+    // truncated (show() cuts at 120 characters) or not JSON: masked whole
+  }
+  const shown = mask(name, value, c);
+  return shown === value ? detail : `${m[1]} is ${shown}`;
 }
 
 /** A command answer whose top-level `url` (a string) is shown with sensitive query parameters redacted. */
