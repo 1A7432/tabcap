@@ -25,6 +25,7 @@ import {
 import { logOffset, logSince, nestedSandboxError, sandboxFailed } from "../transport/direct/sandbox-check.ts";
 import { optBool, optStr, optStrList, type Args } from "./args.ts";
 import { withoutUrlCredentials } from "../../shared/launchargs.ts";
+import { stopTrace } from "./trace.ts";
 
 /** Review 10-21: the browser info as `browser start` / `browser status` answer it, URL values without their userinfo. */
 function shownInfo(info: BrowserInfo): BrowserInfo {
@@ -183,6 +184,9 @@ export async function browserStop(d: Daemon): Promise<unknown> {
   if (b === null) return { stopped: false, running: false };
   // Owner 10-21 (as Daemon.browserGone): the handoffs end with the browser, their event before the recordings finish.
   d.guard.drop(null, "browser-gone");
+  // Review 10-21: trace mode ends with the browser (it was left in d.tracers); as at session stop,
+  // before the recordings finish, so what it saw still reaches them.
+  for (const name of [...d.tracers.keys()]) await stopTrace(d, name, "browser stop");
   const bundles: string[] = [];
   for (const [name, r] of d.recorders) {
     const res = await r.stop();
