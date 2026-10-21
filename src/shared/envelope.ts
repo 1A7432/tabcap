@@ -28,7 +28,19 @@ export type ErrorCode =
   | "fetch.stopped" // this fetch's response tripped a stop rule (it is recorded; the site is now stopped)
   | "fetch.blocked" // the page's CORS rules blocked this fetch (the console reason is attached)
   | "ext.no-context" // ext mode cannot give this account its own browser context (proxy-bound, or a second account): use the direct mode
+  | "daemon-version" // the daemon runs another tabcap version than this CLI: restart it (RESTART_DAEMON)
   | "internal"; // bug
+
+/** How to get a daemon that runs the installed version (after `tabcap update`, and on `daemon-version`). */
+export const RESTART_DAEMON = "tabcap daemon stop && tabcap daemon start";
+
+/**
+ * Owner 10-21: the CLI's version, sent in every POST /command body, differs from the daemon's.
+ * `extra` names both, so a script can tell which side is behind.
+ */
+export function daemonVersionFail(daemon: string, cli: string): FailEnvelope {
+  return fail("daemon-version", `the daemon runs tabcap ${daemon}, this CLI is tabcap ${cli}`, `Restart the daemon so it runs this CLI's version: \`${RESTART_DAEMON}\` (that also stops its browser and finishes its recordings).`, { daemonVersion: daemon, cliVersion: cli });
+}
 
 export interface OkEnvelope<T> {
   ok: true;

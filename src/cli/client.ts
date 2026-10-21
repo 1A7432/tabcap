@@ -6,7 +6,8 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { TabcapError, fail, type Envelope } from "../shared/envelope.ts";
+import { TOOL_VERSION } from "../bundle/manifest.ts";
+import { RESTART_DAEMON, TabcapError, fail, type Envelope } from "../shared/envelope.ts";
 import { envVar } from "../shared/env.ts";
 import { isRecord } from "../shared/json.ts";
 import { daemonEndpoint, paths as currentPaths, type Endpoint, type Paths } from "../shared/paths.ts";
@@ -43,7 +44,7 @@ async function request(paths: Paths, path: string, init: RequestInit, timeoutMs:
 }
 
 export function send(paths: Paths, action: string, args: Record<string, unknown>, session: string, argv: string[], timeoutMs: number): Promise<Envelope<unknown>> {
-  return request(paths, "/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, args, session, argv }) }, timeoutMs + 10_000);
+  return request(paths, "/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, args, session, argv, version: TOOL_VERSION }) }, timeoutMs + 10_000);
 }
 
 export function status(paths: Paths): Promise<Envelope<unknown>> {
@@ -74,7 +75,13 @@ function alive(pid: number): boolean {
 
 export async function startDaemon(paths: Paths): Promise<unknown> {
   const st = await status(paths);
-  if (st.ok) return { started: false, alreadyRunning: true, ...(isRecord(st.data) ? st.data : {}), log: paths.logFile };
+  if (st.ok) {
+    const data = isRecord(st.data) ? st.data : {};
+    // Owner 10-21: a daemon left running from another version ignores flags it does not know.
+    const v = data["version"];
+    const behind = typeof v === "string" && v !== TOOL_VERSION ? { next: `The running daemon is tabcap ${v.slice(0, 64)}, this CLI is tabcap ${TOOL_VERSION}: run \`${RESTART_DAEMON}\` (that also stops its browser and finishes its recordings).` } : {};
+    return { started: false, alreadyRunning: true, ...data, log: paths.logFile, ...behind };
+  }
   mkdirSync(paths.config, { recursive: true, mode: 0o700 });
   const fd = openSync(paths.logFile, "a", 0o600);
   const [cmd, ...rest] = selfCommand();

@@ -20,6 +20,8 @@
 
 为什么薄扩展：未打包扩展每次改都要去 `chrome://extensions` 重载，守护进程只是个进程；所有 CDP 事件只经过一处，录制器和分析在同一进程；兼容端点几乎免费（§2）；与 Playwright 的做法一致，可直接抄。代价是每条命令多一跳本机 WebSocket【推断：亚毫秒】。
 
+**CLI 与守护进程之间**：一个 HTTP 监听（POSIX 上 0600 的 Unix 套接字，Windows 上回环 TCP + `daemon.json` 里每次启动的 bearer token），路由 `POST /command {action, args, session, argv, version}`、`POST /fetch`（§8）、`GET /status`。**版本握手**（10-21 作者定）：CLI（MCP 服务在进程内调 CLI，走同一条路）的 `/command` 请求体带自己的 `version`；与守护进程的版本不同时守护进程什么都不做，回 `daemon-version`（`message` 写两边的版本，另带 `daemonVersion` / `cliVersion`，`next` 是 `tabcap daemon stop && tabcap daemon start`，与 `tabcap update` 装完后的提示同一句）。`daemon.shutdown` 从不拒（重启靠它）；不带 `version` 的请求（`POST /fetch`、脚本）不比。`daemon start` 遇到已在跑、版本不同的守护进程时回答照旧 `alreadyRunning:true`，多一句同样的 `next`。【已知限制】更早的守护进程不认 `version`，新 CLI 连它时仍会静默（新开关被忽略），只有 `daemon start` 的比较能提醒。
+
 ### 1.1 `direct` 模式的启动与挂接协议（10-15 spike 1，Chrome for Testing 155，全部【实测】除非另注）
 
 启动参数：

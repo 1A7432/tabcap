@@ -8,7 +8,7 @@
 
 import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import { TabcapError } from "../shared/envelope.ts";
+import { RESTART_DAEMON, TabcapError } from "../shared/envelope.ts";
 import { envVar } from "../shared/env.ts";
 import { isRecord } from "../shared/json.ts";
 import { paths } from "../shared/paths.ts";
@@ -171,7 +171,7 @@ export async function cmdUpdate(args: Record<string, unknown>): Promise<unknown>
 async function installedNext(latest: string): Promise<string> {
   const running = (await daemonPing(paths())).ok;
   return running
-    ? `Installed ${latest}. The daemon still runs the old binary: run \`tabcap daemon stop && tabcap daemon start\`. ${BROWSER_CLAUSE}`
+    ? `Installed ${latest}. The daemon still runs the old binary: run \`${RESTART_DAEMON}\`. ${BROWSER_CLAUSE}`
     : `Installed ${latest}; the next tabcap command runs it. ${BROWSER_CLAUSE}`;
 }
 

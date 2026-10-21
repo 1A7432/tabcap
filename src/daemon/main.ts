@@ -9,7 +9,7 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { TOOL_VERSION } from "../bundle/manifest.ts";
-import { TabcapError, fail, ok, toFail, type Envelope, type FailEnvelope } from "../shared/envelope.ts";
+import { TabcapError, daemonVersionFail, fail, ok, toFail, type Envelope, type FailEnvelope } from "../shared/envelope.ts";
 import { envVar } from "../shared/env.ts";
 import { isRecord } from "../shared/json.ts";
 import { log } from "../shared/log.ts";
@@ -70,6 +70,13 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   if (action === "daemon.shutdown") {
     setTimeout(shutdown, 50);
     return ok({ stopping: true, pid: process.pid });
+  }
+  // Owner 10-21 (docs/07 §1): a CLI of another version would have its new flags ignored here; it says its
+  // version, the daemon refuses (shutdown above never is: that is the restart). No version (POST /fetch, scripts): no check.
+  const cli = typeof body["version"] === "string" ? body["version"].slice(0, 64) : null;
+  if (cli !== null && cli !== TOOL_VERSION) {
+    log.info("command refused: another version", { action, cli });
+    return daemonVersionFail(TOOL_VERSION, cli);
   }
   if (action === "daemon.status") return markFetchAuth(d, ok(statusData(d)));
   // 0.7-B: read-only and daemon-wide, so it opens no cmd window and is never refused while a session waits.
