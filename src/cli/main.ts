@@ -1,6 +1,8 @@
-// tabcap command line. Only argument parsing and printing live here; every
-// command prints exactly one JSON envelope on stdout (docs/03 §5 接口), except
-// `--help`, which prints text. Browser commands are forwarded to the daemon.
+// tabcap command line. Only argument parsing, dispatch and printing live here;
+// every command prints exactly one JSON envelope on stdout (docs/03 §5 接口),
+// except `--help`, which prints text. argv is parsed with the command registry
+// (commands.ts); what each command does is in the handler table (handlers.ts);
+// browser commands are forwarded to the daemon.
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -15,18 +17,12 @@ import { readConfig, readConfigWarnings, writeConfig } from "../shared/config.ts
 import { envVar } from "../shared/env.ts";
 import { isRecord, oneOf } from "../shared/json.ts";
 import { paths } from "../shared/paths.ts";
-import { runDaemon } from "../daemon/main.ts";
 import { binaryVersion, downloadCft } from "../daemon/transport/direct/cft.ts";
 import { hostPlatform, type CftPlatform } from "../daemon/transport/direct/launcher.ts";
-import { daemonStatus, send, startDaemon, status as daemonPing, stopDaemon } from "./client.ts";
+import { send, status as daemonPing } from "./client.ts";
 import { runAnalyze } from "./analyze.ts";
 import { listBundles, openRecordings, pruneBundles, renderBundleListText } from "./bundles.ts";
-import { renderWhereText, whereResultOf } from "../analyze/where.ts";
 import { runReplay } from "./replay.ts";
-import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts";
-import { pluginInit } from "./plugin-init.ts";
-import { cmdUpdate } from "./update.ts";
-import { accountAdd, accountBind, accountList, accountRemove, accountSetState, proxyAdd, proxyCheck, proxyList, proxyRemove, proxySetState } from "./pool.ts";
 import { Store, storePath } from "../daemon/store/db.ts";
 import { Secrets, variantsOf } from "../daemon/secrets.ts";
 import { decodeBundle } from "../bundle/decode.ts";
@@ -36,22 +32,17 @@ import { bundleRules } from "./replay.ts";
 import { DecodeHost, DecodeSession, type DecodePlugin } from "../daemon/hooks/decode.ts";
 import { asDecodePlugin, asFixturePlugin, decodePlugins, listPlugins, pluginsDir } from "../daemon/hooks/plugins.ts";
 import type { FixturePlugin } from "../daemon/hooks/fixture.ts";
-import { BUNDLE_USAGE, COMMANDS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, flagNames, helpAll, helpFor, helpTopic, matchCommand, unknownCommandNext, parseCommand, schema, specOf, spellingsOf, usageOf, type CommandSpec } from "./commands.ts";
+import { BUNDLE_USAGE, COMMANDS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, flagNames, helpAll, helpFor, helpTopic, matchCommand, unknownCommandNext, parseCommand, specOf, spellingsOf, type CommandSpec } from "./commands.ts";
 import { applyFilters, filterOptions, hasFilters, type FilterOptions } from "../shared/filter.ts";
 import { applyBudget, outputLimit } from "../shared/budget.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
-import { renderTraceText } from "../daemon/trace/table.ts";
-import { offlineStatus, renderStatusText } from "../daemon/tools/status.ts";
-import { renderFingerprintText } from "../fingerprint/fields.ts";
-import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
-import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
-import { renderWireText, wireResultOf } from "../wire/probe.ts";
 import type { RunOptions } from "../mcp/tools.ts";
-import { hostConfig } from "../mcp/hosts.ts";
-import { fetchArgs, fetchClientTimeout } from "./fetch.ts";
-import { guideList, guideOf, renderGuideListText, renderGuideText } from "./guides.ts";
+import { handlerOf, handlerTable, type Ctx, type Outcome, type Sent } from "./handlers.ts";
 
 const USAGE = BUNDLE_USAGE;
+
+/** What the CLI does for each command (src/cli/handlers.ts); `setup` and `run` live here. */
+export const HANDLERS = handlerTable({ run, setup: cmdSetup });
 
 type Parsed = { positional: string[]; flags: Map<string, string | true>; repeated: Map<string, string[]> };
 
@@ -334,183 +325,33 @@ async function cmdSetup(args: Record<string, unknown>): Promise<unknown> {
   return { ...r, platform: plat, config: p.configFile, warnings: readConfigWarnings(p.configFile) };
 }
 
-async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly string[], opts: RunOptions): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {
+async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly string[], opts: RunOptions): Promise<Outcome> {
   const parsed = parseCommand(c, argv);
   if (parsed.help) {
     const text = helpFor(c);
     return { code: 0, envelope: ok({ help: text }), text };
   }
   const key = c.path.join(" ");
-  const p = paths();
-  let data: unknown;
-  switch (key) {
-    case "guide": {
-      // 0.7-A: task guides from the registry in guides.ts; --text renders them for a human or a shell.
-      const id = typeof parsed.args["id"] === "string" ? parsed.args["id"] : null;
-      const text = parsed.args["text"] === true;
-      if (id === null) {
-        const list = guideList();
-        return text ? { code: 0, envelope: ok(list), text: renderGuideListText() } : { code: 0, envelope: ok(list) };
-      }
-      const g = guideOf(id);
-      return text ? { code: 0, envelope: ok(g), text: renderGuideText(g) } : { code: 0, envelope: ok(g) };
-    }
-    case "setup":
-      data = await cmdSetup(parsed.args);
-      break;
-    case "update":
-      data = await cmdUpdate(parsed.args);
-      break;
-    case "daemon start":
-      // Store permission problems surface here, not as a daemon that never comes up.
-      Store.open(p.config).close();
-      data = await startDaemon(p);
-      break;
-    case "site add":
-      data = await siteAdd(p, parsed.args);
-      break;
-    case "site list":
-      data = siteList(p);
-      break;
-    case "site remove":
-      data = siteRemove(p, parsed.args);
-      break;
-    case "proxy add":
-      data = await proxyAdd(p, parsed.args);
-      break;
-    case "proxy list":
-      data = proxyList(p);
-      break;
-    case "proxy remove":
-      data = proxyRemove(p, parsed.args);
-      break;
-    case "proxy check":
-      data = await proxyCheck(p, parsed.args);
-      break;
-    case "proxy set-state":
-      data = proxySetState(p, parsed.args);
-      break;
-    case "account add":
-      data = await accountAdd(p, parsed.args);
-      break;
-    case "account remove":
-      data = await accountRemove(p, parsed.args);
-      break;
-    case "account bind":
-      data = accountBind(p, parsed.args);
-      break;
-    case "account list":
-      data = accountList(p, parsed.args);
-      break;
-    case "account set-state":
-      data = accountSetState(p, parsed.args);
-      break;
-    case "plugin list":
-      data = pluginList(p);
-      break;
-    case "plugin enable":
-      data = pluginSet(p, parsed.args, true);
-      break;
-    case "plugin disable":
-      data = pluginSet(p, parsed.args, false);
-      break;
-    case "plugin init":
-      data = pluginInit(p.config, parsed.args, process.cwd());
-      break;
-    case "fingerprint serve":
-      return await fingerprintServe(p, parsed.args);
-    case "fingerprint ref list":
-      data = fingerprintRefList(p);
-      break;
-    case "fingerprint ref show":
-      data = fingerprintRefShow(p, parsed.args);
-      break;
-    case "fingerprint ref remove":
-      data = fingerprintRefRemove(p, parsed.args);
-      break;
-    case "fingerprint diff": {
-      const r = fingerprintDiff(p, parsed.args);
-      return parsed.args["text"] === true ? { code: 0, envelope: ok(r), text: renderFingerprintText(r) } : { code: 0, envelope: ok(r) };
-    }
-    case "daemon stop":
-      data = await stopDaemon(p);
-      break;
-    case "daemon status":
-      data = await daemonStatus(p);
-      break;
-    case "daemon run":
-      await runDaemon(p);
-      return { code: -1, envelope: ok({ running: true }) };
-    case "mcp": {
-      if (typeof parsed.args["printConfig"] === "string") {
-        data = hostConfig(parsed.args["printConfig"]);
-        break;
-      }
-      // stdout belongs to the protocol from here on; serveStdio exits the process when stdin closes.
-      const { serveStdio } = await import("../mcp/server.ts");
-      await serveStdio(async (a, o) => (await run(a, o)).envelope, parsed.args["allTools"] === true ? "all" : "core");
-      return { code: -1, envelope: ok({ stopped: true }) };
-    }
-    case "schema":
-      if (parsed.args["json"] === true) return { code: 0, envelope: ok(schema()), text: JSON.stringify(schema(), null, 2) };
-      data = schema();
-      break;
-    case "wire serve":
-      return await wireServe(p, parsed.args);
-    case "wire version":
-      data = await wireVersion(p);
-      break;
-    case "wire ca-path":
-      data = wireCaPath(p);
-      break;
-    default: {
-      if (c.action === undefined) throw new TabcapError("internal", `no handler for ${key}`, "This is a bug.");
-      // `opts`: an MCP tool's session / timeout for a command without the flag (src/mcp/tools.ts).
-      const session = parsed.session ?? opts.session ?? envVar("SESSION") ?? "default";
-      let timeout = typeof parsed.args["timeoutMs"] === "number" ? parsed.args["timeoutMs"] : (opts.timeoutMs ?? 30_000);
-      let args = withLocalPaths(c, parsed.args, process.cwd());
-      // 0.6-A `fetch`: @files and --batch are read here; a batch waits for all its requests.
-      if (key === "fetch") {
-        args = fetchArgs(args, process.cwd());
-        timeout = fetchClientTimeout(args, timeout);
-      }
-      const env = await send(p, c.action, args, session, [...raw], timeout);
-      if (key === "fetch" && env.ok && isRecord(env.data) && Array.isArray(env.data["batch"])) {
-        const lines = env.data["batch"];
-        const failed = lines.some((l) => !isRecord(l) || l["ok"] !== true);
-        return { code: failed ? 1 : 0, envelope: env, text: lines.map((l) => JSON.stringify(l)).join("\n") };
-      }
-      const code = env.ok ? 0 : env.error.code === "usage" ? 2 : 1;
-      // 0.7-B `status`: without a daemon it still answers (what the CLI can read itself); `--text` is rendered here.
-      if (key === "status") {
-        const st = !env.ok && env.error.code === "not-running" ? ok(offlineStatus(p.config, p.listener)) : env;
-        const stCode = st.ok ? 0 : code;
-        return parsed.args["text"] === true && st.ok ? { code: stCode, envelope: st, text: renderStatusText(st.data) } : { code: stCode, envelope: st };
-      }
-      // `where --text`: the daemon answers JSON as always; the human report is rendered here.
-      if (key === "where" && parsed.args["text"] === true && env.ok) {
-        const r = whereResultOf(env.data);
-        const saved = isRecord(env.data) && isRecord(env.data["saved"]) ? env.data["saved"] : null;
-        const seqs = saved !== null && Array.isArray(saved["seqs"]) ? saved["seqs"].length : 0;
-        if (r !== null) return { code, envelope: env, text: renderWhereText(r) + (saved === null ? "" : `\nwrote ${seqs} finding event(s) to ${String(saved["bundle"] ?? "")}`) };
-      }
-      // `recon --text`: the Markdown dossier the daemon wrote next to the JSON one.
-      if (key === "recon" && parsed.args["text"] === true && env.ok && isRecord(env.data) && typeof env.data["markdown"] === "string") {
-        return { code, envelope: env, text: readFileSync(env.data["markdown"], "utf8").trimEnd() };
-      }
-      // `trace list --text`: the report is rendered here from the daemon's JSON.
-      if (key === "trace list" && parsed.args["text"] === true && env.ok) return { code, envelope: env, text: renderTraceText(env.data) };
-      // `fingerprint probe --text`: the table is rendered here from the daemon's JSON.
-      if (key === "fingerprint probe" && parsed.args["text"] === true && env.ok) return { code, envelope: env, text: renderFingerprintText(env.data) };
-      // `wire probe --text`: the tabcap-wire/0 result as a table.
-      if (key === "wire probe" && parsed.args["text"] === true && env.ok) {
-        const r = wireResultOf(env.data);
-        if (r !== null) return { code, envelope: env, text: renderWireText(r) };
-      }
-      return { code, envelope: env };
-    }
+  const h = handlerOf(HANDLERS, key) ?? {};
+  const ctx: Ctx = { spec: c, args: parsed.args, paths: paths(), cwd: process.cwd() };
+  if (c.action === undefined) {
+    if (h.run === undefined) throw new TabcapError("internal", `no handler for ${key}`, "This is a bug.");
+    return await h.run(ctx);
   }
-  return { code: 0, envelope: ok(data) };
+  // `opts`: an MCP tool's session / timeout for a command without the flag (src/mcp/tools.ts).
+  const session = parsed.session ?? opts.session ?? envVar("SESSION") ?? "default";
+  const timeoutMs = typeof parsed.args["timeoutMs"] === "number" ? parsed.args["timeoutMs"] : (opts.timeoutMs ?? 30_000);
+  const first: Sent = { args: withLocalPaths(c, parsed.args, ctx.cwd), timeoutMs };
+  const sent = h.prepare === undefined ? first : h.prepare(first, ctx);
+  const answer = await send(ctx.paths, c.action, sent.args, session, [...raw], sent.timeoutMs);
+  const env = !answer.ok && h.fallback !== undefined ? (h.fallback(answer, ctx) ?? answer) : answer;
+  if (env.ok && h.output !== undefined) {
+    const out = h.output(env);
+    if (out !== null) return out;
+  }
+  const code = env.ok ? 0 : env.error.code === "usage" ? 2 : 1;
+  const text = env.ok && parsed.args["text"] === true && h.render !== undefined ? h.render(env.data) : null;
+  return text === null ? { code, envelope: env } : { code, envelope: env, text };
 }
 
 /**
@@ -547,7 +388,6 @@ export function helpRequest(argv: readonly string[]): { code: number; text: stri
   return null;
 }
 
-type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
 type OutputOptions = { filters: FilterOptions; full: boolean; given: string[] };
 
 /**
