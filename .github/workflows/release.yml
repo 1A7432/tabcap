@@ -2,7 +2,10 @@
 # cross-compiled on Linux x64), package them, create a DRAFT GitHub release with
 # the packages, their .sha256 files and SHA256SUMS, and publish the five npm
 # packages (owner decision 2026-10-17: the tag push is the publish decision; the
-# GitHub release itself stays a draft the owner publishes by hand).
+# GitHub release itself stays a draft the owner publishes by hand). Since
+# 2026-10-21 (owner) ci.yml must already be green on the tagged commit: the gate
+# job checks that before anything is built, and the build also runs the
+# typecheck and the skill validation after the unit tests.
 # npm auth: the NPM_TOKEN secret when it is set (a granular publish token), else
 # npm trusted publishing (OIDC, no secret; configure the five packages on
 # npmjs.com with this repository and workflow file). Provenance comes with it.
@@ -28,8 +31,36 @@ defaults:
     shell: bash
 
 jobs:
+  # npm publishing cannot be undone, so a tag only publishes a commit whose ci.yml
+  # push run (main) has succeeded; a flake hunt (workflow_dispatch) does not count.
+  # The dry run (workflow_dispatch here) passes the gate without asking.
+  gate:
+    name: ci is green on this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: ci.yml succeeded on ${{ github.sha }}
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --event push --limit 20 --json databaseId,status,conclusion,url)"
+          echo "$runs" | jq -r '.[] | "\(.databaseId) \(.status) \(.conclusion) \(.url)"'
+          # gh lists the newest run first; that one decides.
+          # No run at all: ci.yml skips commits that touch only NOTES, the changelogs or docs/.
+          latest="$(echo "$runs" | jq -r 'if length == 0 then "no push run" else "\(.[0].status)/\(.[0].conclusion)" end')"
+          if [ "$latest" != "completed/success" ]; then
+            echo "::error::ci.yml on $GITHUB_SHA: $latest. Push the tag only after ci is green on this commit."
+            exit 1
+          fi
+          echo "ci.yml is green on $GITHUB_SHA"
+
   build:
     name: build (${{ matrix.target }})
+    needs: gate
     strategy:
       fail-fast: true
       matrix:
@@ -76,6 +107,10 @@ jobs:
           rm -rf .uv-warm
       - name: L0 unit tests
         run: bun test test/unit
+      - name: typecheck
+        run: bunx tsc --noEmit -p .
+      - name: skill validation
+        run: bun run validate:skill
       # The wire component (native/wireprint): release.ts cross-compiles the four
       # targets with Zig before `bun build --compile`, which embeds all four.
       - uses: mlugg/setup-zig@v2
@@ -154,7 +189,7 @@ jobs:
 
   npm:
     name: npm publish
-    needs: build
+    needs: [gate, build]
     if: startsWith(github.ref, 'refs/tags/v') || inputs.npm_dry_run
     runs-on: ubuntu-latest
     timeout-minutes: 15
