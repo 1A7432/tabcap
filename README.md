@@ -130,12 +130,12 @@ Several tools turn recorded browser traffic into something an agent can call: In
 
 Files: `~/.config/tabcap/` (config, credential store, plugins, socket, log), `~/.cache/tabcap/` (the browser), `~/.local/share/tabcap/` (screenshots, bundles). `XDG_*` is honoured on Linux; on Windows all three live under `%LOCALAPPDATA%\tabcap\`. `TABCAP_HOME` moves everything into one directory.
 
-Channels: npm (`tabcap` plus one package per platform, published from CI on a `v*` tag) the Homebrew tap [`1A7432/homebrew-tabcap`](https://github.com/1A7432/homebrew-tabcap) (CI pushes the formula, rendered from `packaging/homebrew/`, for every published release) and the release packages; a Scoop manifest is under `packaging/scoop/`, no bucket yet.
+Channels: npm (`tabcap` plus one package per platform, published from CI on a `v*` tag), the Homebrew tap [`1A7432/homebrew-tabcap`](https://github.com/1A7432/homebrew-tabcap) (CI pushes the formula, rendered from `packaging/homebrew/`, for every published release) and the release packages; a Scoop manifest is under `packaging/scoop/`, no bucket yet.
 
 ## Documentation
 
 - [`skills/tabcap/`](skills/tabcap/): the agent skill, `SKILL.md` and references for recording, search, analysis, replay, pools, MCP and tracing.
-- [`docs/`](docs/) (Chinese): the evidence bundle format (`04`), the local test pages (`05`), acceptance tests (`06`), architecture and CDP notes (`07`), implementation plan (`08`), recon (`09`), input fidelity (`10`), the wire fingerprint component (`11`), the comparison with similar tools (`12`), proxies and interop (`13`).
+- [`docs/`](docs/) (Chinese): the evidence bundle format (`04`), the local test pages (`05`), acceptance tests (`06`), architecture and CDP notes (`07`), implementation plan (`08`), recon (`09`), input fidelity (`10`), the wire fingerprint component (`11`), the comparison with similar tools (`12`), proxies and interop (`13`), protection families and their sources (`14`).
 - [`CHANGELOG.md`](CHANGELOG.md): changes per release.
 - Contributing: `AGENTS.md` (rules for AI collaborators), `NOTES.md` (one entry per unit of work; the last one is where the next starts), `docs/03` (thesis and roadmap). `bun test test/unit` runs the offline tests; `bun run test:e2e` needs a Chrome for Testing.
 
