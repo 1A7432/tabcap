@@ -5,11 +5,34 @@
 //   bun scripts/native.ts build --host             → only this machine's target (CI e2e jobs, dev runs)
 //   bun scripts/native.ts build --targets a,b      → these Zig targets
 // Release binaries: -Doptimize=ReleaseSafe -Dstrip=true, pure Zig (cross-compiles from any host).
+// Before any of them, `zig version` must have the major.minor of build.zig.zon's
+// minimum_zig_version (AGENTS.md: that file decides, no upgrade); another Zig exits 1
+// with one sentence and the next step instead of a compile error.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { NATIVE_SRC, NATIVE_TARGETS, hostTarget, isNativeTarget, type NativeTarget } from "../src/wire/targets.ts";
 import { buildTarget } from "../src/wire/build.ts";
 
 export const NATIVE_DIR = NATIVE_SRC;
+
+/** Pure: build.zig.zon's `.minimum_zig_version = "x.y.z"`, or null. */
+export function minimumZigVersion(zon: string): string | null {
+  return /^\s*\.minimum_zig_version\s*=\s*"([^"]+)"/m.exec(zon)?.[1] ?? null;
+}
+
+/** Pure: null when `have` (the output of `zig version`) has the major.minor of `need`, else the sentence to print. */
+export function zigVersionProblem(have: string, need: string): string | null {
+  const mm = (v: string) => /^(\d+)\.(\d+)\./.exec(v.trim());
+  const h = mm(have);
+  const n = mm(need);
+  if (n === null) return `build.zig.zon's minimum_zig_version ${JSON.stringify(need)} is not a version`;
+  const series = `${n[1]}.${n[2]}.x`;
+  const next = `install Zig ${need} (https://ziglang.org/download/) and put it first on PATH, or copy a built native/dist/ from another checkout (released tabcap binaries carry the component and need no Zig)`;
+  if (h === null) return `cannot read the Zig version from \`zig version\` (${JSON.stringify(have.trim())}); native/wireprint needs Zig ${series}: ${next}`;
+  if (h[1] === n[1] && h[2] === n[2]) return null;
+  return `zig on PATH is ${have.trim()}, native/wireprint needs Zig ${series} (build.zig.zon minimum_zig_version ${need}): ${next}`;
+}
 
 export const COMMANDS: Record<string, string[]> = {
   test: ["zig", "build", "test"],
@@ -35,6 +58,17 @@ if (import.meta.main) {
   if (Bun.which("zig") === null) {
     console.error("zig not found on PATH (native/wireprint needs Zig 0.16.0, see build.zig.zon)");
     process.exit(127);
+  }
+  const need = minimumZigVersion(readFileSync(join(NATIVE_DIR, "build.zig.zon"), "utf8"));
+  if (need === null) {
+    console.error("native/wireprint/build.zig.zon has no minimum_zig_version");
+    process.exit(1);
+  }
+  const version = Bun.spawnSync(["zig", "version"], { stdout: "pipe", stderr: "pipe" });
+  const problem = zigVersionProblem(version.exitCode === 0 ? version.stdout.toString() : "", need);
+  if (problem !== null) {
+    console.error(problem);
+    process.exit(1);
   }
   if (name === "build") {
     for (const t of buildTargets(process.argv.slice(3))) {
