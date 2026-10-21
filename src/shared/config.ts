@@ -1,13 +1,15 @@
 // ~/.config/tabcap/config.json: written by `tabcap setup`, read by the launcher
 // and the account / proxy pool. The file is user-editable, so it is parsed as
 // untrusted JSON; keys tabcap does not write itself (e.g. `pool`) survive a
-// rewrite by `tabcap setup`.
+// rewrite by `tabcap setup`. Review wave 3 (docs/04 §44): a file that exists
+// but is not a JSON object is an error on every path that reads it, never
+// the defaults; `tabcap setup` does not rewrite it.
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { writeFileAtomic } from "../bundle/manifest.ts";
 import { TabcapError } from "./envelope.ts";
-import { isRecord, str, tryParseJson } from "./json.ts";
+import { isRecord, jsonSyntaxErrorAt, lineColumn, str } from "./json.ts";
 import { BODIES_DEFAULT, parseBodiesMode, type BodiesMode } from "./bodies.ts";
 
 export type TabcapConfig = {
@@ -18,14 +20,42 @@ export type TabcapConfig = {
   webdriver: string | null;
 };
 
-function readRaw(file: string): Record<string, unknown> {
+/**
+ * The whole config.json as an object; an absent file is `{}`. A file that cannot be read, is not
+ * JSON (the message names the file and the line / column of the first syntax error) or is not an
+ * object is an error: nothing falls back to the defaults, and `writeConfig` rewrites nothing.
+ */
+export function readConfigRaw(file: string): Record<string, unknown> {
   if (!existsSync(file)) return {};
-  const raw = tryParseJson(readFileSync(file, "utf8"));
-  return isRecord(raw) ? raw : {};
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch (e) {
+    throw new TabcapError("io", `cannot read config.json: ${file}: ${e instanceof Error ? e.message : String(e)}`, "Check that it is a file you can read, or move it away.");
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    const reason = (e instanceof Error ? e.message : String(e)).replace(/^JSON Parse error: /, "");
+    const at = jsonSyntaxErrorAt(text);
+    const where = at === null ? null : lineColumn(text, at);
+    const pos = where === null ? "" : ` at line ${where.line}, column ${where.column}`;
+    throw new TabcapError(
+      "bad-input",
+      `config.json is not valid JSON${pos} (${reason}): ${file}`,
+      `Fix the file${where === null ? "" : ` at line ${where.line}, column ${where.column}`} (a trailing comma or a missing quote is the usual cause), or move it away to use the defaults; until then commands that read config.json refuse and \`tabcap setup\` does not rewrite it.`,
+    );
+  }
+  if (!isRecord(raw)) {
+    const what = raw === null ? "null" : Array.isArray(raw) ? "an array" : `a ${typeof raw}`;
+    throw new TabcapError("bad-input", `config.json must be a JSON object, not ${what}: ${file}`, 'Write the settings as one JSON object ({"fetch": {...}, "sites": {...}}), or move the file away to use the defaults.');
+  }
+  return raw;
 }
 
 export function readConfig(file: string): TabcapConfig {
-  const raw = readRaw(file);
+  const raw = readConfigRaw(file);
   const c = raw["chrome"];
   const chrome =
     isRecord(c) && str(c, "executablePath") !== null
@@ -34,10 +64,13 @@ export function readConfig(file: string): TabcapConfig {
   return { chrome, proxy: str(raw, "proxy"), webdriver: str(raw, "webdriver") };
 }
 
-/** Write `chrome` / `proxy` / `webdriver`, keeping every other key of the file (and of `chrome`, e.g. `args`) as it was. */
+/**
+ * Write `chrome` / `proxy` / `webdriver`, keeping every other key of the file (and of `chrome`, e.g. `args`)
+ * as it was. A file `readConfigRaw` refuses is left exactly as it is (the same error; no backup).
+ */
 export function writeConfig(file: string, cfg: TabcapConfig): void {
+  const raw = readConfigRaw(file);
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  const raw = readRaw(file);
   const oldChrome = isRecord(raw["chrome"]) ? raw["chrome"] : {};
   const chrome = cfg.chrome === null ? (raw["chrome"] ?? null) : { ...oldChrome, ...cfg.chrome };
   writeFileAtomic(file, JSON.stringify({ ...raw, ...cfg, chrome }, null, 2) + "\n");
@@ -49,7 +82,7 @@ export function writeConfig(file: string, cfg: TabcapConfig): void {
  * but a list of strings is an error (never silently ignored).
  */
 export function readChromeArgsConfig(file: string): { add: string[]; drop: string[] } {
-  const c = readRaw(file)["chrome"];
+  const c = readConfigRaw(file)["chrome"];
   const list = (key: string): string[] => {
     const v = isRecord(c) ? c[key] : undefined;
     if (v === undefined || v === null) return [];
@@ -141,7 +174,7 @@ export function parsePoolConfig(raw: unknown): PoolConfig {
 }
 
 export function readPoolConfig(file: string): PoolConfig {
-  return parsePoolConfig(readRaw(file)["pool"]);
+  return parsePoolConfig(readConfigRaw(file)["pool"]);
 }
 
 // ------------------------------------------------------------ fetch (0.6-A)
@@ -195,7 +228,7 @@ export function fetchConfigFrom(raw: Record<string, unknown>, site: string | nul
 }
 
 export function readFetchConfig(file: string, site: string | null): FetchConfig {
-  return fetchConfigFrom(readRaw(file), site);
+  return fetchConfigFrom(readConfigRaw(file), site);
 }
 
 // ------------------------------------------------------------ record (0.6-I)
@@ -210,7 +243,7 @@ export function recordBodiesFrom(raw: Record<string, unknown>): BodiesMode {
 }
 
 export function readRecordBodies(file: string): BodiesMode {
-  return recordBodiesFrom(readRaw(file));
+  return recordBodiesFrom(readConfigRaw(file));
 }
 
 // ------------------------------------------------------------ site guard (0.6-I)
@@ -265,7 +298,7 @@ export function siteGuardsFrom(raw: Record<string, unknown>): Map<string, SiteGu
 }
 
 export function readSiteGuards(file: string): Map<string, SiteGuardConfig> {
-  return siteGuardsFrom(readRaw(file));
+  return siteGuardsFrom(readConfigRaw(file));
 }
 
 // ------------------------------------------------------------ trace (0.6-L)
@@ -296,7 +329,7 @@ export function parseTraceConfig(raw: unknown, base: TraceConfig = TRACE_DEFAULT
 }
 
 export function readTraceConfig(file: string): TraceConfig {
-  return parseTraceConfig(readRaw(file)["trace"]);
+  return parseTraceConfig(readConfigRaw(file)["trace"]);
 }
 
 // ------------------------------------------------------------ handoff (0.7.1-A)
@@ -322,7 +355,7 @@ export function parseHandoffConfig(raw: unknown): HandoffConfig {
 }
 
 export function readHandoffConfig(file: string): HandoffConfig {
-  return parseHandoffConfig(readRaw(file)["handoff"]);
+  return parseHandoffConfig(readConfigRaw(file)["handoff"]);
 }
 
 // ------------------------------------------------------------ protection (0.8-A)
@@ -348,5 +381,5 @@ export function parseProtectionConfig(raw: unknown): ProtectionConfig {
 }
 
 export function readProtectionConfig(file: string): ProtectionConfig {
-  return parseProtectionConfig(readRaw(file)["protection"]);
+  return parseProtectionConfig(readConfigRaw(file)["protection"]);
 }

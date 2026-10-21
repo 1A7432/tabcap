@@ -1122,3 +1122,13 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **报错**：写错的路径整条拒绝，指出第几个字符（从 1 数，规则里从路径的 `$` 数起），例如 `[x] is not an index, [*] or a quoted key ["…"] at character 4 of the path`；命令行上的回 `usage`（`config.json` 里的坏规则照 §26 / 0.6-I 原有的处理），回放键规则回 `bad-input` 并指到 `rules[i].…`。`--select` 另有上限：≤ 256 字符、≤ 32 步。
 - **与以前比**：停手 / 结束规则与 `--business-code` 是严格的扩充（多了 `.*`、`[*]`、`["…"]` 与非 ASCII 名）；`--select` 多了 `$`、`.*` / `*` 通配与 `["…"]`，以前能写、现在要改写的只有三种：名里含 `=` 或 `!` 的（加引号）、名字恰好是 `*` 的（现在是通配，写 `["*"]`）、以 `$.` / `$[` 开头的（现在 `$` 是根，名为 `$` 的键写 `["$"]`）；回放键规则里 `.名` 以前一直读到下一个 `.` 或 `[`，现在名里有空白、`]`、`=`、`!` 的要写成 `["…"]`。
 - **验证**：单测 `test/unit/jsonpath.test.ts`（同一组表达式经 `--select`、停手规则、`--business-code`、回放键规则四处解析结果相同、写错的四处都拒绝并报位置；通配在三类使用处的语义）。
+
+## 44. `config.json` 的读法（审查第三波，作者 2026-10-21 批）
+
+`config.json`（`<config>/config.json`）是人手写的文件，按不可信输入读。以前文件存在却解析不出时整份当成 `{}`，各节的「写错的值报 `bad-input`、不悄悄替换」在这一层失效。
+
+- **读不出就报错**：文件存在但不是合法 JSON（多一个结尾逗号、少引号、开头带 BOM……）或顶层不是 JSON 对象时，每个读它的命令（`tabcap setup`、`browser start`、`net start`、`fetch`、`trace start`、`proxy check`、`replay serve` / `replay check`（含 `--live`）、`bundle export fixtures` 等）都回 `bad-input`，不回落默认值。`message` 写文件路径、第一个语法错误的行列（从 1 数）和解析器原话，例如 `config.json is not valid JSON at line 4, column 1 (Property name must be a string literal): /…/config.json`；`next` 说改那一处，或把文件挪走（没有文件就是默认值）。Bun 的 `JSON.parse` 只说错在哪一类、不给位置，行列由 `src/shared/json.ts` `jsonSyntaxErrorAt` 按 RFC 8259 再扫一遍得出（只在解析失败时）。读不了的（权限、是个目录）回 `io`。文件不存在仍是全部默认值。
+- **`tabcap setup` 不改写读不出的文件**：回同一个错误，先于 `--executable-path` 的检查与下载；不备份、不改写（以前会把整份覆写成只剩 `chrome` / `proxy` / `webdriver`，`sites`、`pool` 等全丢）。
+- **一个读取函数**：`src/shared/config.ts` `readConfigRaw`；回放键规则（`sites.<站点>.replay` 与 `replay`，§31）也经它读，以前自己解析一遍、坏文件时当没有规则。
+- **录制中改坏**：守护进程对每条录下的响应跑站点停手规则时文件读不出，照 0.6-I 原样只记日志、这条不查（§18 后的 0.6-I 段）；下一条读配置的命令照上面报错。
+- **验证**：`test/unit/config-strict.test.ts`（各条读取路径、行列、非对象、读不了、`writeConfig` 与 `setup` 不改写、`browser start` 不启动）。
