@@ -5,7 +5,7 @@ import { join, relative, sep } from "node:path";
 import { exportHar } from "../../src/bundle/har.ts";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { newManifest } from "../../src/bundle/manifest.ts";
-import { RULES_VERSION, isSensitiveName, nameWords, redactBundle, redactView } from "../../src/bundle/redact.ts";
+import { RULES_VERSION, isPlaceholder, isSensitiveName, nameWords, redactBundle, redactPairs, redactQueryPairs, redactView } from "../../src/bundle/redact.ts";
 import type { RawEvent } from "../../src/bundle/types.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { JWT, SECRET_SID, buildRichBundle } from "./_fixtures.ts";
@@ -245,5 +245,29 @@ describe("default@3: every event kind is walked (review 2026-10-21)", () => {
     const text = JSON.stringify(har.log._events ?? []);
     expect(text).toContain(`token=${ph(TOKEN)}`);
     for (const secret of [TOKEN, OTHER, "CONSOLESID77", "demo@example.com"]) expect([secret, text.includes(secret)]).toEqual([secret, false]);
+  });
+});
+
+describe("query pairs: one walk, the mask is the caller's (review 2026-10-21)", () => {
+  test("sensitive names (decoded) get mask(name, decoded value); everything else byte for byte; fragment kept", () => {
+    const seen: [string, string][] = [];
+    const mask = (name: string, value: string) => {
+      seen.push([name, value]);
+      return `<${name}>`;
+    };
+    expect(redactQueryPairs("https://h/a?token=t%201&page=2&api%5Fkey=k&bypass=y&=x&sid#f?token=z", mask)).toBe("https://h/a?token=<token>&page=2&api%5Fkey=<api_key>&bypass=y&=x&sid#f?token=z");
+    expect(seen).toEqual([
+      ["token", "t 1"],
+      ["api_key", "k"],
+    ]);
+    expect(redactQueryPairs("https://h/a", mask)).toBe("https://h/a");
+    expect(redactPairs("user=demo&password=hunter22&token=", mask)).toBe("user=demo&password=<password>&token=");
+  });
+
+  test("a value that already is a placeholder of either style stays, URL-encoded or not", () => {
+    for (const p of ["«r:secret:0123abcd»", "<redacted:token>", "<redacted:0123abcd>", "<secret:example.password>", "<masked>"]) expect([p, isPlaceholder(p)]).toEqual([p, true]);
+    for (const p of ["<redacted:x> and more", "r:secret", "secret"]) expect([p, isPlaceholder(p)]).toEqual([p, false]);
+    const url = "https://h/a?token=«r:secret:0123abcd»&sid=<redacted:sid>&pwd=%3Csecret%3Aexample.password%3E";
+    expect(redactQueryPairs(url, () => "X")).toBe(url);
   });
 });

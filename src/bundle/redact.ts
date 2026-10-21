@@ -118,12 +118,53 @@ function lightEncode(s: string): string {
   return s.replace(/[%&=#+ ]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0"));
 }
 
-function formDecode(s: string): string {
+/** A query / form name or value as text (`+` is a space); malformed escapes stay as they are. */
+export function formDecode(s: string): string {
   try {
     return decodeURIComponent(s.replace(/\+/g, " "));
   } catch {
     return s;
   }
+}
+
+/** A whole value that already is a placeholder: export `«r:…»`, live / analyze `<redacted:…>`, known secret `<secret:…>`, `<masked>`. */
+const PLACEHOLDER = /^(?:«r:[^»]*»|<redacted:[^>]*>|<secret:[^>]*>|<masked>)$/;
+
+/** Is this value already redacted (by any of the placeholders)? Then it is never masked again. */
+export function isPlaceholder(value: string): boolean {
+  return PLACEHOLDER.test(value);
+}
+
+/** How a caller shows a sensitive query / form value: gets the decoded name and value, returns the text to print. */
+export type PairMask = (name: string, value: string) => string;
+
+/**
+ * `k=v&…` (a query or a form body) with the value of every sensitive name (isSensitiveName, decoded)
+ * replaced by `mask(name, value)`; every other pair, an empty value and a value that already is a
+ * placeholder stay byte for byte. The one walk of live output (liveredact) and offline analysis
+ * (AnalyzeRedactor); export redaction (Redactor.formString) also scrubs the other values.
+ */
+export function redactPairs(text: string, mask: PairMask): string {
+  return text
+    .split("&")
+    .map((part) => {
+      const eq = part.indexOf("=");
+      if (eq <= 0) return part;
+      const name = formDecode(part.slice(0, eq));
+      if (!isSensitiveName(name)) return part;
+      const value = formDecode(part.slice(eq + 1));
+      return value === "" || isPlaceholder(value) ? part : `${part.slice(0, eq)}=${mask(name, value)}`;
+    })
+    .join("&");
+}
+
+/** A URL with its query's sensitive values masked (redactPairs); path, fragment and other parameters as they are. */
+export function redactQueryPairs(url: string, mask: PairMask): string {
+  const q = url.indexOf("?");
+  if (q < 0) return url;
+  const hash = url.indexOf("#", q);
+  const query = hash < 0 ? url.slice(q + 1) : url.slice(q + 1, hash);
+  return `${url.slice(0, q + 1)}${redactPairs(query, mask)}${hash < 0 ? "" : url.slice(hash)}`;
 }
 
 const UTF8 = new TextDecoder("utf-8", { fatal: true });

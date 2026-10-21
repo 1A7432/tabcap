@@ -20,13 +20,13 @@
 // test/e2e/v06e.e2e.test.ts (docs/05 s07: sid cookie, Authorization and,
 // since the one header test of 2026-10-21, x-csrf are redacted).
 
-import { isSensitiveHeaderName, isSensitiveName } from "../../bundle/redact.ts";
+import { isPlaceholder, isSensitiveHeaderName, isSensitiveName, redactPairs as redactPairsWith, redactQueryPairs } from "../../bundle/redact.ts";
 import { isRecord } from "../../shared/json.ts";
 import { optBool, type Args } from "./args.ts";
 
 export const redacted = (name: string): string => `<redacted:${name}>`;
 
-/** A whole value that the known-secret scrubber turns into one placeholder. */
+/** A whole value that the known-secret scrubber turns into one placeholder (the scrubber's output, not an input to skip). */
 const PLACEHOLDER_ONLY = /^(?:<secret:[A-Za-z0-9_.-]+>|<masked>)$/;
 
 /** Redaction context: `scrub` is the daemon's known-secret replacement (docs/04 §8.1). */
@@ -36,7 +36,7 @@ export type LiveCtx = { scrub: (s: string) => string };
 export const revealOf = (a: Args): boolean => optBool(a, "reveal");
 
 function mask(name: string, value: string, c: LiveCtx): string {
-  if (value === "" || value.startsWith("<redacted:")) return value;
+  if (value === "" || isPlaceholder(value)) return value;
   const s = c.scrub(value);
   return PLACEHOLDER_ONLY.test(s) ? s : redacted(name);
 }
@@ -126,34 +126,14 @@ export function withRedactedUrl<T>(v: T, c: LiveCtx): T | Record<string, unknown
   return { ...v, url: redactUrl(v["url"], c) };
 }
 
-function decodeName(raw: string): string {
-  try {
-    return decodeURIComponent(raw.replace(/\+/g, " "));
-  } catch {
-    return raw;
-  }
-}
-
-/** `k=v&…` with the values of sensitive names redacted; everything else byte for byte. */
+/** `k=v&…` with the values of sensitive names redacted; everything else byte for byte (bundle/redact.ts redactPairs). */
 export function redactPairs(text: string, c: LiveCtx): string {
-  return text
-    .split("&")
-    .map((part) => {
-      const eq = part.indexOf("=");
-      if (eq <= 0) return part;
-      const name = decodeName(part.slice(0, eq));
-      return isSensitiveName(name) ? `${part.slice(0, eq)}=${mask(name, decodeName(part.slice(eq + 1)), c)}` : part;
-    })
-    .join("&");
+  return redactPairsWith(text, (name, value) => mask(name, value, c));
 }
 
 /** A URL with sensitive query parameters redacted (path, fragment and other parameters as they are). */
 export function redactUrl(url: string, c: LiveCtx): string {
-  const q = url.indexOf("?");
-  if (q < 0) return url;
-  const hash = url.indexOf("#", q);
-  const query = hash < 0 ? url.slice(q + 1) : url.slice(q + 1, hash);
-  return `${url.slice(0, q + 1)}${redactPairs(query, c)}${hash < 0 ? "" : url.slice(hash)}`;
+  return redactQueryPairs(url, (name, value) => mask(name, value, c));
 }
 
 function redactJson(v: unknown, c: LiveCtx): { v: unknown; changed: boolean } {

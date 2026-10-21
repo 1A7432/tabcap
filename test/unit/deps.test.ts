@@ -299,11 +299,14 @@ describe("CLI", () => {
     expect(isRecord(cd) && cd["schema"]).toBe("tabcap-chain/0");
   });
 
-  test("0.7-E / 0.7.3: chain text keeps <redacted:access_token>; JSON redacts the value too unless --reveal", async () => {
+  test("0.7-E / 0.7.3: chain text redacts access_token (the analyze placeholder since 2026-10-21); JSON redacts the value too unless --reveal", async () => {
     const url = "https://sso.example.test/app/return?access_token=ST-77-secret&lang=zh";
     const res = { schema: "tabcap-chain/0" as const, bundle: "./b", target: "r-2", steps: [{ id: "r-2", method: "GET", url, provides: [], needs: [] }], todo: [], inputs: [], warnings: [] };
     const text = renderChainText(res);
-    expect(text).toContain("r-2 GET https://sso.example.test/app/return?access_token=<redacted:access_token>&lang=zh");
+    // offline analysis placeholder (analyze/redact.ts): <redacted:first 8 hex of sha256(value)>, no longer the live <redacted:name>
+    const sha8 = new Bun.CryptoHasher("sha256").update("ST-77-secret").digest("hex").slice(0, 8);
+    expect(text).toContain(`r-2 GET https://sso.example.test/app/return?access_token=<redacted:${sha8}>&lang=zh`);
+    expect(renderChainText(res, { reveal: true })).toContain(`r-2 GET ${url}`);
     expect(text).not.toContain("ST-77-secret");
     expect(res.steps[0]?.url).toBe(url);
 

@@ -13,6 +13,7 @@ import { parseFetchSpec } from "../../src/daemon/fetch/spec.ts";
 import { redactDossier } from "../../src/daemon/tools/recon.ts";
 import { requestDetail } from "../../src/daemon/tools/netshow.ts";
 import { isRecord } from "../../src/shared/json.ts";
+import { AnalyzeRedactor } from "../../src/analyze/redact.ts";
 
 const plain = { scrub: (s: string) => s };
 const store = new Secrets();
@@ -71,6 +72,13 @@ describe("URLs and bodies", () => {
     // ticket is not a sensitive name (owner 2026-10-17)
     expect(redactUrl("https://h/login/return?ticket=ST-1-abc&next=%2Fhome", plain)).toBe("https://h/login/return?ticket=ST-1-abc&next=%2Fhome");
     expect(redactUrl("https://h/a?&&=x&sid", plain)).toBe("https://h/a?&&=x&sid");
+  });
+
+  test("live and offline analysis share the query walk: an export placeholder or a live one is never masked again", () => {
+    const url = "https://h/a?token=«r:secret:0123abcd»&sid=<redacted:sid>&code=1";
+    expect(redactUrl(url, plain)).toBe(url);
+    expect(new AnalyzeRedactor().url(url)).toBe(url);
+    expect(new AnalyzeRedactor().url("https://h/a?token=t1&q=2")).toMatch(/^https:\/\/h\/a\?token=<redacted:[0-9a-f]{8}>&q=2$/);
   });
 
   test("form and JSON bodies: sensitive fields at any depth; untouched text stays as it was", () => {
