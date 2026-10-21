@@ -6,7 +6,7 @@ bundle (`tabcap net start` first), paced per host (config.json `fetch`, default 
 between requests) and checked against stop rules. Unix socket on macOS / Linux,
 loopback TCP + the daemon's bearer token on Windows (both read from daemon.json).
 
-    from _tabcap_fetch import TabcapFetch, Stopped, ListEnd
+    from _tabcap_fetch import TabcapFetch, Stopped, ListEnd, Waiting
     tc = TabcapFetch(session="example")
     status, headers, body = tc.fetch("https://example.test/api/list?page=2", stop_on=["json:$.code!=0"])
     for page in range(1, 1000):  # an end rule (config.json sites.<s>.guard.endOn, or end_on) ends the loop
@@ -15,6 +15,10 @@ loopback TCP + the daemon's bearer token on Windows (both read from daemon.json)
         except ListEnd:
             break
     status, headers, body = tc.fetch("https://api.example.test/v1/me", headers={"authorization": token}, credentials="omit")
+    try:
+        status, headers, body = tc.fetch("https://example.test/api/list?page=3")
+    except Waiting as w:  # the human took over the tab, or a verification page: tell them, then retry later
+        print(w.reason, w.next)
 """
 import base64
 import json
@@ -35,6 +39,17 @@ class ListEnd(Exception):
     def __init__(self, rule, detail, status, headers, content):
         super().__init__(f"end rule {rule} matched ({detail})")
         self.rule, self.detail, self.status, self.headers, self.content = rule, detail, status, headers, content
+
+
+class Waiting(Exception):
+    """The session waits for the human (tabcap 0.7.1 / review 10-21): they took over the tab (reason
+    "human-takeover") or a verification page is up ("verify-page" ...). Nothing was sent. It ends when the
+    human's agent runs `tabcap handoff continue` or a `tabcap handoff wait --until-*` condition holds; `next`
+    says how. Carries reason, next, session and url (sensitive query values redacted)."""
+
+    def __init__(self, message, reason, next, session, url):
+        super().__init__(message)
+        self.reason, self.next, self.session, self.url = reason, next, session, url
 
 
 def _config_dir() -> Path:
@@ -58,7 +73,8 @@ class TabcapFetch:
 
     def fetch(self, url, method="GET", headers=None, body=None, json_body=None, form=None, stop_on=None, timeout_ms=None, credentials=None, end_on=None):
         """-> (status, headers, bytes). Raises Stopped on fetch.stopped / guard.stopped, ListEnd when an end rule
-        (end_on, or config.json sites.<s>.guard.endOn) matched, RuntimeError on other errors.
+        (end_on, or config.json sites.<s>.guard.endOn) matched, Waiting while the session waits for the human
+        (waiting), RuntimeError on other errors.
 
         credentials: the page fetch()'s credentials mode, "include" (the daemon's default), "same-origin" or
         "omit" (no cookies: for an API that answers Access-Control-Allow-Origin: * and authenticates by a header).
@@ -74,6 +90,8 @@ class TabcapFetch:
             err = env.get("error") or {}
             if err.get("code") in ("fetch.stopped", "guard.stopped"):
                 raise Stopped(f"{err.get('code')}: {err.get('message')}")
+            if err.get("code") == "waiting":
+                raise Waiting(f"waiting: {err.get('message')}", err.get("reason"), err.get("next"), err.get("session"), err.get("url"))
             raise RuntimeError(f"{err.get('code')}: {err.get('message')} ({err.get('next')})")
         data = env["data"]
         if "bodyBase64" in data:
