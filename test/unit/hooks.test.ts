@@ -3,10 +3,11 @@ import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
-import { Guard, type GuardRecorder } from "../../src/daemon/guard.ts";
+import { Guard } from "../../src/daemon/guard.ts";
 import { HOOK_PROTOCOL, listPlugins, parseChallengeOutput, parseManifest, pluginsFor, readEnabled, resolveCommand, runHook, setEnabled, type PluginManifest } from "../../src/daemon/hooks/plugins.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
 import { POSIX_MODES } from "./_platform.ts";
+import { FakeRec as BaseRec } from "./_fakes.ts";
 
 const FAKE = join(import.meta.dir, "..", "fixtures", "plugins", "fake-verify");
 const PW = "guard-test-Pa55word";
@@ -25,29 +26,9 @@ function entry(o: Partial<NetEntry>): NetEntry {
 }
 
 /** A recording stand-in: collects events and cmd pairs in order. */
-class FakeRec implements GuardRecorder {
-  readonly events: Array<Record<string, unknown>> = [];
-  private fns = new Set<(e: NetEntry) => void>();
-  private n = 0;
-  constructor(readonly session: string) {}
-  onIndexed(fn: (e: NetEntry) => void): () => void {
-    this.fns.add(fn);
-    return () => this.fns.delete(fn);
-  }
-  emit(e: NetEntry): void {
-    for (const f of this.fns) f(e);
-  }
-  event(kind: "guard" | "handoff", fields: Record<string, unknown>): number | null {
-    this.events.push({ kind, ...fields });
-    return ++this.n;
-  }
-  cmdStart(c: { tab: string | null; argv: string[] | null; input: Record<string, unknown>; actor?: "ai" | "human" | "system" }): string | null {
-    const id = `c-${++this.n}`;
-    this.events.push({ kind: "cmd", phase: "start", id, ...c });
-    return id;
-  }
-  cmdEnd(id: string, c: Record<string, unknown>): void {
-    this.events.push({ kind: "cmd", phase: "end", ref: id, ...c });
+class FakeRec extends BaseRec {
+  constructor(session: string) {
+    super(session, { cmd: "record" });
   }
 }
 

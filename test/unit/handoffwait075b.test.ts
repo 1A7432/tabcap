@@ -9,8 +9,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
-import { CONTINUE_NEXT, Guard, TAKEOVER_NEXT, handoffView, type GuardRecorder, type HandoffBaseline } from "../../src/daemon/guard.ts";
+import { CONTINUE_NEXT, Guard, TAKEOVER_NEXT, handoffView, type HandoffBaseline } from "../../src/daemon/guard.ts";
 import { handleCommand } from "../../src/daemon/main.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
 import { Daemon } from "../../src/daemon/state.ts";
@@ -18,6 +17,7 @@ import { HANDOFF_WAIT_DEFAULT_MS, baselineFalse, decideRound, handoffWaitTimeout
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { paths } from "../../src/shared/paths.ts";
+import { FakeRec as BaseRec } from "./_fakes.ts";
 
 const roots: string[] = [];
 const tmp = (): string => {
@@ -38,25 +38,10 @@ const codeOf = (fn: () => unknown): string | null => {
   }
 };
 
-class FakeRec implements GuardRecorder {
-  readonly events: Array<Record<string, unknown>> = [];
-  private fns = new Set<(e: NetEntry, ev?: Record<string, unknown>) => void>();
-  constructor(readonly session: string) {}
-  onIndexed(fn: (e: NetEntry, ev?: Record<string, unknown>) => void): () => void {
-    this.fns.add(fn);
-    return () => this.fns.delete(fn);
+class FakeRec extends BaseRec {
+  constructor(session: string) {
+    super(session, { indexed: "empty" });
   }
-  emit(e: NetEntry): void {
-    for (const f of this.fns) f(e, {});
-  }
-  event(kind: "guard" | "handoff", fields: Record<string, unknown>): number | null {
-    this.events.push({ kind, ...fields });
-    return this.events.length;
-  }
-  cmdStart(): string | null {
-    return null;
-  }
-  cmdEnd(): void {}
 }
 
 function guard(baseline?: (session: string, tab: string) => Promise<HandoffBaseline>): Guard {

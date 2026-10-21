@@ -11,11 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
 import { parseStopRules } from "../../src/daemon/fetch/stoprules.ts";
-import { Guard, bodyFacts, insertArrival, ruleSubject, waitingError, type ArrivalMark, type GuardRecorder } from "../../src/daemon/guard.ts";
+import { Guard, bodyFacts, insertArrival, ruleSubject, waitingError, type ArrivalMark } from "../../src/daemon/guard.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
 import { allSiteRules } from "../../src/daemon/siterules.ts";
 import { parseSiteGuard, siteGuardsFrom } from "../../src/shared/config.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
+import { FakeRec as BaseRec } from "./_fakes.ts";
 
 let root = "";
 beforeEach(() => {
@@ -31,30 +32,10 @@ function entry(o: Partial<NetEntry>): NetEntry {
   return { id: `r-${seq}`, tab: "tab-1", type: "xhr", method: "GET", url: `${SITE_URL}/api/list`, status: 200, mime: "application/json", size: 2, outcome: "finished", blob: null, bodyMissing: null, cmd: null, at: 0, ...o };
 }
 
-class FakeRec implements GuardRecorder {
-  readonly events: Array<Record<string, unknown>> = [];
-  private fns = new Set<(e: NetEntry, ev?: Record<string, unknown>) => void>();
-  private n = 0;
-  constructor(readonly session: string) {}
-  onIndexed(fn: (e: NetEntry, ev?: Record<string, unknown>) => void): () => void {
-    this.fns.add(fn);
-    return () => this.fns.delete(fn);
+class FakeRec extends BaseRec {
+  constructor(session: string) {
+    super(session, { cmd: "id", indexed: "timing" });
   }
-  /** `end`: the response's completion (CDP mono ms) as the recorded event's `timing.end`; default: one more than the last. */
-  private clock = 0;
-  emit(e: NetEntry, end?: number): NetEntry {
-    this.clock = end ?? this.clock + 1;
-    for (const f of this.fns) f(e, { response: { charset: "utf-8" }, timing: { start: this.clock - 0.5, responseStart: this.clock - 0.2, end: this.clock } });
-    return e;
-  }
-  event(kind: "guard" | "handoff", fields: Record<string, unknown>): number | null {
-    this.events.push({ kind, ...fields });
-    return ++this.n;
-  }
-  cmdStart(): string | null {
-    return `c-${++this.n}`;
-  }
-  cmdEnd(): void {}
 }
 
 /** A guard whose site `example` covers SITE_URL with the given rules; blobs are bodies by name. */
