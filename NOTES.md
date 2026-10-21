@@ -710,4 +710,7 @@
 - 做了什么：PR #27（0.8.1-A 自定义 Chrome 启动参数）三轮 CI：第一轮 Ubuntu e2e 第 3 片因 fwdproxy 未处理异常红（见上条），修后第二轮全绿；Bugbot 一条（无值列表开关覆盖）修后第三轮全绿、Bugbot 通过，`gh pr merge 27 --rebase`，main 2cfb8fa CI 全绿。PR #28 发布提交（与 0.8.0 同样 14 个文件）CI 全绿后合入 d8a17ad，推 v0.8.1 tag，release run 39592086012 全绿，五个 npm 包 latest 0.8.1（curl registry 核对），GitHub Release 取消草稿、非 prerelease、设为 latest，homebrew run 39593227989 把 0.8.1 推进 tap【实测】。本 PR：Scoop hash 换成 0.8.1 windows-x64 zip 的（下载后 `shasum -a 256` 与 SHA256SUMS 一致）。
 - 卡在哪：无。作者实际要加的参数本身的效果【待验】；本机 Zig 0.17 编不了 wireprint（见 0.8.1-A 条）。
 - 下一格从哪开始：作者用真实参数跑 0.8.1；按作者 10-20 的要求把本轮知识整理进思源 Learning Lab。
+- PR #29（只改 Scoop hash 与 NOTES）第一轮 CI：Windows e2e 第 3 片 73 pass / 3 fail，两处都与本 PR 无关、都是 ci-flakes 里第一次出现，日志在 CI 产物 e2e-logs-windows-latest-3。(1) v07b「0.7-E 403 验证页回 waiting」：第 6 次 navigate 1167 ms 回了 ok，guard 的 `waiting for the human` 那行排在下一条命令之后【实测：daemon.log】。原因【实测：读代码】：guard 在录制器 `onIndexed`（响应入索引）时才判定，`src/daemon/main.ts` 在工具返回后只同步看一次 `guard.get(session)`；慢机器上入索引晚于页面 load，导航就先回 ok。是产品时序缺口，不是测试问题；随后的 `(unnamed)` 是 afterAll 在 Windows 上删临时目录 EBUSY（守护进程还占着文件），属连带。(2) v08a s67 live：新起的浏览器第一次 navigate 31.6 s 超时、第二次 22 s、之后约 200 ms【实测：daemon.log，browser.log 为空】；与 PR #26 的 v076a 同一形状（新启动后第一次 navigate 卡 30 s、下一条 68 s），v076a 不走 fwdproxy，所以不是上一轮 fwdproxy 改动引起的；卡在哪一阶段日志看不出【待验】。
+- 卡在哪：(1) 的修法要改 navigate 等 guard 的方式（契约不变，设计要作者定）；(2) 先要观测：卡住的那次导航缺阶段时间。
+- 下一格从哪开始：向作者提 (1) 的修法与 (2) 的观测方案；PR #29 本身照常合入。
 
