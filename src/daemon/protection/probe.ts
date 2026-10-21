@@ -1,10 +1,17 @@
 // Live protection probe, page side (docs/04 §41.3): what one navigation of a
 // tab can tell the identifier without a recording. Read-only and once per
-// navigation: no Network.enable, no page script left behind.
-// - globals (main world): each path a family's `global` rule names is walked
-//   through property DESCRIPTORS (Object.getOwnPropertyDescriptor up the
-//   prototype chain), so no page getter ever runs; an accessor is reported as
-//   "accessor" and not descended into.
+// navigation: no Network.enable, no page script left behind; config.json
+// `protection.live: false` turns it off (review 10-21).
+// - globals (main world, one evaluation per navigation): each path a family's
+//   `global` rule names is walked through property DESCRIPTORS
+//   (Object.getOwnPropertyDescriptor up the prototype chain), so no getter is
+//   called; an accessor is reported as "accessor" and not descended into. The
+//   evaluation runs in the page's own world, though: a Proxy on the path runs
+//   its getOwnPropertyDescriptor / getPrototypeOf traps, and built-ins the page
+//   replaced (Object.getOwnPropertyDescriptor, Object.getPrototypeOf,
+//   String.prototype.split) run page code, so the page can notice the probe and
+//   see which global paths were asked (as docs/04 §33 says of trace --decode).
+//   What comes back is filtered by parseGlobals, so the result stays sound.
 // - resources and frames (isolated world): resource-timing entry names plus
 //   script / iframe src, capped.
 // Everything the page returns is untrusted: parse* drop what does not fit.
@@ -26,7 +33,7 @@ export function globalPaths(families: readonly Family[]): string[] {
   return [...out].filter((p) => PATH.test(p)).sort();
 }
 
-/** Main-world function: (paths) → {path: kind}. Descriptors only; never calls a getter. */
+/** Main-world function: (paths) → {path: kind}. Descriptors only, never a getter call; Proxy traps and page-replaced built-ins on the way do run (header). */
 export const GLOBALS_FN = `function (paths) {
   const out = {};
   const find = (o, k) => {

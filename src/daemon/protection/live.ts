@@ -77,8 +77,15 @@ export function familiesFor(d: Daemon): { families: Family[]; warnings: string[]
   return loadFamilies(join(d.paths.config, "protection"));
 }
 
-/** The identification for the tab's current navigation, probing once per navigation. Never throws: a failed probe is an empty answer. */
+/** config.json `protection.live` read at `browser start` (review 10-21); on while no browser ran it (unit tests). */
+const liveOn = (d: Daemon): boolean => d.browser?.info.protectionLive !== false;
+
+/**
+ * The identification for the tab's current navigation, probing once per navigation. Never throws: a
+ * failed probe is an empty answer. With `protection.live` off: no probe, nothing cached or recorded.
+ */
 export async function liveIdentify(d: Daemon, t: Transport, tab: Tab): Promise<Identification> {
+  if (!liveOn(d)) return { detections: [], fingerprinting: [] };
   const have = cache.get(tab);
   if (have !== undefined && have.epoch === tab.navEpoch && have.url === tab.url) {
     // The page may have been probed before `net start`: the recording still gets its event (once per recording).
@@ -137,7 +144,7 @@ function record(d: Daemon, tab: Tab, detections: readonly Detection[]): void {
 export async function namesForGuard(d: Daemon, tabId: string): Promise<string[]> {
   const b = d.browser;
   const tab = b?.tabs.tabs.get(tabId);
-  if (b === null || tab === undefined || tab.closed) return [];
+  if (b === null || tab === undefined || tab.closed || !b.info.protectionLive) return [];
   const have = cachedNames(tab);
   if (have.length > 0) return have;
   try {

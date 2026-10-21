@@ -324,3 +324,29 @@ export function parseHandoffConfig(raw: unknown): HandoffConfig {
 export function readHandoffConfig(file: string): HandoffConfig {
   return parseHandoffConfig(readRaw(file)["handoff"]);
 }
+
+// ------------------------------------------------------------ protection (0.8-A)
+
+/**
+ * `config.json` `protection` (docs/04 §41.3; review 10-21, owner decision): {live: true}.
+ * `live` turns the once-per-navigation live probe on (the default) or off; it is read
+ * at `browser start`. A value that is not a boolean is an error.
+ */
+export type ProtectionConfig = { live: boolean };
+
+export const PROTECTION_DEFAULTS: ProtectionConfig = { live: true };
+
+export function parseProtectionConfig(raw: unknown): ProtectionConfig {
+  const out: ProtectionConfig = { ...PROTECTION_DEFAULTS };
+  if (raw === undefined || raw === null) return out;
+  if (!isRecord(raw)) throw new TabcapError("bad-input", "config.json protection is invalid", "Set protection to an object {live: true|false}, or remove it.");
+  const v = raw["live"];
+  if (v === undefined) return out;
+  if (typeof v !== "boolean") throw new TabcapError("bad-input", "config.json protection.live is invalid", "Set protection.live to true or false, or remove it.");
+  out.live = v;
+  return out;
+}
+
+export function readProtectionConfig(file: string): ProtectionConfig {
+  return parseProtectionConfig(readRaw(file)["protection"]);
+}
