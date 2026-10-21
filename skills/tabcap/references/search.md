@@ -47,3 +47,12 @@ With a shell: `tabcap net body r-12 --file` (or `--url <u> --file`, add `--prett
 ## `net grep`
 
 `tabcap net grep <regex> [--resource-types script,xhr,fetch,document] [--max-matches 20] [--context 1] [--pretty]` searches every recorded response body of the session. Per request: `{id, url, resourceType, count, matches}`; at most 50 requests (`more` counts the rest); bodies over 8 MB are listed under `skipped` (search them one at a time with `net body --grep`); binary bodies are counted under `binary`.
+
+## JSON paths
+
+One syntax wherever a command takes a JSON path: `--select`, the `json:` stop and end rules (`fetch --stop-on` / `--end-on`, `config.json` `fetch.stopOn`, `sites.<name>.guard`), `bundle info --usage --business-code`, and the replay key rules' `ignoreBodyFields` / `ignorePaths` (docs/04 §43).
+
+- `$` is the root, then `.name`, `[2]`, `[*]` or `.*` (every element of an array, every value of an object), `["quoted name"]` (a JSON string, for names with spaces, `=`, `!` or brackets). A bare name has none of `.` `[` `]` `=` `!` or spaces; Chinese, `-`, `$`, `:` are fine. `["*"]` is a key named `*`.
+- Rules and replay rules start with `$`: `json:$.code!=0`, `json:$["err msg"]="locked"`, `--business-code '$.data.items[*].code=0'`. `--select` may leave it out: `--select 'requests[*].url'` is `--select '$.requests[*].url'`.
+- With a wildcard: `--select` returns every match as an array; `json:<path>=<v>` fires when any value equals `<v>`, `!=` when any value differs or there is none (an empty list too: mark "no more pages" with an end rule); `--business-code` counts an error when any value is not the ok value or there is none; replay rules drop every match.
+- A bad path is refused, naming the character where it went wrong.
