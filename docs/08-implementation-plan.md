@@ -29,9 +29,9 @@ browser-bridge-lab/
     cli/         main.ts + commands/*.ts（只做参数解析和打印）
     analyze/     find.ts  decoders.ts  diff.ts
   extension/     MV3，阶段 1 只有角标和只读状态条
-  range/         server.ts + scenarios/sNN/{page.html, api.ts, expected.json, README.md}
+  range/         （未建；靶场是 test/e2e/site.ts，由各 e2e 文件进程内启动，`05` §1）
   fixtures/      bundles/  har/
-  test/          unit/（L0）range/（L1）e2e/（L2）
+  test/          unit/（L0）e2e/（L2，含靶场 site.ts）；L1 的 range/ 未建、不排期
 ```
 
 边界：
@@ -45,12 +45,12 @@ browser-bridge-lab/
 | 格 | 做什么 | 验收 |
 |---|---|---|
 | 1 | `git init`、脚手架、`bundle` 写读、manifest、blobs、HAR 导入导出、脱敏、`tabcap bundle` 子命令 | L0：`04` §11 样例往返、§9.3 三条性质 |
-| 2 | `range` 服务端 + s01、s02 + journal + `selftest` | L1 |
+| 2 | `range` 服务端 + s01、s02 + journal + `selftest`（未按此做：靶场并进 `test/e2e/site.ts`，没有 journal 与 selftest） | L1 |
 | 3 | `direct` 传输层：`setup`（CfT JSON API 下载到 `~/.cache/tabcap/`）、`07` §1.2 参数表、pipe、挂接协议、就绪判定；`daemon` / `browser` / `session` / `navigate` / `evaluate` | L2：s01；A1.1 |
 | 4 | `capture` 录制器接 bundle | A2.1 s02、A2.3 s13 |
 | 5 | `snapshot`、`click` / `fill`（阶梯一、二级）、`screenshot`、`tabs`；`store` 最小版 | A2.7、A2.9 s07 |
 | 6 | `analyze find` + 解码链（s04、s05）、`analyze diff`（s06） | A3、A4 |
-| 7 | 最小 guard / handoff（s15）、`bun run verify` 矩阵、扩展角标、A1.2 | A5、A6、A1.2 |
+| 7 | 最小 guard / handoff（s15）、`bun run verify` 矩阵（未实现、不排期）、扩展角标、A1.2 | A5、A6、A1.2 |
 | 8 | s03、s08–s14，HAR 导入夹具，skill 文件 | 补齐 P1 |
 
 0.3（10-15 作者定）：`store` + `fill --secret` + 最小 guard（含挑战识别：验证码、滑块、短信、JS 挑战、风控页，默认交人，并提供统一的外部插件接口，插件目录 `~/.config/tabcap/plugins/`，主仓库不含任何解法；接口要能承载作者自己研究项目的插件）→ `replay serve` → 适配器框架（注册表 + 第一批，顺序：弹窗 / 遮挡 → 日期 → 下拉 → 表格 → 帧与新标签），第一批只装真实需求里出现过的模式；`09` 其余内容为 backlog。

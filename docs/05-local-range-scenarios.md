@@ -6,12 +6,9 @@
 
 ## 1. 靶场本身
 
-- 目录 `range/`，一个 TypeScript 进程，`tabcap range serve` 起两个源：**A** `http://127.0.0.1:4310`（主）、**B** `http://localhost:4311`（跨源用；host 和端口都不同）。
-- **确定性**：所有数据由种子生成（`?seed=`，默认 1），同一种子同一输出；时间戳类字段除外，但标明。
-- **日志即 oracle**：服务端把每次响应记进日志 `GET /__range/journal?run=<runId>` → `[{ts, method, url, status, bodySha256, size, scenario, note}]`；`POST /__range/reset?run=<runId>` 清零。页面从 URL 的 `?run=` 带上 runId，所有请求透传它。验收 2 的「证据包里都在」就是和这份日志比对。
-- 每个场景一个目录：`range/scenarios/sNN-<name>/`，含 `README.md`（模式、要证明什么、人工走法）、`page.html`、`api.ts`、`expected.json`（该场景的期望值：命中的接口、参数分类、应缺正文的原因）。`expected.json` 是**场景定义的一部分**，由写场景的人写，不由 AI 为了让测试通过去改。
-- 服务端在响应头加 `x-range-scenario`、`x-range-body-sha256`，方便人肉核对。
-- 一键自检：`tabcap range selftest` 不用浏览器，用 `fetch` 把每个场景的 API 走一遍，对照 `expected.json`，保证靶场自己没坏。
+- **现状**：靶场是 `test/e2e/site.ts`，一组 `startXxxSite()` 函数，各自用 `Bun.serve` 在 `127.0.0.1` 的随机端口起一个站点；跨源场景再起一个服务，用 `http://localhost:<端口>` 当 B 源（与 `127.0.0.1` 不同站点）。由各 e2e 文件（`test/e2e/*.e2e.test.ts`）在进程内启动、用完即停，`bun run test:e2e` 一条命令跑全部；默认的 `bun test` 不碰它。
+- **oracle**：每个站点记下自己发出的正文（`served`：路径 → 正文字节的 sha256）和收到的请求（`hits`，或站点自己的日志字段），测试拿证据包与它比对；期望值写成 `site.ts` 里的字面量（如 `S22_*`）和本文各场景的 expected，由写场景的人写，不由 AI 为了让测试通过去改。
+- 原计划（10-15）的 `range/` 目录与 `tabcap range serve`（固定端口 `127.0.0.1:4310` / `localhost:4311`）、种子生成的数据、`/__range/journal` 日志与 `reset`、每场景一个目录加 `expected.json`、`x-range-*` 响应头、`tabcap range selftest`（L1）都没有实现，不排期（`06` §1）。
 
 ## 2. 场景
 
