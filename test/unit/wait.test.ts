@@ -57,7 +57,9 @@ describe("poll expressions and results", () => {
   });
   test("readPoll: pending until a record comes back", () => {
     expect(readPoll({ kind: "text", texts: ["t"] }, null)).toEqual({ state: "pending" });
-    expect(readPoll({ kind: "text", texts: ["t"] }, { context: "… t …" })).toEqual({ state: "matched", detail: { text: "t", context: "… t …" } });
+    // owner 10-21: a record without one of the texts asked for is not a match (test/unit/wait-isolated.test.ts)
+    expect(readPoll({ kind: "text", texts: ["t"] }, { context: "… t …" })).toEqual({ state: "pending" });
+    expect(readPoll({ kind: "text", texts: ["t"] }, { text: "t", context: "… t …" })).toEqual({ state: "matched", detail: { text: "t", context: "… t …" } });
     expect(readPoll({ kind: "text", texts: ["a", "b"] }, { text: "b", context: "… b …" })).toEqual({ state: "matched", detail: { text: "b", context: "… b …" } });
     expect(readPoll({ kind: "selector", selector: "p" }, { tag: "p", text: "x", visible: true })).toEqual({ state: "matched", detail: { selector: "p", tag: "p", text: "x", visible: true } });
     expect(readPoll({ kind: "selector", selector: "##" }, { invalid: "bad" })).toEqual({ state: "invalid", message: "bad" });

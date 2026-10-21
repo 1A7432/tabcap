@@ -119,11 +119,12 @@ async function check(t: Transport, tab: Tab, c: Until, scope: FrameScope): Promi
   }
   const spec = c.kind === "text" ? { kind: "text" as const, texts: [c.value] } : { kind: "selector" as const, selector: c.value };
   const expression = pollExpression(spec);
-  const frames = c.kind === "text" ? await scope.frames() : [{ sessionId: tab.sessionId, contextId: null, frame: "main" }];
+  // Owner 10-21: in tabcap's isolated world of each frame document (the page neither sees nor changes the check).
+  const frames = await scope.frames({ mainOnly: c.kind === "selector" });
   let known = false;
   for (const f of frames) {
-    const r = await t.send("Runtime.evaluate", { expression, returnByValue: true, ...(f.contextId === null ? {} : { contextId: f.contextId }) }, f.sessionId, 2000).catch(() => {
-      if (f.contextId !== null) scope.drop(f.sessionId, f.contextId);
+    const r = await t.send("Runtime.evaluate", { expression, returnByValue: true, contextId: f.contextId }, f.sessionId, 2000).catch(() => {
+      scope.drop(f.sessionId, f.contextId);
       return null;
     });
     if (r === null || isRecord(r["exceptionDetails"])) continue;
