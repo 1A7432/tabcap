@@ -8,13 +8,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isRecord } from "../../src/shared/json.ts";
 import { imageSize } from "../../src/shared/png.ts";
+import { okData, rec, recs, s, tabcap as run, until, type Env } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const S = ["--session", "f"];
 
 /** How long /slow-dst holds its answer, and how long the page then keeps changing its DOM. */
@@ -58,42 +57,14 @@ setTimeout(step, 60);
 
 const INNER = `<!doctype html><meta charset=utf-8><p>oopif-text-77</p>`;
 
-type Env = { ok: boolean; data: Record<string, unknown>; error?: Record<string, unknown>; raw: string };
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
-
 let home = "";
 let files = "";
 let origin = "";
 let server: ReturnType<typeof Bun.serve> | null = null;
 const served: string[] = [];
 
-async function tabcap(...args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdout: "pipe", stderr: "pipe", ...(files === "" ? {} : { cwd: files }) });
-  const out = await new Response(p.stdout).text();
-  await p.exited;
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), ...(isRecord(env["error"]) ? { error: env["error"] } : {}), raw: out };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(...args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${JSON.stringify(e.error)}`);
-  return e.data;
-}
-
-async function until<T>(what: string, f: () => Promise<T>, good: (v: T) => boolean, ms = 15_000): Promise<T> {
-  const end = Date.now() + ms;
-  let v = await f();
-  while (!good(v)) {
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await Bun.sleep(150);
-    v = await f();
-  }
-  return v;
-}
+const tabcap = (...args: string[]): Promise<Env> => run(home, args, files === "" ? {} : { cwd: files });
+const ok = async (...args: string[]): Promise<Record<string, unknown>> => okData(await tabcap(...args), args);
 
 const page = async (expr: string): Promise<unknown> => (await ok("evaluate", expr, ...S))["value"];
 const textOf = async (id: string): Promise<string> => s(await page(`document.getElementById(${JSON.stringify(id)}).textContent`));

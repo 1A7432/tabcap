@@ -11,41 +11,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { S60_COOKIE, S60_ME, S60_NEED_COOKIE, S60_PRIVATE, S60_TOKEN, S60_WILD, startCredSite, type CredSite } from "./site.ts";
+import { cliFor, rec, recs, s } from "./_cli.ts";
 import { daemonRequest, removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const S = ["--session", "cr"];
 
 let home = "";
 let site: CredSite;
 let bundle = "";
 
-type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown> | null; raw: string; exit: number };
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-
-async function tabcap(args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [out] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  const exit = await p.exited;
-  let env: unknown = null;
-  try {
-    env = JSON.parse(out);
-  } catch {
-    return { ok: exit === 0, data: {}, error: null, raw: out, exit };
-  }
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), error: isRecord(env["error"]) ? env["error"] : null, raw: out, exit };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
-  return e.data;
-}
+const { tabcap, ok } = cliFor(() => home, { nonJson: "exit" });
 
 /** POST /fetch on the daemon's socket, or its port + token on Windows (what _tabcap_fetch.py does with httpx). */
 function endpoint(body: Record<string, unknown>): Promise<Record<string, unknown>> {

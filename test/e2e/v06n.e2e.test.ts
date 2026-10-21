@@ -7,34 +7,18 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isRecord } from "../../src/shared/json.ts";
 import { startProxySite, startSmokeSite, type ProxySite, type Site } from "./site.ts";
+import { cliFor } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 
 let home = "";
 let range: Site;
 let proxy: ProxySite;
 
-type Env = { ok: boolean; data: Record<string, unknown>; raw: string };
-
-async function tabcap(args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [out] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  await p.exited;
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: isRecord(env["data"]) ? env["data"] : {}, raw: out };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
-  return e.data;
-}
+const { tabcap, ok } = cliFor(() => home);
 
 describe.skipIf(!enabled)("tabcap 0.6-N L2 (--proxy <url> carries loopback traffic)", () => {
   beforeAll(async () => {

@@ -8,19 +8,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isRecord } from "../../src/shared/json.ts";
 import { startChromeArgsSite, type ChromeArgsSite, type S71Report } from "./site.ts";
+import { ok, rec, s, tabcap } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const S = ["--session", "a"];
 const UA = "TabcapS71/1.0";
 
-type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown> | null; raw: string };
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 const named = (args: string[], name: string): string[] => args.filter((a) => a === name || a.startsWith(`${name}=`));
 
@@ -35,26 +31,6 @@ function newHome(config: unknown = null): string {
     writeFileSync(join(home, "config", "config.json"), JSON.stringify(config), { mode: 0o600 });
   }
   return home;
-}
-
-async function tabcap(home: string, args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], {
-    env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [out] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  await p.exited;
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), error: isRecord(env["error"]) ? env["error"] : null, raw: out };
-}
-
-async function ok(home: string, ...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(home, args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
-  return e.data;
 }
 
 async function reportSince(from: number): Promise<S71Report> {

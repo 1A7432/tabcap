@@ -6,9 +6,7 @@
 // callers used `unix:` only, which was every Windows e2e failure).
 import { cpSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
-import { isRecord } from "../../src/shared/json.ts";
-
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
+import { rec } from "./_cli.ts";
 
 export async function daemonRequest(home: string, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const info = rec(JSON.parse(readFileSync(join(home, "config", "daemon.json"), "utf8")));

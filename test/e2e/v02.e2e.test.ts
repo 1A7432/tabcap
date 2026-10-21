@@ -9,43 +9,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { SLOW_API_BODY, SLOW_API_MS, WS_BINARY, WS_MARKER, startLabSite, type Site } from "./site.ts";
+import { cliFor, recs, s, type Env } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const S = "v02";
 
 let home = "";
 let site: Site & { ws: string[] };
 
-type Env = { ok: boolean; data: Record<string, unknown>; error?: { code: string; message: string; next: string } };
-
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
 const sha = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 const shaBytes = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
 
-async function tabcap(...args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdout: "pipe", stderr: "pipe" });
-  const out = await new Response(p.stdout).text();
-  await p.exited;
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  const e = env["error"];
-  const err = isRecord(e) ? e : null;
-  return {
-    ok: env["ok"],
-    data: isRecord(env["data"]) ? env["data"] : {},
-    ...(err === null ? {} : { error: { code: s(err["code"]), message: s(err["message"]), next: s(err["next"]) } }),
-  };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(...args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${JSON.stringify(e.error)}`);
-  return e.data;
-}
+const cli = cliFor(() => home);
+const tabcap = (...args: string[]): Promise<Env> => cli.tabcap(args);
+const { ok } = cli;
 
 function events(bundle: string): Record<string, unknown>[] {
   return readFileSync(join(bundle, "events.jsonl"), "utf8").trim().split("\n").map((l): unknown => JSON.parse(l)).filter(isRecord);

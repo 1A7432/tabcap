@@ -68,11 +68,11 @@ import {
   startInPageDecodeSite,
   type Site,
 } from "./site.ts";
+import { cliFor, rec, recs, s, until, type Env as CliEnv } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 /** The `data` field of a served /api/enc body, read off the literal (the oracle). */
 function s59Data(body: string): string {
   const v: unknown = JSON.parse(body);
@@ -88,10 +88,7 @@ const XOR_DATA = s59Data(S59_ENC_XOR);
 let home = "";
 let site: Site;
 
-type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown>; raw: string; exit: number };
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
+type Env = Omit<CliEnv, "error"> & { error: Record<string, unknown> };
 /** The url of a page row's top evidence frame. */
 const topFrameUrl = (decoded: Record<string, unknown> | undefined): unknown => recs(rec(decoded?.["evidence"])["frames"])[0]?.["url"];
 /** config.json in the test home (read by every `trace start`). */
@@ -100,36 +97,13 @@ const writeConfig = (v: Record<string, unknown>): void => {
   writeFileSync(join(home, "config", "config.json"), JSON.stringify(v) + "\n");
 };
 
-async function tabcap(args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [out] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  const exit = await p.exited;
-  let env: unknown = null;
-  try {
-    env = JSON.parse(out);
-  } catch {
-    return { ok: exit === 0, data: {}, error: {}, raw: out, exit };
-  }
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: isRecord(env["data"]) ? env["data"] : {}, error: isRecord(env["error"]) ? env["error"] : {}, raw: out, exit };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
-  return e.data;
-}
-
-async function until<T>(what: string, get: () => Promise<T>, done: (v: T) => boolean, ms = 15_000): Promise<T> {
-  const end = Date.now() + ms;
-  let last: T;
-  for (;;) {
-    last = await get();
-    if (done(last)) return last;
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(last)}`);
-    await Bun.sleep(150);
-  }
-}
+const cli = cliFor(() => home, { nonJson: "exit" });
+/** A run whose error is {} rather than null when it has none. */
+const tabcap = async (args: string[]): Promise<Env> => {
+  const e = await cli.tabcap(args);
+  return { ...e, error: e.error ?? {} };
+};
+const { ok } = cli;
 
 type SidecarRow = { seq: number; request: string | null; decoded: Record<string, unknown> };
 const sidecarRows = (bundle: string): SidecarRow[] => {

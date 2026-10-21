@@ -13,49 +13,19 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isRecord } from "../../src/shared/json.ts";
 import { LIMIT_OK, LOGIN_PASSWORD, LOGIN_USER, startGuardSite, type GuardSite } from "./site.ts";
+import { cliFor, rec, recs, s } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const PLUGIN = join(import.meta.dir, "plugins", "xor-decode");
 const SITE = "range-demo";
 
 let home = "";
 let site: GuardSite;
 
-type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown> | null; raw: string; exit: number };
-
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
-
-async function tabcap(args: string[], stdin?: string): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], {
-    env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME },
-    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [out] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  const exit = await p.exited;
-  let env: unknown = null;
-  try {
-    env = JSON.parse(out);
-  } catch {
-    return { ok: exit === 0, data: {}, error: null, raw: out, exit };
-  }
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), error: isRecord(env["error"]) ? env["error"] : null, raw: out, exit };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
-  return e.data;
-}
+const { tabcap, ok } = cliFor(() => home, { nonJson: "exit" });
 
 const sessionOf = (st: Record<string, unknown>, name: string): Record<string, unknown> => rec(recs(st["sessions"]).find((x) => x["session"] === name));
 const codes = (st: Record<string, unknown>, name: string): string[] => recs(st["conflicts"]).filter((c) => c["session"] === name).map((c) => s(c["code"]));

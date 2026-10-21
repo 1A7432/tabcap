@@ -14,13 +14,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, startFieldSite, startGuardSite, type GuardSite, type Site } from "./site.ts";
+import { cliFor, okData, rec, recs, s, type Env } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const SITE = "example";
 const LIMIT = 16384;
 
@@ -28,33 +27,12 @@ let home = "";
 let field: Site;
 let guard: GuardSite;
 
-type Env = { ok: boolean; data: Record<string, unknown>; envelope: Record<string, unknown>; raw: string; exit: number };
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
+const { tabcap } = cliFor(() => home, { nonJson: "exit", env: { TABCAP_OUTPUT_LIMIT: "" } });
 
-async function tabcap(args: string[], stdin?: string): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], {
-    env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME, TABCAP_OUTPUT_LIMIT: "" },
-    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [out] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  const exit = await p.exited;
-  let env: unknown = null;
-  try {
-    env = JSON.parse(out);
-  } catch {
-    return { ok: exit === 0, data: {}, envelope: {}, raw: out, exit };
-  }
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), envelope: env, raw: out, exit };
-}
-
+/** ok() answering the whole run: these tests read the envelope's top-level fields and the printed bytes. */
 async function ok(...args: string[]): Promise<Env> {
   const e = await tabcap(args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
+  okData(e, args);
   return e;
 }
 

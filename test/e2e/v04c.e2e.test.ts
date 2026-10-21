@@ -17,11 +17,11 @@ import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { S40_LOCALES, startLocaleSite, type S40Locale, type Site } from "./site.ts";
+import { cliFor, recs, s } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const S = ["--session", "s40"];
 
 let home = "";
@@ -32,29 +32,7 @@ let rowsId = "";
 /** de-DE amount row 0 by ref, compared with the text form. */
 let deRefFirst: Record<string, unknown> | null = null;
 
-type Env = { ok: boolean; data: Record<string, unknown>; raw: string; exit: number };
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-
-async function tabcap(args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [out] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  const exit = await p.exited;
-  let env: unknown = null;
-  try {
-    env = JSON.parse(out);
-  } catch {
-    return { ok: exit === 0, data: {}, raw: out, exit };
-  }
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: isRecord(env["data"]) ? env["data"] : {}, raw: out, exit };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
-  return e.data;
-}
+const { tabcap, ok } = cliFor(() => home, { nonJson: "exit" });
 
 /** The ref of the table cell whose accessible name is `shown` (whitespace, incl. U+00A0 / U+202F, ignored). */
 function cellRef(tree: string, shown: string): string {
