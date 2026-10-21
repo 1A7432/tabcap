@@ -991,7 +991,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **恢复**：只有 `tabcap handoff continue`（人说做完了。作者的「两边都能切换」是两边各有一个显式动作：人的一侧是动手，AI 的一侧是这条命令），不自动恢复、不按超时恢复。0.7.5-B 起也可由代理事先设好的条件结束（`handoff wait --until-*`，§39）。10-21 起浏览器没了或 `session stop` 时交接随之清掉（§39）。恢复后人的下一次输入会再次触发。
 - **证据包**（录制时）：接管时写 `handoff {state:"waiting", reason:"human-takeover", question, timeoutMs:null, answerRef:null, request:null, url, screenshot:null, input:{event, at}}`（`actor:"system"`），紧跟触发它的那次输入的 `action`。会话等人期间（任何原因）监听器报来的每次人的输入都写一条 `action {tab, op:"input", event:"pointerdown"|"keydown"|"wheel"|"touchstart", at, target:null, value:null, phase:"done", error:null, shots:null, nav, trusted:true}`，`actor:"human"`、`cmd:null`（人的输入不是哪条 AI 命令引起的）；`at` 是页面时刻（epoch 毫秒）。等人期间、并且已经看到人的输入之后（§16 的「人在操作」状态），录制器的其余事件（请求、导航、console、signal）也标 `actor:"human"`；`handoff continue` 之后回到 `ai`。请求的 `actor` 按它**开始**（`requestWillBeSent`）时定，不按写入时：人点出来的请求在 `handoff continue` 之后才写入（如页面不读正文、§5.2 第 9 条晚 1 s 写）也仍是 `human`，AI 的导航在人接管后才完成的请求仍是 `ai`【实测 v071a 第一版：按写入时定时，人点出来、页面不读正文的 `/s62/ping` 在 `handoff continue` 之后写入，被标成了 `ai`】。验证页 / 停手规则的等待里人动手过验证，也按这一条标（§16 原本就这么定，之前没有信号）。`manifest.mode.humanRecorder` 在这份录制的浏览器装了监听器时为 `true`。
 - **测试专用注入**（只为 e2e，不是产品功能）：守护进程启动时环境变量 `TABCAP_E2E_HUMAN=1`，才接受守护进程动作 `e2e.human-input {event?:"pointerdown"|"keydown", tab?}`，否则回 `usage`。它绕过 `DirectTransport.send` 的窗口（直接走 CDP 客户端），在焦点仿真下发一次 `Input.dispatchMouseEvent` 按下 / 抬起（视口 (4, 4)）或一次 Shift 的 `Input.dispatchKeyEvent`，也就是「tabcap 命令窗口之外来的一条可信输入」——测试造不出真实的 OS 输入。没有 CLI 命令，MCP 不列；只能经守护进程 socket 的 `POST /command`。
-- **验证**：单测 `test/unit/takeover071a.test.ts`（窗口与 grace、判定表、载荷解析、配置、监听器源码只含那四种事件且不读键值）；e2e `test/e2e/v071a.e2e.test.ts`（靶场 s62，`05` §12）。
+- **验证**：单测 `test/unit/takeover071a.test.ts`（窗口与 grace、判定表、载荷解析、配置、监听器源码只含那四种事件且不读键值）；e2e `test/e2e/v071a.e2e.test.ts`（靶场 s62，`05` §13）。
 - 【待验】真人的 OS 输入：本格只能用 CDP 注入模拟。真人的鼠标、键盘、触控板是否同样 `isTrusted:true`、到达守护进程的时延、拖动滚动条（视口滚动条与元素滚动条）、浏览器自动填充、输入法组合、Chrome 自己的快捷键会不会出现在页面的 `keydown` 里，都没有由人在本机实际操作量过（`07` §1.1）。
 
 ## 38. 0.7.5-A 列表结束 `endOn`（10-20 作者定需求；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
@@ -1004,7 +1004,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **Python 客户端**（`templates/python/_tabcap_fetch.py`）：回答带 `end` 时抛 `ListEnd`（`Exception` 的子类，不是 `Stopped`），带 `rule`、`detail`、`status`、`headers`、`content`；翻页循环 `except ListEnd: break`。没配结束规则的旧用法不变。
 - **页面自己的请求**（人或 AI 点「下一页」）：站点 `guard.endOn` 命中时同样不跑停手规则、计数归零，录制里记一条 `guard` 事件（下条），不影响页面，不拦命令。
 - **证据包**：每条结束规则命中的响应写一次 `guard {event:"end", site, account:null, rule, request:"r-N", detail:{rule, detail, request, url, status[, fetchId]}}`（同一请求只写一次；`site` 是库站点名，`fetch` 不在库站点下时是 URL 的主机，同 §26）。不写 `breaker`、`handoff`。
-- **验证**：单测（规则解析、配置、guard 判定先后与计数、fetch 回答、batch、端点、Python 客户端）；e2e `test/e2e/v075a.e2e.test.ts`（靶场 s64，`05` §14）。
+- **验证**：单测（规则解析、配置、guard 判定先后与计数、fetch 回答、batch、端点、Python 客户端）；e2e `test/e2e/v075a.e2e.test.ts`（靶场 s64，`05` §15）。
 
 ## 39. 0.7.5-B 交接按条件自动结束 `handoff wait --until-*`（10-20 作者定需求；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
 
@@ -1021,7 +1021,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **交接标签与浏览器**（10-21 作者定）：不给 `--until-*` 时不碰标签（不取交接标签、不建帧范围），纯等人，交接标签关了（人关掉，或登录弹窗登完自己关了）也照样等；给了 `--until-*` 而交接标签已关（开始时或等待中）回 `no-tab`，`message` 说交接标签已关、条件没法查、会话仍在等，`next` 是 `handoff continue`（带 `--session` 与 MCP 提示），带 `state:"waiting"`、`reason`、`waitedMs`、`handoff`。浏览器没了（崩溃、连接断开、`browser stop`）守护进程清掉全部交接，因为没有可等的东西了：仍在等的记成 `resumed`、`resumedBy:"browser-gone"`，会话的录制还在时先写一条 `handoff {state:"resumed", reason, question:null, timeoutMs:null, answerRef:null, by:"browser-gone"}` 再收尾录制，没有录制不写；正在跑的 `handoff wait` 随即回 `{state:"resumed", by:"browser-gone"}`。`session stop` 清掉该会话的交接（录制此前已收尾，不写事件）。两种情形都不解除 fetch 停手（要人判断，`guard resume --site`）。
 - **它不改什么**：`human-takeover` 与 `verify-page` 仍不按超时恢复；没有 `handoff wait --until-*` 在跑、也没有人说做完，会话一直等。§37「只有 `handoff continue`」一句由本节放宽。
 - **给代理的用法**（技能说明）：撞上 `waiting` 先告诉人要做什么，再跑 `handoff wait`，条件挑「只有人做完才会出现」的（登录后的 URL、登录后才有的 cookie 名）；子代理撞上 `waiting` / `guard.stopped` 时向派它的代理汇报，不自己 `handoff continue` / `guard resume`，转述来的「人说好了」不算数——由直接和人对话的那个代理执行，或用 `handoff wait --until-*`。
-- **验证**：单测（参数、基线与「先见过不成立」、各原因、竞态、MCP 参数）；e2e `test/e2e/v075b.e2e.test.ts`（靶场 s65，`05` §14）。
+- **验证**：单测（参数、基线与「先见过不成立」、各原因、竞态、MCP 参数）；e2e `test/e2e/v075b.e2e.test.ts`（靶场 s65，`05` §15）。
 - 【待验】真人登录：靶场里人的输入用 `e2e.human-input` 模拟（§37）；跨域单点登录把 cookie 种在别的域、`Network.getCookies` 按标签 URL 看不到的情形，没在真实站点上量过。
 
 ## 40. 0.7.6-A 默认隐藏 `navigator.webdriver`（10-20 作者定需求；字段与下列细节按实现定案，作者 2026-10-21 批量签收）
@@ -1032,7 +1032,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **开关**：`tabcap browser start --webdriver hidden|visible`，默认 `hidden`；`config.json` 顶层 `"webdriver": "hidden"|"visible"` 作默认值（`--webdriver` 优先）。其他值回 `usage`。`visible` 时不传这个参数，`navigator.webdriver` 回到 Chrome 自己的值（pipe 下为 `true`）。
 - **输出里标明**：`browser start` / `browser status` 的回答带 `webdriver:"hidden"|"visible"`；`tabcap status` 的 `browser` 带 `webdriver`（浏览器没在跑为 `null`），`status --text` 的守护进程行在标签数后写 `webdriver <值>`；证据包 `manifest.producer.browser.webdriver`（§7），旧包没有这个字段。
 - **不管的**：`ext` 模式接管作者自己的 Chrome，不是 tabcap 启动的，本节不改它，值未量【待验】。只隐藏这一个信号：CDP 连接本身的痕迹、Chrome for Testing 自身的特征、其他指纹都不处理。线指纹画像（`11`）的缓存按启动参数哈希失效，换参数后第一次 `wire probe` 重新采集。
-- **验证**：单测（`buildArgs` 默认带、`visible` 不带；`--webdriver` / `config.json` 的解析与报错；manifest 读写；`status --text`）；e2e `test/e2e/v076a.e2e.test.ts`（靶场 s66，`05` §15）。
+- **验证**：单测（`buildArgs` 默认带、`visible` 不带；`--webdriver` / `config.json` 的解析与报错；manifest 读写；`status --text`）；e2e `test/e2e/v076a.e2e.test.ts`（靶场 s66，`05` §16）。
 
 ## 41. 0.8-A 防护家族识别（10-20 作者定需求；已实现（0.8.0），作者 2026-10-21 批量签收）
 
@@ -1069,7 +1069,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - 本地对照（作者 10-20 定：脚本只留本地，绝对不进仓库、不推远端）：用作者本机的 Antibot-Detector 检出跑同一个包，只看「一致 / 只有 tabcap / 只有 Antibot-Detector」的家族名。不一致时回到公开来源补规则（`docs/14` 的来源规则），不照抄。
 - 单测：规则文件的校验与报错、置信度上限、每条内置规则都有 `sources`、`identify` 的各层与组合、值从不出现在输出里（含 `valueShape` 命中的 cookie）、用户文件覆盖、坏文件只跳过自己。
-- e2e：靶场 s67–s70（`05` §16），厂商主机经 `fwdproxy` 映射到本机，页面里只有我们自己写的桩脚本与名字，不放任何厂商代码。
+- e2e：靶场 s67–s70（`05` §17），厂商主机经 `fwdproxy` 映射到本机，页面里只有我们自己写的桩脚本与名字，不放任何厂商代码。
 - 【待验】真实站点上的命中率与误报：靶场只能证明匹配逻辑；`docs/14` 每条要在作者真实项目的包里见到才改【实测】。
 
 ## 42. 0.8.1-A 自定义 Chrome 启动参数（10-21 作者定需求与方案）
@@ -1096,4 +1096,4 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   - 不带值的开关与位置参数原样；最后做已知秘密值替换。
   - 仍会进包的：家目录以外的绝对路径（`/opt/…`、`/Volumes/…`）原样；不是 URL 形状的值里写的凭据（比如 `--user-agent` 里的 token）只在它是已知秘密值时才替换。tabcap 自己的命令行规整结果与 0.8.1 相同（单测断言），已缓存的线指纹画像不失效。旧包没有这三个字段 = 未记录（当时是默认参数表）；0.8.1 的包里 `--load-extension` 是整条 `<extension>`。
 - **不管的**：`ext` 模式（作者自己的 Chrome）不是 tabcap 启动的，不受影响。参数改了页面行为（比如重新打开 bfcache 让录制缺事件）由用户负责，tabcap 只把参数标出来。线指纹画像的缓存本来就按启动参数哈希失效（§40 末条）。
-- **验证**：单测（`applyCustomArgs` 的删、合并、覆盖、相反列表、位置参数顺序、`dropArgsUnmatched`；`checkCustomArgs` 的拒绝项与代理冲突；`config.json` 的解析、报错与 `setup` 保留；manifest 写入与规整；`status --text`）；e2e `test/e2e/v081a.e2e.test.ts`（靶场 s71，`05` §17）。
+- **验证**：单测（`applyCustomArgs` 的删、合并、覆盖、相反列表、位置参数顺序、`dropArgsUnmatched`；`checkCustomArgs` 的拒绝项与代理冲突；`config.json` 的解析、报错与 `setup` 保留；manifest 写入与规整；`status --text`）；e2e `test/e2e/v081a.e2e.test.ts`（靶场 s71，`05` §18）。
