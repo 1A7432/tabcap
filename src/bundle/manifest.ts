@@ -17,6 +17,7 @@ import {
   type Producer,
   type RawEvent,
   type Redaction,
+  type SampleIndex,
   type TraceMode,
   type TraceWindow,
 } from "./types.ts";
@@ -104,6 +105,8 @@ export function parseManifest(raw: unknown): Manifest {
     tool: producerRaw === null ? TOOL_NAME : (str(producerRaw, "tool") ?? TOOL_NAME),
     version: producerRaw === null ? "" : (str(producerRaw, "version") ?? ""),
   };
+  // Review 10-21: the typed parts are checked, not passed on as they came (a bad one is bad-input).
+  if (producerRaw !== null && producerRaw["browser"] !== undefined) producer.browser = parseBrowser(producerRaw["browser"], bad);
 
   const sessionRaw = rec(raw, "session") ?? {};
   const tabsRaw = Array.isArray(sessionRaw["tabs"]) ? sessionRaw["tabs"] : [];
@@ -180,11 +183,65 @@ export function parseManifest(raw: unknown): Manifest {
     imported,
     notes: str(raw, "notes") ?? "",
   };
+  if (raw["record"] !== undefined) m.record = parseRecord(raw["record"], bad);
+  if (raw["sample"] !== undefined) m.sample = parseSample(raw["sample"], bad);
   if (typeof finished === "number") m.finished = finished;
   else delete m.finished;
   if (windows === null) delete m.traceWindows;
   else m.traceWindows = windows;
   return m;
+}
+
+type Bad = (what: string) => TabcapError;
+const WEBDRIVER = ["hidden", "visible"] as const;
+const RECORD_BODIES = ["all", "api", "api+script", "none"] as const;
+const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
+
+/** `producer.browser` (docs/04 §7): null, or name / version strings with optional userAgent, webdriver and switch lists. */
+function parseBrowser(v: unknown, bad: Bad): NonNullable<Producer["browser"]> | null {
+  if (v === null) return null;
+  if (!isRecord(v)) throw bad("producer.browser is not an object");
+  const name = str(v, "name");
+  const version = str(v, "version");
+  if (name === null || version === null) throw bad("producer.browser needs name and version strings");
+  const out: NonNullable<Producer["browser"]> = { ...v, name, version };
+  const ua = v["userAgent"];
+  if (ua !== undefined && ua !== null && typeof ua !== "string") throw bad("producer.browser.userAgent is not a string");
+  const wd = v["webdriver"];
+  if (wd !== undefined) {
+    if (!oneOf(WEBDRIVER, wd)) throw bad("producer.browser.webdriver is not hidden or visible");
+    out.webdriver = wd;
+  }
+  for (const k of ["args", "extraArgs", "dropArgs"] as const) {
+    const list = v[k];
+    if (list === undefined) continue;
+    if (!isStringList(list)) throw bad(`producer.browser.${k} is not a list of strings`);
+    out[k] = list;
+  }
+  return out;
+}
+
+/** `record` (0.6-I): {bodies: all | api | api+script | none}. */
+function parseRecord(v: unknown, bad: Bad): NonNullable<Manifest["record"]> {
+  const bodies = isRecord(v) ? v["bodies"] : undefined;
+  if (!isRecord(v) || !oneOf(RECORD_BODIES, bodies)) throw bad("record.bodies is not all, api, api+script or none");
+  return { ...v, bodies };
+}
+
+/** `sample` (§4.3): {challengeRequests: string[], scripts: [{request, sha256, inline}], env: string | null}. */
+function parseSample(v: unknown, bad: Bad): SampleIndex {
+  if (!isRecord(v)) throw bad("sample is not an object");
+  const reqs = v["challengeRequests"];
+  if (!isStringList(reqs)) throw bad("sample.challengeRequests is not a list of strings");
+  const scriptsRaw = v["scripts"];
+  if (!Array.isArray(scriptsRaw)) throw bad("sample.scripts is not a list");
+  const scripts = scriptsRaw.map((s) => {
+    if (!isRecord(s) || typeof s["request"] !== "string" || typeof s["sha256"] !== "string" || typeof s["inline"] !== "boolean") throw bad("sample.scripts[] needs request, sha256 and inline");
+    return { ...s, request: s["request"], sha256: s["sha256"], inline: s["inline"] };
+  });
+  const env = v["env"];
+  if (env !== null && typeof env !== "string") throw bad("sample.env is not a string or null");
+  return { ...v, challengeRequests: reqs, scripts, env };
 }
 
 const TRACE_MECHANISMS = ["fn-breakpoint", "instrumentation"] as const;
