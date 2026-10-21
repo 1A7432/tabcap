@@ -18,6 +18,7 @@ import { MCP_CONTINUE, MCP_WAIT, handoffView, sessionFlag, type Handoff, type Ha
 import type { Daemon } from "../state.ts";
 import type { Transport } from "../transport/types.ts";
 import { optNum, optStr, type Args } from "./args.ts";
+import { redactUrl } from "./liveredact.ts";
 import { clearNeedsHuman } from "./handoff.ts";
 import { saveSiteSession } from "./session.ts";
 import { FrameScope, Waker } from "./wait.ts";
@@ -234,6 +235,17 @@ export async function handoffWait(d: Daemon, a: Args, session: string): Promise<
   }
 }
 
+/**
+ * Pure: the answer's `condition` (live output, docs/04 §8.3, review 10-21): the tab URL of a URL
+ * condition with its sensitive query values redacted (the envelope scrubber replaces known secrets
+ * afterwards, as for handoffView); a cookie condition is compared by name and carries no detail.
+ */
+export function conditionView(c: Until, detail: Record<string, unknown>): Record<string, unknown> {
+  if (c.kind === "cookie") return { kind: c.kind, value: c.value };
+  const url = detail["url"];
+  return { kind: c.kind, value: c.value, ...detail, ...(typeof url === "string" ? { url: redactUrl(url, { scrub: (s) => s }) } : {}) };
+}
+
 /** A condition held: end the handoff like `handoff continue`, except fetch stops stay (they need a decision). */
 async function finish(d: Daemon, session: string, h: Handoff, c: Until, detail: Record<string, unknown>, started: number): Promise<Record<string, unknown>> {
   try {
@@ -250,7 +262,7 @@ async function finish(d: Daemon, session: string, h: Handoff, c: Until, detail: 
     session,
     state: h.state,
     by: "condition",
-    condition: { kind: c.kind, value: c.value, ...(c.kind === "cookie" ? {} : detail) },
+    condition: conditionView(c, detail),
     waitedMs: Date.now() - started,
     handoff: handoffView(h),
     storeSession,
