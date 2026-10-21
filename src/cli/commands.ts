@@ -919,7 +919,7 @@ export const COMMANDS: CommandSpec[] = [
       "write the decode plugin template (manifest.json with the name, plugin.py, runner.py, pyproject.toml, config.example.json, and config.json from the example when absent) into <dir> or ~/.config/tabcap/plugins/<name>/; refuses a non-empty directory without --force. The answer lists the files and the next steps (edit plugin.py, config.json and the manifest's match, then `plugin enable`); plugins load only from the plugins directory",
     example: "tabcap plugin init --kind decode --name my-decode",
   },
-  // Offline commands: no daemon. Parsed by src/cli/main.ts (bundle), src/cli/analyze.ts and src/cli/replay.ts.
+  // Offline commands: no daemon. Parsed like every command; run by src/cli/handlers.ts (bundle.ts, bundles.ts, analyze.ts, replay.ts).
   {
     path: ["bundle", "export", "har"],
     pos: ["bundle"],
@@ -1287,9 +1287,6 @@ export function currentCommands(): CommandSpec[] {
   return COMMANDS.filter((c) => c.internal !== true);
 }
 
-const BUNDLE_PATHS = ["bundle export har", "bundle import har", "bundle redact", "bundle info", "bundle decode", "bundle export fixtures", "bundle list", "bundle prune"];
-export const BUNDLE_USAGE: string[] = BUNDLE_PATHS.map((p) => usageOf(specOf(p)));
-
 function posName(c: CommandSpec, p: string): string {
   if (p.endsWith("...")) return `<${p.slice(0, -3)}>`;
   const choices = c.choices?.[p];
@@ -1480,6 +1477,21 @@ export function closestCommands(words: readonly string[], max: number = SUGGEST_
     .map((x) => `${TOOL_NAME} ${x.path}`);
 }
 
+/**
+ * The words that name an unknown command in its error: as many typed words as
+ * start some command path, plus the next one, and at least two (`net foo`,
+ * `bundle export foo`; a value typed after them is not echoed).
+ */
+export function unknownCommandName(words: readonly string[]): string {
+  let known = 0;
+  for (const c of COMMANDS) {
+    let i = 0;
+    while (i < c.path.length && words[i] === c.path[i]) i++;
+    known = Math.max(known, i);
+  }
+  return words.slice(0, Math.max(2, known + 1)).join(" ");
+}
+
 /** The `next` of an unknown command: the closest commands, then where the groups are listed. */
 export function unknownCommandNext(words: readonly string[], among?: readonly (readonly string[])[]): string {
   const near = closestCommands(words, SUGGEST_MAX, among);
@@ -1604,7 +1616,19 @@ export function matchCommand(words: readonly string[]): CommandSpec | null {
 
 export type ParsedCommand = { args: Record<string, unknown>; session: string | null; help: boolean };
 
-/** Parse argv (after the command path) against the spec. `--` ends options. */
+/** A one-dash word the spec declares as a flag spelling (`-o`, `-o=v`); any other word starting with one dash is positional. */
+function shortFlag(c: CommandSpec, a: string): boolean {
+  if (a.startsWith("--") || !a.startsWith("-")) return false;
+  const eq = a.indexOf("=");
+  const name = eq > 0 ? a.slice(0, eq) : a;
+  return c.flags.some((f) => spellingsOf(f).includes(name));
+}
+
+/**
+ * Parse argv (after the command path) against the spec. Options are `--name`
+ * (`--name=value` too) and the one-dash spellings the spec declares (`-o`);
+ * `--` ends options. Every command, offline or not, is parsed here.
+ */
 export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCommand {
   const usage = `Usage: ${usageOf(c)}`;
   const args: Record<string, unknown> = {};
@@ -1614,7 +1638,7 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
   let rest = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] ?? "";
-    if (rest || !a.startsWith("--") || a === "--") {
+    if (rest || a === "--" || (!a.startsWith("--") && !shortFlag(c, a))) {
       if (a === "--" && !rest) rest = true;
       else pos.push(a);
       continue;
