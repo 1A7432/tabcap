@@ -1,10 +1,13 @@
 // docs/08 §5: names aligned with Chrome DevTools MCP; the 0.3 deprecated
 // aliases were removed in 0.4. The schema snapshot pins the whole CLI
 // contract (names, positionals, flags, defaults, aliases); update it with
-// `bun test --update-snapshots` only for an intended contract change.
+// `bun test --update-snapshots` only for an intended contract change. The
+// version is normalised to "<version>" before the snapshot (a release does
+// not touch it) and checked against package.json on its own.
 
 import { describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { COMMANDS, helpFor, matchCommand, parseCommand, schema, specOf, usageOf } from "../../src/cli/commands.ts";
 import { run, withLocalPaths } from "../../src/cli/main.ts";
 
@@ -14,9 +17,17 @@ const parse = (words: string[], argv: string[]) => {
   return { c, p: parseCommand(c, argv) };
 };
 
+const pkg: unknown = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "package.json"), "utf8"));
+const pkgVersion = typeof pkg === "object" && pkg !== null && "version" in pkg ? pkg.version : null;
+
 describe("CLI contract (schema snapshot)", () => {
   test("tabcap schema --json is unchanged", () => {
-    expect(schema()).toMatchSnapshot();
+    expect({ ...schema(), version: "<version>" }).toMatchSnapshot();
+  });
+
+  test("its version is package.json's", () => {
+    expect(typeof pkgVersion).toBe("string");
+    expect(schema().version).toBe(String(pkgVersion));
   });
 });
 
