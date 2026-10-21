@@ -85,14 +85,24 @@ export function redactChain(r: ChainResult, reveal = false): ChainResult {
   return { ...r, steps: r.steps.map((s) => ({ ...s, url: red.url(s.url) })) };
 }
 
-/** `recon` / `analyze recon`: page URL, stack header values and guard URLs. Cookie values are never in the dossier. */
-export function redactDossier(d: Dossier, reveal = false): Dossier {
-  if (reveal) return d;
+/** How a recon dossier shows its values; each command keeps its placeholder (live `<redacted:name>`, offline `<redacted:sha8>`). */
+export type DossierMask = { url: (u: string) => string; header: (name: string, value: string) => string };
+
+/** The offline-analysis mask (`analyze recon`): one AnalyzeRedactor for the whole dossier. */
+export function analyzeDossierMask(): DossierMask {
   const red = new AnalyzeRedactor();
+  return { url: (u) => red.url(u), header: (n, v) => red.header(n, v) };
+}
+
+/**
+ * `recon` (daemon/tools/recon.ts liveDossierMask) and `analyze recon` (analyzeDossierMask): page URL,
+ * stack header values and guard URLs through the command's mask. Cookie values are never in the dossier.
+ */
+export function redactDossier(d: Dossier, m: DossierMask): Dossier {
   return {
     ...d,
-    page: { ...d.page, url: d.page.url === null ? null : red.url(d.page.url) },
-    stack: d.stack.map((s) => (s.source === "header" ? { ...s, value: red.header(s.marker, s.value) } : s)),
-    protection: d.protection.map((p) => (p.source === "guard" && p.url !== null ? { ...p, url: red.url(p.url) } : p)),
+    page: { ...d.page, url: d.page.url === null ? null : m.url(d.page.url) },
+    stack: d.stack.map((s) => (s.source === "header" ? { ...s, value: m.header(s.marker, s.value) } : s)),
+    protection: d.protection.map((p) => (p.source === "guard" && p.url !== null ? { ...p, url: m.url(p.url) } : p)),
   };
 }

@@ -1,6 +1,7 @@
 // `tabcap analyze …`: argument parsing and printing only; the work is in
 // src/analyze/ (pure functions over bundle directories, no daemon).
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadFamilies } from "../analyze/protection/registry.ts";
 import { paths as currentPaths } from "../shared/paths.ts";
@@ -10,7 +11,9 @@ import { appendFinding, appendFindings, type SavedFinding, type SavedFindings } 
 import { diff, renderDiffText, type DiffResult } from "../analyze/diff.ts";
 import { DepsGraph, depsFindings, depsOf, renderDepsText } from "../analyze/deps.ts";
 import { chainOf, renderChainText } from "../analyze/chain.ts";
-import { redactChain, redactDeps, redactDiff, redactDossier } from "../analyze/redact.ts";
+import { analyzeDossierMask, redactChain, redactDeps, redactDiff, redactDossier } from "../analyze/redact.ts";
+import { Secrets } from "../daemon/secrets.ts";
+import { Store, storePath } from "../daemon/store/db.ts";
 import { buildDossier, reconOutput, recordedPage, renderDossierMd, writeDossier } from "../analyze/recon.ts";
 import { parseShapeTypes, renderSchemaDiffText, renderShapeText, schemaDiff, shape, writeShape } from "../analyze/shape.ts";
 import { BundleReader } from "../bundle/reader.ts";
@@ -163,6 +166,19 @@ function cmdChain(argv: readonly string[]): Outcome {
   return { code: 0, envelope: ok(result), text: renderChainText(result, { reveal }) };
 }
 
+/** The store's known secrets replaced as `<secret:site.field>` (docs/04 §8.1), as the daemon does in every output; identity without a store. */
+function storeScrub(configDir: string): (s: string) => string {
+  if (!existsSync(storePath(configDir))) return (s) => s;
+  const secrets = new Secrets();
+  const st = Store.open(configDir);
+  try {
+    secrets.setStored(st.knownSecrets());
+  } finally {
+    st.close();
+  }
+  return (s) => secrets.scrub(s);
+}
+
 function cmdRecon(argv: readonly string[]): Outcome {
   const parsed = parseCommand(RECON, argv);
   if (parsed.help) {
@@ -173,10 +189,13 @@ function cmdRecon(argv: readonly string[]): Outcome {
   const reader = BundleReader.open(bundle);
   // 0.8-A: built-in protection families plus config/protection/ (docs/04 §41.1)
   const { families, warnings } = loadFamilies(join(currentPaths().config, "protection"));
-  const dossier = redactDossier(buildDossier(reader, recordedPage(reader), { families, warnings }), parsed.args["reveal"] === true);
-  const out = reconOutput(dossier, writeDossier(bundle, dossier));
+  const built = buildDossier(reader, recordedPage(reader), { families, warnings });
+  const dossier = parsed.args["reveal"] === true ? built : redactDossier(built, analyzeDossierMask());
+  // docs/04 §22: known store secrets replaced in the files and the answer, also with --reveal (as `tabcap recon`)
+  const scrub = storeScrub(currentPaths().config);
+  const out: unknown = JSON.parse(scrub(JSON.stringify(reconOutput(dossier, writeDossier(bundle, dossier, scrub)))));
   if (parsed.args["text"] !== true) return { code: 0, envelope: ok(out) };
-  return { code: 0, envelope: ok(out), text: renderDossierMd(dossier).trimEnd() };
+  return { code: 0, envelope: ok(out), text: scrub(renderDossierMd(dossier).trimEnd()) };
 }
 
 function cmdShape(argv: readonly string[]): Outcome {
