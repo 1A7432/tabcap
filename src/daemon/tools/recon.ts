@@ -14,7 +14,8 @@ import { join } from "node:path";
 import { loadFamilies } from "../../analyze/protection/registry.ts";
 import { BundleReader } from "../../bundle/reader.ts";
 import type { RequestEvent } from "../../bundle/types.ts";
-import { buildDossier, pageOf, reconOutput, writeDossier, type AdapterDetection, type Dossier, type ReconPage, recordedPage } from "../../analyze/recon.ts";
+import { buildDossier, pageOf, reconOutput, writeDossier, type AdapterDetection, type ReconPage, recordedPage } from "../../analyze/recon.ts";
+import { redactDossier, type DossierMask } from "../../analyze/redact.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
 import { builtinAdapters } from "../adapters/registry.ts";
@@ -39,14 +40,9 @@ function docHeaders(reqs: readonly RequestEvent[], url: string): Record<string, 
   return out;
 }
 
-/** The dossier with the values it carries (page and guard URLs, stack header values) redacted by the live rule. */
-export function redactDossier(d: Dossier, c: LiveCtx): Dossier {
-  return {
-    ...d,
-    page: { ...d.page, url: d.page.url === null ? null : redactUrl(d.page.url, c) },
-    stack: d.stack.map((s) => (s.source === "header" ? { ...s, value: redactHeaderValue(s.marker, s.value, c) } : s)),
-    protection: d.protection.map((p) => (p.source === "guard" && p.url !== null ? { ...p, url: redactUrl(p.url, c) } : p)),
-  };
+/** The live mask for redactDossier (analyze/redact.ts): page and guard URLs, stack header values as `<redacted:name>`. */
+export function liveDossierMask(c: LiveCtx): DossierMask {
+  return { url: (u) => redactUrl(u, c), header: (n, v) => redactHeaderValue(n, v, c) };
 }
 
 async function livePage(d: Daemon, session: string, a: Args, reader: BundleReader): Promise<ReconPage> {
@@ -89,7 +85,7 @@ export async function recon(d: Daemon, a: Args, session: string): Promise<unknow
   const loaded = loadFamilies(join(d.paths.config, "protection"));
   warnings.push(...loaded.warnings);
   const built = buildDossier(reader, page, { session, warnings, families: loaded.families });
-  const dossier = revealOf(a) ? built : redactDossier(built, { scrub: (s) => d.secrets.scrub(s) });
+  const dossier = revealOf(a) ? built : redactDossier(built, liveDossierMask({ scrub: (s) => d.secrets.scrub(s) }));
   const paths = writeDossier(rec.dir, dossier, (s) => d.secrets.scrub(s));
   return reconOutput(dossier, paths);
 }

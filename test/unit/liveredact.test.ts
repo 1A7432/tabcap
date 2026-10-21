@@ -10,7 +10,8 @@ import { Secrets } from "../../src/daemon/secrets.ts";
 import { redactBodyText, redactCookieHeader, redactFlatHeaders, redactHeaders, redactSetCookie, redactUrl, redacted, redactedDetail } from "../../src/daemon/tools/liveredact.ts";
 import { fetchArgs } from "../../src/cli/fetch.ts";
 import { parseFetchSpec } from "../../src/daemon/fetch/spec.ts";
-import { redactDossier } from "../../src/daemon/tools/recon.ts";
+import { redactDossier } from "../../src/analyze/redact.ts";
+import { liveDossierMask } from "../../src/daemon/tools/recon.ts";
 import { requestDetail } from "../../src/daemon/tools/netshow.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { AnalyzeRedactor } from "../../src/analyze/redact.ts";
@@ -147,7 +148,7 @@ describe("recon dossier", () => {
       notes: [],
       warnings: [],
     };
-    const r = redactDossier(base, plain);
+    const r = redactDossier(base, liveDossierMask(plain));
     expect(r.page.url).toBe("http://h/p?access_token=<redacted:access_token>&tab=2");
     expect(r.protection[0]).toMatchObject({ url: "http://h/v?ticket=1&sessionId=<redacted:sessionId>" });
     expect({ ...r, page: base.page, protection: base.protection }).toEqual(base);

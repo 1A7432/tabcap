@@ -462,7 +462,7 @@
 
 作者定：`recon` v0 只答四问（技术栈、数据通道清单与覆盖率、cookie 分类、防护识别），产出 `exports/dossier.json` + `exports/dossier.md`，回执进 `cmd` end 的 `outputSummary.receipt`，不另立 kind；`--probe` 推 0.5。
 
-- 文件：`<bundle>/exports/dossier.json`（schema `tabcap-dossier/0`）与 `dossier.md`，0600，`exports/` 0700；每次 `tabcap recon` / `tabcap analyze recon <包>` 覆写。守护进程写入前过已知秘密值替换。和 HAR 一样不参与分析，`bundle redact` 的副本不带。
+- 文件：`<bundle>/exports/dossier.json`（schema `tabcap-dossier/0`）与 `dossier.md`，0600，`exports/` 0700；每次 `tabcap recon` / `tabcap analyze recon <包>` 覆写。守护进程写入前过已知秘密值替换；离线 `analyze recon` 10-21 起也一样（库里已知的秘密值在两个文件、回答与 `--text` 里都换成 `<secret:<站点>.<字段>>`，`--reveal` 也照换，与 `tabcap recon` 一致）。两条命令共用一个打码函数（§8.3），各自保留占位符样式：`recon` 为 `<redacted:名字>`，`analyze recon` 为 `<redacted:sha256 前 8 位>`。和 HAR 一样不参与分析，`bundle redact` 的副本不带。
 - `dossier.json` 顶层：`{schema, bundle, session, generatedAt(epoch ms), page:{url,title,source:"live"|"recorded-document"|"none",request?}, stack:[…], channels:[…], coverage:{ratio,total,found,unmatched,capped}, cookies:[…], protection:[…], grades:{…}, notes:[…], warnings:[…]}`。`notes` 放「只识别、不绕过」那句，`warnings` 放包未结束、无当前页面等。
 - `stack`：`{source:"adapter", name, category, confidence, evidence, grade}`（当前页面上每个适配器的 detect 结果，离线没有）、`{source:"header", marker, value, hint, request, requests, grade}`（值照录，截 200 字符）、`{source:"cookie", marker, name, hint, request, grade}`（只有名字，从不写 cookie 值）；全部【推断】。
 - `channels`：`{method, template, type, body:"json"|"html"|"fragment"|"text"|"binary"|"ws"|"sse", count, first:"r-N", status:[…], unreadByPage:<条数>, decode:[find 步骤名], tokens}`，按首条请求的 seq 排。

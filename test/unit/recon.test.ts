@@ -26,8 +26,11 @@ import {
   type ReconPage,
 } from "../../src/analyze/recon.ts";
 import { runAnalyze } from "../../src/cli/analyze.ts";
+import { analyzeDossierMask, redactDossier } from "../../src/analyze/redact.ts";
 import { summarize } from "../../src/daemon/main.ts";
+import { Store } from "../../src/daemon/store/db.ts";
 import { isRecord } from "../../src/shared/json.ts";
+import { paths } from "../../src/shared/paths.ts";
 import { b64, buildBundle, idOf, tmp } from "./_analyze.ts";
 
 const O = "http://127.0.0.1:4310";
@@ -393,6 +396,46 @@ describe("output", () => {
     if (!revealed.envelope.ok || !isRecord(revealed.envelope.data)) throw new Error("analyze recon --reveal failed");
     const rpage = isRecord(revealed.envelope.data["page"]) ? revealed.envelope.data["page"] : {};
     expect(String(rpage["url"])).toContain(SECRET);
+  });
+
+  test("review 2026-10-21: analyze recon replaces known store secrets in the dossier files, the answer and --text, also with --reveal (as live recon)", async () => {
+    const PW = "Recon-Pa55-word";
+    const home = tmp("tabcap-recon-home-");
+    const st = Store.open(paths({ TABCAP_HOME: home }).config);
+    try {
+      st.addSite({ name: "shop", entryUrl: `${O}/`, domains: ["127.0.0.1"], username: "u", password: PW });
+    } finally {
+      st.close();
+    }
+    const dir = tmp("tabcap-recon-");
+    await buildBundle(dir, { name: "store", created: C, seed: 35 }, async (b) => {
+      await b.request({ url: `${O}/orders?code=${PW}&lang=zh`, type: "document", mime: "text/html", body: "<!doctype html><title>Orders</title><p>hello world</p>", ts: C + 100 });
+    });
+    const prev = process.env["TABCAP_HOME"];
+    process.env["TABCAP_HOME"] = home;
+    try {
+      for (const argv of [[], ["--reveal"], ["--text"]]) {
+        const r = await runAnalyze(["analyze", "recon", dir, ...argv]);
+        if (!r.envelope.ok) throw new Error(`analyze recon ${argv.join(" ")} failed`);
+        for (const out of [JSON.stringify(r.envelope), r.text ?? "", readFileSync(join(dir, "exports", "dossier.json"), "utf8"), readFileSync(join(dir, "exports", "dossier.md"), "utf8")]) {
+          expect([argv, out.includes(PW)]).toEqual([argv, false]);
+        }
+        expect(readFileSync(join(dir, "exports", "dossier.json"), "utf8")).toContain(`code=<secret:shop.password>&lang=zh`);
+      }
+    } finally {
+      if (prev === undefined) delete process.env["TABCAP_HOME"];
+      else process.env["TABCAP_HOME"] = prev;
+    }
+  });
+
+  test("review 2026-10-21: one redactDossier; the offline mask keeps <redacted:sha8> (live keeps <redacted:name>, liveredact.test.ts)", async () => {
+    const dir = tmp("tabcap-recon-");
+    await buildBundle(dir, { name: "one", created: C, seed: 36 }, async (b) => {
+      await b.request({ url: `${O}/x`, type: "document", mime: "text/html", body: "<p>x</p>", ts: C + 100 });
+    });
+    const d = buildDossier(BundleReader.open(dir), { url: `${O}/p?access_token=x1&tab=2`, title: "t", text: "", source: "live", adapters: null });
+    const sha8 = new Bun.CryptoHasher("sha256").update("x1").digest("hex").slice(0, 8);
+    expect(redactDossier(d, analyzeDossierMask()).page.url).toBe(`${O}/p?access_token=<redacted:${sha8}>&tab=2`);
   });
 
   test("the cmd end event keeps the receipt (docs/09 §13.3 draft)", () => {
