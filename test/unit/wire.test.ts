@@ -24,7 +24,8 @@ import { CA_CERT, caPath } from "../../src/wire/certs.ts";
 import { Echo, type EchoReport } from "../../src/wire/echo.ts";
 import { Wireprint, extractTo, isCompiled, mapFailure, parseOutput, sha256Hex } from "../../src/wire/native.ts";
 import { WIRE_NOTE, WIRE_SCHEMA, checksOf, claimOf, clientEnv, clientOf, labelsOf, layersOf, renderWireText, uvCommand, wireResultOf, type WireResult } from "../../src/wire/probe.ts";
-import { cftVersion, flagsSha256, normalizedFlags, profileArgs, profileFile, reusable } from "../../src/wire/profile.ts";
+import { cftVersion, flagsSha256, profileArgs, profileFile, reusable } from "../../src/wire/profile.ts";
+import { normalizedLaunchArgs } from "../../src/shared/launchargs.ts";
 import { NATIVE_TARGETS, binaryName, hostTarget, zigBuildCommand } from "../../src/wire/targets.ts";
 import { buildTargets } from "../../scripts/native.ts";
 import { REPO_ROOT } from "./_fixtures.ts";
@@ -372,10 +373,10 @@ describe("baseline profile: flags hash, file, reuse", () => {
   const ARGS = ["--user-data-dir=/home/u/.config/tabcap/profiles/default", "--remote-debugging-pipe", "--disable-field-trial-config", "--load-extension=/x/ext", "about:blank"];
 
   test("machine paths become markers; the hash covers the exact order", () => {
-    const n = normalizedFlags(ARGS);
+    const n = normalizedLaunchArgs(ARGS, { home: "/home/u", extensionDir: "/x/ext" });
     expect(n).toEqual(["--user-data-dir=<profile>", "--remote-debugging-pipe", "--disable-field-trial-config", "--load-extension=<extension>", "about:blank"]);
     expect(flagsSha256(n)).toMatch(/^[0-9a-f]{64}$/);
-    expect(flagsSha256(normalizedFlags(ARGS.map((a) => a.replace("/home/u", "/Users/v"))))).toBe(flagsSha256(n));
+    expect(flagsSha256(normalizedLaunchArgs(ARGS.map((a) => a.replace("/home/u", "/Users/v")), { home: "/Users/v", extensionDir: "/x/ext" }))).toBe(flagsSha256(n));
     expect(flagsSha256([...n].reverse())).not.toBe(flagsSha256(n));
     expect(flagsSha256(n.filter((f) => f !== "--disable-field-trial-config"))).not.toBe(flagsSha256(n));
   });

@@ -53,8 +53,11 @@ export const ACTION_COMMANDS: ReadonlySet<string> = new Set(["navigate", "click"
 
 export type LastAction = { action: string; at: number; cmd: string | null };
 
-/** `takeover`: the 0.7.1-A take-over listener (null: `handoff.detectTakeover` is off). */
-export type Running = { t: DirectTransport; tabs: Tabs; console: ConsoleLog; info: BrowserInfo; takeover: TakeoverWatch | null };
+/**
+ * `takeover`: the 0.7.1-A take-over listener (null: `handoff.detectTakeover` is off).
+ * `extensionDir`: the UI extension tabcap loaded, if any (its `--load-extension` item reads <extension> in a manifest, docs/04 §42).
+ */
+export type Running = { t: DirectTransport; tabs: Tabs; console: ConsoleLog; info: BrowserInfo; takeover: TakeoverWatch | null; extensionDir: string | null };
 
 /** `proxy`: the pool proxy name the session goes out through (its own browser context), `system` / `none`, or null (unbound account). */
 export type SiteBinding = { site: string; account: string | null; proxy: string | null };

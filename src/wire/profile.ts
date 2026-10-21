@@ -3,22 +3,14 @@
 // exact launch flags: --disable-field-trial-config alone changes the
 // ClientHello, docs/07 §6), and the `tabcap` section tabcap adds to the
 // component's profile JSON. Pure helpers; the capture itself is
-// src/daemon/tools/wire.ts.
+// src/daemon/tools/wire.ts, the flags are normalized by
+// src/shared/launchargs.ts (the same rules as the bundle manifest).
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isRecord } from "../shared/json.ts";
 
 export const PROFILE_DIR = ["wire", "profiles"] as const;
-
-/** Launch flags with machine-specific paths replaced, in launch order (what the hash covers). */
-export function normalizedFlags(args: readonly string[]): string[] {
-  return args.map((a) => {
-    if (a.startsWith("--user-data-dir=")) return "--user-data-dir=<profile>";
-    if (a.startsWith("--load-extension=")) return "--load-extension=<extension>";
-    return a;
-  });
-}
 
 export function flagsSha256(flags: readonly string[]): string {
   return new Bun.CryptoHasher("sha256").update(flags.join("\n")).digest("hex");
