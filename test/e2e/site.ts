@@ -38,6 +38,8 @@ const BEFORE_LEAVE = JSON.stringify({ leave: "ok", pad: "x".repeat(4000) });
 
 export type Site = { origin: string; served: Map<string, string>; hits: string[]; stop: () => void };
 
+// docs/05 s01-like: the list XHR GET /api/items; s02-like: POST /api/before-leave
+// fired in the click handler right before the link navigates to /two.
 export function startSite(): Site {
   const served = new Map<string, string>(); // path -> sha256 of the body bytes
   const hits: string[] = [];
@@ -117,6 +119,8 @@ export function startSmokeSite(): Site {
 // throws, and a slow API for `wait --idle` / `net wait`. `served` holds the
 // sha256 of every body and of every WebSocket payload the server saw or sent
 // (key "ws:recv:<n>" / "ws:send:<n>" in server order).
+// /ws-page + /ws is docs/05 s11-like: two text frames and one binary frame,
+// each echoed, then one server push carrying WS_MARKER.
 export const WS_MARKER = "server-push-7c1e";
 export const WS_BINARY = Uint8Array.from({ length: 300 }, (_, i) => (i * 7) & 0xff);
 export const SLOW_API_MS = 1200;
@@ -202,6 +206,7 @@ export const POST_PAD = 3000;
 export const SIGN_HEADER = "x-sign";
 export const SIGN_VALUE = "sig-5d41402abc4b2a76";
 
+// s17: /popup opens /popup-target in its own window (window.open with features).
 const POPUP_PAGE = `<!doctype html><meta charset=utf-8><title>popup opener</title>
 <button id=open onclick="window.__w = window.open('/popup-target', 'pw', 'width=520,height=420'); window.__opened = !!window.__w">打开弹窗</button>`;
 const POPUP_TARGET = `<!doctype html><meta charset=utf-8><title>popup target</title>
@@ -249,6 +254,7 @@ window.__login = 0;
 document.getElementById("login").addEventListener("click", () => { window.__login++; });
 </script>`;
 
+// s20: /noise, the port-scan page (SCAN_PORTS) plus DATA_IMAGES data: images.
 function noisePage(): string {
   const scans = SCAN_PORTS.map((p) => `fetch("http://127.0.0.1:${p}/").catch(() => null);`).join("\n");
   const imgs = Array.from({ length: DATA_IMAGES }, (_, i) => `<img alt="d${i}" width=4 height=4 src="data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><text>${i}</text></svg>`)}">`).join("");
@@ -722,6 +728,7 @@ const OV_CONSENT = OV_BASE(
 // 0.7.3: a role-less full-viewport mask wrapping its dialog (common framework
 // markup). The inner block is opaque with a border and a shadow; "Buy now" sits
 // under the mask and must be reported covered, never clicked through.
+// docs/05 s63 overlay-wrapper: /ov/wrapped.
 const OV_WRAPPED = OV_BASE(
   "ov wrapped",
   `<button id=buy type=button style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1">Buy now</button>
@@ -1039,6 +1046,7 @@ export function startThrottleSite(): Site {
 // GET /pool/set?v=<value> sets the cookie pool_sid=<value>; GET /pool/me shows
 // the Cookie header it received. `hits` (path + query and the Cookie header of
 // every request) is the oracle for "the account's own cookies, and only them".
+// docs/05 s51 (0.6-D, one browser context per account) runs on this site too.
 export type PoolHit = { path: string; cookie: string | null };
 export type PoolSite = { origin: string; hits: PoolHit[]; stop: () => void };
 
@@ -2378,7 +2386,7 @@ export function startChromeArgsSite(): ChromeArgsSite {
   return { origin: `http://127.0.0.1:${server.port}`, reports, stop: () => server.stop(true) };
 }
 
-// ---------------------------------------------------------------- 0.8-A: s67–s70 protection families (docs/05 §16)
+// ---------------------------------------------------------------- 0.8-A: s67–s70 protection families (docs/05 §17)
 // One server for all four scenarios. Pages and stubs are our own; only NAMES
 // (cookie names, host names, globals, class names) match the families of
 // docs/14 — no vendor code. Vendor hosts are written as http://<host>:<port>/…

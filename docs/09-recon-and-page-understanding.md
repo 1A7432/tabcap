@@ -421,11 +421,13 @@ t1 XX 管理系统  /main.jsp  GBK   frameset 3 帧
 | s38 | portal-select-datepicker | 虚拟化下拉（只渲染 10 项）+ 异步搜索组合框 + 只读日期输入 + 区间日期 | `select` / `set-date` 成功并回读；浮层关联到触发器 | P2 |
 | s39 | transient-toast-busy | `aria-live` 提示 1.5 s 后消失 + `aria-busy` 骨架屏 + 加载遮罩 | 事件流里有提示；`wait --settled` 等到真正静止 | P1 |
 | s40 | locale-numbers | 同一份数据按 en-US / de-DE / fr-FR / en-IN、括号负数、尾随负号、方向标记、带点的分级编码分别渲染 | `where` 都能对回同一个 JSON 值 | P1 |
-| s41 | chart-instance | 数据只在 ECharts / Chart.js 实例里 | `read` 拿到 series 数据；`where` 能指向实例 | P2 |
-| s42 | report-viewer | 报表查看器风格：iframe + 绝对定位的 div 碎片 + 分页 API + 导出端点 | recon 认出查看器并指向导出端点；导出文件进包 | P2 |
 | s43 | structured-data | JSON-LD Product / Offer + robots.txt 里列的 sitemap index | recon 列出结构化数据和 sitemap | P1 |
 | s44 | legacy-auth | CAS 风格跳转加票据；HTTP Basic 质询（NTLM 难在本地造，用 Negotiate 头模拟质询流程） | recon 认出认证类型；质询不让标签卡在原生登录框 | P2 |
 | s45 | session-timeout-kick | 「你还在吗」倒计时弹窗 + 单会话互踢 | 识别为遮挡并提醒人；互踢后识别为会话失效，交给 guard / handoff | P2 |
+| s57 | chart-instance | 数据只在 ECharts / Chart.js 实例里 | `read` 拿到 series 数据；`where` 能指向实例 | P2 |
+| s58 | report-viewer | 报表查看器风格：iframe + 绝对定位的 div 碎片 + 分页 API + 导出端点 | recon 认出查看器并指向导出端点；导出文件进包 | P2 |
+
+10-21 改号：s57（原 s41）、s58（原 s42）。原来的两个号与 `05` 已落地的 s41 embedded-state、s42 decode-plugins 撞号，改用空号；`05` §19 场景索引列了全部编号与空号。
 
 ## 13. 主循环的意见（10-15，供作者决策；本节没有任何已定事项）
 
