@@ -162,6 +162,8 @@ describe.skipIf(!enabled)("tabcap 0.5-A L2 (tabcap mcp over stdio)", () => {
     expect(stable(snap.env)).toEqual(stable(snapCli));
     expect(JSON.stringify(snap.env)).toContain("Add item");
 
+    // Let the page's trailing requests (a favicon on Windows CI) land before the two lists are compared.
+    expect(await cli(["wait", "--idle", "500", "--session", "m"])).toMatchObject({ ok: true });
     const net = await c.call("tabcap_net_list", S);
     const netCli = await cli(["net", "list", "--session", "m"]);
     expect(net.env["ok"]).toBe(true);

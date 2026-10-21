@@ -144,7 +144,9 @@ const CASES: Array<[string[], Want]> = [
 ];
 
 const fill = (a: string): string => a.replace("<B>", join(T, "b")).replace("<H>", join(T, "s.har")).replace("<T>", T);
-const norm = (s: string): string => s.split(join(T, "b")).join("<B>").split(join(T, "s.har")).join("<H>").split(T).join("<T>");
+// Paths inside messages are native (backslashes on Windows): the placeholders and the rest of a path read with "/".
+const norm = (s: string): string =>
+  s.split(join(T, "b")).join("<B>").split(join(T, "s.har")).join("<H>").split(T).join("<T>").replace(/<([BHT])>((?:\\[^\s"'`]+)+)/g, (_m, tag: string, rest: string) => `<${tag}>${rest.replaceAll("\\", "/")}`);
 
 describe("bundle commands through parseCommand (oracle: the old parser's answers)", () => {
   for (const [argv, want] of CASES) {
