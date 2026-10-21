@@ -628,3 +628,4 @@
 - 卡在哪：本机 Zig 0.17 编不了 wireprint（`build.zig` 用的 `b.args` 在 0.17 没了），新 checkout 跑 v04w 前要么装回 0.16.0、要么复制已编好的二进制；作者实际要加的那几个参数本身的效果【待验】。
 - 下一格从哪开始：作者审 `docs/04` §42 与 diff，同意后开 PR、看 CI；作者用真实参数跑一次。
 - PR #27 第一轮 CI：Ubuntu e2e 第 3 片红，75 pass / 0 fail，失败来自 v08a 用例之间的未处理异常：`test/e2e/fwdproxy.ts` 在 `data` 回调里 `await Bun.connect`，上游端口没人监听时 reject 没人接（`ECONNREFUSED`）。时间点正好是 v08a `browser start` 起 Chrome（daemon.log / browser.log，CI 产物 e2e-logs-ubuntu-latest-3），推断是启动时经代理的某个无端口 http 请求落到 127.0.0.1:80【推断：代理不记被拒连接的 URL】；与本 PR 无关（v08a 不带自定义参数，命令行与原来逐项相同）。ci-flakes 最近 40 次里首次出现。修：连不上时回 502 并关连接；`hits` 在连接前就记，oracle 不变。【实测】旧版本用独立脚本复现出同样的未处理异常，新版本回 502；v04d + v08a 本地 11 pass。
+- PR #27 第二轮 CI 全绿；Bugbot 一条属实：不带 `=` 的列表开关（`--chrome-arg --disable-features`）走了同名替换分支，把 tabcap 的整串换成空开关，违背 §42 的合并规则。修：列表开关一律走合并，不带值即合并零项、命令行不变；`docs/04` §42 补一句。【实测】新单测在旧代码上红、新代码上绿，unit 1382 pass。
