@@ -53,7 +53,7 @@ pcap 路径的限制：pcapng（`0a0d0d0a`）→ `UnsupportedFormat`；IP 分片
 
 畸形输入怎么报（不崩溃）：
 - 解析器错误集：`error.Truncated` = 输入在已声明的长度之前结束，多给字节可能修好（record 头、record fragment、握手消息、pcap 记录、h2 帧头与前言、HPACK）；`error.Malformed` = 完整容器内部自相矛盾，多给字节也修不好（内层长度越出外层、长度不在 `<floor..ceiling>`、u16 列表奇数字节、扩展块没被 type/length/data 精确铺满、重复扩展类型、结构后有多余字节、record 长度 > 2^14、需要握手 record 处出现别的 ContentType、h2 帧 payload 长度与类型 / flags 矛盾）；另有 `NotClientHello`、`MessageTooLarge`、`UnsupportedFormat`、`Unsupported`、`NoTlsPayload`。
-- 解析路径不用 `unreachable` / `@panic` / `catch unreachable`（`root.zig` 自述的纪律）；是否所有路径都守住【待验】。
+- 解析路径不用 `unreachable` / `@panic` / `catch unreachable`（`root.zig` 自述的纪律）【实测 2026-10-21：`grep -rn 'unreachable\|@panic' native/` 在 28 个 `.zig` 文件里只命中 `native/wireprint/src/root.zig`、`native/wireprint/src/tls/client_hello.zig` 的注释，代码里一处没有（`catch unreachable`、`orelse unreachable` 也包含在内）；grep 只核对这几个关键字，安全构建里整数溢出、越界下标这类运行时检查不在这一条之内】。
 - CLI 层（0.4-W2）：加载或解析失败在 **stderr** 打一行 `error: <文件>: <阶段>: <错误名>`，stdout 什么也不写，退出码 1（§7）【实测：`src/cli.zig` 测试——读不到的文件、h2 字节当 ClientHello、ClientHello 当 h2、h2 前言当 h1、缺参数、未知子命令】。JA3 / JA4 计算失败写成该字段的字符串值 `"error: <错误名>"`，报告照常输出；h2 帧 / HPACK 错误写进 `http2.frame_error` / `http2.hpack_error`，报告照常输出。
 - 原「扩展体畸形在半份 JSON 之后退出」的缺口已补：输出先写进内存缓冲，出错时整份丢弃；`report` 在写 JSON 之前先把扩展块走一遍，畸形直接按输入错误退出【推断：读代码；CLI 测试只覆盖到非 ClientHello 的输入】。
 

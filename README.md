@@ -135,7 +135,7 @@ Channels: npm (`tabcap` plus one package per platform, published from CI on a `v
 ## Documentation
 
 - [`skills/tabcap/`](skills/tabcap/): the agent skill, `SKILL.md` and references for recording, search, analysis, replay, pools, MCP and tracing.
-- [`docs/`](docs/) (Chinese): the evidence bundle format (`04`), the local test pages (`05`), acceptance tests (`06`), architecture and CDP notes (`07`), implementation plan (`08`), recon (`09`), input fidelity (`10`), the wire fingerprint component (`11`), the comparison with similar tools (`12`), proxies and interop (`13`), protection families and their sources (`14`).
+- [`docs/`](docs/) (Chinese): the evidence bundle format (`04`), the local test pages (`05`), acceptance tests (`06`), architecture and CDP notes (`07`), implementation plan (`08`), recon (`09`), input fidelity (`10`), the wire fingerprint component (`11`), the comparison with similar tools (`12`), proxies and interop (`13`), protection families and their sources (`14`), the open verifications and inferences still to check (`15`).
 - [`CHANGELOG.md`](CHANGELOG.md): changes per release.
 - Contributing: `AGENTS.md` (rules for AI collaborators), `NOTES.md` (one entry per unit of work; the last one is where the next starts), `docs/03` (thesis and roadmap). `bun test test/unit` runs the offline tests; `bun run test:e2e` needs a Chrome for Testing.
 
