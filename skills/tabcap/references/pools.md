@@ -27,7 +27,7 @@ tabcap account add example --user bob --password-stdin             # the user ru
 
 ## Proxies
 
-- `tabcap proxy add p1 --url http://127.0.0.1:8080 [--user pool1 --password-stdin] [--bypass "<-loopback>"]`: http, https, socks4, socks5; never credentials in the URL; SOCKS with a username is refused (Chrome offers no-auth SOCKS only). The password is never shown in tabcap output.
+- `tabcap proxy add p1 --url http://127.0.0.1:8080 [--user pool1 --password-stdin] [--bypass "<-loopback>"]`: http, https, socks4, socks5; never credentials in the URL; SOCKS with a username is refused (Chrome offers no-auth SOCKS only). The password is never shown in tabcap output. `browser start --proxy <url>` takes no `user:pass@` either: a proxy with a password goes here, then `account bind`.
 - `tabcap account bind example.alice --proxy p1`: the account's browser context goes out through that proxy; with `--proxy system` / `none` its context has no proxy of its own (the browser's network and proxy flags). In `ext` mode (stage 2, not implemented yet; today every browser is the direct mode) a proxy-bound account has no own context: `ext.no-context`, use the direct mode.
 - `tabcap proxy check p1 [--url <address>]` does one health check through the proxy (only against the address given, or `config.json` `pool.health.url`; with neither nothing is contacted and the state stays `unchecked`); three failures in a row mark it down (rechecked after 1 / 5 / 15 min). `tabcap proxy set-state p1 disabled` (the user runs this) skips it in allocation and rotation; `active` re-enables it.
 - While the proxy auth handler is on, every answer says `fetchAuth: "on"`.

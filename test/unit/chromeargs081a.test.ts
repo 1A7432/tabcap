@@ -181,6 +181,37 @@ describe("checkCustomArgs (docs/04 §42)", () => {
   });
 });
 
+describe("--proxy URL: no credentials (review 10-21)", () => {
+  const refused = (value: string): TabcapError => {
+    try {
+      parseProxy(value);
+    } catch (e) {
+      if (e instanceof TabcapError) return e;
+      throw e;
+    }
+    throw new Error(`expected ${value} to be refused`);
+  };
+
+  test("user:pass@ (or a bare user@) is a usage error that never shows the value and points to the store", () => {
+    for (const v of ["http://alice:hunter2@proxy.example:8080", "socks5://alice@127.0.0.1:1080", "HTTPS://:hunter2@proxy.example:443", "http://alice:hunter2@proxy.example:8080/"]) {
+      const e = refused(v);
+      expect(e.code).toBe("usage");
+      expect(e.message).toContain("credentials");
+      expect(`${e.message} ${e.next}`).not.toContain("hunter2");
+      expect(`${e.message} ${e.next}`).not.toContain("alice");
+      expect(e.next).toContain("tabcap proxy add <name> --url scheme://host:port --user <user>");
+      expect(e.next).toContain("tabcap account bind <site>.<user> --proxy <name>");
+    }
+  });
+
+  test("proxy URLs without credentials still pass; an @ after the host is not userinfo", () => {
+    expect(parseProxy("http://127.0.0.1:8080")).toEqual({ kind: "url", url: "http://127.0.0.1:8080" });
+    expect(parseProxy("socks5://127.0.0.1:1080")).toEqual({ kind: "url", url: "socks5://127.0.0.1:1080" });
+    expect(parseProxy("127.0.0.1:8080")).toEqual({ kind: "url", url: "127.0.0.1:8080" });
+    expect(parseProxy("http://proxy.example:8080/a@b")).toEqual({ kind: "url", url: "http://proxy.example:8080/a@b" });
+  });
+});
+
 describe("config.json chrome.args / chrome.dropArgs (docs/04 §42)", () => {
   const file = () => join(mkdtempSync(join(tmpdir(), "tabcap-cfg081a-")), "config.json");
 

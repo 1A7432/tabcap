@@ -1071,6 +1071,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 来源：作者 10-21 实际使用中要给 Chrome for Testing 加自己的启动参数，tabcap 写死了参数表、没有透传口子。作者定：「不影响实际使用和操作的全部不拒绝」；删除 tabcap 默认参数（dropArgs）一起做；证据包 manifest 记 `browser.args`。
 
 - **入口**：`tabcap browser start --chrome-arg <arg>`（可重复，加或覆盖）与 `--drop-chrome-arg <arg>`（可重复，删 tabcap 的默认参数）；`config.json` `chrome.args` / `chrome.dropArgs`（字符串数组）作默认值，命令行的排在配置之后。`tabcap setup` 改写 `chrome` 时保留这两个键。配置里不是字符串数组回 `bad-input`，点名键。不加环境变量（按空格切分有引号歧义）。
+- **`--proxy` 不带凭据**（10-21 审查后作者定）：`--proxy <url>` 与 `config.json` `proxy` 是 `scheme://user[:pass]@…` 时回 `usage`，信息不回显值，`next` 是「`tabcap proxy add <name> --url scheme://host:port --user <user>`（口令在提示符输入），再 `tabcap account bind <site>.<user> --proxy <name>`，`session start --site <site>` 的会话走它」。否则凭据会进进程命令行、`browser start` 回答与 manifest，而且不在已知秘密值表里。
 - **每项的形状**：`--name` 或 `--name=value`（名字以字母或数字开头，`[A-Za-z0-9._-]`）；不以 `--` 开头的（URL、单横线写法）回 `usage`：它不是开关，开页面用 `navigate` / `tab new`。
 - **只拒绝会让 tabcap 自己失灵的**（`usage`，浏览器不起来）：
   - 加：`--user-data-dir`（profile 由 tabcap 管：池账号 cookie、port 模式的 `DevToolsActivePort`）、`--remote-debugging-pipe`。

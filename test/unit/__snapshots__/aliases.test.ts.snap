@@ -185,7 +185,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": null,
           "flag": "--proxy",
-          "help": "system (default) | none (block everything but 127.0.0.1/localhost) | <url> (loopback goes through the proxy too)",
+          "help": "system (default) | none (block everything but 127.0.0.1/localhost) | <url> (scheme://host:port, loopback goes through the proxy too; no user:pass@: a proxy with a password goes into the store with \`tabcap proxy add\`)",
           "key": "proxy",
           "repeatable": false,
           "required": false,
