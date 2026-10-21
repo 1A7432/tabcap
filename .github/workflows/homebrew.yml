@@ -5,6 +5,9 @@
 # release.yml. Auth: the repository secret HOMEBREW_TAP_TOKEN, a fine-grained PAT with
 # Contents: read and write on the tap repository only (packaging/homebrew/README.md).
 # Without the secret the job warns and does nothing, so a release never fails on it.
+# The scoop job renders packaging/scoop/tabcap.json from the same SHA256SUMS and
+# commits it to main with GITHUB_TOKEN ([skip ci]); if the push is refused it opens
+# a pull request instead (packaging/scoop/README.md).
 # workflow_dispatch with a tag re-runs it for a release that is already published.
 name: homebrew
 
@@ -76,3 +79,68 @@ jobs:
           git commit --quiet -m "tabcap $version"
           git push --quiet origin HEAD
           echo "pushed tabcap $version to $TAP_REPO"
+
+  # packaging/scoop/tabcap.json is the manifest of the last published release; a
+  # release commit leaves it alone and this job brings main up to the new release.
+  # scripts/scoop-manifest.ts writes nothing for a release older than main's manifest.
+  scoop:
+    name: commit the Scoop manifest to main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+
+      - name: render packaging/scoop/tabcap.json from the release's SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag $TAG is not v<major.minor.patch>"; exit 1; }
+          version="${TAG#v}"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir "$RUNNER_TEMP/sums" --clobber
+          bun scripts/scoop-manifest.ts --version "$version" --sums "$RUNNER_TEMP/sums/SHA256SUMS" --out packaging/scoop/tabcap.json
+          git diff -- packaging/scoop/tabcap.json
+
+      - name: commit to main (a pull request if the push is refused)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if git diff --quiet -- packaging/scoop/tabcap.json; then
+            echo "main already has the Scoop manifest for $version (or a newer one)"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packaging/scoop/tabcap.json
+          git commit --quiet -m "packaging: the Scoop manifest carries $version's real hash [skip ci]"
+          if git push --quiet origin HEAD:main; then
+            echo "pushed the Scoop manifest for $version to main"
+            exit 0
+          fi
+          # Refused (branch protection, or main moved on since the checkout): the same
+          # commit on its own branch and a pull request. Creating one with GITHUB_TOKEN
+          # needs Settings -> Actions -> General -> "Allow GitHub Actions to create and
+          # approve pull requests"; without it the branch is pushed and the job fails
+          # with the command to open the pull request by hand.
+          branch="scoop-$version"
+          echo "::warning::the push to main was refused; opening a pull request from $branch instead"
+          git push --quiet --force origin "HEAD:refs/heads/$branch"
+          title="packaging: Scoop manifest for $version"
+          body="Rendered by homebrew.yml from the SHA256SUMS of $TAG (scripts/scoop-manifest.ts); the push to main was refused."
+          if ! gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --title "$title" --body "$body"; then
+            echo "::error::could not open the pull request; run: gh pr create --repo $GITHUB_REPOSITORY --base main --head $branch --title \"$title\""
+            exit 1
+          fi
