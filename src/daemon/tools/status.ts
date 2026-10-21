@@ -21,7 +21,7 @@ export type StatusDaemon = { running: true; pid: number; version: string; listen
 
 /**
  * `webdriver`: 0.7.6-A (docs/04 §40); `extraArgs` / `dropArgs`: 0.8.1-A (§42); `warnings`: switches that
- * weaken the browser's isolation, `protectionLive`: config.json protection.live (review 10-21, §42, §41.3);
+ * weaken the browser's isolation and skipped user protection rule files, `protectionLive`: config.json protection.live (review 10-21, §42, §41.1, §41.3);
  * null while no browser runs.
  */
 export type StatusBrowser = {
