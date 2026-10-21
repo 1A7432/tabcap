@@ -189,10 +189,11 @@ export function applyCustomArgs(base: readonly string[], c: CustomArgs): { args:
   for (const a of c.add) {
     const n = switchName(a);
     const opposite = LIST_SWITCHES.get(n);
-    if (opposite === undefined || switchValue(a) === null) {
+    if (opposite === undefined) {
       out = [...out.filter((x) => switchName(x) !== n), a];
       continue;
     }
+    // A list switch without a value adds no items: tabcap's list stays (Bugbot, PR #27).
     const key = itemKey(n);
     const mine = listItems(a);
     const names = new Set(mine.map(key));

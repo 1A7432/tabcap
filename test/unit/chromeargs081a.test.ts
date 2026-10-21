@@ -72,6 +72,14 @@ describe("applyCustomArgs (docs/04 §42)", () => {
     expect(only(a, "--enable-features")).toEqual(["--enable-features=ThirdPartyStoragePartitioning:mode/x"]);
   });
 
+  test("a list switch without a value adds nothing and keeps tabcap's list (Bugbot, PR #27)", () => {
+    for (const bare of ["--disable-features", "--enable-features", "--disable-blink-features", "--disable-features="]) {
+      expect(withCustom([bare]).args).toEqual(buildArgs(base));
+    }
+    expect(only(withCustom(["--enable-blink-features"]).args, "--enable-blink-features")).toEqual([]);
+    expect(only(buildArgsReport({ ...base, extensionDir: "/ext", custom: { add: ["--load-extension"], drop: [] } }).args, "--load-extension")).toEqual(["--load-extension=/ext"]);
+  });
+
   test("a list switch tabcap does not set is added once, merged with later ones", () => {
     const a = withCustom(["--enable-blink-features=A", "--enable-blink-features=B,A"]).args;
     expect(only(a, "--enable-blink-features")).toEqual(["--enable-blink-features=B,A"]);
