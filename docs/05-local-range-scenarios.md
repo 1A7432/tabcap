@@ -380,3 +380,13 @@
 - 页面 `/s70/cf` 回 403 HTML 并下发 `__cf_bm`；`/s70/jsl` 第一次回 521 并下发 `__jsluid_h`、页面脚本设 `__jsl_clearance` 后 `location.reload()`，带了该 cookie 再请求回 200。
 - 走法与 expected：`net start` → `navigate /s70/cf`：guard 进入 `verify-page` 交接（录到 403 HTML），`handoff status` 的 `handoff.protection` 为 `["Cloudflare Bot Management"]`（交接截图那一步在标签的轮次里补做探测，回答等它），`next` 以 `This is Cloudflare Bot Management (identified, not bypassed; a human handles it). ` 开头；`handoff continue` → `net stop` 后，包里 `handoff {state:"waiting"}` 事件带同样的 `protection`。另一个会话 `navigate /s70/jsl`：回答 `protection` 含「知道创宇 加速乐」（cookie 名规则）。
 - 不在靶场里的【待验】：真实站点上的命中与误报（`docs/14`）。实时探测不读响应头与状态码（`04` §41.3），521 / 412 这类挑战页规则只在 `recon` 里生效。
+
+## 17. 0.8.1-A 自定义 Chrome 启动参数（10-21，P1）
+
+### s71 chrome-args（P1；0.8.1-A，`04` §42）
+- 页面 `/s71`（`test/e2e/site.ts` 的 `startChromeArgsSite`）：脚本加载时把 `navigator.userAgent` 与 `navigator.webdriver` 用 `fetch("/s71/report?ua=…&webdriver=…")` 报给服务器；服务器连同这次请求的 `User-Agent` 头按到达顺序记下（oracle）。
+- 走法与 expected（`test/e2e/v081a.e2e.test.ts`）：
+  1. **加与合并**：`browser start --proxy none --chrome-arg --user-agent=TabcapS71/1.0 --chrome-arg --disable-features=TabcapS71Probe` → `session start a` → `net start` → `navigate /s71` → 等一份报告 → `net stop`。expected：回答 `extraArgs` 为这两项、`dropArgs` 与 `dropArgsUnmatched` 为空；`args` 里恰好一条 `--disable-features=`，同时含 `PreconnectToSearch` 与 `TabcapS71Probe`，含 `--user-agent=TabcapS71/1.0`；服务器记到的 `User-Agent` 头与 `navigator.userAgent` 都是 `TabcapS71/1.0`，`webdriver=false`；`status` 的 `browser.extraArgs` 为这两项；包的 `manifest.producer.browser.args` 含 `--user-agent=TabcapS71/1.0` 与 `--user-data-dir=<profile>`、不含本机 profile 路径，`extraArgs` 为这两项。再跑一次不带参数的 `browser start`：`alreadyRunning:true`，带 `note`。
+  2. **删（配置）**：另一个 `TABCAP_HOME`，`config.json` `{"chrome":{"dropArgs":["--disable-blink-features","--disable-features=PreconnectToSearch","--tabcap-s71-absent"]}}`，`browser start --proxy none`。expected：回答 `webdriver:"visible"`、`dropArgs` 为这三项、`dropArgsUnmatched` 为 `["--tabcap-s71-absent"]`；`args` 里没有 `--disable-blink-features`，`--disable-features=` 还在、含 `Translate`、不含 `PreconnectToSearch`；导航 `/s71` 后报告 `webdriver=true`。
+  3. **拒绝**：各自 `browser start --proxy none` 加 `--chrome-arg --user-data-dir=<临时目录>`、`--chrome-arg --proxy-server=http://127.0.0.1:9`、`--chrome-arg about:blank`、`--drop-chrome-arg --remote-debugging-port` 之一：都回 `usage`，`browser status` 为 `running:false`。`config.json` `{"chrome":{"args":"--x"}}` 回 `bad-input`，消息含 `chrome.args`。
+- 不在靶场里的【待验】：作者真实使用里要加的那几个参数本身的效果（靶场只证明参数到了 Chrome 并按规则合并）。
