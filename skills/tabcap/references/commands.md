@@ -146,7 +146,7 @@ Example: `tabcap mcp --print-config claude-code`
 | Option | Default | Meaning |
 |---|---|---|
 | `--print-config <host>` |  | print where and how to register tabcap mcp in one host instead of serving: claude-code \| cursor \| codex \| gemini-cli \| windsurf \| claude-desktop |
-| `--all-tools` |  | one tool per command with its full help (about 80 tools, ~58 KB of definitions in the model's context) instead of the core set |
+| `--all-tools` |  | one tool per command with its full help (about 95 tools, ~84 KB of definitions in the model's context) instead of the core set |
 
 ## Sites, sessions and tabs
 
