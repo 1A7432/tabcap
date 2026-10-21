@@ -96,7 +96,7 @@ Example: `tabcap daemon status`
 
 ### `tabcap browser start`
 
-launch the dedicated Chrome for Testing (own profile, CDP over a pipe); the answer gives the full command line (args) and the custom args in it (extraArgs, dropArgs)
+launch the dedicated Chrome for Testing (own profile, CDP over a pipe); the answer gives the full command line (args), the custom args in it (extraArgs, dropArgs) and warnings naming switches that weaken the browser's isolation
 
 ```
 tabcap browser start [--proxy mode] [--webdriver mode] [--foreground] [--executable-path path] [--chrome-arg switch]... [--drop-chrome-arg switch]...

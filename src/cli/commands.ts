@@ -194,7 +194,7 @@ export const COMMANDS: CommandSpec[] = [
       },
     ],
     summary:
-      "launch the dedicated Chrome for Testing (own profile, CDP over a pipe); the answer gives the full command line (args) and the custom args in it (extraArgs, dropArgs)",
+      "launch the dedicated Chrome for Testing (own profile, CDP over a pipe); the answer gives the full command line (args), the custom args in it (extraArgs, dropArgs) and warnings naming switches that weaken the browser's isolation",
     example: "tabcap browser start --proxy none --chrome-arg=--lang=en-US",
     action: "browser.start",
   },

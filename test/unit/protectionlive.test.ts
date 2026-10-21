@@ -93,7 +93,7 @@ describe("hints, guard and status", () => {
   test("status --text: the session line ends with the families", () => {
     const text = renderStatusText({
       daemon: { running: true, pid: 1, listener: "unix" },
-      browser: { running: true, pid: 2, mode: "direct", tabs: 1, webdriver: "hidden", extraArgs: [], dropArgs: [] },
+      browser: { running: true, pid: 2, mode: "direct", tabs: 1, webdriver: "hidden", extraArgs: [], dropArgs: [], warnings: [] },
       plugins: { decode: [], challenge: [] },
       sessions: [{ session: "a", site: null, tabs: 1, current: "t1", recording: null, state: "running", trace: { state: "off" }, guardStops: [], protection: ["DataDome", "Google reCAPTCHA"] }],
       conflicts: [],
