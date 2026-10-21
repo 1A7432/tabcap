@@ -246,6 +246,8 @@
 }
 ```
 
+读包时 manifest 是不可信输入（10-21 审查后）：`producer.browser`（`null`，或 `name` / `version` 字符串，`userAgent` 字符串或 `null`，`webdriver` 只收 `hidden` / `visible`，`args` / `extraArgs` / `dropArgs` 是字符串数组）、`record`（`bodies` 是四个值之一）、`sample`（§4.3 的形状）有就校验，畸形报 `bad-input`（以前原样透传，HAR 导出会写出缺 name / version 的 `log.browser`）；没有就是没有；合法对象里的未知字段照留。
+
 ## 8. 脱敏（导出时）
 
 - 触发：`tabcap bundle export har` 默认开，`--no-redact` 关；`tabcap bundle redact <in> <out>` 生成脱敏副本。原包永不原地改。
