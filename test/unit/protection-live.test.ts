@@ -21,6 +21,8 @@ import { handleCommand } from "../../src/daemon/main.ts";
 import { cachedNames, liveIdentify, namesForGuard, probeTab, protectionField } from "../../src/daemon/protection/live.ts";
 import { GLOBALS_FN, RESOURCES_FN } from "../../src/daemon/protection/probe.ts";
 import { Daemon } from "../../src/daemon/state.ts";
+import { Guard, handoffView } from "../../src/daemon/guard.ts";
+import { Secrets } from "../../src/daemon/secrets.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../../src/daemon/transport/types.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { paths } from "../../src/shared/paths.ts";
@@ -340,6 +342,23 @@ describe.skipIf(!FAKE_CHROME)("the guard's names (namesForGuard; fake browser, P
     expect(probes()).toBe(before);
   }, SLOW_IO_MS);
 
+  // Owner 10-21 (docs/04 §41.3): a take-over takes no screenshot, so its tab is probed in the background instead.
+  test("a take-over probes its tab in the background: the handoff, its view and the waiting notice get the names", async () => {
+    const tab = await newTab();
+    const before = probes();
+    const h = d.guard.takeover("g", { tab: tab.id, url: PAGE, event: "pointerdown", at: 1 }, undefined);
+    try {
+      expect(h.protection).toBeUndefined(); // nothing cached when the human took over
+      await d.guard.settle();
+      expect(probes()).toBe(before + 1);
+      expect(h.protection).toEqual(["DataDome"]);
+      expect(handoffView(h)["protection"]).toEqual(["DataDome"]);
+      expect(String(d.guard.waitingNotice("g")?.["next"])).toStartWith("This is DataDome (identified, not bypassed; a human handles it). ");
+    } finally {
+      d.guard.resume("g", "human");
+    }
+  }, SLOW_IO_MS);
+
   test("no browser: no names", async () => {
     const tab = await newTab();
     const b = d.browser;
@@ -350,4 +369,36 @@ describe.skipIf(!FAKE_CHROME)("the guard's names (namesForGuard; fake browser, P
       d.browser = b;
     }
   }, SLOW_IO_MS);
+});
+
+describe("a take-over's background probe (Guard deps)", () => {
+  const guardWith = (protectionOf: () => string[], identifyTab: () => Promise<string[]>) =>
+    new Guard({
+      configDir: join(tmp(), "config"),
+      secrets: new Secrets(),
+      siteOf: () => null,
+      screenshot: () => Promise.resolve(null),
+      pageInfo: () => Promise.resolve({ url: null, title: null, text: null }),
+      settleMs: 0,
+      protectionOf,
+      identifyTab,
+    });
+
+  test("a failing or empty probe keeps the cached names", async () => {
+    for (const probe of [() => Promise.reject(new Error("tab gone")), () => Promise.resolve([] as string[])]) {
+      const g = guardWith(() => ["Cached Family"], probe);
+      const h = g.takeover("w", { tab: "t1", url: "https://x.test/", event: "keydown", at: 1 }, undefined);
+      await g.settle();
+      expect(h.protection).toEqual(["Cached Family"]);
+    }
+  });
+
+  test("the probe runs once per take-over, not again for input while already waiting", async () => {
+    let n = 0;
+    const g = guardWith(() => [], () => Promise.resolve([`F${++n}`]));
+    const h = g.takeover("w", { tab: "t1", url: "https://x.test/", event: "keydown", at: 1 }, undefined);
+    g.takeover("w", { tab: "t1", url: "https://x.test/", event: "pointerdown", at: 2 }, undefined);
+    await g.settle();
+    expect([n, h.protection]).toEqual([1, ["F1"]]);
+  });
 });
