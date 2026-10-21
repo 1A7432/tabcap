@@ -23,6 +23,10 @@ import { renderTraceText } from "../daemon/trace/table.ts";
 import { renderFingerprintText } from "../fingerprint/fields.ts";
 import { renderWireText, wireResultOf } from "../wire/probe.ts";
 import { renderWhereText, whereResultOf } from "../analyze/where.ts";
+import { renderUsageText } from "../bundle/usage.ts";
+import { nowMs } from "../shared/time.ts";
+import { bundleDecode, bundleExportFixtures, bundleExportHar, bundleImportHar, bundleInfo, bundleRedact } from "./bundle.ts";
+import { listBundles, openRecordings, pruneBundles, renderBundleListText } from "./bundles.ts";
 import { daemonStatus, startDaemon, stopDaemon } from "./client.ts";
 import { schema, type CommandSpec } from "./commands.ts";
 import { fetchArgs, fetchClientTimeout } from "./fetch.ts";
@@ -180,6 +184,20 @@ export function handlerTable(host: Host): Readonly<Record<string, Handler>> {
     "plugin enable": local({ run: ({ paths, args }) => pluginSet(paths, args, true) }),
     "plugin disable": local({ run: ({ paths, args }) => pluginSet(paths, args, false) }),
     "plugin init": local({ run: ({ paths, args, cwd }) => pluginInit(paths.config, args, cwd) }),
+    "bundle export har": local({ run: ({ args }) => bundleExportHar(args) }),
+    "bundle import har": local({ run: ({ args, spec }) => bundleImportHar(args, spec) }),
+    "bundle redact": local({ run: ({ args }) => bundleRedact(args) }),
+    "bundle info": local({
+      run: ({ args, spec }) => bundleInfo(args, spec),
+      data: (r) => ("usage" in r ? r.usage : r.info),
+      // --text belongs to --usage (bundleInfo refuses it alone)
+      render: (r) => ("usage" in r ? renderUsageText(r.usage) : null),
+    }),
+    // Review 10-21: the store's bundle index; a recording the daemon still has open is never pruned.
+    "bundle list": local({ run: async ({ paths, args }) => listBundles(paths, args, await openRecordings(paths)), render: (l) => renderBundleListText(l) }),
+    "bundle prune": local({ run: async ({ paths, args }) => pruneBundles(paths, args, await openRecordings(paths), nowMs()) }),
+    "bundle decode": local({ run: ({ paths, args }) => bundleDecode(paths, args) }),
+    "bundle export fixtures": local({ run: ({ paths, args, spec }) => bundleExportFixtures(paths, args, spec) }),
     "wire serve": custom(({ paths, args }) => wireServe(paths, args)),
     "wire version": local({ run: ({ paths }) => wireVersion(paths) }),
     "wire ca-path": local({ run: ({ paths }) => wireCaPath(paths) }),

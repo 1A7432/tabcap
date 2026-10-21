@@ -4,15 +4,9 @@
 // (commands.ts); what each command does is in the handler table (handlers.ts);
 // browser commands are forwarded to the daemon.
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { TabcapError, fail, ok, toFail, type Envelope } from "../shared/envelope.ts";
-import { compactStamp, nowMs } from "../shared/time.ts";
-import { exportHar, importHar } from "../bundle/har.ts";
-import { computeCounts, writeFileAtomic } from "../bundle/manifest.ts";
-import { BundleReader } from "../bundle/reader.ts";
-import { parseBusinessRule, parseUsageActor, renderUsageText, usageReport, type UsageReport } from "../bundle/usage.ts";
-import { newSalt, redactBundle, writeSalt } from "../bundle/redact.ts";
 import { readConfig, readConfigWarnings, writeConfig } from "../shared/config.ts";
 import { envVar } from "../shared/env.ts";
 import { isRecord, oneOf } from "../shared/json.ts";
@@ -21,283 +15,16 @@ import { binaryVersion, downloadCft } from "../daemon/transport/direct/cft.ts";
 import { hostPlatform, type CftPlatform } from "../daemon/transport/direct/launcher.ts";
 import { send, status as daemonPing } from "./client.ts";
 import { runAnalyze } from "./analyze.ts";
-import { listBundles, openRecordings, pruneBundles, renderBundleListText } from "./bundles.ts";
 import { runReplay } from "./replay.ts";
-import { Store, storePath } from "../daemon/store/db.ts";
-import { Secrets, variantsOf } from "../daemon/secrets.ts";
-import { decodeBundle } from "../bundle/decode.ts";
-import { exportFixtures } from "../bundle/fixtures.ts";
-import { readRulesFile, rulesInfo } from "../replay/rules.ts";
-import { bundleRules } from "./replay.ts";
-import { DecodeHost, DecodeSession, type DecodePlugin } from "../daemon/hooks/decode.ts";
-import { asDecodePlugin, asFixturePlugin, decodePlugins, listPlugins, pluginsDir } from "../daemon/hooks/plugins.ts";
-import type { FixturePlugin } from "../daemon/hooks/fixture.ts";
-import { BUNDLE_USAGE, COMMANDS, OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, flagNames, helpAll, helpFor, helpTopic, matchCommand, unknownCommandNext, parseCommand, specOf, spellingsOf, type CommandSpec } from "./commands.ts";
+import { OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, helpAll, helpFor, helpTopic, matchCommand, unknownCommandName, unknownCommandNext, parseCommand, spellingsOf, type CommandSpec } from "./commands.ts";
 import { applyFilters, filterOptions, hasFilters, type FilterOptions } from "../shared/filter.ts";
 import { applyBudget, outputLimit } from "../shared/budget.ts";
 import { TOOL_NAME, TOOL_VERSION } from "../bundle/manifest.ts";
 import type { RunOptions } from "../mcp/tools.ts";
 import { handlerOf, handlerTable, type Ctx, type Outcome, type Sent } from "./handlers.ts";
 
-const USAGE = BUNDLE_USAGE;
-
 /** What the CLI does for each command (src/cli/handlers.ts); `setup` and `run` live here. */
 export const HANDLERS = handlerTable({ run, setup: cmdSetup });
-
-type Parsed = { positional: string[]; flags: Map<string, string | true>; repeated: Map<string, string[]> };
-
-const EXPORT_HAR = specOf("bundle export har");
-const IMPORT_HAR = specOf("bundle import har");
-const DECODE = specOf("bundle decode");
-const INFO = specOf("bundle info");
-const EXPORT_FIXTURES = specOf("bundle export fixtures");
-
-/** Flags that take a value; everything else starting with "-" is boolean. */
-const VALUE_FLAGS = new Set(
-  COMMANDS.filter((c) => c.path[0] === "bundle").flatMap((c) => c.flags.filter((f) => f.kind !== "bool").flatMap((f) => (f.alias === undefined ? [f.flag] : [f.flag, f.alias]))),
-);
-
-function parseArgs(argv: readonly string[]): Parsed {
-  const positional: string[] = [];
-  const flags = new Map<string, string | true>();
-  const repeated = new Map<string, string[]>();
-  const setFlag = (name: string, v: string): void => {
-    flags.set(name, v);
-    repeated.set(name, [...(repeated.get(name) ?? []), v]);
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i] ?? "";
-    if (a.startsWith("-") && a !== "-") {
-      const eq = a.indexOf("=");
-      if (eq > 0) {
-        setFlag(a.slice(0, eq), a.slice(eq + 1));
-      } else if (VALUE_FLAGS.has(a)) {
-        const v = argv[i + 1];
-        if (v === undefined) throw new TabcapError("usage", `${a} needs a value`, `Usage: ${USAGE.join(" | ")}`);
-        setFlag(a, v);
-        i++;
-      } else {
-        flags.set(a, true);
-      }
-    } else positional.push(a);
-  }
-  return { positional, flags, repeated };
-}
-
-function flagStr(p: Parsed, ...names: string[]): string | undefined {
-  for (const n of names) {
-    const v = p.flags.get(n);
-    if (typeof v === "string") return v;
-  }
-  return undefined;
-}
-
-function checkFlags(p: Parsed, allowed: readonly string[], usage: string): void {
-  for (const k of p.flags.keys()) {
-    if (!allowed.includes(k)) throw new TabcapError("usage", `unknown option ${k}`, `Usage: ${usage}`);
-  }
-}
-
-function need(p: Parsed, count: number, usage: string): string[] {
-  if (p.positional.length !== count) throw new TabcapError("usage", `expected ${count} argument(s), got ${p.positional.length}`, `Usage: ${usage}`);
-  return p.positional;
-}
-
-/** Secret values of the local store (docs/04 §8.1: redaction also removes them by value). */
-function storeSecrets(): string[] {
-  const p = paths();
-  if (!existsSync(storePath(p.config))) return [];
-  const s = Store.open(p.config);
-  try {
-    // raw, JSON, URI and form spellings: a login POST body carries the form-encoded one
-    return [...new Set(s.knownSecrets().flatMap((k) => variantsOf(k.value)))];
-  } finally {
-    s.close();
-  }
-}
-
-async function cmdExportHar(p: Parsed): Promise<unknown> {
-  const usage = USAGE[0] ?? "";
-  checkFlags(p, flagNames(EXPORT_HAR), usage);
-  const [dir = ""] = need(p, 1, usage);
-  const reader = BundleReader.open(dir);
-  const now = nowMs();
-  const out = flagStr(p, "--out") ?? join(dir, "exports", `har-${compactStamp(now)}.har`);
-  const redact = p.flags.get("--no-redact") !== true;
-  const salt = redact ? newSalt() : null;
-  const tab = flagStr(p, "--tab");
-  const typesFlag = flagStr(p, "--types");
-  const rulesFile = flagStr(p, "--rules");
-  // 0.6-C: --rules only drops each rule's ignoreQuery parameters (no config.json fallback here).
-  const rules = rulesFile === undefined ? undefined : readRulesFile(rulesFile);
-  const res = exportHar(reader, {
-    ...(tab === undefined ? {} : { tab }),
-    ...(typesFlag === undefined ? {} : { types: typesFlag.split(",").map((s) => s.trim()).filter((s) => s !== "") }),
-    embedEvents: p.flags.get("--embed-events") === true,
-    redact: salt === null ? false : { salt, knownSecrets: storeSecrets() },
-    ...(rules === undefined ? {} : { rules }),
-  });
-  // docs/04 §17: HAR exports are 0600 like the rest of the bundle (they can carry live values with --no-redact).
-  mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
-  writeFileAtomic(out, JSON.stringify(res.har, null, 2) + "\n", 0o600);
-  const saltFile = salt === null ? null : writeSalt(dir, basename(out).replace(/\.har$/i, ""), salt);
-  return {
-    out,
-    pages: res.pages,
-    entries: res.entries,
-    redacted: res.redacted,
-    saltFile,
-    dropped: res.dropped,
-    skipped: res.skipped,
-    ...(rules === undefined ? {} : { rules: rulesInfo(rules) }),
-    complete: reader.isComplete(),
-    warnings: [
-      ...(reader.isComplete() ? [] : ["bundle is not finished: recording in progress or interrupted"]),
-      ...(reader.truncatedLastLine ? ["events.jsonl ends with a truncated line; it was skipped"] : []),
-      ...(redact ? ["redaction is rule based; free text in bodies may still hold personal data, review before sharing"] : []),
-    ],
-  };
-}
-
-async function cmdImportHar(p: Parsed): Promise<unknown> {
-  const usage = USAGE[1] ?? "";
-  checkFlags(p, flagNames(IMPORT_HAR), usage);
-  const [file = ""] = need(p, 1, usage);
-  const out = flagStr(p, "-o", "--out");
-  if (out === undefined) throw new TabcapError("usage", "missing -o <bundle>", `Usage: ${usage}`);
-  if (!existsSync(file)) throw new TabcapError("not-found", `HAR file not found: ${file}`, "Check the path of the .har file.");
-  let json: unknown;
-  try {
-    json = JSON.parse(readFileSync(file, "utf8")) as unknown;
-  } catch (e) {
-    throw new TabcapError("bad-input", `${file} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`, "Export the HAR again; the file may be truncated.");
-  }
-  return importHar(json, out, { name: basename(file).replace(/\.har$/i, "") });
-}
-
-async function cmdRedact(p: Parsed): Promise<unknown> {
-  const usage = USAGE[2] ?? "";
-  checkFlags(p, [], usage);
-  const [src = "", out = ""] = need(p, 2, usage);
-  const res = await redactBundle(src, out, { knownSecrets: storeSecrets() });
-  return { ...res, warnings: ["redaction is rule based; free text in bodies may still hold personal data, review before sharing"] };
-}
-
-/** `tabcap bundle decode <bundle> [--plugin name]` (0.6-B, bundle/decode.ts). */
-async function cmdDecode(p: Parsed): Promise<unknown> {
-  const usage = USAGE[4] ?? "";
-  checkFlags(p, flagNames(DECODE), usage);
-  const [dir = ""] = need(p, 1, usage);
-  const config = paths().config;
-  const name = flagStr(p, "--plugin");
-  let plugins: DecodePlugin[];
-  if (name !== undefined) {
-    const info = listPlugins(config).find((x) => x.name === name);
-    if (info === undefined) throw new TabcapError("not-found", `no plugin named "${name}" in ${pluginsDir(config)}`, "Install it in its own directory with a manifest.json, then `tabcap plugin list`.");
-    if (info.manifest === null) throw new TabcapError("bad-input", `plugin "${name}" is not usable: ${info.error ?? "invalid"}`, "Fix its manifest.json; `tabcap plugin list` shows the error.");
-    plugins = asDecodePlugin(info);
-    if (plugins.length === 0) throw new TabcapError("usage", `plugin "${name}" is not a decode plugin`, 'Decode plugins have "kind": "decode" in manifest.json (docs/04 §28).');
-  } else {
-    plugins = decodePlugins(config);
-    if (plugins.length === 0) throw new TabcapError("not-found", "no enabled decode plugin", "Install one under the plugins directory and `tabcap plugin enable <name>`, or pass --plugin <name>.");
-  }
-  const secrets = new Secrets();
-  if (existsSync(storePath(config))) {
-    const s = Store.open(config);
-    try {
-      secrets.setStored(s.knownSecrets());
-    } finally {
-      s.close();
-    }
-  }
-  const host = new DecodeHost();
-  const disabled: { plugin: string; reason: string }[] = [];
-  const session = new DecodeSession(host, plugins, { scrub: (t) => secrets.scrub(t), onDisabled: (plugin, reason) => disabled.push({ plugin, reason }) });
-  try {
-    const res = await decodeBundle(dir, session);
-    return { ...res, plugins: plugins.map((x) => ({ name: x.name, version: x.version })), disabled };
-  } finally {
-    await host.close();
-  }
-}
-
-/** `tabcap bundle export fixtures <bundle> --out <dir> [--rules f] [--format json|plugin] [--no-redact]` (0.6-C, bundle/fixtures.ts). */
-async function cmdExportFixtures(p: Parsed): Promise<unknown> {
-  const usage = USAGE[5] ?? "";
-  checkFlags(p, flagNames(EXPORT_FIXTURES), usage);
-  const [dir = ""] = need(p, 1, usage);
-  const out = flagStr(p, "--out");
-  if (out === undefined) throw new TabcapError("usage", "missing --out <dir>", `Usage: ${usage}`);
-  const reader = BundleReader.open(dir);
-  const config = paths().config;
-  const formatName = flagStr(p, "--format") ?? "json";
-  let format: "json" | FixturePlugin = "json";
-  if (formatName !== "json") {
-    const info = listPlugins(config).find((x) => x.name === formatName);
-    if (info === undefined) throw new TabcapError("not-found", `no plugin named "${formatName}" in ${pluginsDir(config)}`, 'Pass --format json, or install a fixture plugin (manifest.json with "kind": "fixture", docs/04 §31), then `tabcap plugin list`.');
-    if (info.manifest === null) throw new TabcapError("bad-input", `plugin "${formatName}" is not usable: ${info.error ?? "invalid"}`, "Fix its manifest.json; `tabcap plugin list` shows the error.");
-    const fp = asFixturePlugin(info)[0];
-    if (fp === undefined) throw new TabcapError("usage", `plugin "${formatName}" is not a fixture plugin`, 'Fixture plugins have "kind": "fixture" in manifest.json (docs/04 §31).');
-    format = fp;
-  }
-  const rules = bundleRules(dir, flagStr(p, "--rules"));
-  const redact = p.flags.get("--no-redact") !== true;
-  const salt = redact ? newSalt() : null;
-  const res = await exportFixtures(reader, { out, rules, format, redact: salt === null ? false : { salt, knownSecrets: storeSecrets() }, configDir: config, includePreflight: p.flags.get("--include-preflight") === true });
-  const saltFile = salt === null ? null : writeSalt(dir, `fixtures-${compactStamp(nowMs())}`, salt);
-  return {
-    ...res,
-    saltFile,
-    complete: reader.isComplete(),
-    warnings: [...(reader.isComplete() ? [] : ["bundle is not finished: recording in progress or interrupted"]), ...(reader.truncatedLastLine ? ["events.jsonl ends with a truncated line; it was skipped"] : []), ...res.warnings],
-  };
-}
-
-function cmdInfo(p: Parsed): unknown {
-  const usage = USAGE[3] ?? "";
-  checkFlags(p, flagNames(INFO), usage);
-  const [dir = ""] = need(p, 1, usage);
-  const wantUsage = p.flags.get("--usage") === true;
-  if (!wantUsage && ["--text", "--business-code", "--actor", "--all-hosts"].some((f) => p.flags.has(f))) throw new TabcapError("usage", "--text, --business-code, --actor and --all-hosts belong to --usage", `Usage: ${usage}`);
-  const r = BundleReader.open(dir);
-  if (wantUsage) {
-    const rules = (p.repeated.get("--business-code") ?? []).map(parseBusinessRule);
-    const actor = flagStr(p, "--actor");
-    return usageReport(r, dir, rules, { actor: actor === undefined ? null : parseUsageActor(actor), allHosts: p.flags.get("--all-hosts") === true });
-  }
-  const kinds: Record<string, number> = {};
-  for (const e of r.events) kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
-  const recount = computeCounts(r.events, r.manifest.counts.blobBytes);
-  const typeInferred = { "sec-fetch": 0, "content-type": 0 };
-  for (const q of r.requests()) {
-    // adds bad-request issues, if any
-    if (q["typeInferred"] === "sec-fetch") typeInferred["sec-fetch"]++;
-    else if (q["typeInferred"] === "content-type") typeInferred["content-type"]++;
-  }
-  const warnings: string[] = [];
-  if (!r.isComplete()) warnings.push("bundle is not finished: recording in progress or interrupted");
-  if (r.truncatedLastLine) warnings.push("events.jsonl ends with a truncated line; it was skipped");
-  if (recount.events !== r.manifest.counts.events) warnings.push(`manifest counts.events=${r.manifest.counts.events} but events.jsonl has ${recount.events}`);
-  return {
-    dir,
-    format: r.manifest.format,
-    id: r.manifest.id,
-    session: r.manifest.session.name,
-    complete: r.isComplete(),
-    created: r.manifest.created,
-    finished: r.manifest.finished ?? null,
-    counts: r.manifest.counts,
-    events: r.events.length,
-    kinds,
-    imported: r.manifest.imported,
-    typeInferred,
-    redaction: r.manifest.redaction,
-    truncatedLastLine: r.truncatedLastLine,
-    decodedSidecar: r.decodedSidecar,
-    issues: r.issues,
-    warnings,
-  };
-}
 
 const PLATFORMS: readonly CftPlatform[] = ["mac-arm64", "mac-x64", "linux64", "win64"];
 
@@ -506,12 +233,11 @@ async function runCommand(argv: readonly string[], opts: RunOptions = {}): Promi
     }
     const help = helpRequest(argv);
     if (help !== null) return { code: help.code, envelope: ok({ help: help.text }), text: help.text };
-    if (argv[0] === "bundle") return await runBundle(argv);
     if (argv[0] === "analyze") return await runAnalyze(argv);
     if (argv[0] === "replay") return await runReplay(argv);
     const c = matchCommand(words);
     if (c === null) {
-      const got = words.slice(0, 2).join(" ");
+      const got = unknownCommandName(words);
       // 0.7-C: the closest commands, never the whole list (it was 8 KB).
       return { code: 2, envelope: fail("usage", got === "" ? "no command given" : `unknown command: ${got}`, got === "" ? "Run `tabcap --help` for the command groups." : unknownCommandNext(words)) };
     }
@@ -523,52 +249,6 @@ async function runCommand(argv: readonly string[], opts: RunOptions = {}): Promi
     const env = toFail(e);
     return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
   }
-}
-
-async function runBundle(argv: readonly string[]): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {
-  try {
-    if (argv.includes("--help")) {
-      const text = ["Evidence bundle tools:", ...USAGE.map((u) => `  ${u}`)].join("\n");
-      return { code: 0, envelope: ok({ help: text }), text };
-    }
-    // Review 10-21: the store's bundle index (list / prune) is parsed by the command table like the daemon commands.
-    const indexCmd = matchCommand(argv.filter((a) => !a.startsWith("-")));
-    if (indexCmd !== null && (indexCmd.path.join(" ") === "bundle list" || indexCmd.path.join(" ") === "bundle prune")) return await runBundleIndex(indexCmd, argv);
-    const p = parseArgs(argv);
-    const [group, sub, third] = p.positional;
-    const rest = (n: number): Parsed => ({ positional: p.positional.slice(n), flags: p.flags, repeated: p.repeated });
-    let data: unknown;
-    if (group === "bundle" && sub === "export" && third === "har") data = await cmdExportHar(rest(3));
-    else if (group === "bundle" && sub === "export" && third === "fixtures") data = await cmdExportFixtures(rest(3));
-    else if (group === "bundle" && sub === "import" && third === "har") data = await cmdImportHar(rest(3));
-    else if (group === "bundle" && sub === "redact") data = await cmdRedact(rest(2));
-    else if (group === "bundle" && sub === "info") data = cmdInfo(rest(2));
-    else if (group === "bundle" && sub === "decode") data = await cmdDecode(rest(2));
-    else {
-      const got = p.positional.slice(0, 3).join(" ");
-      const bundleCommands = COMMANDS.filter((c) => c.path[0] === "bundle" && c.internal !== true).map((c) => c.path);
-      return { code: 2, envelope: fail("usage", got === "" ? "no command given" : `unknown command: ${got}`, unknownCommandNext(p.positional, bundleCommands)) };
-    }
-    if (sub === "info" && p.flags.get("--text") === true && p.flags.get("--usage") === true) return { code: 0, envelope: ok(data), text: renderUsageText(data as UsageReport) };
-    return { code: 0, envelope: ok(data) };
-  } catch (e) {
-    const env = toFail(e);
-    return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
-  }
-}
-
-/** `tabcap bundle list` / `tabcap bundle prune` (src/cli/bundles.ts): the store's bundle index, no daemon needed. */
-async function runBundleIndex(c: CommandSpec, argv: readonly string[]): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {
-  const rest = [...argv];
-  for (const w of c.path) rest.splice(rest.indexOf(w), 1);
-  const parsed = parseCommand(c, rest);
-  const p = paths();
-  const open = await openRecordings(p);
-  if (c.path[1] === "list") {
-    const l = listBundles(p, parsed.args, open);
-    return parsed.args["text"] === true ? { code: 0, envelope: ok(l), text: renderBundleListText(l) } : { code: 0, envelope: ok(l) };
-  }
-  return { code: 0, envelope: ok(pruneBundles(p, parsed.args, open, nowMs())) };
 }
 
 if (import.meta.main) {
