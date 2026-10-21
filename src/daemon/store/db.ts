@@ -187,6 +187,8 @@ export function hourWindow(now: number): number {
   return Math.floor(now / HOUR_MS) * HOUR_MS;
 }
 const accountScope = (windowStart: number, username: string) => `account:${windowStart}:${username}`;
+/** Account hourly windows that started longer ago than this are deleted when a counter is written (review 10-21). */
+export const ACCOUNT_WINDOW_KEEP_MS = 48 * HOUR_MS;
 
 function isOf<T extends string>(list: readonly T[], v: unknown): v is T {
   return typeof v === "string" && list.some((x) => x === v);
@@ -650,12 +652,16 @@ export class Store {
   private bumpAccount(site: string, username: string, col: "requests" | "logins", now: number): AccountCounter {
     const windowStart = hourWindow(now);
     const last = col === "requests" ? "last_request_at" : "last_attempt_at";
-    this.db
-      .query(
-        `INSERT INTO guard_counters (site, session_name, account, window_start, ${col}, ${last}) VALUES (?1, ?2, ?3, ?4, 1, ?5)
-         ON CONFLICT(site, session_name) DO UPDATE SET ${col} = ${col} + 1, ${last} = excluded.${last}`,
-      )
-      .run(site, accountScope(windowStart, username), username, windowStart, now);
+    this.db.transaction(() => {
+      this.db
+        .query(
+          `INSERT INTO guard_counters (site, session_name, account, window_start, ${col}, ${last}) VALUES (?1, ?2, ?3, ?4, 1, ?5)
+           ON CONFLICT(site, session_name) DO UPDATE SET ${col} = ${col} + 1, ${last} = excluded.${last}`,
+        )
+        .run(site, accountScope(windowStart, username), username, windowStart, now);
+      // Review 10-21: only the current window is ever read; older account windows go while writing (every site and account).
+      this.db.query("DELETE FROM guard_counters WHERE account IS NOT NULL AND window_start < ?1").run(now - ACCOUNT_WINDOW_KEEP_MS);
+    })();
     return this.accountCounter(site, username, now);
   }
 
