@@ -8,6 +8,7 @@
 
 - **现状**：靶场是 `test/e2e/site.ts`，一组 `startXxxSite()` 函数，各自用 `Bun.serve` 在 `127.0.0.1` 的随机端口起一个站点；跨源场景再起一个服务，用 `http://localhost:<端口>` 当 B 源（与 `127.0.0.1` 不同站点）。由各 e2e 文件（`test/e2e/*.e2e.test.ts`）在进程内启动、用完即停，`bun run test:e2e` 一条命令跑全部；默认的 `bun test` 不碰它。
 - **oracle**：每个站点记下自己发出的正文（`served`：路径 → 正文字节的 sha256）和收到的请求（`hits`，或站点自己的日志字段），测试拿证据包与它比对；期望值写成 `site.ts` 里的字面量（如 `S22_*`）和本文各场景的 expected，由写场景的人写，不由 AI 为了让测试通过去改。
+- 场景编号 → `site.ts` 的站点与路由 → e2e 文件的对照见 §19 场景索引。
 - 原计划（10-15）的 `range/` 目录与 `tabcap range serve`（固定端口 `127.0.0.1:4310` / `localhost:4311`）、种子生成的数据、`/__range/journal` 日志与 `reset`、每场景一个目录加 `expected.json`、`x-range-*` 响应头、`tabcap range selftest`（L1）都没有实现，不排期（`06` §1）。
 
 ## 2. 场景
@@ -292,7 +293,7 @@
 - 走法：录制中点两次（200、500），`tabcap fetch /s55/api`（500），再点一次（500，连续第三个非 2xx）→ `handoff status` → 再点、再 `fetch` → `handoff continue` → `fetch`。
 - expected：`handoff status` 为 `waiting`、`reason:"stop-rule"`、`rule:"consecutiveNon200:3"`、`request` 是第四条 `/s55/api`、截图文件存在；之后的 `click` 与 `fetch` 都是 `guard.stopped`，靶场没有收到第五条；`handoff continue` 回 `fetchResumed:["example"]`，下一条 `fetch` 拿到 200；包里 `guard` 事件依次是 `breaker` 与 `resume`（都是 `stop-rule`、同一 `request`），`handoff` 依次是 `waiting` 与 `resumed`。
 
-## 9. 0.6-L 页面内解码·观察模式（10-16，P1）
+## 11. 0.6-L 页面内解码·观察模式（10-16，P1）
 
 ### s59 in-page-decode（P1；0.6-L / 0.6-L2 / 0.6-Q / 0.6-W，`trace start --decode` 观察 `JSON.parse`）
 - 页面 `/s59`（`test/e2e/site.ts` 的 `startInPageDecodeSite`）：`/api/enc` 应 `{"code":0,"data":"<base64>"}`——12 行 JSON（`S59_PLAIN`）默认按 `S59_XOR_KEY` 逐字节 XOR，`?mode=webcrypto` 时 AES-128-GCM（`data` = base64(iv‖密文‖tag)）；`?mode=worker` 把 XOR 放进 dedicated worker、主线程 `JSON.parse(e.data)`；`?mode=axios` 在 `transformResponse` 里先 parse 信封再 parse 明文；`?mode=inline` 是 `JSON.parse(decrypt(env.data))` 临时值；`?mode=bare` 的 `/api/enc?mode=bare` 整段 body 是一条 base64（无信封）；`?mode=big` 明文约 1.2 MiB（`S59_BIG_MARKER`，不渲染 pad）；`?mode=deferred` 解密后把明文放进脚本级数组，由一个只有自己一帧的定时器回调 `s59ParseLater` 再 `JSON.parse`——解析帧里够不到任何密文或原文（weak 的 oracle，0.6-L2 第二轮）。页面 fetch、自己解密、`JSON.parse` 明文、渲染表格（big 不渲染），再 fetch `/api/plain`（明文 JSON，同样过 `JSON.parse`）当对照组。`?mode=webcrypto&two=1` 并发 `slot=1` / `slot=2` 两个加密响应（密钥同、IV 不同：`slot=2` 是 `S59_PLAIN2`），各自解密各自 `JSON.parse`，渲染 24 行。任何 raw `/api/enc` 正文中都没有明文值。
@@ -302,14 +303,14 @@
 - 0.6-W 变体（`site.ts` 字面量；作者 10-17 定 A，起因是隔壁项目的 XHR 复刻页 0/40 strong，见 docs/04 §33 0.6-W）：`?mode=xhr` 用 `XMLHttpRequest` 取 `/api/enc?mode=xhr`（正文 `S59_ENC_XOR`），在 `onload` 里先 `JSON.parse(x.responseText)` 信封、再 `s59Xor(env.data)`（`JSON.parse` 明文，帧里有 `data`）——`onload` 早于 tabcap 索引这条响应；`&linger=N`（N ≤ 3）先逐个 `fetch` `/api/enc?mode=linger&slot=1..N`（`S59_ENC_LINGER[0..2]`，明文 `S59_LINGER_PLAINS` 各 20 行，都比 `S59_PLAIN` 长，所以每个 linger 嫌疑都装得下 xhr 的明文、留在候选里）并读完 `text()`、从不 parse，等 300 ms（三个都已武装）再发那条 XHR。之后照常取 `/api/plain` 对照。
 - expected（0.6-W，`--decode`）：xhr 与 xhr&linger=3 都恰好一条行：request 是 `/api/enc?mode=xhr` 那条、blob 是 `S59_PLAIN`、`evidence.link:"strong"`、`match` = sha256(`S59_ENC_XOR` 的 `data`)；linger 三条没有行；没有 `request:null` 行；`trace stop` 的 `rows` = attributed 1、weak 0、unattributed 0。xhr&linger=3 在同一用例里连跑三轮（三个会话）。这是 grace 竞态的回归测试：修前【实测 10-17】唯一一行是 `request:null`、`candidates` = 三个 linger 请求。
 
-## 11. 0.6-P fetch 的 credentials 与 session export 的 origin（10-17，P1）
+## 12. 0.6-P fetch 的 credentials 与 session export 的 origin（10-17，P1）
 
 ### s60 fetch-credentials（P1；0.6-P，`tabcap fetch --credentials`、`session export --origin`）
 - 靶场（`test/e2e/site.ts` 的 `startCredSite`）：127.0.0.1 上两个端口，A 是页面源、B 是 API 源（不同源、同站，B 的 cookie 会随 A 页面的带凭据请求发出）。B 的端点：`/s60/api/wild` 回 `Access-Control-Allow-Origin: *`、不带 `Access-Control-Allow-Credentials`，正文 `S60_WILD`（`{"code":0,"endpoint":"wild","from":"s60-b"}`）；`/s60/api/double` 回 `ACAO: <A>` 加两次 `Access-Control-Allow-Credentials: true`（线上是 `true, true`），正文 `S60_DOUBLE`；`/s60/api/private` 回 `ACAO: <A>` + `ACAC: true`，带 cookie `s60b=S60_COOKIE`（`s60b-session-91f2`）时 200 `S60_PRIVATE`（`{"code":0,"endpoint":"private","user":"s60-user"}`），否则 401 `S60_NEED_COOKIE`（`{"code":401,"error":"no s60b cookie"}`）；`/s60/api/login` 设 `s60b` cookie（`HttpOnly; SameSite=Lax`，`ACAO: <A>` + `ACAC: true`）；`/s60/api/me` 回 `ACAO: *`（预检允许 `authorization`），正文 `S60_ME`（`{"code":0,"me":"s60-me-ok"}`）。页面 `A/s60` 先 `fetch(B/s60/api/login, {method:"POST", credentials:"include"})`，再 `fetch(B/s60/api/me, {headers:{Authorization:"Bearer " + S60_TOKEN}, credentials:"omit"})`（`S60_TOKEN` = `s60-bearer-4c1d9e7a`），把 `me` 写进 `#s60-out`。访问日志记每个请求的头（oracle：哪条带了 cookie）。
 - 走法：`config.json` `fetch.minIntervalMs: 0`；`session start` → `net start` → 导航 `A/s60` → 等 `s60-me-ok`。然后依次：`fetch B/s60/api/wild`（默认 include）、`--credentials omit`；`fetch B/s60/api/double`；`fetch B/s60/api/private`、`--credentials omit`；`fetch --batch <3 行> --credentials omit`（wild 无字段、private 写 `include`、private 无字段）；`POST /fetch` 带 `credentials:"omit"` / `"include"` / `"none"`；标签仍在 A 上时 `session export --for requests --origin <B>`、`--origin <B 的 host:port>`、不给 `--origin`；最后 `net stop` 读包。
 - expected：wild include → `fetch.blocked`，`credentials:"include"`，`reason` 含 "must not be the wildcard '*' when the request's credentials mode is 'include'"，`next` 含 `--credentials omit`、"no cookies are sent"、"Origin / Referer"；该请求照样到了 B 且带 `s60b`（CORS 拦的是读，不是发）。wild omit → 200、正文 `S60_WILD`，B 收到的这条没有 cookie。double include → `fetch.blocked`，`reason` 含 "'Access-Control-Allow-Credentials' header in the response is 'true, true' which must be 'true'"，`next` 含 `--credentials omit`。private include → 200 `S60_PRIVATE`（带 cookie），omit → 401 `S60_NEED_COOKIE`（不带）。batch 三行依次 200 `S60_WILD`、200 `S60_PRIVATE`、401 `S60_NEED_COOKIE`，两条 private 的 cookie 依次有、无。`POST /fetch`：omit 200 `S60_WILD`；include `fetch.blocked`，`next` 含 `"credentials": "omit"`；`"none"` → `usage`。包里：每个带 `fetchId` 的 `request` 事件 `fetchCredentials` 等于那次所用模式（页面自己的请求没有该字段）；`cmd` 开始事件的 `input.credentials` 按命令顺序为 include、omit、include、include、omit、omit、include、none，batch 那条 `input.batch` = `{requests:3, credentials:{omit:2, include:1}}`。`session export --origin <B>`：`origin` = B，`headers` = `["authorization"]`，`source.headers` = `{request:<页面发往 B/s60/api/me 的那条 GET 的 r-N>, origin:B, auto:false}`，`source.storage` = A；文件 `headers` = `{authorization:"Bearer s60-bearer-4c1d9e7a"}`，`cookies` 里有 `["s60b", S60_COOKIE]`；输出里不出现 token 与 cookie 值。裸 host 同结果。不给 `--origin`：`origin` = A，`source.headers` = `{origin:B, auto:true}`，`headers` = `["authorization"]`，`note` 含 `source.headers.auto`，文件 `headersFrom` 同。
 
-## 12. 0.7.1-A 人接管识别（10-17，P1）
+## 13. 0.7.1-A 人接管识别（10-17，P1）
 
 ### s62 human-takeover（P1；0.7.1-A，隔离世界的被动输入监听器，`04` §37）
 - 页面 `/s62`（`test/e2e/site.ts` 的 `startTakeoverSite`）：按钮 `#s62-btn`（文字 `S62_BTN`，点击把 `"btn:" + isTrusted` 追加进 `window.__s62`）、文本框 `#s62-in`（`keydown` 把 `"key:" + isTrusted` 追加进 `window.__s62`）、按钮 `#s62-ping`（文字 `S62_PING`，点击 `fetch("/s62/ping")` 并读正文，服务器记一次）、一个 300 行的长列表（页面能滚）。页面脚本加载后每 200 ms 在按钮上合成一轮不可信事件：`dispatchEvent` 的 `pointerdown`、`keydown`、`wheel`、`touchstart`（`new Event`）和 `el.click()`，轮数记在 `window.__s62synth`（后台标签里定时器约 1 Hz，所以实际轮数少于 5/s）。
@@ -319,7 +320,7 @@
   3. **关掉开关不触发**：另一个 `TABCAP_HOME`，`config.json` `{"handoff":{"detectTakeover":false}}`，同样启动、`net start`、`navigate /s62`、注入一次。expected：等 1.5 s 后 `handoff status` 仍是 `running`；包的 `manifest.mode.humanRecorder:false`，没有 `handoff` 与 `action` 事件。
 - 不在靶场里的【待验】：真人的 OS 输入（鼠标、键盘、触控板、拖滚动条、自动填充、输入法），见 `04` §37 末条。
 
-## 13. 0.7.3-A 外部评测五条（10-18，P1 / P2 / P3）
+## 14. 0.7.3-A 外部评测五条（10-18，P1 / P2 / P3）
 
 ### s63 overlay-wrapper（P1；无 role 的全屏 mask 包着对话框）
 - 页面 `/ov/wrapped`（`test/e2e/site.ts` 的 `startOverlaySite`）：`#buy`（Buy now）在遮罩下面；`#mask` 是 `position:fixed;inset:0`、背景 `rgba(0,0,0,.4)` 的全屏层，里面 `#dialog` 是 340 px 宽、白底、有边框和阴影的块，含按钮 `#accept`（文字 Accept、class `close`）；点 Accept 后 `#mask` 隐藏。同站的 `/ov/shell`（铺满视口的应用根容器，文字多、没有遮罩背景、没有样式化内块）仍是反例。
@@ -327,7 +328,7 @@
 - expected：`snapshot --interactive` 的 `overlays` 恰一条 `o1`，`kind:"dialog"`、`coverage:100`、`modal:true`，`evidence` 含 `"full-viewport wrapper"` 与 `"buttons in an inner block"`，`close` 的 ref 就是 `find "Accept"` 给的那个；树的首行以 `overlays  o1 dialog` 开头。普通 `click` `#buy` 回 `ok:false`、`code:"covered"`、`error.overlay.kind:"dialog"`，`next` 含那个 close ref，`window.__hits.buy` 仍未定义（没有穿透）。点 Accept 后 `outline` 的 `overlays` 为空；随后普通 `click #buy` 与 `click #buy --trusted` 都成功（`overlayCheck:"clear"` / `trusted:true`、`delivered.pointerdown:true`），页面 `__hits.buy` 为 2。`/ov/shell` 仍 `overlays:[]`。
 - 阈值（与 `docs/10` 0.7.3 节一致）：固定层覆盖 ≥ 90% 视口；内块是容器而非控件本身、至少 160 × 60 px、面积 ≤ 60% 视口；内块不透明背景 alpha ≥ 0.5 或有可见边框 / 阴影；内块含按钮或表单控件；层自身文字 ≤ 500 字。普通固定页头 / 底栏面积小，不是候选。
 
-## 14. 0.7.5 列表结束与交接按条件结束（10-20，P1）
+## 15. 0.7.5 列表结束与交接按条件结束（10-20，P1）
 
 ### s64 list-end（P1；0.7.5-A，`04` §38）
 - 页面 `/s64`（`test/e2e/site.ts` 的 `startHandoffSite`）：按钮「下一页」（`#s64-next`）每点一次 `fetch("/s64/api?page=<n>")`（n 从 1 起递增）并读正文，把 `p<n>=<code>` 写进 `#s64-out`。`/s64/api?page=N`：N 为 1–3 回 HTTP 200 `{"code":0,"items":[…]}`，N ≥ 4 回 HTTP 200 `{"code":203,"msg":"no more"}`，`page=bad` 回 HTTP 200 `{"code":500,"msg":"boom"}`；服务器按到达顺序记每次的 `page` 与回了什么（oracle）。配置 `fetch.minIntervalMs: 0`；`sites.example.guard: {stopOn:["json:$.code!=0"], endOn:["json:$.code=203"]}`（作者真实场景的写法；站点级规则对页面文档也求值，0.7.5 前非 JSON 正文算「无值」≠ 0，`navigate /s64` 即 `guard.stopped`【实测：第一版 s64】，0.7.5 起 `json:` 规则只评判 JSON 正文，`04` §26）；站点 `example` 入口 `/s64`。
@@ -344,7 +345,7 @@
   - 包里（`net stop` 后）：`handoff` 的 `resumed` 依次是 `by:"condition"`（`condition.kind:"url"`）、`by:"condition"`（`condition.kind:"cookie"`）、`by:"human"`。
 - 不在靶场里的【待验】：真人登录、跨域单点登录的 cookie（`04` §39 末条）。
 
-## 15. 0.7.6-A 默认隐藏 webdriver（10-20，P1）
+## 16. 0.7.6-A 默认隐藏 webdriver（10-20，P1）
 
 ### s66 webdriver（P1；0.7.6-A，`04` §40）
 - 页面 `/s66`（`test/e2e/site.ts` 的 `startWebdriverSite`）：脚本加载时把 `navigator.webdriver` 和 `Object.getOwnPropertyDescriptor(Navigator.prototype, "webdriver").get` 是否原生（`toString()` 含 `[native code]`）用 `fetch("/s66/report?where=main&...")` 报给服务器；页面里一个 `<iframe src="/s66/frame">`，同样报 `where=frame`。服务器按到达顺序记每份报告（oracle）。
@@ -354,7 +355,7 @@
   3. **配置**：第三个 `TABCAP_HOME`，`config.json` `{"webdriver":"visible"}`，`browser start --proxy none`（不带 `--webdriver`）。expected：回答 `webdriver:"visible"`；`config.json` `{"webdriver":"sometimes"}` 时 `browser start` 回 `usage`，浏览器没有起来。
 - 不在靶场里的【待验】：`ext` 模式（作者自己的 Chrome）的值。
 
-## 16. 0.8-A 防护家族识别（10-20，P1）
+## 17. 0.8-A 防护家族识别（10-20，P1）
 
 共同点（`test/e2e/site.ts` 的 `startProtectionSite`，`test/e2e/v08a.e2e.test.ts`）：页面与桩脚本都是我们自己写的，只放名字（cookie 名、主机名、全局变量名、类名），不放任何厂商代码。厂商主机写成 `http://<厂商主机>:<靶场端口>/…`，浏览器以 `--proxy <fwdproxy>` 启动，`test/e2e/fwdproxy.ts` 把它们转到本机靶场（CONNECT 照旧拒绝，什么都不出本机）。每个场景页也放在自己的假主机上（`dd.range.test`、`ak.range.test` …），各页 cookie 互不串。oracle：靶场按顺序记下每个请求的路径与 Host 头（`hits`），加上每页埋下的东西；家族名与分数由 `docs/14` 的规则文件推出。
 
@@ -378,7 +379,7 @@
 - 走法与 expected：`net start` → `navigate /s70/cf`：guard 进入 `verify-page` 交接（录到 403 HTML），`handoff status` 的 `handoff.protection` 为 `["Cloudflare Bot Management"]`（交接截图那一步在标签的轮次里补做探测，回答等它），`next` 以 `This is Cloudflare Bot Management (identified, not bypassed; a human handles it). ` 开头；`handoff continue` → `net stop` 后，包里 `handoff {state:"waiting"}` 事件带同样的 `protection`。另一个会话 `navigate /s70/jsl`：回答 `protection` 含「知道创宇 加速乐」（cookie 名规则）。
 - 不在靶场里的【待验】：真实站点上的命中与误报（`docs/14`）。实时探测不读响应头与状态码（`04` §41.3），521 / 412 这类挑战页规则只在 `recon` 里生效。
 
-## 17. 0.8.1-A 自定义 Chrome 启动参数（10-21，P1）
+## 18. 0.8.1-A 自定义 Chrome 启动参数（10-21，P1）
 
 ### s71 chrome-args（P1；0.8.1-A，`04` §42）
 - 页面 `/s71`（`test/e2e/site.ts` 的 `startChromeArgsSite`）：脚本加载时把 `navigator.userAgent` 与 `navigator.webdriver` 用 `fetch("/s71/report?ua=…&webdriver=…")` 报给服务器；服务器连同这次请求的 `User-Agent` 头按到达顺序记下（oracle）。
@@ -387,3 +388,66 @@
   2. **删（配置）**：另一个 `TABCAP_HOME`，`config.json` `{"chrome":{"dropArgs":["--disable-blink-features","--disable-features=PreconnectToSearch","--tabcap-s71-absent"]}}`，`browser start --proxy none`。expected：回答 `webdriver:"visible"`、`dropArgs` 为这三项、`dropArgsUnmatched` 为 `["--tabcap-s71-absent"]`；`args` 里没有 `--disable-blink-features`，`--disable-features=` 还在、含 `Translate`、不含 `PreconnectToSearch`；导航 `/s71` 后报告 `webdriver=true`。
   3. **拒绝**：各自 `browser start --proxy none` 加 `--chrome-arg --user-data-dir=<临时目录>`、`--chrome-arg --proxy-server=http://127.0.0.1:9`、`--chrome-arg about:blank`、`--drop-chrome-arg --remote-debugging-port` 之一：都回 `usage`，`browser status` 为 `running:false`。`config.json` `{"chrome":{"args":"--x"}}` 回 `bad-input`，消息含 `chrome.args`。
 - 不在靶场里的【待验】：作者真实使用里要加的那几个参数本身的效果（靶场只证明参数到了 Chrome 并按规则合并）。
+
+## 19. 场景索引
+
+10-21 建。场景编号 → 实现它的 `test/e2e/site.ts` 站点函数与主要路由 → 跑它的 e2e 文件。e2e 与单测两列是 grep 出来的：在 `test/e2e/*.e2e.test.ts`、`test/unit/*.ts` 里搜编号（前后不接字母数字，如 `s07`、`/s22/`、`S40_`），列出提到它的文件（省略目录与 `.e2e.test.ts` / `.test.ts` 后缀）；没有文件写编号的三个场景按路由搜（标「按路由」）。单测 `test/unit/scenario-index.test.ts` 读这张表：每个 `### sNN` 都要有一行，状态不是「未落地」「仅对照靶场」的，编号必须能在 `site.ts` 或某个测试文件里搜到；「未落地」的在 `site.ts` 里搜不到（落地了就要回来改表）；「仅对照靶场」的在 `docs/compare/range.ts` 里搜得到。
+
+状态：**已落地** = `site.ts` 有这个场景的路由并有 e2e；**近似** = `site.ts` 里是等价页（注释写 `sNN-like`），路径、端口或数据与本文的描述不完全一样；**仅单测** = 没有靶场路由，只在单测里用合成包覆盖；**仅对照靶场** = 只在 `docs/compare/range.ts` 里有；**未落地** = 没有路由，也没有测试。
+
+| 编号 | 名称 | 状态 | `site.ts` 站点与路由 | e2e（提到编号的文件） | 单测（提到编号的文件） |
+|---|---|---|---|---|---|
+| s01 | plain-json | 近似 | `startSite`：`/` 的列表 XHR `/api/items` | v03b | — |
+| s02 | multipage-nav-race | 近似 | `startSite`：点击里 `POST /api/before-leave` 后立刻跳 `/two` | v03b | _fixtures、deps |
+| s03 | spa-routes | 未落地 | — | — | — |
+| s04 | encodings | 仅单测 | —（`test/unit/find.test.ts` 用合成包覆盖 12 条通道） | —（v04h 只在注释里引用 s04 的解码链写法） | embedded、find |
+| s05 | encrypted | 仅单测 | —（`test/unit/find.test.ts` 的 s05-like 合成包） | — | find |
+| s06 | diff-params | 近似 | `startSearchSite`：`/s06`、`/api/search` | v03b、v04a、v04j、v06c、v06g、v06h | deps、diff、har-mitmproxy、recon、shape |
+| s07 | token-chain | 近似 | `startGuardSite`：`/s07/login`、`/api/login`、`/api/data` | v03a、v03c、v03e、v04a、v04j、v05c、v06a、v06c、v06e、v06f、v06h、v06r、v07b | _deps、har-mitmproxy、liveredact、session-export、state |
+| s08 | popup-login | 未落地 | — | — | — |
+| s09 | cross-origin-iframe | 未落地 | —（跨源 iframe 的挂接由 s22 覆盖） | — | — |
+| s10 | service-worker | 未落地 | — | — | — |
+| s11 | websocket | 近似 | `startLabSite`：`/ws-page`、`/ws` | v02（按路由 `/ws-page`） | — |
+| s12 | big-and-binary | 未落地 | — | — | — |
+| s13 | redirect-304-204 | 未落地 | —（POST 跟 302 由 s49 覆盖） | — | — |
+| s14 | human-recorder | 未落地 | —（P2；人接管识别见 s62） | — | — |
+| s15 | verify-wall | 近似 | `startGuardSite`：`/s15/`、`/api/limited`、`/api/verified` | v03a、v03e、v04j、v07b | daemon-helpers、flake-s15、guard、hooks |
+| s16 | session-expiry | 未落地 | —（P2） | — | — |
+| s17 | popup-focus | 已落地 | `startFieldSite`：`/popup`、`/popup-target` | v02d | front |
+| s18 | vue-rerender-stale-ref | 已落地 | `startFieldSite`：`/rerender` | v02d | stale-find |
+| s19 | custom-checkbox | 已落地 | `startFieldSite`：`/checkbox` | v02d | stale-find |
+| s20 | port-scan-noise | 已落地 | `startFieldSite`：`/noise` | v02d、v05c | netquery |
+| s21 | aes-json | 仅对照靶场 | 不在 `site.ts`；`docs/compare/range.ts` 为 `12` 的对照跑实现了 `/s21`、`/api/key`、`/api/secret`，不进测试 | — | — |
+| s22 | frames | 已落地 | `startFrameSite`：`/s22`、`/s22/{menu,main,form,table,modal,search}` | v04i、v05f、v06d | frames、overlay |
+| s40 | locale-numbers | 已落地 | `startLocaleSite`：`/s40`、`/api/rows` | v04c、v05f | normalize、where |
+| s41 | embedded-state | 已落地 | `startEmbeddedSite`：`/s41` | v04h | embedded |
+| s42 | decode-plugins | 已落地 | `startDecodeSite`：`/s42`、`/s42/api/{token,items,order}` | v06b、v06c | _decode、decode-plugins、decode-python、decode-views、fixtures-export、observe06l、plugin-init、replay-chain、replay-rules、shape |
+| s46 | input-fidelity | 已落地 | `startProbeSite`：`/probe`、`/report` | v03e | eventshape、input-fidelity |
+| s47 | hidden-controls | 已落地 | `startDaemonFixSite`：`/s47` | v06d | — |
+| s48 | click-effects | 已落地 | `startDaemonFixSite`：`/s48`、`/s48/next`、`/s48/ping` | v06d | — |
+| s49 | post-redirect | 已落地 | `startDaemonFixSite`：`/s49`、`/s49/submit`、`/s49/done`、`/s49/api`、`/s49/api/done` | v06d | post-redirect |
+| s50 | image-captcha | 已落地 | `startDaemonFixSite`：`/s50`、`/s50/plain`、`/s50/captcha.png` | v06d | — |
+| s51 | account-contexts | 已落地 | `startPoolSite`：`/pool/set`、`/pool/me` | v06d（按路由 `/pool/me`） | — |
+| s52 | frame-dates | 已落地 | `startDaemonFixSite`：`/s52`、`/s52/frame` | v06d | — |
+| s53 | token-bearer | 已落地 | `startTokenSite`：`/s53/`、`/api/s53/token`、`/api/s53/me` | v04a | _deps |
+| s54 | big-script | 已落地 | `startBodiesSite`：`/s54`、`/s54/{big.js,site.css,logo.png,api}` | v06i | bodies06i |
+| s55 | site-stop | 已落地 | `startBodiesSite`：`/s55`、`/s55/api` | v06i | — |
+| s56 | click-landing | 已落地 | `startClickTargetSite`：`/s56` | v06j | ci-flakes |
+| s59 | in-page-decode | 已落地 | `startInPageDecodeSite`：`/s59`、`/s59/worker.js` | v06l | observe06l |
+| s60 | fetch-credentials | 已落地 | `startCredSite`：`/s60`、`/s60/api/{wild,double,private,login,me}` | v06p | fetch06a、session-export |
+| s62 | human-takeover | 已落地 | `startTakeoverSite`：`/s62`、`/s62/ping` | v071a | takeover071a |
+| s63 | overlay-wrapper | 已落地 | `startOverlaySite`：`/ov/wrapped`（反例 `/ov/shell`） | v03d（按路由 `/ov/wrapped`） | — |
+| s64 | list-end | 已落地 | `startHandoffSite`：`/s64`、`/s64/api` | v075a | — |
+| s65 | login-done | 已落地 | `startHandoffSite`：`/s65/login`、`/s65/done`、`/s65/home` | v075b | handoffwait075b |
+| s66 | webdriver | 已落地 | `startWebdriverSite`：`/s66`、`/s66/frame`、`/s66/report` | v076a | — |
+| s67 | passive | 已落地 | `startProtectionSite`：`/s67/{datadome,akamai,recaptcha,none}` | v08a | — |
+| s68 | page | 已落地 | `startProtectionSite`：`/s68`、`/s68/stub.js`、`/s68/getter-ran` | v08a | — |
+| s69 | trace | 已落地 | `startProtectionSite`：`/s69` | v08a | — |
+| s70 | challenge | 已落地 | `startProtectionSite`：`/s70/cf`、`/s70/jsl` | v08a | — |
+| s71 | chrome-args | 已落地 | `startChromeArgsSite`：`/s71`、`/s71/report` | v081a | — |
+
+空号：
+- s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。
+- s57、s58：`09` §12 的规划编号（10-21 由 `09` 原来的 s41 chart-instance、s42 report-viewer 改号而来，那两个号与本文已落地的 s41、s42 撞了）。
+- s61：没有用过（docs、NOTES、代码里都搜不到）。
+- s72 起：未分配。
