@@ -1243,7 +1243,7 @@ Example: `tabcap replay check ./b --against http://127.0.0.1:4500`
 |---|---|---|
 | `--against <url>` | `http://127.0.0.1:4500` | target origin; non-loopback needs --live |
 | `--live` |  | allow a non-loopback target: needs a stored site (--site or the bundle's) the host is on, paced (never faster than the site's config.json fetch.minIntervalMs) and counted per site, refused while the daemon has the site's fetches stopped; goes out through the account's proxy when it is bound to one |
-| `--rate <n>` |  | live requests per second (default 0.5); a rate faster than fetch.minIntervalMs (default one per 3 s) is paced at that floor |
+| `--rate <n>` |  | live requests per second; default one request per 2 s, and never faster than config.json fetch.minIntervalMs of the site (else the global one; default 3000 ms, so one per 3 s unless set lower): a faster --rate is paced at that floor, with a warning |
 | `--site <site>` |  | stored site whose guard counters a live check uses |
 | `--filter <glob,glob>` |  | only paths matching these globs |
 | `--headers <h1,h2>` | `content-type,location` | response headers to compare when recorded |

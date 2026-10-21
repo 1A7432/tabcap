@@ -9,7 +9,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { check, type CheckOptions, type LiveGuardState } from "../../src/replay/check.ts";
+import { LIVE_INTERVAL_MS, check, type CheckOptions, type LiveGuardState } from "../../src/replay/check.ts";
+import { specOf } from "../../src/cli/commands.ts";
+import { FETCH_DEFAULTS } from "../../src/shared/config.ts";
 import { daemonGuardState } from "../../src/cli/replay.ts";
 import { Store } from "../../src/daemon/store/db.ts";
 import type { HttpClient } from "../../src/daemon/pool/proxy.ts";
@@ -140,5 +142,17 @@ describe("daemonGuardState (CLI side: the status answer's guardStops)", () => {
     expect(seen).toEqual(["status"]);
     expect(await daemonGuardState(p, async () => fail("not-running", "the tabcap daemon is not running", "x"))).toEqual({ running: false });
     await expect(daemonGuardState(p, async () => fail("daemon-version", "the daemon runs tabcap 0.1.0", "restart"))).rejects.toMatchObject({ code: "daemon-version" });
+  });
+});
+
+describe("the --rate help says what the pace is (review wave 3: it said default 0.5, which the default floor never allows)", () => {
+  test("the 2 s default, the fetch.minIntervalMs floor of the site or the global config and that floor's default; no registry default", () => {
+    const rate = specOf("replay check").flags.find((f) => f.flag === "--rate");
+    expect(rate?.default).toBeUndefined();
+    const help = rate?.help ?? "";
+    expect(help).not.toContain("0.5");
+    expect(help).toContain(`default one request per ${LIVE_INTERVAL_MS / 1000} s`);
+    expect(help).toContain("fetch.minIntervalMs of the site (else the global one");
+    expect(help).toContain(`default ${FETCH_DEFAULTS.minIntervalMs} ms`);
   });
 });

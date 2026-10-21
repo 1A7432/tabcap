@@ -5680,7 +5680,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "alias": null,
           "default": null,
           "flag": "--rate",
-          "help": "live requests per second (default 0.5); a rate faster than fetch.minIntervalMs (default one per 3 s) is paced at that floor",
+          "help": "live requests per second; default one request per 2 s, and never faster than config.json fetch.minIntervalMs of the site (else the global one; default 3000 ms, so one per 3 s unless set lower): a faster --rate is paced at that floor, with a warning",
           "key": "rate",
           "repeatable": false,
           "required": false,
