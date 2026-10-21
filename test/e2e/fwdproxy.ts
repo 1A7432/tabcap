@@ -67,21 +67,30 @@ export function startForwardProxy(o: { user?: string; pass?: string } = {}): Fwd
         const kept = headers.filter((h) => !/^(proxy-authorization|proxy-connection|connection|keep-alive):/i.test(h));
         const out = `${method} ${u.pathname}${u.search} ${ver}\r\n${kept.join("\r\n")}\r\nConnection: close\r\n\r\n`;
         // every host name goes to the local origin: no external network
-        const up = await Bun.connect({
-          hostname: "127.0.0.1",
-          port: Number(u.port === "" ? 80 : u.port),
-          socket: {
-            data(_u, d) {
-              s.write(d);
+        let up: Awaited<ReturnType<typeof Bun.connect>>;
+        try {
+          up = await Bun.connect({
+            hostname: "127.0.0.1",
+            port: Number(u.port === "" ? 80 : u.port),
+            socket: {
+              data(_u, d) {
+                s.write(d);
+              },
+              close() {
+                s.end();
+              },
+              error() {
+                s.end();
+              },
             },
-            close() {
-              s.end();
-            },
-            error() {
-              s.end();
-            },
-          },
-        });
+          });
+        } catch {
+          // Nothing listens there (seen once on CI, PR #27: a request at browser
+          // start); left unhandled, the rejection failed the whole test file.
+          s.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+          s.end();
+          return;
+        }
         st.upstream = up;
         up.write(Buffer.concat([Buffer.from(out, "latin1"), rest]));
       },
