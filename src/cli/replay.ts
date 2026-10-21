@@ -1,16 +1,18 @@
-// `tabcap replay …`: argument parsing and printing only; the work is in
-// src/replay/ (offline, no daemon). One exception: `replay check --live`
-// asks a running daemon for its fetch stops first (daemonGuardState).
+// `tabcap replay …`: the commands over parsed arguments (the command registry
+// parses them; the handler table, src/cli/handlers.ts, runs these and
+// prints); the work is in src/replay/ (offline, no daemon). One exception:
+// `replay check --live` asks a running daemon for its fetch stops first
+// (daemonGuardState).
 
-import { TabcapError, fail, ok, toFail, type Envelope } from "../shared/envelope.ts";
+import { TabcapError, ok, type Envelope } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
 import { paths, type Paths } from "../shared/paths.ts";
 import { send } from "./client.ts";
-import { helpFor, helpGroup, parseCommand, specOf, usageOf, type CommandSpec } from "./commands.ts";
+import { usageOf, type CommandSpec } from "./commands.ts";
 import { startReplayServer, type ServeInfo } from "../replay/server.ts";
 import { exportSession } from "../replay/session.ts";
 import { exportPython } from "../replay/python.ts";
-import { DEFAULT_AGAINST, DEFAULT_HEADERS, check, renderCheckText, type LiveGuardState, type LiveStop } from "../replay/check.ts";
+import { DEFAULT_AGAINST, DEFAULT_HEADERS, check, type CheckResult, type LiveGuardState, type LiveStop } from "../replay/check.ts";
 import { headerNames } from "../replay/common.ts";
 import { accountProxy, writeProxyEnv, type AccountProxy } from "../replay/proxyenv.ts";
 import { BundleReader } from "../bundle/reader.ts";
@@ -61,22 +63,10 @@ export async function daemonGuardState(p: Paths, sender: typeof send = send): Pr
 
 type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
 
-const SUBS = ["serve", "session", "export-python", "check"] as const;
-type Sub = (typeof SUBS)[number];
-const isSub = (s: string | undefined): s is Sub => SUBS.some((x) => x === s);
-
-export const REPLAY_USAGE = SUBS.map((s) => usageOf(specOf(`replay ${s}`)));
-
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const numOr = (v: unknown, d: number): number => (typeof v === "number" ? v : d);
 /** `--prefer` (0.6-S), or {} when absent. */
 const preferArg = (v: unknown): { prefer?: PreferMode } => (typeof v === "string" ? { prefer: parsePrefer(v) } : {});
-
-/** `-o` is the only short flag; parseCommand knows long flags. */
-function longFlags(argv: readonly string[]): string[] {
-  const end = argv.indexOf("--");
-  return argv.map((a, i) => (a === "-o" && (end < 0 || i < end) ? "--out" : a));
-}
 
 function serveText(info: ServeInfo): string {
   const rules = info.rules.source === "none" ? "" : `, ${info.rules.rules} rule(s) from ${info.rules.source === "file" ? (info.rules.file ?? "") : "config.json"}`;
@@ -86,7 +76,8 @@ function serveText(info: ServeInfo): string {
   return lines.join("\n");
 }
 
-async function serve(spec: CommandSpec, args: Record<string, unknown>): Promise<Outcome> {
+/** `tabcap replay serve <bundle>`: prints one envelope (or a text line) at start, then serves until Ctrl-C. */
+export async function replayServe(spec: CommandSpec, args: Record<string, unknown>): Promise<Outcome> {
   const bundle = str(args["bundle"]) ?? "";
   const json = args["json"] === true;
   const once = args["once"];
@@ -122,67 +113,49 @@ async function serve(spec: CommandSpec, args: Record<string, unknown>): Promise<
   return { code: -1, envelope: ok({ stopped: true, served: server.served }) };
 }
 
-export async function runReplay(argv: readonly string[]): Promise<Outcome> {
-  try {
-    const [, sub, ...rest] = argv;
-    if (sub === undefined || sub === "--help" || sub === "-h") {
-      const text = helpGroup("replay") ?? REPLAY_USAGE.join("\n");
-      return { code: 0, envelope: ok({ help: text }), text };
-    }
-    if (!isSub(sub)) return { code: 2, envelope: fail("usage", `unknown command: replay ${sub}`, `Available: ${REPLAY_USAGE.join(" | ")}`) };
-    const spec = specOf(`replay ${sub}`);
-    const parsed = parseCommand(spec, longFlags(rest));
-    if (parsed.help) {
-      const text = helpFor(spec);
-      return { code: 0, envelope: ok({ help: text }), text };
-    }
-    const a = parsed.args;
-    const bundle = str(a["bundle"]) ?? "";
-    switch (sub) {
-      case "serve":
-        return await serve(spec, a);
-      case "session": {
-        const out = str(a["out"]);
-        if (out === undefined) throw new TabcapError("usage", "missing -o <file>", `Usage: ${usageOf(spec)}`);
-        const site = str(a["site"]);
-        if (bundle === "" && site === undefined) throw new TabcapError("usage", "give a bundle, or --site <name> for the store's saved session", `Usage: ${usageOf(spec)}`);
-        return { code: 0, envelope: ok(exportSession({ bundle: bundle === "" ? null : bundle, out, site, configDir: paths().config })) };
-      }
-      case "export-python": {
-        const out = str(a["out"]);
-        if (out === undefined) throw new TabcapError("usage", "missing -o <dir>", `Usage: ${usageOf(spec)}`);
-        if (a["chain"] === true && a["noChain"] === true) throw new TabcapError("usage", "give either --chain or --no-chain, not both", `Usage: ${usageOf(spec)}`);
-        const chain = a["chain"] === true ? true : a["noChain"] === true ? false : undefined;
-        const proxyEnv = str(a["proxyEnv"]);
-        // 0.4-D: resolve the account's proxy first, so a bundle without one fails before anything is written.
-        const ap = proxyEnv === undefined ? null : bundleAccountProxy(bundle);
-        const result = exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]), chain, request: str(a["request"]), browserHeaders: a["browserHeaders"] === true, configDir: paths().config });
-        return { code: 0, envelope: ok(proxyEnv === undefined || ap === null ? result : { ...result, proxyEnv: writeProxyEnv(proxyEnv, ap) }) };
-      }
-      case "check": {
-        const rate = a["rate"];
-        const headers = headerNames(str(a["headers"]));
-        const result = await check({
-          bundle,
-          against: str(a["against"]) ?? DEFAULT_AGAINST,
-          live: a["live"] === true,
-          rate: typeof rate === "number" ? rate : undefined,
-          site: str(a["site"]),
-          filter: str(a["filter"]),
-          withCookies: a["withCookies"] === true,
-          headers: headers.length > 0 ? headers : DEFAULT_HEADERS,
-          configDir: paths().config,
-          rules: bundleRules(bundle, str(a["rules"])),
-          ...preferArg(a["prefer"]),
-          guardState: () => daemonGuardState(paths()),
-        });
-        const code = result.totals.different + result.totals.errors > 0 ? 1 : 0;
-        if (a["text"] === true) return { code, envelope: ok(result), text: renderCheckText(result) };
-        return { code, envelope: ok(result) };
-      }
-    }
-  } catch (e) {
-    const env = toFail(e);
-    return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
-  }
+/** `tabcap replay session [<bundle>] -o <file> [--site s]`: a Playwright storageState file. */
+export function replaySession(spec: CommandSpec, a: Record<string, unknown>): unknown {
+  const bundle = str(a["bundle"]) ?? "";
+  const out = str(a["out"]);
+  if (out === undefined) throw new TabcapError("usage", "missing -o <file>", `Usage: ${usageOf(spec)}`);
+  const site = str(a["site"]);
+  if (bundle === "" && site === undefined) throw new TabcapError("usage", "give a bundle, or --site <name> for the store's saved session", `Usage: ${usageOf(spec)}`);
+  return exportSession({ bundle: bundle === "" ? null : bundle, out, site, configDir: paths().config });
 }
+
+/** `tabcap replay export-python <bundle> -o <dir>`: the generated client package. */
+export function replayExportPython(spec: CommandSpec, a: Record<string, unknown>): unknown {
+  const bundle = str(a["bundle"]) ?? "";
+  const out = str(a["out"]);
+  if (out === undefined) throw new TabcapError("usage", "missing -o <dir>", `Usage: ${usageOf(spec)}`);
+  if (a["chain"] === true && a["noChain"] === true) throw new TabcapError("usage", "give either --chain or --no-chain, not both", `Usage: ${usageOf(spec)}`);
+  const chain = a["chain"] === true ? true : a["noChain"] === true ? false : undefined;
+  const proxyEnv = str(a["proxyEnv"]);
+  // 0.4-D: resolve the account's proxy first, so a bundle without one fails before anything is written.
+  const ap = proxyEnv === undefined ? null : bundleAccountProxy(bundle);
+  const result = exportPython({ bundle, out, include: str(a["include"]), exclude: str(a["exclude"]), chain, request: str(a["request"]), browserHeaders: a["browserHeaders"] === true, configDir: paths().config });
+  return proxyEnv === undefined || ap === null ? result : { ...result, proxyEnv: writeProxyEnv(proxyEnv, ap) };
+}
+
+/** `tabcap replay check <bundle>`; exit 1 on any difference or error. */
+export async function replayCheck(a: Record<string, unknown>): Promise<CheckResult> {
+  const bundle = str(a["bundle"]) ?? "";
+  const rate = a["rate"];
+  const headers = headerNames(str(a["headers"]));
+  return await check({
+    bundle,
+    against: str(a["against"]) ?? DEFAULT_AGAINST,
+    live: a["live"] === true,
+    rate: typeof rate === "number" ? rate : undefined,
+    site: str(a["site"]),
+    filter: str(a["filter"]),
+    withCookies: a["withCookies"] === true,
+    headers: headers.length > 0 ? headers : DEFAULT_HEADERS,
+    configDir: paths().config,
+    rules: bundleRules(bundle, str(a["rules"])),
+    ...preferArg(a["prefer"]),
+    guardState: () => daemonGuardState(paths()),
+  });
+}
+
+export const checkCode = (r: CheckResult): number => (r.totals.different + r.totals.errors > 0 ? 1 : 0);

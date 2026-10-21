@@ -45,7 +45,7 @@ describe("argument parsing", () => {
     return c;
   };
   test("positionals, joined rest, flags, session, --", () => {
-    expect(parseCommand(spec(["fill"]), ["e3", "hello", "world", "--trusted", "--session", "s1"])).toEqual({ args: { ref: "e3", text: "hello world", trusted: true }, session: "s1", help: false });
+    expect(parseCommand(spec(["fill"]), ["e3", "hello", "world", "--trusted", "--session", "s1"])).toEqual({ args: { ref: "e3", text: "hello world", trusted: true }, session: "s1", help: false, given: new Set(["--trusted", "--session"]) });
     expect(parseCommand(spec(["evaluate"]), ["--await", "--", "--x"]).args).toEqual({ await: true, expression: "--x" });
     expect(parseCommand(spec(["snapshot"]), ["--max-chars=500", "--timeout", "9000"]).args).toEqual({ maxChars: 500, timeoutMs: 9000 });
     expect(spec(["net", "body"]).action).toBe("net.body");

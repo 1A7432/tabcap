@@ -11,15 +11,13 @@ import { COMMANDS, type CommandSpec } from "../../src/cli/commands.ts";
 import { HANDLERS } from "../../src/cli/main.ts";
 
 const name = (c: CommandSpec): string => c.path.join(" ");
-/** Commands still dispatched before runCommand reaches the table (review wave 3 item 2 moves them in). */
-const NOT_YET = (c: CommandSpec): boolean => ["analyze", "replay"].includes(c.path[0] ?? "");
 const handler = (c: CommandSpec) => (Object.hasOwn(HANDLERS, name(c)) ? HANDLERS[name(c)] : undefined);
 /** A boolean `--text`: the command offers a text form of its answer. */
 const hasTextFlag = (c: CommandSpec): boolean => c.flags.some((f) => (f.flag === "--text" || f.alias === "--text") && f.kind === "bool");
 
 describe("handler table (src/cli/handlers.ts)", () => {
   test("every command without a daemon action (internal ones too) has a local run", () => {
-    const missing = COMMANDS.filter((c) => c.action === undefined && !NOT_YET(c) && handler(c)?.run === undefined).map(name);
+    const missing = COMMANDS.filter((c) => c.action === undefined && handler(c)?.run === undefined).map(name);
     expect(missing).toEqual([]);
   });
 
@@ -33,7 +31,7 @@ describe("handler table (src/cli/handlers.ts)", () => {
   });
 
   test("every command with a boolean --text renders it, or says why it stays JSON (never both)", () => {
-    const text = COMMANDS.filter((c) => hasTextFlag(c) && !NOT_YET(c));
+    const text = COMMANDS.filter(hasTextFlag);
     expect(text.map(name)).toContain("status");
     expect(text.map(name)).toContain("html");
     for (const c of text) {

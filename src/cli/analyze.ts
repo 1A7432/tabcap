@@ -1,48 +1,30 @@
-// `tabcap analyze …`: argument parsing and printing only; the work is in
-// src/analyze/ (pure functions over bundle directories, no daemon).
+// `tabcap analyze …`: the commands over parsed arguments (the command
+// registry parses them; the handler table, src/cli/handlers.ts, runs these
+// and prints); the work is in src/analyze/ (pure functions over bundle
+// directories, no daemon).
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadFamilies } from "../analyze/protection/registry.ts";
-import { paths as currentPaths } from "../shared/paths.ts";
-import { TabcapError, fail, ok, toFail, type Envelope } from "../shared/envelope.ts";
 import { find, renderFindText, type FindResult } from "../analyze/find.ts";
 import { appendFinding, appendFindings, type SavedFinding, type SavedFindings } from "../analyze/finding.ts";
 import { diff, renderDiffText, type DiffResult } from "../analyze/diff.ts";
-import { DepsGraph, depsFindings, depsOf, renderDepsText } from "../analyze/deps.ts";
-import { chainOf, renderChainText } from "../analyze/chain.ts";
+import { DepsGraph, depsFindings, depsOf, renderDepsText, type DepsResult } from "../analyze/deps.ts";
+import { chainOf, type ChainResult } from "../analyze/chain.ts";
 import { analyzeDossierMask, redactChain, redactDeps, redactDiff, redactDossier } from "../analyze/redact.ts";
 import { Secrets } from "../daemon/secrets.ts";
 import { Store, storePath } from "../daemon/store/db.ts";
-import { buildDossier, reconOutput, recordedPage, renderDossierMd, writeDossier } from "../analyze/recon.ts";
-import { parseShapeTypes, renderSchemaDiffText, renderShapeText, schemaDiff, shape, writeShape } from "../analyze/shape.ts";
+import { buildDossier, reconOutput, recordedPage, renderDossierMd, writeDossier, type Dossier } from "../analyze/recon.ts";
+import { parseShapeTypes, schemaDiff, shape, writeShape, type SchemaDiffResult, type ShapeResult } from "../analyze/shape.ts";
 import { BundleReader } from "../bundle/reader.ts";
-import { flagNames, helpFor, parseCommand, specOf, usageOf } from "./commands.ts";
 
-const FIND = specOf("analyze find");
-const DIFF = specOf("analyze diff");
-const DEPS = specOf("analyze deps");
-const CHAIN = specOf("analyze chain");
-const RECON = specOf("analyze recon");
-const SHAPE = specOf("analyze shape");
-const SCHEMA_DIFF = specOf("analyze schema-diff");
-export const ANALYZE_USAGE = [usageOf(FIND), usageOf(DIFF), usageOf(DEPS), usageOf(CHAIN), usageOf(RECON), usageOf(SHAPE), usageOf(SCHEMA_DIFF)];
+const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
-type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
-
-function split(argv: readonly string[], allowed: readonly string[], usage: string): { pos: string[]; flags: Set<string> } {
-  const pos: string[] = [];
-  const flags = new Set<string>();
-  let rest = false;
-  for (const a of argv) {
-    if (!rest && a === "--") rest = true;
-    else if (!rest && a.startsWith("--")) {
-      if (!allowed.includes(a)) throw new TabcapError("usage", `unknown option ${a}`, `Usage: ${usage}`);
-      flags.add(a);
-    } else pos.push(a);
-  }
-  return { pos, flags };
-}
+/** A result and the finding event it was saved as (find / diff: --save, deps: --write-findings); the answer is both in one object. */
+export type WithSaved<R, S> = { result: R; saved: S | null };
+export const answerWithSaved = <R extends object, S>(r: WithSaved<R, S>): R & { saved: S | null } => ({ ...r.result, saved: r.saved });
+const savedLine = (saved: SavedFinding | null): string => (saved === null ? "" : `\nsaved finding seq ${saved.seq} in ${saved.bundle}`);
 
 function findEvidence(r: FindResult): Record<string, unknown>[] {
   if (r.hits.length === 0) return (r.hints?.suspectEncrypted ?? []).map((s) => ({ request: s.ref }));
@@ -65,15 +47,13 @@ function findClaim(r: FindResult): string {
   return `${q} not found in ${r.searched.bodies} bodies, ${r.searched.wsFrames} ws frames, ${r.searched.console} console lines; ${r.hints?.suspectEncrypted.length ?? 0} suspected encrypted`;
 }
 
-function cmdFind(argv: readonly string[]): Outcome {
-  const usage = ANALYZE_USAGE[0] ?? "";
-  const { pos, flags } = split(argv, flagNames(FIND), usage);
-  const [bundle, ...words] = pos;
-  if (bundle === undefined || words.length === 0) throw new TabcapError("usage", "expected <bundle> <text>", `Usage: ${usage}`);
-  const text = words.join(" ");
-  const result = find(bundle, text, { ignoreCase: flags.has("--ignore-case") });
+/** `tabcap analyze find <bundle> <text…>`: the positional `text` shares its key with --text, which the handler reads from the flags given. */
+export function analyzeFind(a: Record<string, unknown>): WithSaved<FindResult, SavedFinding> {
+  const bundle = str(a["bundle"]) ?? "";
+  const text = str(a["text"]) ?? "";
+  const result = find(bundle, text, { ignoreCase: a["ignoreCase"] === true });
   let saved: SavedFinding | null = null;
-  if (flags.has("--save")) {
+  if (a["save"] === true) {
     saved = appendFinding(bundle, {
       actor: "ai",
       tool: "find",
@@ -84,13 +64,10 @@ function cmdFind(argv: readonly string[]): Outcome {
       output: { hits: result.hits.length, truncated: result.truncated, searched: result.searched.bodies, suspectEncrypted: result.hints?.suspectEncrypted.map((s) => s.ref) ?? [] },
     });
   }
-  const data = { ...result, saved };
-  if (flags.has("--text")) {
-    const t = renderFindText(result) + (saved === null ? "" : `\nsaved finding seq ${saved.seq} in ${saved.bundle}`);
-    return { code: 0, envelope: ok(data), text: t };
-  }
-  return { code: 0, envelope: ok(data) };
+  return { result, saved };
 }
+
+export const findText = (r: WithSaved<FindResult, SavedFinding>): string => renderFindText(r.result) + savedLine(r.saved);
 
 function diffClaim(r: DiffResult): string {
   const parts = r.groups.map((g) => {
@@ -104,15 +81,14 @@ function diffClaim(r: DiffResult): string {
   return `${r.bundles.length} recordings, ${r.sessions} session(s). ${parts.join(" | ")}`;
 }
 
-function cmdDiff(argv: readonly string[]): Outcome {
-  const usage = ANALYZE_USAGE[1] ?? "";
-  const { pos, flags } = split(argv, flagNames(DIFF), usage);
-  if (pos.length < 2) throw new TabcapError("usage", `expected at least two bundles, got ${pos.length}`, `Usage: ${usage}`);
-  const reveal = flags.has("--reveal");
+/** `tabcap analyze diff <bundle1> <bundle2> [<bundles>…]`. */
+export function analyzeDiff(a: Record<string, unknown>): WithSaved<DiffResult, SavedFinding> {
+  const pos = [str(a["bundle1"]) ?? "", str(a["bundle2"]) ?? "", ...strs(a["bundles"])];
+  const reveal = a["reveal"] === true;
   const result = redactDiff(diff(pos), reveal);
   let saved: SavedFinding | null = null;
   const first = pos[0];
-  if (flags.has("--save") && first !== undefined) {
+  if (a["save"] === true && first !== undefined) {
     saved = appendFinding(first, {
       actor: "ai",
       tool: "diff",
@@ -123,47 +99,27 @@ function cmdDiff(argv: readonly string[]): Outcome {
       output: { summary: result.summary, groups: result.groups.map((g) => ({ key: g.key, params: g.params.map((p) => ({ location: p.location, name: p.name, class: p.class, hints: p.hints })) })) },
     });
   }
-  const data = { ...result, saved };
-  if (flags.has("--text")) {
-    const t = renderDiffText(result) + (saved === null ? "" : `\nsaved finding seq ${saved.seq} in ${saved.bundle}`);
-    return { code: 0, envelope: ok(data), text: t };
-  }
-  return { code: 0, envelope: ok(data) };
+  return { result, saved };
 }
 
-const optStr = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+export const diffText = (r: WithSaved<DiffResult, SavedFinding>): string => renderDiffText(r.result) + savedLine(r.saved);
 
-function cmdDeps(argv: readonly string[]): Outcome {
-  const parsed = parseCommand(DEPS, argv);
-  if (parsed.help) {
-    const text = helpFor(DEPS);
-    return { code: 0, envelope: ok({ help: text }), text };
-  }
-  const a = parsed.args;
-  const bundle = optStr(a["bundle"]) ?? "";
+/** `tabcap analyze deps <bundle>`. */
+export function analyzeDeps(a: Record<string, unknown>): WithSaved<DepsResult, SavedFindings> {
+  const bundle = str(a["bundle"]) ?? "";
   const graph = DepsGraph.open(bundle);
-  const raw = depsOf(graph, bundle, { session: optStr(a["bundleSession"]), request: optStr(a["request"]) });
+  const raw = depsOf(graph, bundle, { session: str(a["bundleSession"]), request: str(a["request"]) });
   let saved: SavedFindings | null = null;
   if (a["writeFindings"] === true) saved = appendFindings(bundle, depsFindings(graph, raw));
-  const result = redactDeps(raw, a["reveal"] === true);
-  const data = { ...result, saved };
-  if (a["text"] !== true) return { code: 0, envelope: ok(data) };
-  const t = renderDepsText(result) + (saved === null ? "" : `\nwrote ${saved.seqs.length} finding event(s) to ${saved.bundle}`);
-  return { code: 0, envelope: ok(data), text: t };
+  return { result: redactDeps(raw, a["reveal"] === true), saved };
 }
 
-function cmdChain(argv: readonly string[]): Outcome {
-  const parsed = parseCommand(CHAIN, argv);
-  if (parsed.help) {
-    const text = helpFor(CHAIN);
-    return { code: 0, envelope: ok({ help: text }), text };
-  }
-  const a = parsed.args;
-  const bundle = optStr(a["bundle"]) ?? "";
-  const reveal = a["reveal"] === true;
-  const result = redactChain(chainOf(DepsGraph.open(bundle), bundle, { request: optStr(a["request"]), session: optStr(a["bundleSession"]) }), reveal);
-  if (a["text"] !== true) return { code: 0, envelope: ok(result) };
-  return { code: 0, envelope: ok(result), text: renderChainText(result, { reveal }) };
+export const depsText = (r: WithSaved<DepsResult, SavedFindings>): string => renderDepsText(r.result) + (r.saved === null ? "" : `\nwrote ${r.saved.seqs.length} finding event(s) to ${r.saved.bundle}`);
+
+/** `tabcap analyze chain <bundle>`. */
+export function analyzeChain(a: Record<string, unknown>): ChainResult {
+  const bundle = str(a["bundle"]) ?? "";
+  return redactChain(chainOf(DepsGraph.open(bundle), bundle, { request: str(a["request"]), session: str(a["bundleSession"]) }), a["reveal"] === true);
 }
 
 /** The store's known secrets replaced as `<secret:site.field>` (docs/04 §8.1), as the daemon does in every output; identity without a store. */
@@ -179,70 +135,34 @@ function storeScrub(configDir: string): (s: string) => string {
   return (s) => secrets.scrub(s);
 }
 
-function cmdRecon(argv: readonly string[]): Outcome {
-  const parsed = parseCommand(RECON, argv);
-  if (parsed.help) {
-    const text = helpFor(RECON);
-    return { code: 0, envelope: ok({ help: text }), text };
-  }
-  const bundle = optStr(parsed.args["bundle"]) ?? "";
+/** The offline recon: its answer (`out`), and what --text prints (the dossier as Markdown, store secrets replaced). */
+export type ReconAnswer = { out: unknown; dossier: Dossier; scrub: (s: string) => string };
+
+/** `tabcap analyze recon <bundle>`: writes exports/dossier.json and .md. */
+export function analyzeRecon(a: Record<string, unknown>, configDir: string): ReconAnswer {
+  const bundle = str(a["bundle"]) ?? "";
   const reader = BundleReader.open(bundle);
   // 0.8-A: built-in protection families plus config/protection/ (docs/04 §41.1)
-  const { families, warnings } = loadFamilies(join(currentPaths().config, "protection"));
+  const { families, warnings } = loadFamilies(join(configDir, "protection"));
   const built = buildDossier(reader, recordedPage(reader), { families, warnings });
-  const dossier = parsed.args["reveal"] === true ? built : redactDossier(built, analyzeDossierMask());
+  const dossier = a["reveal"] === true ? built : redactDossier(built, analyzeDossierMask());
   // docs/04 §22: known store secrets replaced in the files and the answer, also with --reveal (as `tabcap recon`)
-  const scrub = storeScrub(currentPaths().config);
+  const scrub = storeScrub(configDir);
   const out: unknown = JSON.parse(scrub(JSON.stringify(reconOutput(dossier, writeDossier(bundle, dossier, scrub)))));
-  if (parsed.args["text"] !== true) return { code: 0, envelope: ok(out) };
-  return { code: 0, envelope: ok(out), text: scrub(renderDossierMd(dossier).trimEnd()) };
+  return { out, dossier, scrub };
 }
 
-function cmdShape(argv: readonly string[]): Outcome {
-  const parsed = parseCommand(SHAPE, argv);
-  if (parsed.help) {
-    const text = helpFor(SHAPE);
-    return { code: 0, envelope: ok({ help: text }), text };
-  }
-  const a = parsed.args;
-  const bundle = optStr(a["bundle"]) ?? "";
-  const result = shape(bundle, { request: optStr(a["request"]), template: optStr(a["template"]), types: parseShapeTypes(optStr(a["types"])) });
+export const reconText = (r: ReconAnswer): string => r.scrub(renderDossierMd(r.dossier).trimEnd());
+
+/** `tabcap analyze shape <bundle>`. */
+export function analyzeShape(a: Record<string, unknown>): ShapeResult {
+  const bundle = str(a["bundle"]) ?? "";
+  const result = shape(bundle, { request: str(a["request"]), template: str(a["template"]), types: parseShapeTypes(str(a["types"])) });
   if (a["write"] === true) result.written = writeShape(bundle, result);
-  if (a["text"] !== true) return { code: 0, envelope: ok(result) };
-  return { code: 0, envelope: ok(result), text: renderShapeText(result) };
+  return result;
 }
 
-/** Exit 1 when an endpoint drifted (the envelope is still ok: the comparison itself worked). */
-function cmdSchemaDiff(argv: readonly string[]): Outcome {
-  const parsed = parseCommand(SCHEMA_DIFF, argv);
-  if (parsed.help) {
-    const text = helpFor(SCHEMA_DIFF);
-    return { code: 0, envelope: ok({ help: text }), text };
-  }
-  const a = parsed.args;
-  const result = schemaDiff(optStr(a["old"]) ?? "", optStr(a["new"]) ?? "", { template: optStr(a["template"]), write: a["write"] === true, types: parseShapeTypes(optStr(a["types"])) });
-  const code = result.drift ? 1 : 0;
-  if (a["text"] !== true) return { code, envelope: ok(result) };
-  return { code, envelope: ok(result), text: renderSchemaDiffText(result) };
-}
-
-export async function runAnalyze(argv: readonly string[]): Promise<Outcome> {
-  try {
-    const [, sub, ...rest] = argv;
-    if (sub === undefined || sub === "--help" || argv.includes("--help")) {
-      const text = ["Analysis over bundles (no daemon needed):", ...ANALYZE_USAGE.map((u) => `  ${u}`)].join("\n");
-      return { code: 0, envelope: ok({ help: text }), text };
-    }
-    if (sub === "find") return cmdFind(rest);
-    if (sub === "diff") return cmdDiff(rest);
-    if (sub === "deps") return cmdDeps(rest);
-    if (sub === "chain") return cmdChain(rest);
-    if (sub === "recon") return cmdRecon(rest);
-    if (sub === "shape") return cmdShape(rest);
-    if (sub === "schema-diff") return cmdSchemaDiff(rest);
-    return { code: 2, envelope: fail("usage", `unknown command: analyze ${sub}`, `Available: ${ANALYZE_USAGE.join(" | ")}`) };
-  } catch (e) {
-    const env = toFail(e);
-    return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
-  }
+/** `tabcap analyze schema-diff <old> <new>`; exit 1 when an endpoint drifted (the envelope is still ok: the comparison itself worked). */
+export function analyzeSchemaDiff(a: Record<string, unknown>): SchemaDiffResult {
+  return schemaDiff(str(a["old"]) ?? "", str(a["new"]) ?? "", { template: str(a["template"]), write: a["write"] === true, types: parseShapeTypes(str(a["types"])) });
 }
