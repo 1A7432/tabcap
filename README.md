@@ -21,7 +21,7 @@ tabcap is the workbench for that loop. The agent explores and repeats; you provi
 - **npm** (any platform, Node 18 or newer): `npm install -g tabcap`. The binary for your platform comes as an optional dependency; every release is published from CI with provenance. Later: `tabcap update`.
 - **Homebrew** (macOS arm64, Linux x64 and arm64): `brew install 1A7432/tabcap/tabcap`. The formula follows every release; later: `tabcap update` (it runs `brew upgrade tabcap`).
 - **Release packages**: `tabcap-v<version>-darwin-arm64.tar.gz`, `-linux-x64.tar.gz`, `-linux-arm64.tar.gz` or `-windows-x64.zip` from the [release page](https://github.com/1A7432/tabcap/releases), checksums in `SHA256SUMS`; unpack and put `tabcap` (`tabcap.exe` on Windows) on your `PATH`. On macOS, after a browser download, run `xattr -d com.apple.quarantine tabcap` once.
-- **From source**: Bun 1.4 or newer and Zig 0.16.0; `bun install && bun scripts/native.ts build` (the wire component tabcap embeds), then `bun run build`.
+- **From source**: Bun 1.4.3 or newer (CI uses the version in `.bun-version`) and Zig 0.16.0; `bun install && bun scripts/native.ts build` (the wire component tabcap embeds), then `bun run build`.
 
 Then `tabcap setup` downloads Chrome for Testing (about 180 MB) into `~/.cache/tabcap`; nothing else is needed.
 

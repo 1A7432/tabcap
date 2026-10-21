@@ -83,7 +83,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - name: tag matches package.json
         if: startsWith(github.ref, 'refs/tags/v')
@@ -157,7 +157,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: .bun-version
       - name: collect packages
         env:
           GH_TOKEN: ${{ github.token }}
@@ -202,7 +202,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       # Trusted publishing needs npm 11.5.1+ on Node 22.14+; setup-node's registry-url
       # writes the .npmrc that reads NODE_AUTH_TOKEN (empty when the secret is unset:

@@ -21,7 +21,7 @@ tabcap 就是这个循环的工作台：agent 探路、重复；你给凭据、�
 - **npm**（任何平台，Node 18 以上）：`npm install -g tabcap`。对应平台的二进制作为可选依赖一起装；每个版本都由 CI 发布、带 provenance。之后升级：`tabcap update`。
 - **Homebrew**（macOS arm64、Linux x64 与 arm64）：`brew install 1A7432/tabcap/tabcap`。formula 随每个版本自动更新；之后升级：`tabcap update`（它跑 `brew upgrade tabcap`）。
 - **Release 包**：从 [release 页](https://github.com/1A7432/tabcap/releases)下载 `tabcap-v<版本>-darwin-arm64.tar.gz`、`-linux-x64.tar.gz`、`-linux-arm64.tar.gz` 或 `-windows-x64.zip`（校验值在 `SHA256SUMS`），解开，把 `tabcap`（Windows 上是 `tabcap.exe`）放进 `PATH`。macOS 上用浏览器下载的，先跑一次 `xattr -d com.apple.quarantine tabcap`。
-- **从源码编**：需要 Bun 1.4 以上和 Zig 0.16.0，先 `bun install && bun scripts/native.ts build`（编出 tabcap 内嵌的 wire 组件），再 `bun run build`。
+- **从源码编**：需要 Bun 1.4.3 以上（CI 用 `.bun-version` 里的版本）和 Zig 0.16.0，先 `bun install && bun scripts/native.ts build`（编出 tabcap 内嵌的 wire 组件），再 `bun run build`。
 
 然后 `tabcap setup` 把 Chrome for Testing（约 180 MB）下载到 `~/.cache/tabcap`，别的都不用。
 
