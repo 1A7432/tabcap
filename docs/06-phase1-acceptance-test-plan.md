@@ -9,11 +9,11 @@
 | 层 | 名字 | 需要什么 | 跑多久 | 命令 |
 |---|---|---|---|---|
 | L0 | 单元 + 夹具 | 无；离线、确定性 | < 10 s | `bun test` |
-| L1 | 靶场自检 | 靶场进程；不要浏览器 | < 10 s | `tabcap range selftest` |
-| L2 | 端到端 | `tabcap setup` 装好的 Chrome for Testing + 守护进程 + 靶场 | < 3 min | `bun run test:e2e` |
+| L1 | 靶场自检 | — | — | 未实现、不排期：没有独立的靶场进程，靶场是 `test/e2e/site.ts`，由各 e2e 文件进程内启动（`05` §1） |
+| L2 | 端到端 | `tabcap setup` 装好的 Chrome for Testing + 守护进程 + 进程内靶场（`test/e2e/site.ts`） | < 3 min | `bun run test:e2e` |
 | L3 | 人工清单 | 人 | 一天 soak | `05` §4，结果记 NOTES |
 
-`bun run verify` 依次跑 L0、L1、L2，最后打印验收矩阵（A1–A6 × 通过 / 失败 / 待验 / 人确认），任一 **P1** 失败则退出码非零；**P1\*** 场景失败只标「待验」，不算失败但必须出现在表里，不能静默变绿。
+原计划的 `bun run verify`（依次跑 L0、L1、L2，打印 A1–A6 验收矩阵）未实现、不排期，占位脚本已删。现状：L0 = `bun test`，L2 = `bun run test:e2e`，两条命令各自报告通过与失败。
 
 L2 一律通过**命令行 JSON 信封**驱动，不调内部函数：测试同时是 CLI 契约的测试。
 
@@ -83,7 +83,7 @@ oracle：s06 `expected.json` 的分类表。输出形状冻结成快照。
 
 | 测试 | 通过 |
 |---|---|
-| `bun run verify` | 打印矩阵；P1 全绿；P1\* 列「待验」及原因；总时长 < 4 min；退出码 0 |
+| `bun test` 与 `bun run test:e2e` | 两条命令各自全绿（验收矩阵未实现、不排期，见 §1） |
 | 幂等 | 连跑两次结果相同；第二次不残留上一次的标签（`close_session` 后靶场标签为 0） |
 
 ### A6 「撞上验证页停下交人；登录只试一次」（`03` §7 第 6 条）
@@ -120,10 +120,10 @@ oracle：s46 页面的事件报告、`fixtures/probe/oracle/` 的 Playwright 导
 
 1. `tabcap setup`：下载 Chrome for Testing 到缓存目录、建 profile、UI 扩展随启动参数自动装。不需要进 `chrome://extensions`。
 2. `tabcap daemon start` 并 `tabcap browser start`，确认 `/status` 看到 `transport:"direct"` 和浏览器版本。
-3. `tabcap range serve` 起靶场；`tabcap range selftest` 绿。
+3. 靶场不单独起：各 e2e 文件在进程内启动 `test/e2e/site.ts` 里要用的站点（`startXxxSite()`，随机端口），用完即停；没有 `tabcap range serve` / `range selftest`（`05` §1）。
 4. 用 DevTools 对 s04 导出一次 HAR 放进 `fixtures/har/s04-devtools.har`。
 5. `tabcap site add range-demo --url http://127.0.0.1:4310/s07 --user demo --password-stdin` 把靶场假账号录进本地库；库文件不进仓库。
-6. L2 每个场景的流程：`range reset(run)` → `session start --name range-sNN` → 按 `expected.steps` 经 CLI 操作（新后台标签）→ `session stop` → 读包 → 比对 → `close_session`。
+6. L2 每个场景的流程：起该场景的站点 → 经 CLI 建会话、录制、操作（新后台标签）→ 停录制 → 读包 → 与站点自己记下的 `served` / `hits` 比对 → 停站点。原计划的 `range reset(run)` 与 `expected.steps` 没有实现。
 
 ## 5. 不在阶段 1 测的
 
