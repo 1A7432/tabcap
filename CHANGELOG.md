@@ -2,6 +2,12 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### Your own Chrome switches
+
+- `tabcap browser start --chrome-arg <switch>` (repeatable) adds a switch to the Chrome for Testing that tabcap launches, and `--drop-chrome-arg <switch>` removes one of tabcap's defaults; `config.json` `chrome.args` / `chrome.dropArgs` (lists of strings) are the defaults, the flags come after them, and `tabcap setup` keeps both keys. Chrome keeps only the last of a repeated switch, so the comma-list switches (`--enable-features`, `--disable-features`, `--enable-blink-features`, `--disable-blink-features`, `--load-extension`) merge into tabcap's own instead of replacing it (`--enable-features=X` also takes X out of tabcap's `--disable-features`); any other switch replaces tabcap's of the same name. `--drop-chrome-arg --name` removes a switch, `--drop-chrome-arg --disable-features=A,B` only those items. Only what would break tabcap is refused: `--user-data-dir`, `--remote-debugging-pipe` (and dropping `--remote-debugging-port`), proxy switches unless `--proxy system`, and anything that is not a `--switch`. `browser start` / `browser status` answer the full command line (`args`) with `extraArgs`, `dropArgs` and `dropArgsUnmatched`; `webdriver` now follows the final command line; `tabcap status` shows `extraArgs` / `dropArgs` (`--text`: `chrome args +N -M`); the bundle manifest records `producer.browser.args` / `extraArgs` / `dropArgs` with the profile and extension paths replaced. The owner decided this on 10-21.
+
 ## 0.8.0 (2026-10-20)
 
 ### Protection family identification

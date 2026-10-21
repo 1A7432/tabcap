@@ -179,7 +179,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "example": "tabcap browser start --proxy none",
+      "example": "tabcap browser start --proxy none --chrome-arg=--lang=en-US",
       "flags": [
         {
           "alias": null,
@@ -225,6 +225,28 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "type": "string",
           "valueOptional": false,
         },
+        {
+          "alias": null,
+          "default": null,
+          "flag": "--chrome-arg",
+          "help": "add a Chrome switch (--name or --name=value; write --chrome-arg=--name=value or --chrome-arg --name=value), after config.json chrome.args: list switches (--enable-features, --disable-features, the blink pair, --load-extension) merge into tabcap's own, others replace tabcap's switch of the same name; refused: --user-data-dir, --remote-debugging-pipe, proxy switches unless --proxy system",
+          "key": "chromeArg",
+          "repeatable": true,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": null,
+          "flag": "--drop-chrome-arg",
+          "help": "remove one of tabcap's default switches (--name removes it, --disable-features=A,B removes those items), after config.json chrome.dropArgs; drops that match nothing are listed in dropArgsUnmatched; --user-data-dir and --remote-debugging-pipe / -port cannot be dropped",
+          "key": "dropChromeArg",
+          "repeatable": true,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
       ],
       "internal": false,
       "name": "browser start",
@@ -233,8 +255,8 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         "start",
       ],
       "positionals": [],
-      "summary": "launch the dedicated Chrome for Testing (own profile, CDP over a pipe)",
-      "usage": "tabcap browser start [--proxy mode] [--webdriver mode] [--foreground] [--executable-path path]",
+      "summary": "launch the dedicated Chrome for Testing (own profile, CDP over a pipe); the answer gives the full command line (args) and the custom args in it (extraArgs, dropArgs)",
+      "usage": "tabcap browser start [--proxy mode] [--webdriver mode] [--foreground] [--executable-path path] [--chrome-arg switch]... [--drop-chrome-arg switch]...",
     },
     {
       "daemon": true,

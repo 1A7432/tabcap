@@ -102,6 +102,121 @@ export function proxyLabel(p: ProxyMode): string {
   return p.kind === "url" ? p.url : p.kind;
 }
 
+// ------------------------------------------------------------ custom args (0.8.1-A, docs/04 §42)
+
+/** `browser start --chrome-arg` / `--drop-chrome-arg`, after config.json `chrome.args` / `chrome.dropArgs`. */
+export type CustomArgs = { add: string[]; drop: string[] };
+export const NO_CUSTOM_ARGS: CustomArgs = { add: [], drop: [] };
+
+/** tabcap's own wiring: the profile it manages and the CDP pipe. */
+const RESERVED_ADD = new Set(["--user-data-dir", "--remote-debugging-pipe"]);
+/** The port fallback reads DevToolsActivePort, so its switch stays too. */
+const RESERVED_DROP = new Set([...RESERVED_ADD, "--remote-debugging-port"]);
+/** Allowed only with `--proxy system`; otherwise they fight `--proxy`. */
+const PROXY_SWITCHES = new Set(["--proxy-server", "--proxy-bypass-list", "--proxy-pac-url", "--no-proxy-server", "--proxy-auto-detect"]);
+/** Comma-list switches, merged instead of replaced; the value is the list's opposite ("" = none). */
+const LIST_SWITCHES = new Map([
+  ["--enable-features", "--disable-features"],
+  ["--disable-features", "--enable-features"],
+  ["--enable-blink-features", "--disable-blink-features"],
+  ["--disable-blink-features", "--enable-blink-features"],
+  ["--load-extension", ""],
+]);
+const SWITCH = /^--[A-Za-z0-9][\w.-]*(=.*)?$/s;
+
+const switchName = (a: string): string => {
+  const eq = a.indexOf("=");
+  return eq > 0 ? a.slice(0, eq) : a;
+};
+const switchValue = (a: string): string | null => {
+  const eq = a.indexOf("=");
+  return eq > 0 ? a.slice(eq + 1) : null;
+};
+const listItems = (a: string): string[] => (switchValue(a) ?? "").split(",").filter((x) => x !== "");
+/** Feature lists compare by name (`Name:param/value`, `Name<Trial`); extension paths as written. */
+const itemKey = (sw: string) => (sw === "--load-extension" ? (x: string) => x : (x: string) => x.split(/[:<]/)[0] ?? x);
+
+/** Refuse what would break tabcap itself (docs/04 §42); everything else is passed on. */
+export function checkCustomArgs(c: CustomArgs, proxy: ProxyMode): void {
+  const hint = "Custom args come from --chrome-arg / --drop-chrome-arg and config.json chrome.args / chrome.dropArgs.";
+  for (const a of [...c.add, ...c.drop]) {
+    if (!SWITCH.test(a) || a.includes("\0")) {
+      throw new TabcapError("usage", `custom Chrome arg ${JSON.stringify(a)} is not a switch`, `Write it as --name or --name=value; open pages with \`tabcap navigate\` or \`tabcap tab new\`. ${hint}`);
+    }
+  }
+  for (const a of c.add) {
+    const n = switchName(a);
+    if (RESERVED_ADD.has(n)) throw new TabcapError("usage", `${n} is set by tabcap itself and cannot be a custom Chrome arg`, `tabcap manages the profile and the CDP pipe. ${hint}`);
+    if (PROXY_SWITCHES.has(n) && proxy.kind !== "system") {
+      throw new TabcapError("usage", `custom Chrome arg ${n} conflicts with --proxy ${proxyLabel(proxy)}`, `Use one of them: --proxy <mode>, or the proxy switch with --proxy system. ${hint}`);
+    }
+  }
+  for (const a of c.drop) {
+    const n = switchName(a);
+    if (RESERVED_DROP.has(n)) throw new TabcapError("usage", `${n} cannot be dropped: tabcap needs it to reach the browser`, hint);
+  }
+}
+
+/**
+ * Pure: tabcap's command line with the custom args applied (docs/04 §42).
+ * Drops first, then adds; Chrome keeps only the last of a repeated switch, so
+ * list switches are merged into tabcap's one and other switches replace
+ * tabcap's of the same name. `unmatched`: drops that removed nothing.
+ */
+export function applyCustomArgs(base: readonly string[], c: CustomArgs): { args: string[]; unmatched: string[] } {
+  let out = base.filter((a) => a.startsWith("--"));
+  const positional = base.filter((a) => !a.startsWith("--"));
+  const rewrite = (sw: string, keep: (item: string) => boolean): void => {
+    out = out.flatMap((a) => {
+      if (switchName(a) !== sw) return [a];
+      const kept = listItems(a).filter(keep);
+      return kept.length === 0 ? [] : [`${sw}=${kept.join(",")}`];
+    });
+  };
+  const unmatched: string[] = [];
+  for (const d of c.drop) {
+    const before = out.join("\n");
+    const n = switchName(d);
+    const v = switchValue(d);
+    if (v === null) out = out.filter((a) => switchName(a) !== n);
+    else if (LIST_SWITCHES.has(n)) {
+      const key = itemKey(n);
+      const gone = new Set(v.split(",").filter((x) => x !== "").map(key));
+      rewrite(n, (x) => !gone.has(key(x)));
+    } else out = out.filter((a) => a !== d);
+    if (out.join("\n") === before) unmatched.push(d);
+  }
+  for (const a of c.add) {
+    const n = switchName(a);
+    const opposite = LIST_SWITCHES.get(n);
+    if (opposite === undefined || switchValue(a) === null) {
+      out = [...out.filter((x) => switchName(x) !== n), a];
+      continue;
+    }
+    const key = itemKey(n);
+    const mine = listItems(a);
+    const names = new Set(mine.map(key));
+    if (opposite !== "") rewrite(opposite, (x) => !names.has(key(x)));
+    const at = out.findIndex((x) => switchName(x) === n);
+    const merged = [...(at < 0 ? [] : listItems(out[at] ?? "").filter((x) => !names.has(key(x)))), ...mine];
+    if (merged.length === 0) continue;
+    if (at < 0) out.push(`${n}=${merged.join(",")}`);
+    else out[at] = `${n}=${merged.join(",")}`;
+  }
+  return { args: [...out, ...positional], unmatched };
+}
+
+/** `hidden` when the final command line still disables AutomationControlled (docs/04 §42). */
+export function webdriverOf(args: readonly string[]): WebdriverMode {
+  const on = args.some((a) => switchName(a) === "--disable-blink-features" && listItems(a).some((x) => itemKey("--disable-blink-features")(x) === "AutomationControlled"));
+  return on ? "hidden" : "visible";
+}
+
+/** `proxyLabel`, or `chrome-arg` when a custom switch sets the proxy under `--proxy system`. */
+export function effectiveProxyLabel(p: ProxyMode, args: readonly string[]): string {
+  return p.kind === "system" && args.some((a) => PROXY_SWITCHES.has(switchName(a))) ? "chrome-arg" : proxyLabel(p);
+}
+
 export type ArgsOptions = {
   profileDir: string;
   platform: NodeJS.Platform;
@@ -110,10 +225,17 @@ export type ArgsOptions = {
   webdriver: WebdriverMode;
   extensionDir: string | null;
   noStartupWindow: boolean;
+  /** 0.8.1-A: applied last (docs/04 §42); none when absent. */
+  custom?: CustomArgs;
 };
 
 /** Pure: the full command line (without the executable). */
 export function buildArgs(o: ArgsOptions): string[] {
+  return buildArgsReport(o).args;
+}
+
+/** `buildArgs` plus the custom drops that matched nothing. */
+export function buildArgsReport(o: ArgsOptions): { args: string[]; unmatched: string[] } {
   const args = [`--user-data-dir=${o.profileDir}`];
   args.push(o.cdp === "pipe" ? "--remote-debugging-pipe" : "--remote-debugging-port=0");
   if (o.webdriver === "hidden") args.push(HIDE_WEBDRIVER_FLAG);
@@ -126,7 +248,7 @@ export function buildArgs(o: ArgsOptions): string[] {
   if (o.extensionDir !== null) args.push(`--load-extension=${o.extensionDir}`);
   if (o.noStartupWindow) args.push("--no-startup-window");
   else args.push("about:blank");
-  return args;
+  return applyCustomArgs(args, o.custom ?? NO_CUSTOM_ARGS);
 }
 
 // ------------------------------------------------------------ executable
@@ -201,6 +323,8 @@ export type Launched = {
   wire: Wire;
   cdp: "pipe" | "port";
   args: string[];
+  /** Custom drops that matched nothing (docs/04 §42). */
+  unmatchedDrops: string[];
 };
 
 export type LaunchOptions = Omit<ArgsOptions, "cdp"> & {
@@ -217,7 +341,7 @@ function openLog(file: string): number {
 }
 
 async function launchPipe(o: LaunchOptions): Promise<Launched | null> {
-  const args = buildArgs({ ...o, cdp: "pipe" });
+  const { args, unmatched: unmatchedDrops } = buildArgsReport({ ...o, cdp: "pipe" });
   const fd = openLog(o.logFile);
   const proc = spawn(o.executable, args, { stdio: ["ignore", "ignore", fd, "pipe", "pipe"] });
   closeSync(fd);
@@ -228,7 +352,7 @@ async function launchPipe(o: LaunchOptions): Promise<Launched | null> {
     return null;
   }
   const wire = pipeWire(toChrome, fromChrome);
-  if (await o.probe(wire)) return { proc, pid: proc.pid, wire, cdp: "pipe", args };
+  if (await o.probe(wire)) return { proc, pid: proc.pid, wire, cdp: "pipe", args, unmatchedDrops };
   log.warn("pipe probe failed; falling back to --remote-debugging-port=0");
   wire.close();
   await killAndWait(proc, 5000);
@@ -236,7 +360,7 @@ async function launchPipe(o: LaunchOptions): Promise<Launched | null> {
 }
 
 async function launchPort(o: LaunchOptions): Promise<Launched> {
-  const args = buildArgs({ ...o, cdp: "port" });
+  const { args, unmatched: unmatchedDrops } = buildArgsReport({ ...o, cdp: "port" });
   const portFile = join(o.profileDir, "DevToolsActivePort");
   rmSync(portFile, { force: true });
   const fd = openLog(o.logFile);
@@ -249,7 +373,7 @@ async function launchPort(o: LaunchOptions): Promise<Launched> {
       const [port, path] = readFileSync(portFile, "utf8").trim().split("\n");
       if (port !== undefined && path !== undefined && /^\d+$/.test(port) && path.startsWith("/devtools/browser/")) {
         const wire = await wsWire(`ws://127.0.0.1:${port}${path}`);
-        return { proc, pid: proc.pid, wire, cdp: "port", args };
+        return { proc, pid: proc.pid, wire, cdp: "port", args, unmatchedDrops };
       }
     }
     await Bun.sleep(50);

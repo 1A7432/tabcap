@@ -96,13 +96,13 @@ Example: `tabcap daemon status`
 
 ### `tabcap browser start`
 
-launch the dedicated Chrome for Testing (own profile, CDP over a pipe)
+launch the dedicated Chrome for Testing (own profile, CDP over a pipe); the answer gives the full command line (args) and the custom args in it (extraArgs, dropArgs)
 
 ```
-tabcap browser start [--proxy mode] [--webdriver mode] [--foreground] [--executable-path path]
+tabcap browser start [--proxy mode] [--webdriver mode] [--foreground] [--executable-path path] [--chrome-arg switch]... [--drop-chrome-arg switch]...
 ```
 
-Example: `tabcap browser start --proxy none`
+Example: `tabcap browser start --proxy none --chrome-arg=--lang=en-US`
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -110,6 +110,8 @@ Example: `tabcap browser start --proxy none`
 | `--webdriver <mode>` |  | hidden (default: navigator.webdriver reads false, a launch switch, no page script) \| visible (Chrome's own value); default from config.json webdriver |
 | `--foreground` |  | open new tabs as the active tab of the window (still never steals the macOS foreground) |
 | `--executable-path <path>` |  | Chrome for Testing binary (else $TABCAP_CHROME, config.json, cache) |
+| `--chrome-arg <switch>` |  | add a Chrome switch (--name or --name=value; write --chrome-arg=--name=value or --chrome-arg --name=value), after config.json chrome.args: list switches (--enable-features, --disable-features, the blink pair, --load-extension) merge into tabcap's own, others replace tabcap's switch of the same name; refused: --user-data-dir, --remote-debugging-pipe, proxy switches unless --proxy system (repeatable) |
+| `--drop-chrome-arg <switch>` |  | remove one of tabcap's default switches (--name removes it, --disable-features=A,B removes those items), after config.json chrome.dropArgs; drops that match nothing are listed in dropArgsUnmatched; --user-data-dir and --remote-debugging-pipe / -port cannot be dropped (repeatable) |
 
 ### `tabcap browser stop`
 

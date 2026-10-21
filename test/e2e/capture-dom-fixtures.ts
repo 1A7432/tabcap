@@ -21,7 +21,7 @@ const overlay = builtinAdapters().find((a) => a.name === "overlay");
 if (overlay === undefined || overlay.script === null) throw new Error("overlay adapter missing");
 const site = startOverlaySite();
 const home = mkdtempSync(join(tmpdir(), "tabcap-dom-"));
-const t = await DirectTransport.start({ executable: exe, profileDir: join(home, "profile"), logFile: join(home, "chrome.log"), proxy: { kind: "none" }, webdriver: "hidden", extensionDir: null, noStartupWindow: true, restoreFront: true });
+const t = await DirectTransport.start({ executable: exe, profileDir: join(home, "profile"), logFile: join(home, "chrome.log"), proxy: { kind: "none" }, webdriver: "hidden", custom: { add: [], drop: [] }, extensionDir: null, noStartupWindow: true, restoreFront: true });
 try {
   const r = await t.send("Target.createTarget", { url: "about:blank", background: true });
   const targetId = String(r["targetId"]);

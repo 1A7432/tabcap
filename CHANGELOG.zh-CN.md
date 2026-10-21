@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### 自定义 Chrome 启动参数
+
+- `tabcap browser start --chrome-arg <开关>`（可重复）给 tabcap 启动的 Chrome for Testing 加开关，`--drop-chrome-arg <开关>` 删掉 tabcap 的默认开关；`config.json` 的 `chrome.args` / `chrome.dropArgs`（字符串数组）作默认值，命令行的排在后面，`tabcap setup` 保留这两个键。Chrome 对重复的开关只认最后一个，所以逗号列表开关（`--enable-features`、`--disable-features`、`--enable-blink-features`、`--disable-blink-features`、`--load-extension`）并进 tabcap 自己的那一条而不是顶掉它（`--enable-features=X` 同时把 X 从 tabcap 的 `--disable-features` 里拿掉）；其他开关与 tabcap 同名时替换 tabcap 的。`--drop-chrome-arg --name` 删整个开关，`--drop-chrome-arg --disable-features=A,B` 只删这几项。只拒绝会让 tabcap 失灵的：`--user-data-dir`、`--remote-debugging-pipe`（以及删 `--remote-debugging-port`）、`--proxy` 不是 `system` 时的代理开关、不是 `--开关` 形式的项。`browser start` / `browser status` 回答完整命令行 `args` 和 `extraArgs`、`dropArgs`、`dropArgsUnmatched`；`webdriver` 改由最后的命令行推出；`tabcap status` 带 `extraArgs` / `dropArgs`（`--text` 写 `chrome args +N -M`）；证据包 manifest 记 `producer.browser.args` / `extraArgs` / `dropArgs`，profile 与扩展路径换成占位符。作者 10-21 定。
+
 ## 0.8.0（2026-10-20）
 
 ### 防护家族识别

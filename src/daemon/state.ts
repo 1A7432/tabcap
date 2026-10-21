@@ -33,6 +33,11 @@ export type BrowserInfo = {
   proxy: string;
   /** 0.7.6-A: whether navigator.webdriver is hidden (docs/04 §40). */
   webdriver: "hidden" | "visible";
+  /** 0.8.1-A: the browser's command line (no executable) and the custom args in it (docs/04 §42). */
+  args: string[];
+  extraArgs: string[];
+  dropArgs: string[];
+  dropArgsUnmatched: string[];
   foreground: boolean;
   front: unknown;
   startedAt: number;

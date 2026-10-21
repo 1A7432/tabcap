@@ -2,7 +2,7 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { readConfig, readHandoffConfig } from "../../shared/config.ts";
+import { readChromeArgsConfig, readConfig, readHandoffConfig } from "../../shared/config.ts";
 import { TakeoverWatch, onHumanInput } from "../browser/takeover.ts";
 import { envVar } from "../../shared/env.ts";
 import { log } from "../../shared/log.ts";
@@ -10,9 +10,9 @@ import { Tabs } from "../browser/targets.ts";
 import { ConsoleLog } from "../capture/console.ts";
 import type { Daemon } from "../state.ts";
 import { DirectTransport } from "../transport/direct/index.ts";
-import { parseProxy, parseWebdriver, proxyLabel, resolveExecutable } from "../transport/direct/launcher.ts";
+import { checkCustomArgs, effectiveProxyLabel, parseProxy, parseWebdriver, resolveExecutable, webdriverOf, type CustomArgs } from "../transport/direct/launcher.ts";
 import { logOffset, logSince, nestedSandboxError, sandboxFailed } from "../transport/direct/sandbox-check.ts";
-import { optBool, optStr, type Args } from "./args.ts";
+import { optBool, optStr, optStrList, type Args } from "./args.ts";
 
 /** The UI extension directory, when this build has one (docs/07 §1); absent in the MVP. */
 function extensionDir(): string | null {
@@ -21,8 +21,19 @@ function extensionDir(): string | null {
   return existsSync(join(dir, "manifest.json")) ? dir : null;
 }
 
+/** 0.8.1-A: config.json `chrome.args` / `chrome.dropArgs`, then `--chrome-arg` / `--drop-chrome-arg` (docs/04 §42). */
+function customArgsOf(a: Args, configFile: string): CustomArgs {
+  const cfg = readChromeArgsConfig(configFile);
+  return { add: [...cfg.add, ...optStrList(a, "chromeArg")], drop: [...cfg.drop, ...optStrList(a, "dropChromeArg")] };
+}
+
 export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
-  if (d.browser !== null) return { ...d.browser.info, alreadyRunning: true };
+  if (d.browser !== null) {
+    const info = d.browser.info;
+    const want = customArgsOf(a, d.paths.configFile);
+    const same = JSON.stringify(want) === JSON.stringify({ add: info.extraArgs, drop: info.dropArgs });
+    return { ...info, alreadyRunning: true, ...(same ? {} : { note: "the running browser has other custom Chrome args; run `tabcap browser stop`, then `tabcap browser start` for these to apply" }) };
+  }
   const cfg = readConfig(d.paths.configFile);
   // 0.7.1-A: a bad `handoff` value fails here, before anything starts (docs/04 §37).
   const handoff = readHandoffConfig(d.paths.configFile);
@@ -34,6 +45,8 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
   });
   const proxy = parseProxy(optStr(a, "proxy") ?? cfg.proxy);
   const webdriver = parseWebdriver(optStr(a, "webdriver") ?? cfg.webdriver);
+  const custom = customArgsOf(a, d.paths.configFile);
+  checkCustomArgs(custom, proxy);
   const foreground = optBool(a, "foreground");
   const profile = join(d.paths.profiles, "default");
   const cdpEnv = envVar("CDP");
@@ -49,6 +62,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     logFile: d.paths.browserLog,
     proxy,
     webdriver,
+    custom,
     extensionDir: extensionDir(),
     // Measured 10-15: with --no-startup-window Chrome never took the macOS
     // foreground, even when the first createTarget opened a window.
@@ -85,8 +99,13 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
       executable: exe.path,
       executableSource: exe.source,
       profile,
-      proxy: proxyLabel(proxy),
-      webdriver,
+      proxy: effectiveProxyLabel(proxy, t.args),
+      // A custom arg can turn the switch on or off (docs/04 §42).
+      webdriver: webdriverOf(t.args),
+      args: t.args,
+      extraArgs: custom.add,
+      dropArgs: custom.drop,
+      dropArgsUnmatched: t.unmatchedDrops,
       foreground,
       front: t.front,
       startedAt: Date.now(),

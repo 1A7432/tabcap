@@ -20,6 +20,15 @@ export function reqStr(a: Args, name: string, usage: string): string {
   return v;
 }
 
+/** A repeatable string flag: absent → [], else one string or a list of strings. */
+export function optStrList(a: Args, name: string): string[] {
+  const v = a[name];
+  if (v === undefined || v === null) return [];
+  if (typeof v === "string") return [v];
+  if (!Array.isArray(v) || !v.every((x): x is string => typeof x === "string")) throw bad(name, "a string or a list of strings");
+  return v;
+}
+
 export function optBool(a: Args, name: string): boolean {
   const v = a[name];
   if (v === undefined || v === null) return false;
