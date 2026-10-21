@@ -202,7 +202,7 @@ Playwright `connectOverCDP`、puppeteer `connect`、agent-browser `--cdp` 也是
 
 编译版 tabcap 用 `with { type: "file" }` 嵌入四个目标的二进制（`src/wire/embedded.ts`，约 2.8 MB），按本机选一个，首次用时解到 `<cache>/native/wireprint-<sha256>/wireprint[.exe]`（目录 0700、文件 0755，先写临时名再 rename）；每次 spawn 前核对文件 sha256，不符就重解。源码运行用 `native/dist/<目标>/`，没有就用 Zig 现编（`bun scripts/native.ts build --host`）。一律 argv 调用，不经 shell；退出码 1 → `bad-input`，3 只在 `check` 时接受，其它非零 → `internal`。
 
-从源码编出 tabcap 二进制因此要 Zig 0.16.0（与 Bun 1.4.3 以上并列为前置条件，`package.json` `engines` 与 `.bun-version`）：先 `bun scripts/native.ts build` 编出四个目标的 `native/dist/<目标>/wireprint[.exe]`，再 `bun run build`。`bun run build*` 第一步跑 `scripts/prebuild.ts`，四个文件缺任何一个就退出 1，只打一句「the wire component is not built: install Zig 0.16.0 and run `bun scripts/native.ts build` first (release and npm packages include it)」加一行缺了哪些，不再落到 bun 的 `Could not resolve "../../native/dist/…"`（0.7-G）。只用发布包或 npm 包的人不需要 Zig，组件已经嵌在二进制里。
+从源码编出 tabcap 二进制因此要 Zig 0.16.0（与 Bun 1.4.3 以上并列为前置条件，`package.json` `engines` 与 `.bun-version`）：先 `bun scripts/native.ts build` 编出四个目标的 `native/dist/<目标>/wireprint[.exe]`，再 `bun run build`。`bun run build*` 第一步跑 `scripts/prebuild.ts`，四个文件缺任何一个就退出 1，只打一句「the wire component is not built: install Zig 0.16.0 and run `bun scripts/native.ts build` first (release and npm packages include it)」加一行缺了哪些，不再落到 bun 的 `Could not resolve "../../native/dist/…"`（0.7-G）。只用发布包或 npm 包的人不需要 Zig，组件已经嵌在二进制里。`scripts/native.ts`（`build` / `test` / `fmt`）调 zig 之前先比 `zig version` 与 `native/wireprint/build.zig.zon` 的 `minimum_zig_version`：major.minor 不同就退出 1，只打一句「zig on PATH is 0.17.0, native/wireprint needs Zig 0.16.x …」加下一步（装 Zig 0.16.0 放在 PATH 最前，或从别的已编好的检出复制 `native/dist/`），不再等到编译失败（2026-10-21）。
 
 **浏览器基准（`tabcap wire profile`）**
 
