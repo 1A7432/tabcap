@@ -162,7 +162,9 @@ def _compare(expect: dict[str, Any], resp: httpx.Response, method: str) -> tuple
 
 
 _PLUGIN_ENV = ("PATH", "HOME", "LANG", "SYSTEMROOT", "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "XDG_CACHE_HOME", "XDG_DATA_HOME")
-_WITHHELD = {"cookie", "set-cookie", "authorization", "proxy-authorization"}
+# Written by tabcap at export: the header names the daemon withholds from decode plugins (the credential
+# headers and every sensitive header name in the recording; tabcap's one sensitive-header test).
+_WITHHELD = {"cookie", "set-cookie", "authorization", "proxy-authorization", "x-api-key"}
 
 
 def _plugin_headers(headers: httpx.Headers) -> dict[str, Any]:
