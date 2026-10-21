@@ -14,7 +14,7 @@ import type { Transport } from "../transport/types.ts";
 import type { Tab } from "../browser/targets.ts";
 import { optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
-import { resolveRef, type RefNode } from "./snapshot.ts";
+import { resolveRef, type RefNode } from "../browser/doc.ts";
 import { chainTo, placeChain, rawFrames } from "../browser/frames.ts";
 
 export const MAX_OUTPUT_CHARS = 60_000;

@@ -12,7 +12,7 @@ import { inWorld, rootDoc } from "../browser/worlds.ts";
 import type { Daemon } from "../state.ts";
 import { optBool, optNum, optStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
-import { callResult, docIdentity, resolveRef, settle } from "./snapshot.ts";
+import { callResult, docIdentity, resolveRef, settle } from "../browser/doc.ts";
 
 export const HTML_MAX_CHARS = 4000;
 const MAX_ATTRS = 200;

@@ -11,7 +11,7 @@ import { cutText, headerLines, LABEL } from "../adapters/view.ts";
 import { optNum, optStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
 import { refreshTabInfo } from "./session.ts";
-import { docIdentity, settle } from "./snapshot.ts";
+import { docIdentity, settle } from "../browser/doc.ts";
 import { frameHeaderLines, frameList, frameTree } from "../browser/frames.ts";
 import { rootDoc } from "../browser/worlds.ts";
 import { adviseChallenge } from "./challenge.ts";

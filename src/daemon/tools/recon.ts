@@ -25,7 +25,7 @@ import type { Daemon } from "../state.ts";
 import type { Args } from "./args.ts";
 import { redactHeaderValue, redactUrl, revealOf, type LiveCtx } from "./liveredact.ts";
 import { timeoutOf } from "./navigate.ts";
-import { callResult, docIdentity } from "./snapshot.ts";
+import { callResult, docIdentity } from "../browser/doc.ts";
 
 /** Visible text read from the page (characters). */
 const MAX_PAGE_TEXT = 1_000_000;
