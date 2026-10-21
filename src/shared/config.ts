@@ -225,8 +225,6 @@ export function readRecordBodies(file: string): BodiesMode {
  */
 export type SiteGuardConfig = { stopOn: string[]; consecutiveNon200: number | null; endOn: string[] };
 
-export const SITE_GUARD_DEFAULTS: SiteGuardConfig = { stopOn: [], consecutiveNon200: null, endOn: [] };
-
 /** Parse one `sites.<site>.guard` object; a wrong value is an error (never silently replaced). */
 export function parseSiteGuard(raw: unknown, site: string): SiteGuardConfig {
   const where = `sites.${site}.guard`;

@@ -246,8 +246,3 @@ export class DirectTransport implements Transport {
     this.cdp.close();
   }
 }
-
-/** Untrusted CDP result helper: `targetId` from Target.createTarget. */
-export function targetIdOf(r: CdpResult): string | null {
-  return isRecord(r) ? str(r, "targetId") : null;
-}

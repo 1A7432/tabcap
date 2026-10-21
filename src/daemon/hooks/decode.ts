@@ -64,7 +64,6 @@ const MAX_ARGV = 32;
 const MAX_ARG_CHARS = 4096;
 const MAX_VERSION_CHARS = 64;
 const MAX_TEXT = 500;
-const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const HOST_GLOB = /^[a-z0-9.*_:[\]-]+$/;
 const MEDIA = /^(\*\/\*|[a-z0-9!#$&^_.+-]+\/(\*|[a-z0-9!#$&^_.+-]+))$/;
 const MANIFEST_KEYS = new Set(["name", "kind", "version", "description", "match", "command", "timeoutMs", "maxBytes"]);
@@ -655,6 +654,3 @@ export async function decodedField(
   if (put.outcome !== "stored") return { ...base, mime: out.mime, blob: null, bytes: put.size, ok: false, error: `decoded view of ${put.size} bytes is over the blob cap ${put.cap}` };
   return { ...base, mime: out.mime, blob: put.ref, bytes: put.size, ok: true, ...(out.note === undefined ? {} : { note: out.note }) };
 }
-
-/** A plugin manifest name is valid (same rule as challenge handlers). */
-export const isPluginName = (s: string): boolean => NAME.test(s);

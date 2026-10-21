@@ -359,20 +359,6 @@ export type KnownEvent =
 
 export type KnownKind = KnownEvent["kind"];
 
-export const P1_KINDS = [
-  "session",
-  "tab",
-  "nav",
-  "request",
-  "ws",
-  "cmd",
-  "action",
-  "screenshot",
-  "state",
-  "finding",
-  "note",
-] as const;
-
 // ---------------------------------------------------------------- §7 manifest
 
 export type BodyMissingCounts = { [reason: string]: number };

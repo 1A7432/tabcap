@@ -69,7 +69,7 @@ function headerValue(h: Headers, name: string): string | null {
 /** The bodies of one request the plugins may take, as the recorder offers them.
  * 0.6-V: a CORS preflight offers nothing (`preflight`: once per request), a
  * 0-byte side is left out (`empty`: once per side). */
-export function jobsOf(r: RequestEvent, store: BlobStore): { jobs: DecodeJob[]; skipped: { preflight: number; empty: number } } {
+function jobsOf(r: RequestEvent, store: BlobStore): { jobs: DecodeJob[]; skipped: { preflight: number; empty: number } } {
   const jobs: DecodeJob[] = [];
   const skipped = { preflight: 0, empty: 0 };
   if (isPreflightOf(r.method, r.initiator?.type, r.request.headers)) {
