@@ -2,7 +2,7 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { readChromeArgsConfig, readConfig, readHandoffConfig } from "../../shared/config.ts";
+import { readChromeArgsConfig, readConfig, readHandoffConfig, readProtectionConfig } from "../../shared/config.ts";
 import { TakeoverWatch, onHumanInput } from "../browser/takeover.ts";
 import { envVar } from "../../shared/env.ts";
 import { log } from "../../shared/log.ts";
@@ -82,6 +82,8 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
   const cfg = readConfig(d.paths.configFile);
   // 0.7.1-A: a bad `handoff` value fails here, before anything starts (docs/04 §37).
   const handoff = readHandoffConfig(d.paths.configFile);
+  // Review 10-21: so does a bad `protection.live` (docs/04 §41.3).
+  const protection = readProtectionConfig(d.paths.configFile);
   const exe = resolveExecutable({
     flag: optStr(a, "executablePath"),
     env: envVar("CHROME") ?? null,
@@ -154,6 +156,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
       dropArgs: custom.drop,
       dropArgsUnmatched: t.unmatchedDrops,
       warnings: isolationWarnings(t.args, custom),
+      protectionLive: protection.live,
       foreground,
       front: t.front,
       startedAt: Date.now(),

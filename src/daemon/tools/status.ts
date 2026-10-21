@@ -20,7 +20,8 @@ export type StatusDaemon = { running: true; pid: number; version: string; listen
 
 /**
  * `webdriver`: 0.7.6-A (docs/04 §40); `extraArgs` / `dropArgs`: 0.8.1-A (§42); `warnings`: switches that
- * weaken the browser's isolation (review 10-21, §42); null while no browser runs.
+ * weaken the browser's isolation, `protectionLive`: config.json protection.live (review 10-21, §42, §41.3);
+ * null while no browser runs.
  */
 export type StatusBrowser = {
   running: boolean;
@@ -31,6 +32,7 @@ export type StatusBrowser = {
   extraArgs: string[] | null;
   dropArgs: string[] | null;
   warnings: string[] | null;
+  protectionLive: boolean | null;
 };
 
 export type StatusRecording = { bundle: string; since: number; entries: number; decodePlugins: string[] };
@@ -279,7 +281,7 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
     daemon,
     browser:
       b === null
-        ? { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null, warnings: null }
+        ? { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null, warnings: null, protectionLive: null }
         : {
             running: true,
             pid: b.info.pid,
@@ -289,6 +291,7 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
             extraArgs: b.info.extraArgs,
             dropArgs: b.info.dropArgs,
             warnings: b.info.warnings,
+            protectionLive: b.info.protectionLive,
           },
     sessions,
     plugins: enabledPlugins(d.paths.config),
@@ -311,7 +314,7 @@ export function offlineStatus(configDir: string, listener: string): StatusAnswer
   const facts: StatusFacts = {
     schema: STATUS_SCHEMA,
     daemon: { running: false, listener },
-    browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null, warnings: null },
+    browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null, warnings: null, protectionLive: null },
     sessions: [],
     plugins: enabledPlugins(configDir),
     handoff: [],
