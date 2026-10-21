@@ -2,9 +2,10 @@
 // (default@2, src/bundle/redact.ts) applied to what the daemon prints, not to
 // what it records. The bundle stays the evidence (request events unchanged);
 // HAR export redacts as before. Shown as `<redacted:<name>>`:
-//   headers  the value of a header whose name matches the sensitive header set
-//            or the name rule (authorization, x-api-key, access-token, *auth*,
-//            *session*, *sid* …); cookie / set-cookie keep the cookie names and
+//   headers  the value of a header that bundle/redact.ts isSensitiveHeaderName
+//            calls sensitive (the header set, the name rule and x-csrf* / x-xsrf*:
+//            authorization, x-api-key, access-token, *auth*, *session*, *sid* …,
+//            the same test as export and session export); cookie / set-cookie keep the cookie names and
 //            attributes, every cookie value is redacted (state rule: all values)
 //   URLs     query parameters with a sensitive name (the rest of the URL as is)
 //   bodies   form fields and JSON keys (any depth) with a sensitive name, in a
@@ -14,10 +15,10 @@
 // scrubber writes; `--reveal` (the human asked) skips this redaction, never
 // that substitution.
 // Oracle: test/unit/liveredact.test.ts (the rule table of docs/04 §8) and
-// test/e2e/v06e.e2e.test.ts (docs/05 s07: sid cookie and Authorization are
-// redacted, x-csrf is not).
+// test/e2e/v06e.e2e.test.ts (docs/05 s07: sid cookie, Authorization and,
+// since the one header test of 2026-10-21, x-csrf are redacted).
 
-import { isSensitiveHeader, isSensitiveName } from "../../bundle/redact.ts";
+import { isSensitiveHeaderName, isSensitiveName } from "../../bundle/redact.ts";
 import { isRecord } from "../../shared/json.ts";
 import { optBool, type Args } from "./args.ts";
 
@@ -31,10 +32,6 @@ export type LiveCtx = { scrub: (s: string) => string };
 
 /** `--reveal` on a command: print real values (the human asked for them). */
 export const revealOf = (a: Args): boolean => optBool(a, "reveal");
-
-export function isSensitiveHeaderName(name: string): boolean {
-  return isSensitiveHeader(name) || isSensitiveName(name);
-}
 
 function mask(name: string, value: string, c: LiveCtx): string {
   if (value === "" || value.startsWith("<redacted:")) return value;

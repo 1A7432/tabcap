@@ -15,8 +15,9 @@
 //   - headers: from the most recent recorded request (open or last finished
 //     recording of this session, any tab) to the export origin's host that
 //     carries a selected header (else the most recent one, which then gives
-//     none): every header that is sensitive (the `bundle redact` header rule,
-//     x-csrf* / x-xsrf*, *-token, *-auth*, api-key) or that the page set
+//     none): every header that is sensitive (bundle/redact.ts
+//     isSensitiveHeaderName, the one test shared with export and live
+//     redaction; it includes x-csrf* / x-xsrf*) or that the page set
 //     itself, i.e. not a header the browser adds (BROWSER_HEADERS); cookie
 //     goes in `cookies`, proxy-* (the pool proxy's credentials) and
 //     pseudo-headers never. 0.6-P: without --origin, when that yields no
@@ -37,7 +38,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { EVENTS_FILE, writeFileAtomic } from "../../bundle/manifest.ts";
-import { isSensitiveHeader } from "../../bundle/redact.ts";
+import { isSensitiveHeaderName } from "../../bundle/redact.ts";
 import type { Headers } from "../../bundle/types.ts";
 import { BROWSER_HEADERS, BROWSER_PREFIXES, headerJoined } from "../../replay/common.ts";
 import { pyStr } from "../../replay/python.ts";
@@ -63,8 +64,6 @@ const LIVE_NOTE = "live session credentials: keep this file out of the repositor
 
 // ------------------------------------------------------------ headers
 
-const SENSITIVE_EXTRA = /^(x-csrf|x-xsrf)|-token$|-auth|(^|-)api-key$/;
-
 export type HeaderClass = "cookie" | "proxy" | "browser" | "sensitive" | "page";
 
 /** Why a recorded request header is (sensitive, page) or is not (cookie, proxy, browser) exported. */
@@ -74,7 +73,8 @@ export function headerClass(raw: string): HeaderClass {
   // The pool proxy's credentials (0.4-D) are the daemon's, not the page's.
   if (n.startsWith("proxy-")) return "proxy";
   if (BROWSER_PREFIXES.some((p) => n.startsWith(p))) return "browser";
-  if (isSensitiveHeader(n) || SENSITIVE_EXTRA.test(n)) return "sensitive";
+  // the one sensitive-header test shared with export and live redaction (docs/04 §8)
+  if (isSensitiveHeaderName(n)) return "sensitive";
   if (BROWSER_HEADERS.has(n)) return "browser";
   return "page";
 }

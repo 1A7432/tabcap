@@ -28,8 +28,9 @@
 //   ← {"id":1,"declined":true}     (not mine: no view, not a failure)
 // `request.id` is null while recording (the event gets its id when it is
 // written, after the decode) and r-N in `tabcap bundle decode`. Headers are
-// the recorded ones minus cookie / set-cookie / authorization /
-// proxy-authorization, known secrets replaced.
+// the recorded ones minus every sensitive header (bundle/redact.ts
+// isSensitiveHeaderName: cookie, authorization, x-api-key, x-csrf, *token*,
+// *auth* …; docs/04 §8), known secrets replaced.
 // One long-lived process per plugin per daemon (per `bundle decode` run),
 // calls one at a time, a hard timeout per call, a cap on the answer line.
 // A timeout, crash, unparsable or oversized answer, or one that breaks the
@@ -44,6 +45,7 @@
 
 import { lstatSync } from "node:fs";
 import { isAbsolute, resolve, sep } from "node:path";
+import { isSensitiveHeaderName } from "../../bundle/redact.ts";
 import type { Headers } from "../../bundle/types.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
@@ -68,8 +70,6 @@ const HOST_GLOB = /^[a-z0-9.*_:[\]-]+$/;
 const MEDIA = /^(\*\/\*|[a-z0-9!#$&^_.+-]+\/(\*|[a-z0-9!#$&^_.+-]+))$/;
 const MANIFEST_KEYS = new Set(["name", "kind", "version", "description", "match", "command", "timeoutMs", "maxBytes"]);
 const MATCH_KEYS = new Set(["host", "path", "contentTypes", "direction"]);
-/** Never sent to a plugin: credentials of the session itself. */
-const WITHHELD_HEADERS = new Set(["cookie", "set-cookie", "authorization", "proxy-authorization"]);
 
 export type DecodeDirection = "request" | "response";
 export type DecodeMatch = { host: string[]; path: string[]; contentTypes: string[]; direction: DecodeDirection | "both" };
@@ -490,10 +490,11 @@ export class DecodeHost {
   }
 }
 
-function selectedHeaders(h: Headers, scrub: (s: string) => string): Record<string, string | string[]> {
+/** The headers sent to a plugin: never a sensitive one (the session's credentials; docs/04 §8 header test). */
+export function selectedHeaders(h: Headers, scrub: (s: string) => string): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};
   for (const [k, v] of Object.entries(h)) {
-    if (WITHHELD_HEADERS.has(k.toLowerCase())) continue;
+    if (isSensitiveHeaderName(k)) continue;
     out[k] = Array.isArray(v) ? v.map(scrub) : scrub(v);
   }
   return out;

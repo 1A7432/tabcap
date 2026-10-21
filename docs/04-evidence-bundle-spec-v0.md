@@ -249,7 +249,7 @@
 
 - 触发：`tabcap bundle export har` 默认开，`--no-redact` 关；`tabcap bundle redact <in> <out>` 生成脱敏副本。原包永不原地改。
 - 规则来源：`redaction.json`（可改），默认规则 `default@3`（10-21 作者定；`default@2` 只处理 request / ws / state / action / note / finding 几种事件与事件顶层的 `url` / `from` / `title`，guard、handoff、protection、cmd、console 事件与 manifest 的启动参数原样出包）：
-  - 请求/响应头：`cookie`、`set-cookie`、`authorization`、`proxy-authorization`、`x-api-key`，以及名字含 `token` / `secret` / `session` / `auth` 的头。
+  - 请求/响应头（**敏感头判定**，`default@3` 起全仓只有这一份：导出、§8.3 实时输出与离线分析、§8.2 会话导出挑头、§28 不交给解码插件的头都用它；10-21 作者定，取原来三套判定的并集）：`cookie`、`set-cookie`、`authorization`、`proxy-authorization`、`x-api-key`；名字含 `token` / `secret` / `session` / `auth` 的；名字命中下一条名字规则的（`apikey`、`x-sid`、`x-password`、`x-user-pwd`…）；以 `x-csrf` / `x-xsrf` 开头的（以前只有会话导出算）。`default@2` 的导出只认前两类，实时输出认前三类。
   - query、表单、JSON 字段：名字含 `(token|secret|passw|session|sid|auth|api[-_]?key)`，或有一段正好是 `pass` / `pwd`（按非字母数字、驼峰、字母数字交界切段：`user_pass`、`userPass`、`login-pwd`、`Pwd2` 算，`bypass`、`passport`、`compass`、`passenger` 不算；`pass` / `pwd` 为 `default@2`，0.4 作者定。`ticket` 曾在 0.7-E 加入一天，作者 10-17 定去掉：CAS 回跳 URL 里的票据对回放是录制时的常量，而这张名单同时决定 export-python 把哪些输入当 secret）。
   - 值模式：18 位身份证、11 位手机号、邮箱、JWT（`xxx.yyy.zzz` 且 base64url）。
   - `state` 事件（cookies / storage）整体打码。
@@ -282,7 +282,7 @@
 - **写到哪**：`--out` 给的路径（CLI 按自己的工作目录解析）；`--for httpx` 没写 `.py` 时补上。文件 0600，新建的目录 0700（已有目录不改权限）；路径是目录则拒绝。不写进证据包，不进仓库（使用者自己负责）。
 - **装什么**：
   - cookies：`Network.getCookies` 的 URL 是导出源的根 URL、标签页面的根 URL 与当前 URL（0.6-P 起总带上，`--origin` 的源与页面的并列）、读 storage 的那个 frame 的 URL、头取自的那个源的根 URL；会话有自己的浏览器上下文（池账号，0.4-D）时再并上 `Storage.getCookies {browserContextId}`，名字 + 域 + 路径相同的后者覆盖。字段同 Playwright storageState 的 cookie。
-  - 头：本会话正在录或最近录完的包里（不论哪个标签），**发往导出源 host（含端口）的最近一条带选中头的请求**（都不带就取最近一条、头为空）；0.6-P：没给 `--origin` 且这样选出的头里没有像认证的头（下句的敏感头类）时，改取「最近一条带敏感头的请求里敏感头最多」的那个录到的 host（并列取更晚的），输出 `source.headers.auto: true` 并在 `note` 里说明；给了 `--origin` 不做这个回退。选中 = 敏感头（§8 的头规则，另加 `x-csrf*`、`x-xsrf*`、`*-token`、`*-auth*`、`api-key`）或页面自己设的头（不在浏览器默认头表里：Fetch 规范的禁止请求头、`sec-*`、客户端提示、缓存与条件请求头、`content-type` / `content-length` 等）。`cookie` 单独走 cookies；`proxy-*`（池代理凭据）和伪头永不导出。没有录制：`headers:{}`、`source.headers:"none"`，提示先 `net start`。
+  - 头：本会话正在录或最近录完的包里（不论哪个标签），**发往导出源 host（含端口）的最近一条带选中头的请求**（都不带就取最近一条、头为空）；0.6-P：没给 `--origin` 且这样选出的头里没有像认证的头（下句的敏感头类）时，改取「最近一条带敏感头的请求里敏感头最多」的那个录到的 host（并列取更晚的），输出 `source.headers.auto: true` 并在 `note` 里说明；给了 `--origin` 不做这个回退。选中 = 敏感头（§8 的敏感头判定；原来这里另加的 `x-csrf*`、`x-xsrf*`、`*-token`、`*-auth*`、`api-key` 10-21 起并进了那一份判定）或页面自己设的头（不在浏览器默认头表里：Fetch 规范的禁止请求头、`sec-*`、客户端提示、缓存与条件请求头、`content-type` / `content-length` 等）。`cookie` 单独走 cookies；`proxy-*`（池代理凭据）和伪头永不导出。没有录制：`headers:{}`、`source.headers:"none"`，提示先 `net start`。
   - storage：在导出源那个 frame 的 tabcap 隔离世界里读 localStorage / sessionStorage（与页面共享存储，不碰页面 JS）；UTF-8 超过 64 KB 的值跳过并在输出里列键名和大小。标签上没有导出源的 frame 时（API 源），读页面的 storage 并在 `note` 里说明（0.6-P 起不再 `not-found`）；读的是哪个源记在 `storageOrigin` / `source.storage`。
 - **格式**：`requests` = JSON，schema `tabcap-session-export/0`：`{schema, origin, capturedAt (ms), cookies:[{name, value, domain, path, expires, httpOnly, secure, sameSite}], headers:{名:值}, headersFrom:{request, origin, auto}, storage:{localStorage:{}, sessionStorage:{}}, storageOrigin, note}`（`headersFrom`、`storageOrigin` 为 0.6-P 新增）；`httpx` = 可直接 import 的 Python 模块（`cookies` 名→值、`COOKIE_RECORDS` 带域和路径、`headers`、`storage`、`HEADERS_FROM` / `HEADERS_ORIGIN` / `STORAGE_ORIGIN`、`client(base_url)` 返回 `httpx.Client(cookies=…, headers=…)`，运行时只依赖 httpx）；`playwright` = `replay session` 的 storageState，不加字段（localStorage 记在实际读到它的源下），放不下的头和 sessionStorage 在输出 `omitted` 里报名字与数目。`replay export-python` 生成的包里附 `_tabcap_session.py`（读 `requests` 格式、建 httpx 客户端，不依赖 tabcap）。
 - **输出**：`{file, for, origin, mode:"0600", cookies:n, headers:[名字], storage:{localStorage:n, sessionStorage:n}, source:{headers:{request:"r-N"|null, origin:<源>|null, auto:bool}, storage:<源>|null}, skipped?, omitted?, note}`（0.6-P 起 `source.headers` 是对象，原来的 `"none"` 成了 `request:null`），只有路径、计数和头名，不出任何值；守护进程的已知秘密替换照常作用于输出。录制中照常写 `cmd` 事件（`outputSummary` 是计数），包里不写别的。
@@ -290,15 +290,15 @@
 
 ### 8.3 实时输出脱敏（0.6-E，10-16 作者定；细节按实现定案，作者 2026-10-21 批量签收）
 
-真实项目试用里 `net show` 明文打出 `access-token`、`Authorization: Bearer …` 和会话 cookie，`net list` 打出 URL 里的 token；只有 HAR 导出打了码。现在守护进程的实时输出也按 §8 的名字规则（`default@2`，0.7-E 起 `default@2`）显示成 `<redacted:<名字>>`：
+真实项目试用里 `net show` 明文打出 `access-token`、`Authorization: Bearer …` 和会话 cookie，`net list` 打出 URL 里的 token；只有 HAR 导出打了码。现在守护进程的实时输出也按 §8 的规则（敏感头判定与名字规则，与导出同一份）显示成 `<redacted:<名字>>`：
 
 - **范围**：`net show`（URL、请求 / 响应头、postData 的内联文本与 blob 的 `head`；超过 2 KB 的内联正文落成 `exports/post/<id>.redacted.txt`；`bytes` 仍是录到的字节数，0.7-C 前叫 `size`）、`net list`（每行的 `url`，`--kind ws` 的帧 URL）、`net body`（答案里的 `url`；它不输出头）、`fetch` 与 `POST /fetch`（信封里选出的响应头；`location` 按 URL 规则）、`recon`（答案与 `exports/dossier.json` / `.md` 里的页面 URL、guard 检测的 URL）、`trace list`（每行的脚本 URL；行里不带参数值）。
-- **规则**：名字属于敏感头集合或命中名字规则的头，整值换成 `<redacted:头名小写>`；`cookie` / `set-cookie` 保留 cookie 名和属性，每个值都换（§8 的 state 规则：全部值）；`location` / `referer` / `content-location` 头与各处 URL 只换名字敏感的 query 参数，其余逐字不变（fragment 不动）；请求体：JSON（对象 / 数组）里任意深度名字敏感的键（有改动才紧凑重排，否则原文），表单体逐字段。值规则（邮箱、手机号等）不用在实时输出上。
+- **规则**：§8 敏感头判定为敏感的头，整值换成 `<redacted:头名小写>`；`cookie` / `set-cookie` 保留 cookie 名和属性，每个值都换（§8 的 state 规则：全部值）；`location` / `referer` / `content-location` 头与各处 URL 只换名字敏感的 query 参数，其余逐字不变（fragment 不动）；请求体：JSON（对象 / 数组）里任意深度名字敏感的键（有改动才紧凑重排，否则原文），表单体逐字段。值规则（邮箱、手机号等）不用在实时输出上。
 - **库里的秘密**：整值是库里已知秘密的，仍显示 `<secret:<站点>.<字段>>`（§8.1 的替换照常作用于所有输出，`--reveal` 也不例外）。
 - **`--reveal`**：上述命令都收（`POST /fetch` 收 `reveal: true`），打印录到的原值；只在人要求时用。
-- **离线分析的输出（0.7.3）**：`analyze diff`（JSON 与 `--text`）、`analyze deps`、`analyze chain`、`analyze recon` 也按同一套名字规则脱敏——cookie 值、`authorization` / `set-cookie` / 名字敏感的请求头、名字命中 `(token|secret|passw|session|sid|auth|api[-_]?key)` 或 `pass` / `pwd` 一字的 query / JSON / form 值显示成 `<redacted:<sha256 前 8 位>>`；同一个值在整份回答里是同一个占位符，所以 `diff` 的对照仍成立。分类 / 依赖计算仍读原值，只换输出层；`--reveal`（这几个子命令）打印原值。`analyze shape` 本来只出类型、格式与非敏感字段的枚举字面量，没有值可换。
+- **离线分析的输出（0.7.3）**：`analyze diff`（JSON 与 `--text`）、`analyze deps`、`analyze chain`、`analyze recon` 也按同一套规则脱敏——cookie 值、§8 敏感头判定为敏感的请求头、§8 名字规则命中的 query / JSON / form 值显示成 `<redacted:<sha256 前 8 位>>`；同一个值在整份回答里是同一个占位符，所以 `diff` 的对照仍成立。分类 / 依赖计算仍读原值，只换输出层；`--reveal`（这几个子命令）打印原值。`analyze shape` 本来只出类型、格式与非敏感字段的枚举字面量，没有值可换。
 - **不变**：证据包照原样记录（请求事件不改，它就是证据），HAR 导出照旧打码；`analyze` 系列命令的内部计算读原包，只有上面列出的输出层被换。
-- 验证：`test/unit/liveredact.test.ts`（规则表）、`test/e2e/v06e.e2e.test.ts`（`05` s07 token 变体：`x-csrf` 原样，`sid` cookie、`Authorization`、URL 的 `token` 参数打码，`--reveal` 还原，包里是原值）。
+- 验证：`test/unit/liveredact.test.ts`（规则表）、`test/unit/sensitive-headers.test.ts`（一张头名表对照导出、实时、离线分析、会话导出、解码插件五条路径的结论）、`test/e2e/v06e.e2e.test.ts`（`05` s07 token 变体：`sid` cookie、`Authorization`、`x-csrf`（10-21 起，敏感头判定合一）、URL 的 `token` 参数打码，`--reveal` 还原，包里是原值）。
 
 ## 9. 与 HAR 互转
 
@@ -554,7 +554,7 @@
 ```
 
 - `request.id`：录制时为 `null`（事件写入时才分配 `r-N`，解码在写入之前），`bundle decode` 时为 `r-N`。
-- `headers`：录到的头，去掉 `cookie`、`set-cookie`、`authorization`、`proxy-authorization`，值过已知秘密值替换。正文原样（base64）。
+- `headers`：录到的头，去掉 §8 敏感头判定为敏感的头（`cookie`、`set-cookie`、`authorization`、`proxy-authorization`、`x-api-key`、`x-csrf`、名字含 `token` / `auth` / `sid` 的…；10-21 前只去掉前四个），值过已知秘密值替换。正文原样（base64）。
 - 回答 `body.encoding` 为 `utf8` 或 `base64`；`mime` 可选（不是可打印 ASCII 或超过 200 字符记 null）；`error` / `note` 截 500 字符并过秘密值替换后才写进包。
 - **进程模型**：每个守护进程每个插件一个长驻进程（`bundle decode`、`replay check` 每次运行一个），首次用到时启动。超时、退出、非 JSON 行、超长行（`maxBytes` 的 4/3 加 64 KB）、id 对不上或缺 `ok` / `body` 都算一次**失败**，并杀掉进程，下次调用重新启动；`ok:false` 与 `declined` 是正常回答，不算失败。同一录制里累计 3 次失败，该插件在这次录制余下的时间里停用，录制器写一条 `note`：`{kind:"note", text:"decode plugin <name> disabled for this session: 3 failures, last: …", refs:[], plugin:"<name>"}`。插件的 stderr 读出后丢弃（可能打印密钥），不进日志、不进包。守护进程退出时杀掉所有插件进程。
 - **放弃（declined，0.6-T）**：`decode()` 返回 `None` / `null` 表示「这不是我的正文」，在线路上是 `{"id":N,"declined":true}`（不带 `ok`；带 `ok:false` 的是真失败，进 `decoded` 视图并带 `error`）。放弃不写视图、不写 `decoded` 字段、不计入失败次数（不会触发停用）。Python 模板 runner 把 `plugin.decode()` 返回 `None`（且没有按 mitmproxy 方式给 `flow.response.content` 赋值）译成 `declined`；对「是我的但解坏了」的正文，插件抛异常，runner 回 `ok:false` 加错误文字。录制时与 `bundle decode` 同一规则。
