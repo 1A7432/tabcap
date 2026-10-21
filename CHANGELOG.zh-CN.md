@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### 审查后续第三波（CLI 分发、带类型的事件写入、严格 config）
+
+- **只有一个命令解析器。** 所有命令（含 `bundle *`、`analyze *`、`replay *`）都经命令注册表解析，从同一张 handler 表（`src/cli/handlers.ts`）执行，`--text` 渲染也在表里。帮助文本不变。可见差异均来自注册表规则：布尔旗标拒绝 `=value`（以前 `--no-redact=1` 会静默照常脱敏）、`--` 结束选项、位置参数个数错报 `missing <x>` / `unexpected argument`、usage 错误的 `next` 只给本命令用法、只敲 `tabcap analyze` / `tabcap replay` 是未知命令（退出 2，与其他组一致）、`replay session -o=file` 被接受。`src/` 最后一个 import 环已拆，单测守住无环。`replay check --rate` 的帮助如实写下限。
+- **带类型的事件写入。** `src/bundle/types.ts` 是镜像 docs/04 §3–§5 的写入侧契约（`EventFields[K]`），录制器的 `event<K>(kind, fields)` 是泛型，读取侧共用类型清单；字段漂移会让 `tsc` 失败。docs/04 §3 / §4 改为描述守护进程实际写出的字段（handoff、guard、protection、tab、nav、ws、action、finding）。页面请求的 `cmd` 是请求**开始**时打开的命令窗口（§3 原文的语义；以前是写入时的窗口，正文晚到会记到下一个命令）。其余写出字节不变（61 事件金样本）。
+- **严格 config。** `config.json` 不是合法 JSON（或不是对象）时，每条读它的路径都回 `bad-input` 并给出行列，不再静默回落默认值；`tabcap setup` 拒绝覆写这样的文件。未知键（拼错或放错层级）进 `warnings` 并带 did-you-mean，出现在 `browser start` / `browser status`、`tabcap status`（`config.warnings`）和 `setup` 的回答里。一张键表（46 个键、16 层）驱动解析并生成 `skills/tabcap/references/config.md`（`bun run gen:docs` 做漂移检查；docs/04 §44）。`tabcap status` 的 `browser.extraArgs` / `dropArgs` 去掉 URL 凭据。
+
 ### 审查后续第二波（结构、store、HAR、测试助手）
 
 - **站点归属只有一条规则**（`src/shared/sites.ts`）：去前导点、认子域、IP 只认相等；`fetch`、站点 guard、cookie 回写、`replay check --live` 都跟它（`--live` 以前只认精确主机）；`site add --domains` 入库前规整，不是主机名的值拒绝。
