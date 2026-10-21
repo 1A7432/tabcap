@@ -117,8 +117,12 @@ describe.skipIf(!enabled)("tabcap 0.8-A L2 (protection families on s67–s70)", 
     await ok("navigate", site.at("tm.range.test", "/s69"), ...S);
     const end = Date.now() + 5000;
     while (s((await ok("evaluate", "window.__s69 || ''", ...S))["value"]) !== "done" && Date.now() < end) await Bun.sleep(100);
-    // Linux CI (Xvfb, no GPU) may have no WebGL context: the page says whether it had one (oracle).
+    // The page says whether it got a WebGL context (oracle); only then does it call getParameter, what
+    // fp-webgl looks for. macOS and Windows have one (PR #25: required there, green), so it is required;
+    // Linux CI (Xvfb, no GPU) has none (NOTES 0.4-G CI run: "no webgl context"), so there it is reported, not checked.
     const webgl = (await ok("evaluate", "window.__s69webgl === true", ...S))["value"] === true;
+    if (process.platform !== "linux") expect(webgl).toBe(true);
+    else if (!webgl) console.warn("[v08a] s69: no WebGL context on this Linux host (no GPU); fp-webgl is not checked here");
     await ok("trace", "stop", ...S);
     await ok("net", "stop", ...S);
     await ok("analyze", "recon", bundle);
