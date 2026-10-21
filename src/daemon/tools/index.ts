@@ -23,11 +23,13 @@ import { recon } from "./recon.ts";
 import { traceList, traceStart, traceStatus, traceStop } from "./trace.ts";
 import { fingerprintProbe } from "./fingerprint.ts";
 import { wireProbe, wireProfile } from "./wire.ts";
+import type { ToolAction } from "./registry.ts";
 
 /** `ctx.cmd`: the command window (`c-<seq>`) the daemon opened for this call, when recording. */
 export type Tool = (d: Daemon, a: Args, session: string, ctx?: ToolCtx) => Promise<unknown> | unknown;
 
-export const TOOLS: Record<string, Tool> = {
+/** Keyed by tools/registry.ts TOOL_ACTIONS: a tool without its metadata row (or a row without a tool) does not compile. */
+const TABLE: Record<ToolAction, Tool> = {
   "browser.start": (d, a) => browserStart(d, a),
   "browser.stop": (d) => browserStop(d),
   "browser.status": (d) => browserStatus(d),
@@ -83,3 +85,5 @@ export const TOOLS: Record<string, Tool> = {
   "wire.profile": wireProfile,
   "wire.probe": wireProbe,
 };
+
+export const TOOLS: Readonly<Record<string, Tool>> = TABLE;

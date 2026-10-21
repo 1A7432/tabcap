@@ -18,6 +18,7 @@ import { HostLimiter } from "./fetch/limiter.ts";
 import { DecodeHost } from "./hooks/decode.ts";
 import { siteRulesFor } from "./siterules.ts";
 import { handoffBaseline } from "./tools/handoffwait.ts";
+import { actionsWhere } from "./tools/registry.ts";
 import { BlobStore } from "../bundle/blobs.ts";
 import { readFileSync } from "node:fs";
 
@@ -50,10 +51,9 @@ export type BrowserInfo = {
 /**
  * docs/04 §16: `net wait` looks back to the start of the most recent of these;
  * read-only commands (wait, snapshot, find, screenshot, console, net list, tabs …) do not count.
- * Daemon action names: `press` is the CLI's press-key, `navigate` also `tab new`;
- * hover and upload (0.3-F) act on the page like click.
+ * The `cmdWindow` rows of tools/registry.ts.
  */
-export const ACTION_COMMANDS: ReadonlySet<string> = new Set(["navigate", "click", "fill", "type", "press", "go", "reload", "evaluate", "hover", "upload"]);
+export const ACTION_COMMANDS: ReadonlySet<string> = actionsWhere("cmdWindow");
 
 export type LastAction = { action: string; at: number; cmd: string | null };
 
