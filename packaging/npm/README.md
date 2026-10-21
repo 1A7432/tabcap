@@ -13,7 +13,7 @@
 
 ## scope
 
-- 默认 `NPM_SCOPE = null`：平台包叫 `tabcap-<平台>`。2026-10-16 查过 `tabcap` 在 registry 上是 404（空着）；四个 `tabcap-<平台>` 名字没查过【待验】，npm 也可能因为「和已有包名太像」拒绝新名字【待验】。
+- 默认 `NPM_SCOPE = null`：平台包叫 `tabcap-<平台>`。2026-10-16 查过 `tabcap` 在 registry 上是 404（空着）；四个 `tabcap-<平台>` 名字当时没查过；v0.7.1 的发布 job 把 `tabcap` 与四个平台包全部发布成功，没有名字被拒【实测 2026-10-18，见 §3】。
 - 你确认自己拥有 npm 上的 `@tabcap` scope（组织或用户名）时，把 `scripts/npm-pack.ts` 里那一行改成 `NPM_SCOPE: string | null = "tabcap"`，重新 `bun run npm:pack`：平台包变成 `@tabcap/<平台>`，主包依赖与 shim 跟着变，别的不用改。tarball 文件名不变（npm 把 `@tabcap/darwin-arm64` 打成 `tabcap-darwin-arm64-<版本>.tgz`）。
 - 两种名字都用 `--access public` 发布（scope 包默认私有，必须带；不带 scope 的带上也无害）。
 
@@ -36,7 +36,7 @@ bun run npm:pack --version 0.8.1        # 只做断言：package.json 与每个�
 
 ## 2. 本地验证（发布前，不连 registry）
 
-平台包还没发布，`npm install -g ./dist/npm/tabcap-0.8.1.tgz` 会去 registry 找它们。验证改用一个临时项目，把平台包和主包的 tgz 一起当本地文件装，`--offline` 保证不联网（另外三个平台包是可选依赖，取不到就跳过）：
+本版本的平台包在发布前还不在 registry 上，`npm install -g ./dist/npm/tabcap-0.8.1.tgz` 会去 registry 找它们。验证改用一个临时项目，把平台包和主包的 tgz 一起当本地文件装，`--offline` 保证不联网（另外三个平台包是可选依赖，取不到就跳过）：
 
 ```sh
 bun run npm:pack
