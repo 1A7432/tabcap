@@ -105,6 +105,7 @@ exports[`tools/list --all-tools: generated from the command table tool names (sn
   "tabcap_bundle_import_har",
   "tabcap_bundle_redact",
   "tabcap_bundle_info",
+  "tabcap_bundle_list",
   "tabcap_bundle_decode",
   "tabcap_bundle_export_fixtures",
   "tabcap_analyze_find",

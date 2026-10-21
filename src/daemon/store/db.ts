@@ -512,6 +512,9 @@ export class Store {
   }
 
   // ---- bundle index -----------------------------------------------------
+  // `net start` notes a recording, its finish is noted when it ends; `tabcap bundle list` /
+  // `bundle prune` read it (src/cli/bundles.ts). Recordings have no total size limit (docs/04 §2).
+
 
   noteBundle(b: { path: string; site: string | null; sessionName: string | null }, now = Date.now()): void {
     this.db
@@ -521,6 +524,11 @@ export class Store {
 
   finishBundle(path: string, now = Date.now()): void {
     this.db.query("UPDATE bundles SET finished = ?2 WHERE path = ?1").run(path, now);
+  }
+
+  /** `bundle prune`: drop one index row (its directory was deleted, or is gone). */
+  forgetBundle(path: string): void {
+    this.db.query("DELETE FROM bundles WHERE path = ?1").run(path);
   }
 
   bundles(site?: string): BundleRow[] {

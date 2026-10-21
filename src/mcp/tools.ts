@@ -1,8 +1,8 @@
 // MCP tools generated from the CLI command table (src/cli/commands.ts), the
 // same source as `--help` and `tabcap schema --json`. Two sets (owner,
 // 2026-10-16: a host loads every tool definition into the model's context,
-// and one tool per command was ~58 KB of definitions then; 95 tools, ~84 KB
-// at 0.8.1):
+// and one tool per command was ~58 KB of definitions then; 96 tools, ~84 KB
+// after the review of 10-21):
 //   - core (default): the commands of the everyday loop (CORE below) with a
 //     one-line description and bare property schemas, tabcap_handoff_wait,
 //     and two generic tools: tabcap_run {argv} runs any other command,
@@ -40,6 +40,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   "wire serve": "a foreground server until Ctrl-C that prints to stdout",
   "replay serve": "a foreground server until Ctrl-C that prints to stdout",
   "handoff wait": "use tabcap_handoff_wait",
+  "bundle prune": "for the human: it deletes recordings, the evidence, from disk",
 };
 
 /**

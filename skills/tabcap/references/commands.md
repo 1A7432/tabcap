@@ -146,7 +146,7 @@ Example: `tabcap mcp --print-config claude-code`
 | Option | Default | Meaning |
 |---|---|---|
 | `--print-config <host>` |  | print where and how to register tabcap mcp in one host instead of serving: claude-code \| cursor \| codex \| gemini-cli \| windsurf \| claude-desktop |
-| `--all-tools` |  | one tool per command with its full help (about 95 tools, ~84 KB of definitions in the model's context) instead of the core set |
+| `--all-tools` |  | one tool per command with its full help (about 96 tools, ~84 KB of definitions in the model's context) instead of the core set |
 
 ## Sites, sessions and tabs
 
@@ -987,6 +987,40 @@ Example: `tabcap bundle info ./b --usage --text --business-code '$.code=0'`
 | `--business-code <$.path=ok>` |  | with --usage: JSON bodies whose <$.path> is not this value count as business errors (e.g. $.code=0) (repeatable) |
 | `--actor <page\|fetch\|evaluate\|other>` |  | with --usage: only the rows of one actor: page (the page's own requests), fetch (sent by tabcap fetch), evaluate (during tabcap evaluate), other |
 | `--all-hosts` |  | with --usage: also list loopback hosts (127.0.0.1, localhost, ::1), left out by default with a one-line skipped summary |
+
+### `tabcap bundle list`
+
+the recordings in the store's bundle index (each `net start`), newest first: id, dir, site, session, startedAt, finishedAt, bytes on disk, state (recording | finished | unfinished | missing). Recordings have no total size limit; `bundle prune` removes old ones
+
+```
+tabcap bundle list [--site name] [--limit n] [--text]
+```
+
+Example: `tabcap bundle list --site example --limit 10 --text`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--site <name>` |  | only the recordings of this store site |
+| `--limit <n>` | `50` | at most this many, newest first (max 1000) |
+| `--text` |  | one line per recording (start, state, size, site, session, directory) instead of JSON |
+
+### `tabcap bundle prune`
+
+delete old recordings found through the store's bundle index: --keep N or --older-than <duration>, a dry run that lists them unless --yes; a recording the daemon still has open is never deleted, nor anything that is not a bundle directory; index rows whose directory is gone are forgotten. For the human (not an MCP tool)
+
+```
+tabcap bundle prune [--keep n] [--older-than duration] [--site name] [--dry-run] [--yes]
+```
+
+Example: `tabcap bundle prune --older-than 30d --yes`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--keep <n>` |  | keep the N newest recordings, delete the older ones |
+| `--older-than <duration>` |  | delete the recordings started longer ago than this: a whole number with s, m, h, d or w (30d, 12h) |
+| `--site <name>` |  | only the recordings of this store site |
+| `--dry-run` |  | only list what would be deleted (also the default without --yes) |
+| `--yes` |  | delete for real: the directories and their index rows |
 
 ### `tabcap bundle decode`
 

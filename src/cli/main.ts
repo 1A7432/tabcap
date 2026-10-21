@@ -20,6 +20,7 @@ import { binaryVersion, downloadCft } from "../daemon/transport/direct/cft.ts";
 import { hostPlatform, type CftPlatform } from "../daemon/transport/direct/launcher.ts";
 import { daemonStatus, send, startDaemon, status as daemonPing, stopDaemon } from "./client.ts";
 import { runAnalyze } from "./analyze.ts";
+import { listBundles, openRecordings, pruneBundles, renderBundleListText } from "./bundles.ts";
 import { renderWhereText, whereResultOf } from "../analyze/where.ts";
 import { runReplay } from "./replay.ts";
 import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts";
@@ -686,6 +687,9 @@ async function runBundle(argv: readonly string[]): Promise<{ code: number; envel
       const text = ["Evidence bundle tools:", ...USAGE.map((u) => `  ${u}`)].join("\n");
       return { code: 0, envelope: ok({ help: text }), text };
     }
+    // Review 10-21: the store's bundle index (list / prune) is parsed by the command table like the daemon commands.
+    const indexCmd = matchCommand(argv.filter((a) => !a.startsWith("-")));
+    if (indexCmd !== null && (indexCmd.path.join(" ") === "bundle list" || indexCmd.path.join(" ") === "bundle prune")) return await runBundleIndex(indexCmd, argv);
     const p = parseArgs(argv);
     const [group, sub, third] = p.positional;
     const rest = (n: number): Parsed => ({ positional: p.positional.slice(n), flags: p.flags, repeated: p.repeated });
@@ -707,6 +711,20 @@ async function runBundle(argv: readonly string[]): Promise<{ code: number; envel
     const env = toFail(e);
     return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
   }
+}
+
+/** `tabcap bundle list` / `tabcap bundle prune` (src/cli/bundles.ts): the store's bundle index, no daemon needed. */
+async function runBundleIndex(c: CommandSpec, argv: readonly string[]): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {
+  const rest = [...argv];
+  for (const w of c.path) rest.splice(rest.indexOf(w), 1);
+  const parsed = parseCommand(c, rest);
+  const p = paths();
+  const open = await openRecordings(p);
+  if (c.path[1] === "list") {
+    const l = listBundles(p, parsed.args, open);
+    return parsed.args["text"] === true ? { code: 0, envelope: ok(l), text: renderBundleListText(l) } : { code: 0, envelope: ok(l) };
+  }
+  return { code: 0, envelope: ok(pruneBundles(p, parsed.args, open, nowMs())) };
 }
 
 if (import.meta.main) {

@@ -33,6 +33,7 @@
 - 包完整的判定：`manifest.json` 有 `finished`。没有就是录制中或异常中断，分析命令照样读，但在输出里标明（警告 `bundle is not finished: …`，文本报告里 `(unfinished)`）。
 - `blobs/` 写法：先写临时文件，`fsync`，再 `rename` 到哈希名；同内容只存一份。
 - `raw/` 默认开（lab 阶段要靠它查录制器漏没漏），以后再议默认关。（已定 a）
+- **磁盘占用与清理（10-21 审查后作者定）**：单个正文有上限（32 MiB，`src/bundle/blobs.ts`），单个包和整个 `bundles/` 目录**没有总量上限**，录制也从不自动删除，靠 `bundle prune` 清理。两条命令都读本地库的 `bundles` 索引（§8.1：`net start` 记一行，录制结束时记 `finished`），不需要守护进程：`tabcap bundle list [--site s] [--limit N] [--text]` 从新到旧列出 `id`（manifest 的）、`dir`、`site`、`session`、`startedAt`、`finishedAt`、`bytes`（磁盘上的字节数，符号链接不跟）与 `state`（`recording` 守护进程还开着 / `finished` / `unfinished` 中断了 / `missing` 目录已不在），`--limit` 默认 50、`total` 是索引里的总数，`--text` 一行一条；`tabcap bundle prune (--keep N | --older-than <时长>) [--site s] [--dry-run] [--yes]`（时长是整数加 `s` / `m` / `h` / `d` / `w`，如 `30d`）按同一索引选最旧的录制：`--keep N` 留最新的 N 个，`--older-than` 删开始时间早于此的；**不给 `--yes` 只列出不删**（`dryRun:true`，`next` 说怎么真删），给了才删目录并删其索引行。从不删：守护进程还开着的录制（`net stop` 之后才行）；守护进程在跑却不应答时没收尾的（可能还在写）；不是包目录的（符号链接、没有 `manifest.json`；删前再查一次），这些列在 `skipped` 并写明原因。目录已不在的索引行一并忘掉（`forgotten`），不计入 `--keep`。回答：`{dryRun, rule, site, selected, bytes, deleted, kept, forgotten, skipped, next?}`。`bundle prune` 只给人，不是 MCP 工具，`tabcap_run` 也拒绝（`07` §7）。不在索引里的目录（`bundle import har -o` / `bundle redact` / `bundle export fixtures` 的产物、库建立前的录制）两条命令都看不到。
 
 ### 2.1 CLI 回答：信封与公共字段名（0.7-C，10-17 主循环定需求；表与改名按实现定案，作者 2026-10-21 批量签收）
 
