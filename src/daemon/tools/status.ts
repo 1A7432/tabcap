@@ -18,7 +18,10 @@ export const STATUS_SCHEMA = "tabcap-status/0";
 
 export type StatusDaemon = { running: true; pid: number; version: string; listener: string; socket: string | null; port?: number; startedAt: number } | { running: false; listener: string };
 
-/** `webdriver`: 0.7.6-A (docs/04 §40); `extraArgs` / `dropArgs`: 0.8.1-A (§42); null while no browser runs. */
+/**
+ * `webdriver`: 0.7.6-A (docs/04 §40); `extraArgs` / `dropArgs`: 0.8.1-A (§42); `warnings`: switches that
+ * weaken the browser's isolation (review 10-21, §42); null while no browser runs.
+ */
 export type StatusBrowser = {
   running: boolean;
   pid: number | null;
@@ -27,6 +30,7 @@ export type StatusBrowser = {
   webdriver: "hidden" | "visible" | null;
   extraArgs: string[] | null;
   dropArgs: string[] | null;
+  warnings: string[] | null;
 };
 
 export type StatusRecording = { bundle: string; since: number; entries: number; decodePlugins: string[] };
@@ -275,8 +279,17 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
     daemon,
     browser:
       b === null
-        ? { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null }
-        : { running: true, pid: b.info.pid, mode: b.t.kind, tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length, webdriver: b.info.webdriver, extraArgs: b.info.extraArgs, dropArgs: b.info.dropArgs },
+        ? { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null, warnings: null }
+        : {
+            running: true,
+            pid: b.info.pid,
+            mode: b.t.kind,
+            tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length,
+            webdriver: b.info.webdriver,
+            extraArgs: b.info.extraArgs,
+            dropArgs: b.info.dropArgs,
+            warnings: b.info.warnings,
+          },
     sessions,
     plugins: enabledPlugins(d.paths.config),
     handoff: d.guard
@@ -298,7 +311,7 @@ export function offlineStatus(configDir: string, listener: string): StatusAnswer
   const facts: StatusFacts = {
     schema: STATUS_SCHEMA,
     daemon: { running: false, listener },
-    browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null },
+    browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null, warnings: null },
     sessions: [],
     plugins: enabledPlugins(configDir),
     handoff: [],

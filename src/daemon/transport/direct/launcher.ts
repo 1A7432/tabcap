@@ -228,6 +228,31 @@ export function webdriverOf(args: readonly string[]): WebdriverMode {
   return on ? "hidden" : "visible";
 }
 
+/**
+ * Review 10-21 (owner decision): switches that weaken the browser's isolation. They are passed on
+ * (docs/04 §42 refuses only what breaks tabcap) and named in the answers' `warnings`.
+ */
+const WEAKENING: ReadonlyArray<readonly [string, string]> = [
+  ["--no-sandbox", "Chrome's sandbox is off: code that takes over a renderer runs with your user's rights"],
+  ["--disable-web-security", "the same-origin policy and CORS checks are off: any page can read other sites' responses, logged-in ones included"],
+  ["--remote-allow-origins", "web pages from these origins may open the DevTools WebSocket (with a debugging port open) and drive the browser"],
+  ["--remote-debugging-port", "a DevTools port on the loopback next to tabcap's own channel: any local process can drive this browser and read its cookies"],
+  ["--allow-running-insecure-content", "HTTPS pages may run scripts loaded over plain HTTP (mixed content), which anyone on the network path can change"],
+  ["--ignore-certificate-errors", "TLS certificate errors are ignored: a man-in-the-middle on any HTTPS connection goes unnoticed"],
+  ["--host-resolver-rules", "host names resolve by these rules instead of DNS: requests may reach other hosts than their URLs name"],
+  ["--proxy-pac-url", "a PAC script picks the proxy for every request: the traffic goes wherever the script says"],
+];
+
+/**
+ * One sentence per weakening switch in the final command line, starting with its name. tabcap's own
+ * `--remote-debugging-port=0` (port mode) is not one: only a port among the custom args counts.
+ */
+export function isolationWarnings(args: readonly string[], custom: CustomArgs): string[] {
+  const names = new Set(args.filter((a) => a.startsWith("--")).map(switchName));
+  const userPort = custom.add.some((a) => switchName(a) === "--remote-debugging-port");
+  return WEAKENING.filter(([n]) => names.has(n) && (n !== "--remote-debugging-port" || userPort)).map(([n, why]) => `${n}: ${why}`);
+}
+
 /** `proxyLabel`, or `chrome-arg` when a custom switch sets the proxy under `--proxy system`. */
 export function effectiveProxyLabel(p: ProxyMode, args: readonly string[]): string {
   return p.kind === "system" && args.some((a) => PROXY_SWITCHES.has(switchName(a))) ? "chrome-arg" : proxyLabel(p);

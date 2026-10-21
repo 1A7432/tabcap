@@ -255,7 +255,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         "start",
       ],
       "positionals": [],
-      "summary": "launch the dedicated Chrome for Testing (own profile, CDP over a pipe); the answer gives the full command line (args) and the custom args in it (extraArgs, dropArgs)",
+      "summary": "launch the dedicated Chrome for Testing (own profile, CDP over a pipe); the answer gives the full command line (args), the custom args in it (extraArgs, dropArgs) and warnings naming switches that weaken the browser's isolation",
       "usage": "tabcap browser start [--proxy mode] [--webdriver mode] [--foreground] [--executable-path path] [--chrome-arg switch]... [--drop-chrome-arg switch]...",
     },
     {

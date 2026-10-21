@@ -17,7 +17,7 @@ function facts(sessions: StatusSession[], o: Partial<StatusFacts> = {}): StatusF
   return {
     schema: STATUS_SCHEMA,
     daemon: { running: true, pid: 42, version: "0", listener: "unix", socket: "/s", startedAt: 1 },
-    browser: { running: true, pid: 7, mode: "direct", tabs: 1, webdriver: "hidden", extraArgs: [], dropArgs: [] },
+    browser: { running: true, pid: 7, mode: "direct", tabs: 1, webdriver: "hidden", extraArgs: [], dropArgs: [], warnings: [] },
     sessions,
     plugins: { decode: [], challenge: [] },
     handoff: [],

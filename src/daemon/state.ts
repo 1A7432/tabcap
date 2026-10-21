@@ -38,6 +38,8 @@ export type BrowserInfo = {
   extraArgs: string[];
   dropArgs: string[];
   dropArgsUnmatched: string[];
+  /** Review 10-21: switches in `args` that weaken the browser's isolation, one sentence each (docs/04 §42); [] when none. */
+  warnings: string[];
   foreground: boolean;
   front: unknown;
   startedAt: number;
