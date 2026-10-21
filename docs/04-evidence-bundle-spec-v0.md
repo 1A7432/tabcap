@@ -65,7 +65,7 @@
 | `ts` | number | 墙钟，epoch 毫秒；来自 CDP `wallTime` 的事件用它换算，其它用守护进程时钟 |
 | `mono` | number \| null | CDP 单调时钟（毫秒）；算时长只用它，不用 `ts` |
 | `kind` | string | 见 §4 |
-| `actor` | `"human"` \| `"ai"` \| `"system"` | 谁引起的。P1 规则：落在某条 AI 命令的执行窗口内 → `ai`，否则 `human`；守护进程自己的动作 → `system`。更精确的识别是 P2（`03` §10 第 2 条）【推断，待验】 |
+| `actor` | `"human"` \| `"ai"` \| `"system"` | 谁引起的。默认 `ai`；会话等人、且之后看到了人的输入（「人在操作」，§16、§37）期间录制器写的事件为 `human`，人的输入本身（`action {op:"input"}`）也是 `human`；守护进程自己的动作（cookie 快照、`guard`、`handoff`、`protection` 等）→ `system`。（P1 原规则「命令窗口内 `ai`、否则 `human`」已由 §16 作废，10-21 写入侧类型对齐时补改本行。） |
 | `tab` | string \| null | 包内标签 id，`t1`、`t2`…，按挂接顺序分配；与 Chrome 的 tabId 的对应关系在 `tab` 事件和 manifest 里 |
 | `cmd` | string \| null | 引起本事件的 AI 命令 id（`c-<seq>`），没有则 null |
 
@@ -77,16 +77,16 @@
 
 **`session`**：`{phase:"start"|"stop", name, mode:{capture:"passive"|"active"|"mixed", trace:false, raw:true}}`。`stop` 时把还没完成的请求按 §5.4 收尾。`stop` 的 `mode.trace` 等于 manifest 的 `mode.trace`（0.4-F：`false` 或追踪设置对象，见 §7）。
 
-**`tab`**：`{phase:"open"|"attach"|"detach"|"close"|"replace", tab, chromeTabId, owned:bool, url, title, reason}`。
+**`tab`**：`{phase:"open"|"attach"|"detach"|"close"|"replace", tab, chromeTabId, targetId, owned:bool, url, title, reason}`（`targetId` 是标签的 CDP 目标 id；标签关闭写 `{phase:"close", reason:"closed", url}`）。
 `reason` 取值：`"ai-opened"`、`"borrowed"`、`"user-cancelled-debugging"`、`"closed"`、`"crashed"`、`"popup"`。
 子目标（跨源 iframe、Service Worker、worker）也用 `tab` 事件记：`{phase:"attach", tab:"t1", target:{id:"g3", type:"iframe"|"service_worker"|"worker", url, sessionId}}`，`tab` 仍是宿主标签。【实测 10-15 spike 1：`direct` 模式下 OOPIF 与 Service Worker 自动挂接成功，各自的 `Network.requestWillBeSent` 落在子会话上；弹窗见 NOTES；`ext` 模式的 `chrome.debugger` 支持阶段 2 再验】
 
 **`nav`**：`{tab, frame:"root"|<frameId>, nav:"n-<seq>", url, from, type:"navigation"|"history"|"reload"|"back_forward", loaderId, loadEvent:{domContentLoaded:mono, load:mono}|null}`。
-`nav` 字段是**导航纪元**：之后该标签的请求都带同一个 `nav`，直到下一次 `nav` 事件。`history` 覆盖 `pushState` / `replaceState` / hash 变化，靠 `Page.navigatedWithinDocument`。
+录制开始时标签已在某页，补写的那条带 `initial:true`（§14）。`nav` 字段是**导航纪元**：之后该标签的请求都带同一个 `nav`，直到下一次 `nav` 事件。`history` 覆盖 `pushState` / `replaceState` / hash 变化，靠 `Page.navigatedWithinDocument`。
 
 **`request`**：一次 HTTP 交换一条，**在 `loadingFinished` / `loadingFailed` 时写**，字段见 §5。
 
-**`ws`**：`{tab, ws:"r-<握手请求 seq>", phase:"frame"|"close"|"error", direction:"send"|"recv", opcode:1|2, payload:{inline:string}|{blob:"sha256:…", size}, reason}`。握手本身是一条 `type:"websocket"` 的 `request`。
+**`ws`**：`{tab, ws:"r-<握手请求 seq>", phase:"frame"|"close"|"error", direction:"send"|"recv", opcode:1|2, payload:{inline:string}|{blob:"sha256:…", size}|null, reason}`。握手本身是一条 `type:"websocket"` 的 `request`。帧正文超过 blob 上限时 `payload:null`，`reason` 写明（`payload too large: <n> bytes > <上限>`）；其余帧 `reason:null`。
 
 **`cmd`**：两条（§14 裁决）：开始 `{id:"c-<seq>", phase:"start", actor:"ai", argv:[...]|null, input:{...}}`，结束 `{phase:"end", ref:"c-<seq>", ok:bool, error, durationMs, outputSummary}`。每次 CLI / skill / MCP 调用一对，是「AI 操作窗口」的依据；窗口内事件的 `cmd` 字段引用开始那条的 id。`outputSummary` 是结果的小摘要（顶层标量）；命令有回执时带 `outputSummary.receipt`（短字符串对象，`09` §13.3 草案，不另立 kind）：0.4-J 起 `recon` 写 `{dossier:"exports/dossier.json"}`。0.6-A 起 `fetch` 的结束事件总带 `outputSummary.requests`：该命令发出的全部 `r-N`（按 `fetchId` 归属，含重定向跳与预检；命令失败、被停手规则拦下时也写），正文、`bodyBase64` 不进摘要；被停手的错误不带 `result`（响应在 `request` 事件里）。
 
@@ -95,7 +95,7 @@
 **`action`**：`{tab, op, target, value, phase:"done"|"failed", error, shots:{before:"sha256:…", after:"sha256:…"}, nav, trusted:bool}`。
 - `op`：`click` / `fill` / `key` / `select` / `scroll` / `navigate` / `upload` / `dialog` / `evaluate`；0.7.1-A 加 `input`（人的一次原始输入，只有种类 `event` 与时刻 `at`，§37）。
 - `target`：`{ref, role, name, selector, rect:[x,y,w,h], frame}`，有什么填什么；`selector` 只是给人看的定位提示，不是重放契约。
-- `frame`（0.4-I）：动作所在帧的帧路径（`f2/f1`，见 §6 快照 ref），根文档不写；`ref` 保留原样（`f2/f1/e7`）。录制器目前还不写 `action` 事件，现行落点见 §23。
+- `frame`（0.4-I）：动作所在帧的帧路径（`f2/f1`，见 §6 快照 ref），根文档不写；`ref` 保留原样（`f2/f1/e7`）。录制器除 0.7.1-A 人的原始输入（`op:"input"`，见下）外还不写 `action` 事件，动作命令的现行落点见 §23。
 - `value`：`fill`/`key` 的文本；`type=password`、`autocomplete` 含 `cc-`/`one-time-code` 的字段一律写 `"<masked>"`，录制时就不落盘。经 §8.1 的 secret 引用填入的，写 `"<secret:<name>>"`。
 - 人的操作（`actor:"human"`）：探路由 AI 做之后，人只在验证码、二次验证、需要人点的时刻介入。这些时刻的人工操作由隔离世界里的被动监听器记（只记 pointer click、input 的 change/失焦提交、Enter/Tab），不改页面行为；**P2 实现**，P1 只记介入前后的截图和 `nav`。P2 做时只在 `handoff` 进入「人在操作」状态期间武装监听器，其余时间不挂。（已定 b）
   0.7.1-A（§37）先做了这一条的一部分，并改了「其余时间不挂」：为了**识别**人接管，`direct` 模式下每个 owned 标签一直挂着一个被动监听器，但它只报 `pointerdown` / `keydown` / `wheel` / `touchstart` 的种类与时刻，不报目标、坐标、键值。等人期间这些输入写成 `action {op:"input", event, at, target:null, value:null, …}`、`actor:"human"`、`cmd:null`；目标元素、`fill` 的提交值、Enter / Tab 的语义仍是 P2（未做）。
@@ -105,7 +105,7 @@
 **`state`**：`{tab, what:"cookies"|"localStorage"|"sessionStorage", origin, blob:"sha256:…", count, reason:"session-start"|"nav"|"session-stop"|"manual"}`。
 内容：cookies 用 CDP `Network.getCookies` 的原样数组；storage 用 `[[key,value],…]`。P1 只做 cookies、只在 session 起止和每次 `navigation` 类 nav 时取。
 
-**`finding`**：`{actor:"ai"|"human", tool:"find"|"diff"|"deps"|"trace"|"where"|"wire"|"manual", grade:"实测"|"推断"|"待验"|"人确认", claim, evidence:[{request:"r-57", path:"$.items[3].title"}|{ws:"r-12", frame:seq}|{blob}], input, output}`。
+**`finding`**：`{actor:"ai"|"human", tool:"find"|"diff"|"deps"|"trace"|"where"|"wire"|"manual", grade:"实测"|"推断"|"待验"|"人确认", claim, evidence:[{request:"r-57", path:"$.items[3].title"}|{ws:"r-12", frame:seq}|{blob}], input, output}`（§15 加 `{console:seq}`；`analyze deps --write-findings` 引用动作时写 `{action:<事件 seq>}`）。
 分析命令默认不写入；加 `--save` 才追加；`grade` 只有人能标 `人确认`（P2 的 `confirm` 事件会生成它）。
 
 `tool:"wire"`（0.4-W2）：`tabcap wire probe` 在该会话**正在录制**时写入，每个结论不是 `same` 的层（`tls` / `h2` / `headers`）一条，grade `实测`（本机 echo 上实际收到的字节）。四份文档先存成 blob（`evidence` 是它们的 `{blob}`）：`browserReport`（基准里的一次浏览器导航的每连接报告）、`clientReport`（生成的客户端那次 GET 的报告）、`check`（组件 `check` 的 JSON）、`diff`（组件 `diff --json` 的 JSON）；报告形状见 `11` §3.2。`input` = `{browser:{version, flagsHash, profile, cached}, client:{library, version}, layer}`，`output` = `{verdict:"differs"|"missing", fields:[字段路径]}`。`claim` 只说哪层、哪些字段不同（「在本机 echo 上测得」），不说原因、不给改法。命令自己的输出是 `tabcap-wire/0`：`{schema, browser:{version, flagsHash, profile, cached}, client:{library, version}, layers:[{layer, verdict:"same"|"differs"|"missing", fields:[{field, browser, client}]}], checks:[{code, status:"red"|"warn"|"info", message}], labels:[{label:"psk", browser, client}], note, saved?:{bundle, seqs, blobs}}`，`note` 固定为 "differences are measured on a local echo; they say which layer differs, not why a site refused anything"。
@@ -124,11 +124,11 @@
 - grade：`signal` 事件是【实测】。
 - 已知盲区（spike Q7）：导航开始之后旧文档里的读取记不到（旧文档不再暂停）；Service Worker / Shared Worker 0.4 不覆盖；交接等人期间（`Debugger.setSkipAllPauses`）不记，期间新加载的文档在 `handoff continue` 时补装断点。
 
-### 4.2 P2 预留（v0 只占 kind，不实现）
+### 4.2 P2 kind（v0 先占 kind；`handoff`、`guard`、`protection` 已实际写出，`confirm` 仍只占位）
 
-- **`handoff`**：`{state:"waiting"|"human-active"|"resumed", reason, question, timeoutMs, answerRef}`。实际写出的（0.3-A 起）：`waiting` 与 `resumed`（`human-active` 仍只占位；「人在操作」是守护进程内的状态，见 §37）；`reason` 为 `verify-page`（guard 认出的验证页）、`stop-rule`（0.6-I 站点停手规则）、`human-takeover`（0.7.1-A：tabcap 在 AI 的标签上看到人的可信输入，`input:{event, at}`、`request:null`、`screenshot:null`，§37）。`resumed` 的 `by`：`human`（`handoff continue`）、`plugin:<名>`（challenge 处理程序回答）、`guard-resume`（`guard resume --site` 一并结束 `stop-rule` 的等待）、`condition`（0.7.5-B：`handoff wait --until-*` 的条件满足，多一个 `condition:{kind, value}`，§39）、`browser-gone`（10-21：浏览器没了，交接随之结束，不是人做完了，§39）。
+- **`handoff`**：`{state:"waiting"|"human-active"|"resumed", reason, question, timeoutMs, answerRef}`。实际写出的（0.3-A 起）：`waiting` 与 `resumed`（`human-active` 仍只占位；「人在操作」是守护进程内的状态，见 §37）；`reason` 为 `verify-page`（guard 认出的验证页）、`stop-rule`（0.6-I 站点停手规则）、`human-takeover`（0.7.1-A：tabcap 在 AI 的标签上看到人的可信输入，`input:{event, at}`、`request:null`、`screenshot:null`，§37）。`waiting` 实际写 `{state:"waiting"[, protection], reason, question, timeoutMs:null, answerRef:null, request, url, screenshot[, input]}`：`request` 是触发它的 `r-N`（接管为 null），`url` 是那条请求（接管时是标签）的 URL，`screenshot` 是交接截图的路径（没有截图为 null），`protection` 见 §41.3。`resumed` 实际写 `{state:"resumed", reason, question:null, timeoutMs:null, answerRef, by[, condition]}`，`answerRef` 是回答的 challenge 处理程序的命令窗口 `c-N`，其余为 null。`resumed` 的 `by`：`human`（`handoff continue`）、`plugin:<名>`（challenge 处理程序回答）、`guard-resume`（`guard resume --site` 一并结束 `stop-rule` 的等待）、`condition`（0.7.5-B：`handoff wait --until-*` 的条件满足，多一个 `condition:{kind, value}`，§39）、`browser-gone`（10-21：浏览器没了，交接随之结束，不是人做完了，§39）。
 - **`confirm`**：`{question, options, answer, by:"human", refs, producesFinding:"<seq>"}`。
-- **`guard`**：`{event:"budget"|"breaker"|"probe", site, account, detail}`。0.4-D 起 `budget` 与 `breaker` 实际写出（`probe` 仍只占位）：配置了每小时请求预算（`config.json` `pool.budget.requestsPerHour`）时，账号用满预算写 `budget`（`detail.rule:"requests-per-hour"`）；账号 24 h 内第 2 次登录失败转 `needs-human` 时写 `budget`（`detail.rule:"failed-logins"`）；熔断时写 `breaker`，会话绑了账号时 `detail.coolUntil` 是冷却结束时刻。0.6-A 起 `breaker` 多一种原因：`tabcap fetch` 的停手规则命中，写 `{event:"breaker", site, account, reason:"fetch-stop", rule, request:"r-N", detail:{reason:"fetch-stop", rule, detail, request, fetchId, url, status}}`（不进 `waiting`、不冷却账号）；`tabcap guard resume --site` 或该会话的 `handoff continue` 解除时写 `{event:"resume", site, account:null, reason:"fetch-stop", rule, request, by:"guard-resume"|"handoff-continue", detail:{…同上三项}}`（§26）。0.6-I 起还有 `reason:"stop-rule"`：站点停手规则（`config.json` `sites.<名>.guard`）命中，写 `{event:"breaker", site, account, reason:"stop-rule", rule, request:"r-N", detail:{reason:"stop-rule", rule, detail, request, url, status[, fetchId]}}`，并跟一条 `handoff` `{state:"waiting", reason:"stop-rule", …, screenshot}`；解除时的 `resume` 事件 `reason:"stop-rule"`（§18 后的 0.6-I 段）。0.7.5-A 起还有 `end`：结束规则（`sites.<名>.guard.endOn`、`fetch --end-on`）命中的响应写 `{event:"end", site, account:null, rule, request:"r-N", detail:{rule, detail, request, url, status[, fetchId]}}`，不停手、不进 `waiting`（§38）。0.6-D 起还有 `challenge`：页面上认出图片验证码时写一条提示（每个页面一次，`detail: {kind:"image-captcha", advisory:true, image, input, url[, frame]}`，`image` / `input` 是 ref），只是告诉模型，不进 `waiting`、不拦任何命令（见 §27）。
+- **`guard`**：`{event:"budget"|"breaker"|"probe"|"resume"|"end"|"challenge", site, account, detail}`。0.4-D 起 `budget` 与 `breaker` 实际写出（`probe` 仍只占位）：配置了每小时请求预算（`config.json` `pool.budget.requestsPerHour`）时，账号用满预算写 `budget`（`detail:{rule:"requests-per-hour", requests, limit, windowStart, decision:"limit-reached"}`；之后被拒的动作命令再写一条 `decision:"refused"`，多 `action`）；账号 24 h 内第 2 次登录失败转 `needs-human` 时写 `budget`（`detail:{rule:"failed-logins", failures, limit, decision:"needs-human"}`，账号已是 `needs-human` 时拒填密码写 `decision:"refused"`）；登录次数限制（§18）每次 `fill --secret …password` 写 `budget`（`detail:{rule:"login-limit", attempts, limit, decision:"allowed"|"confirmed"|"refused"}`，§30 按它数登录）；验证页熔断时写 `{event:"breaker"[, protection], site, account, detail:{reason:"verify-page", request, url, status, mime[, coolUntil]}}`（没有顶层 `reason` / `rule` / `request`），会话绑了账号时 `detail.coolUntil` 是冷却结束时刻。0.6-A 起 `breaker` 多一种原因：`tabcap fetch` 的停手规则命中，写 `{event:"breaker", site, account, reason:"fetch-stop", rule, request:"r-N", detail:{reason:"fetch-stop", rule, detail, request, fetchId, url, status}}`（不进 `waiting`、不冷却账号）；`tabcap guard resume --site` 或该会话的 `handoff continue` 解除时写 `{event:"resume", site, account:null, reason:"fetch-stop", rule, request, by:"guard-resume"|"handoff-continue", detail:{reason, rule, request, by}}`（§26）。0.6-I 起还有 `reason:"stop-rule"`：站点停手规则（`config.json` `sites.<名>.guard`）命中，写 `{event:"breaker"[, protection], site, account, reason:"stop-rule", rule, request:"r-N", detail:{reason:"stop-rule", rule, detail, request, url, status[, fetchId]}}`，并跟一条 `handoff` `{state:"waiting", reason:"stop-rule", …, screenshot}`；解除时的 `resume` 事件 `reason:"stop-rule"`（§18 后的 0.6-I 段）。0.7.5-A 起还有 `end`：结束规则（`sites.<名>.guard.endOn`、`fetch --end-on`）命中的响应写 `{event:"end", site, account:null, rule, request:"r-N", detail:{rule, detail, request, url, status[, fetchId]}}`，不停手、不进 `waiting`（§38）。0.6-D 起还有 `challenge`：页面上认出图片验证码时写一条提示（每个页面一次，`detail: {kind:"image-captcha", advisory:true, image, input, url[, frame]}`，`image` / `input` 是 ref），只是告诉模型，不进 `waiting`、不拦任何命令（见 §27）。
 - **`protection`**（0.8-A，实际写出，§41.3）：`{tab, nav, url, detections:[{family, name, category, confidence, matched:[{rule, layer, kind, where}]}]}`，`actor:"system"`。实时识别（§41.3）在一个标签上认出的家族或其分数变了、且会话在录制时写一条（`src/daemon/protection/live.ts`）；同一份录制里还没认出过任何家族时不写，认出过之后变成没有也写（`detections:[]`）；页面在 `net start` 之前已探测过的，下一次读这份缓存结果（如 `snapshot`）时补写。`detections` 是置信度 ≥ 30 的非 `fingerprint` 家族（命令回答里只出现 ≥ 50 的）；`matched` 只有指向，没有值（§41.2）。
 
 ### 4.3 `sample` 挑战样本包（`03` §5 新增模块，P2/P3，先占位）
@@ -399,7 +399,7 @@
 
 - **文档响应扣留（采纳）**：只靠 Fetch 拦截，点击处理器里发出再立刻跳转的请求 6 次丢 4 次，因为 `requestPaused` 和新文档提交在同一毫秒【实测】。录制器对主框架文档的响应最多扣留 50 ms，等旧文档里尚未取到正文的 XHR / fetch 取完再放行，之后 10/10 救回。代价是这种情况下导航最多慢 50 ms；`net start` 的输出注明拦截已开。§5.2 第 8 条以此为准。
 - **没收到任何响应就被导航打断的请求**（代码待改）：`response` 仍为对象，`status: null`、`headers: {}`、`body: null`、`bodyMissing: {reason: "navigated"}`，不再允许 `response: null`。
-- **Fetch 救回但 Network 未给响应的请求**（采纳实现）：`outcome: "incomplete"`，`response` 用 Fetch 拿到的状态行和头并标 `fromFetch: true`，另加 `bodySource: "fetch"`。
+- **Fetch 救回但 Network 未给响应的请求**（采纳实现）：`outcome: "incomplete"`，`response` 用 Fetch 拿到的状态行和头并标 `fromFetch: true`，另加 `bodySource: "fetch"`。（10-21 写入侧类型对齐时核对：录制器不把 `fromFetch` 写进事件（它只在录制器内存里），包里认这种请求靠 `bodySource:"fetch"`。）
 - **`cmd` 事件**（代码待改）：改为两条，命令开始时写 `{kind:"cmd", id:"c-<seq>", phase:"start", argv, input}`，结束时写 `{kind:"cmd", phase:"end", ref:"c-<seq>", ok, error, durationMs, outputSummary}`；命令窗口内的事件 `cmd` 字段引用开始那条的 id。
 - **`nav` 编号**（代码待改）：`navigate` 在录制中时返回包内的 `n-<seq>`，未录制时返回 null；守护进程不再维护另一套全局编号。
 - 其余按实现定案：录制开始时标签已在某页则补写 `initial: true` 的 nav；`navigate` 对不存在的会话自动建会话；`raw/cdp.jsonl` 默认开；密码遮罩最小版（已知值在信封和 `cmd` 事件里替换，登录 POST 体原样进包）。
