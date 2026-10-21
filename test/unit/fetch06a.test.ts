@@ -20,6 +20,7 @@ import { FETCH_MARKER, parseFetchSpec, targetUrl } from "../../src/daemon/fetch/
 import { firstStop, parseStopRule, parseStopRules } from "../../src/daemon/fetch/stoprules.ts";
 import { fetchInput, handleFetch } from "../../src/daemon/main.ts";
 import { Daemon } from "../../src/daemon/state.ts";
+import { Store } from "../../src/daemon/store/db.ts";
 import { blockedNext, credentialsBlock, envelopeHeaders, envelopeTiming, fetchRun, siteOf } from "../../src/daemon/tools/fetch.ts";
 import { guardResume } from "../../src/daemon/tools/handoff.ts";
 import { fetchConfigFrom, FETCH_DEFAULTS } from "../../src/shared/config.ts";
@@ -729,5 +730,118 @@ describe("0.7.5-A --end-on", () => {
     expect(err instanceof TabcapError && err.code).toBe("usage");
     expect(fb.seen.length).toBe(0);
     await rec.stop();
+  });
+});
+
+// Owner 10-21: `fetch --batch` stops at waiting. Before each line is sent the
+// session's waiting state is checked (guard.blocking, as at the command's entry);
+// from the first hit on, no line goes out and none takes a turn of the host's
+// pacing: each answers {ok:false, error:{code: waiting | guard.stopped}}. An end
+// rule does not stop a batch (docs/04 §38, the test above).
+describe("fetch --batch stops at waiting (owner 10-21, docs/04 §26 / §38)", () => {
+  type Line = Record<string, unknown>;
+  const linesOf = (res: unknown): Line[] => (isRecord(res) && Array.isArray(res["batch"]) ? res["batch"].filter(isRecord) : []);
+  const shape = (l: Line) => (l["ok"] === true && isRecord(l["data"]) ? [true, l["data"]["status"]] : isRecord(l["error"]) ? [false, l["error"]["code"], l["error"]["reason"]] : l);
+  const runs = (fb: { sent: Array<{ method: string }> }) => fb.sent.filter((x) => x.method === "Runtime.runScript").length;
+
+  test("verify-page: the 403 HTML page trips the guard; the rest are not sent and take no turn of the pacing", async () => {
+    const { d, rec, fb, b } = await fetchHome(ORIGIN, (u) => (u.endsWith("/a") ? { status: 403, body: "<html>verify</html>", mime: "text/html" } : { status: 200, body: "{}" }), {
+      fetch: { minIntervalMs: 60_000 },
+    });
+    d.guard.watch(rec);
+    const c = rec.cmdStart({ tab: null, argv: null, input: {} });
+    const res = await fetchRun(d, b, { batch: [{ url: "/a" }, { url: "/b" }, { url: "/c" }] }, "s1", { cmd: c });
+    expect(linesOf(res).map(shape)).toEqual([
+      [true, 403],
+      [false, "waiting", "verify-page"],
+      [false, "waiting", "verify-page"],
+    ]);
+    expect(runs(fb)).toBe(1);
+    expect(rec.index.length).toBe(1);
+    expect(d.fetchLimiter.inFlight("127.0.0.1:9")).toBe(0);
+    await d.guard.settle();
+    await rec.stop();
+  });
+
+  test("human-takeover during a line: the following lines are not sent", async () => {
+    let onA: () => void = () => undefined;
+    const { d, rec, fb, b } = await fetchHome(ORIGIN, (u) => {
+      if (u.endsWith("/a")) onA();
+      return { status: 200, body: "{}" };
+    });
+    onA = () => d.guard.takeover("s1", { tab: "t1", url: `${ORIGIN}/page`, event: "pointerdown", at: 1 }, rec);
+    const c = rec.cmdStart({ tab: null, argv: null, input: {} });
+    const res = await fetchRun(d, b, { batch: [{ url: "/a" }, { url: "/b" }, { url: "/c" }] }, "s1", { cmd: c });
+    expect(linesOf(res).map(shape)).toEqual([
+      [true, 200],
+      [false, "waiting", "human-takeover"],
+      [false, "waiting", "human-takeover"],
+    ]);
+    expect(runs(fb)).toBe(1);
+    await rec.stop();
+  });
+
+  test("site stop rule: the lines to other hosts are not sent either (guard.stopped while the session waits)", async () => {
+    const { d, rec, fb, b } = await fetchHome(ORIGIN, (u) => ({ status: u.endsWith("/a") ? 503 : 200, body: "{}" }), {
+      fetch: { minIntervalMs: 0 },
+      sites: { example: { guard: { stopOn: ["status>=500"] } } },
+    });
+    const store = Store.open(d.paths.config);
+    store.addSite({ name: "example", entryUrl: `${ORIGIN}/`, domains: [], username: "a", password: "Pass-a-123" });
+    d.store = store;
+    d.guard.watch(rec);
+    const c = rec.cmdStart({ tab: null, argv: null, input: {} });
+    const res = await fetchRun(d, b, { batch: [{ url: "/a" }, { url: "http://localhost:10/b" }, { url: "/c" }] }, "s1", { cmd: c });
+    expect(linesOf(res).map(shape)).toEqual([
+      [false, "fetch.stopped", "stop-rule"],
+      [false, "guard.stopped", "stop-rule"],
+      [false, "guard.stopped", "stop-rule"],
+    ]);
+    expect(runs(fb)).toBe(1);
+    expect(fb.seen.map((s) => s.url)).toEqual([`${ORIGIN}/a`]);
+    await d.guard.settle();
+    await rec.stop();
+    store.close();
+  });
+
+  test("the session starts waiting while a line waits for its turn: that line is not sent either", async () => {
+    let onA: () => void = () => undefined;
+    const { d, rec, fb, b } = await fetchHome(
+      ORIGIN,
+      (u) => {
+        if (u.endsWith("/a")) onA();
+        return { status: 200, body: "{}" };
+      },
+      { fetch: { minIntervalMs: 400 } },
+    );
+    onA = () => void setTimeout(() => d.guard.takeover("s1", { tab: "t1", url: `${ORIGIN}/page`, event: "keydown", at: 1 }, rec), 150);
+    const c = rec.cmdStart({ tab: null, argv: null, input: {} });
+    const res = await fetchRun(d, b, { batch: [{ url: "/a" }, { url: "/b" }, { url: "/c" }] }, "s1", { cmd: c });
+    expect(linesOf(res).map(shape)).toEqual([
+      [true, 200],
+      [false, "waiting", "human-takeover"],
+      [false, "waiting", "human-takeover"],
+    ]);
+    expect(runs(fb)).toBe(1);
+    await rec.stop();
+  });
+});
+
+describe("per-host limiter: a cancelled turn (owner 10-21: a fetch not sent takes no turn)", () => {
+  test("cancel gives the turn back: the next request is spaced from the one before, not from the cancelled one", async () => {
+    let t = 1_000_000;
+    const clock: Clock = { now: () => t, sleep: async (ms) => void (t += ms) };
+    const l = new HostLimiter(clock);
+    const pace = { minIntervalMs: 3000, concurrency: 1 };
+    const a = await l.acquire("h:1", pace, t + 60_000);
+    a.release();
+    const end = t;
+    const b = await l.acquire("h:1", pace, t + 60_000);
+    expect(t - end).toBe(3000);
+    b.cancel();
+    expect(l.inFlight("h:1")).toBe(0);
+    const c = await l.acquire("h:1", pace, t + 60_000);
+    expect(c.waitedMs).toBe(0);
+    c.release();
   });
 });

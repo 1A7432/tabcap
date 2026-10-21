@@ -16,7 +16,8 @@ export type Pace = { minIntervalMs: number; concurrency: number };
 
 type HostState = { inFlight: number; last: number | null; chain: Promise<void>; released: Array<() => void> };
 
-export type Slot = { waitedMs: number; release: () => void };
+/** `cancel` (owner 10-21): the request was not sent after all; the turn goes back (the host's last start is what it was). */
+export type Slot = { waitedMs: number; release: () => void; cancel: () => void };
 
 export class HostLimiter {
   private hosts = new Map<string, HostState>();
@@ -46,6 +47,8 @@ export class HostLimiter {
     const started = this.clock.now();
     const prev = st.chain;
     let admitted: () => void = () => undefined;
+    let before: number | null = null;
+    let mine = 0;
     st.chain = new Promise<void>((r) => (admitted = r));
     try {
       await prev;
@@ -67,21 +70,21 @@ export class HostLimiter {
         st.released = st.released.filter((w) => w !== wake);
       }
       st.inFlight++;
-      st.last = this.clock.now();
+      before = st.last;
+      st.last = mine = this.clock.now();
     } finally {
       admitted();
     }
     let done = false;
-    return {
-      waitedMs: this.clock.now() - started,
-      release: () => {
-        if (done) return;
-        done = true;
-        st.inFlight--;
-        st.last = this.clock.now();
-        for (const w of st.released.splice(0)) w();
-      },
+    const end = (sent: boolean) => {
+      if (done) return;
+      done = true;
+      st.inFlight--;
+      if (sent) st.last = this.clock.now();
+      else if (st.last === mine) st.last = before;
+      for (const w of st.released.splice(0)) w();
     };
+    return { waitedMs: this.clock.now() - started, release: () => end(true), cancel: () => end(false) };
   }
 }
 
