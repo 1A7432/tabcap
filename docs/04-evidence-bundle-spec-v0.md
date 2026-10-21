@@ -228,7 +228,8 @@
   "id": "01JA…",                                   // ULID
   "created": 1760500000000, "finished": 1760500900000,   // finished 缺失 = 未收尾
   "producer": { "tool": "tabcap", "version": "0.1.0", "daemon": "0.1.0", "extension": "0.1.0",
-                "browser": { "name": "Chrome", "version": "155.0.8059.41", "userAgent": "…", "webdriver": "hidden" }, "platform": "darwin-arm64" },   // webdriver：0.7.6-A，§40；旧包没有 = 未记录
+                "browser": { "name": "Chrome", "version": "155.0.8059.41", "userAgent": "…", "webdriver": "hidden",
+                             "args": ["--user-data-dir=<profile>", "--remote-debugging-pipe", "…"], "extraArgs": [], "dropArgs": [] }, "platform": "darwin-arm64" },   // webdriver：0.7.6-A，§40；args / extraArgs / dropArgs：0.8.1-A，§42；旧包没有 = 未记录
   "session": { "name": "range-s02", "site": "range-demo", "account": "demo", "proxy": "p1",   // 只记站点名、账号名和代理名（或 system / none），与本地库靠站点名关联
                "tabs": [ { "tab": "t1", "chromeTabId": 1234, "owned": true, "firstUrl": "…" } ] },
   "mode": { "capture": "mixed", "trace": false, "raw": true, "humanRecorder": true },
@@ -1063,3 +1064,23 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - 单测：规则文件的校验与报错、置信度上限、每条内置规则都有 `sources`、`identify` 的各层与组合、值从不出现在输出里（含 `valueShape` 命中的 cookie）、用户文件覆盖、坏文件只跳过自己。
 - e2e：靶场 s67–s70（`05` §16），厂商主机经 `fwdproxy` 映射到本机，页面里只有我们自己写的桩脚本与名字，不放任何厂商代码。
 - 【待验】真实站点上的命中率与误报：靶场只能证明匹配逻辑；`docs/14` 每条要在作者真实项目的包里见到才改【实测】。
+
+## 42. 0.8.1-A 自定义 Chrome 启动参数（10-21 作者定需求与方案）
+
+来源：作者 10-21 实际使用中要给 Chrome for Testing 加自己的启动参数，tabcap 写死了参数表、没有透传口子。作者定：「不影响实际使用和操作的全部不拒绝」；删除 tabcap 默认参数（dropArgs）一起做；证据包 manifest 记 `browser.args`。
+
+- **入口**：`tabcap browser start --chrome-arg <arg>`（可重复，加或覆盖）与 `--drop-chrome-arg <arg>`（可重复，删 tabcap 的默认参数）；`config.json` `chrome.args` / `chrome.dropArgs`（字符串数组）作默认值，命令行的排在配置之后。`tabcap setup` 改写 `chrome` 时保留这两个键。配置里不是字符串数组回 `bad-input`，点名键。不加环境变量（按空格切分有引号歧义）。
+- **每项的形状**：`--name` 或 `--name=value`（名字以字母或数字开头，`[A-Za-z0-9._-]`）；不以 `--` 开头的（URL、单横线写法）回 `usage`：它不是开关，开页面用 `navigate` / `tab new`。
+- **只拒绝会让 tabcap 自己失灵的**（`usage`，浏览器不起来）：
+  - 加：`--user-data-dir`（profile 由 tabcap 管：池账号 cookie、port 模式的 `DevToolsActivePort`）、`--remote-debugging-pipe`。
+  - 删：上面两个，再加 `--remote-debugging-port`（port 模式靠它）。
+  - `--proxy` 不是 `system` 时再加代理开关（`--proxy-server`、`--proxy-bypass-list`、`--proxy-pac-url`、`--no-proxy-server`、`--proxy-auto-detect`）：两处代理互相打架，用其中一个。`--proxy system` 时可以加，此时回答的 `proxy` 为 `"chrome-arg"`。
+  - 其余一律照传，包括 `--remote-debugging-port=<n>`（pipe 模式下另开一个调试端口，本机任何进程都能连上浏览器，由用户自己决定）、`--headless`、`--user-agent`、证书相关参数。
+- **合并规则**（纯函数，`launcher.ts` `applyCustomArgs`；Chrome 对重复开关只认最后一个）：
+  1. 先删：`--drop-chrome-arg --name` 删掉所有同名开关；`--name=a,b` 对逗号列表开关（`--enable-features`、`--disable-features`、`--enable-blink-features`、`--disable-blink-features`、`--load-extension`）只从列表里删这几项（列表空了整条去掉），对其他开关只删完全相同的那一条。什么都没删到的记进 `dropArgsUnmatched`，不报错（同一份配置在不同平台上用，比如 Linux 没有 `--use-mock-keychain`）。
+  2. 再加：逗号列表开关把用户的项并进 tabcap 已有的那一条（同名项用户的替换 tabcap 的，按特性名比较，`Name:参数` / `Name<Trial` 只看 `Name`）；`--enable-features=X` 同时把 X 从 `--disable-features` 里拿掉，反过来也一样（blink 两条同理），所以用户能打开 tabcap 默认关掉的特性。其他开关与 tabcap 同名时用户的替换 tabcap 的；不同名的追加在开关末尾（`about:blank` 这类位置参数之前）。用户自己重复写同一个非列表开关，只留最后一个。
+  3. `webdriver` 的值由最后的命令行推出：`--disable-blink-features` 里有 `AutomationControlled` 为 `hidden`，否则 `visible`（例如 `--drop-chrome-arg --disable-blink-features` 或 `--chrome-arg --enable-blink-features=AutomationControlled` 让它变成 `visible`）。
+- **输出里标明**：`browser start` / `browser status` 的回答带 `args`（实际命令行，不含可执行文件路径）、`extraArgs`、`dropArgs`、`dropArgsUnmatched`；浏览器已在跑、这次请求的自定义参数与正在用的不同时，回答 `alreadyRunning:true` 加一条 `note`（先 `browser stop` 再 `start` 才生效）。`tabcap status` 的 `browser` 带 `extraArgs` / `dropArgs`（浏览器没在跑为 `null`），`status --text` 在有自定义参数时于 webdriver 后写 `chrome args +<加的条数> -<删的条数>`。
+- **manifest**：`producer.browser.args`（实际命令行）、`extraArgs`、`dropArgs`。与 `wire` 画像缓存同一套规整（`src/wire/profile.ts` `normalizedFlags`）：`--user-data-dir=<profile>`、`--load-extension=<extension>`，本机路径与用户名不进包；再做已知秘密值替换。旧包没有这三个字段 = 未记录（当时是默认参数表）。
+- **不管的**：`ext` 模式（作者自己的 Chrome）不是 tabcap 启动的，不受影响。参数改了页面行为（比如重新打开 bfcache 让录制缺事件）由用户负责，tabcap 只把参数标出来。线指纹画像的缓存本来就按启动参数哈希失效（§40 末条）。
+- **验证**：单测（`applyCustomArgs` 的删、合并、覆盖、相反列表、位置参数顺序、`dropArgsUnmatched`；`checkCustomArgs` 的拒绝项与代理冲突；`config.json` 的解析、报错与 `setup` 保留；manifest 写入与规整；`status --text`）；e2e `test/e2e/v081a.e2e.test.ts`（靶场 s71，`05` §17）。
