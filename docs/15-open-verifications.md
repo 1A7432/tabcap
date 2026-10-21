@@ -168,7 +168,7 @@
 | 47 | L635 遗留修正 | `fetch --batch` 进入 waiting 后继续发；交接标签关闭即 no-tab；human-takeover 不补探测；§41.3「trace stop 写汇总」；`--until-text` 主帧主世界轮询；`next` 不带 `--session`；CLI 与守护进程无版本握手 | 已排期（guard） | — |
 | 48 | L635 遗留修正 | 导出打码按 kind 白名单、敏感头集合比实时窄；实时打码不覆盖交接与 status；两套 query 打码；两套 `redactDossier` | 已排期（打码） | — |
 | 49 | L635 遗留修正 | `--proxy` userinfo 与 `--chrome-arg` 路径进 manifest；`--drop-chrome-arg` 能删代理开关；`--chrome-arg` 照传危险开关；实时探测在主世界执行 | 已排期（Chrome） | — |
-| 50 | L635 遗留修正 | config.json 解析失败静默当空、`setup` 整份覆写；未知键静默忽略 | 已排期（config） | — |
+| 50 | L635 遗留修正 | config.json 解析失败静默当空、`setup` 整份覆写；未知键静默忽略 | 已关闭（第三波 config 包，分支 w3/config） | 解析不出（或顶层不是对象）时每个读配置的命令回 `bad-input` 并给行列，`setup` 不改写，回放键规则走同一个 `readConfigRaw`；未知键进 `warnings`（`browser start` / `browser status`、`status` 的 `config.warnings`、`setup`），键表 `CONFIG_KEYS` 生成 `skills/tabcap/references/config.md`；`04` §44，单测 `config-strict` / `config-keys` |
 | 51 | L635 遗留修正 | 三套 siteOf；`tools/snapshot.ts` 循环依赖；三套 JSON 路径方言；`replay check --live` 绕过 guard | 已关闭（第二波结构包，PR review-wave2） | — |
 | 52 | L635 遗留修正 | Scoop hash 跟不上版本；release.yml 不要求同一提交 CI 全绿；NOTES 悬空线程（brew upgrade、Windows npm.cmd、Linux 沙箱行、`~/.claude/skills`、v04w） | 已排期（发布） | brew 两条按上表已关闭 |
 | 53 | L635 遗留修正 | types.ts 事件类型已非契约；CLI 三条解析路径；store 只增不减与占位表；HAR `--embed-events` 往返；测试替身重复 | 已排期（types / cli / store / testhelpers） | 本波另外四个包 |
