@@ -188,6 +188,30 @@ describe("tabcap_run and tabcap_help", () => {
     }
   });
 
+  test("browser start's custom Chrome args and executable are for the human: not in the schema, refused by tabcap_run (review 10-21)", async () => {
+    const props = Object.keys(tool("tabcap_browser_start").def.inputSchema.properties);
+    for (const p of ["chromeArg", "dropChromeArg", "executablePath"]) expect(props).not.toContain(p);
+    for (const p of ["proxy", "webdriver", "foreground"]) expect(props).toContain(p);
+    expect(() => argvFor(tool("tabcap_browser_start"), { chromeArg: ["--no-sandbox"] })).toThrow("unknown argument chromeArg");
+    for (const argv of [
+      ["browser", "start", "--chrome-arg=--no-sandbox"],
+      ["browser", "start", "--proxy", "none", "--chrome-arg", "--disable-web-security"],
+      ["browser", "start", "--drop-chrome-arg", "--disable-sync"],
+      ["tabcap", "browser", "start", "--executable-path", "/tmp/chrome"],
+      ["browser", "start", "--executable-path=/tmp/chrome"],
+    ]) {
+      const r = fakeRun([ok({})]);
+      const env = await callTool(tool(RUN), { argv }, r.fn);
+      if (env.ok) throw new Error(`expected a refusal for ${argv.join(" ")}`);
+      expect(env.error.code).toBe("usage");
+      expect(env.error.message).toContain("for the human: pass them in a shell, or put them in config.json chrome.args");
+      expect(r.calls).toEqual([]);
+    }
+    const r = fakeRun([ok({})]);
+    expect((await callTool(tool(RUN), { argv: ["browser", "start", "--proxy", "none", "--webdriver", "visible"] }, r.fn)).ok).toBe(true);
+    expect(r.calls).toEqual([{ argv: ["browser", "start", "--proxy", "none", "--webdriver", "visible"], opts: {} }]);
+  });
+
   test("tabcap_help without a command: every command with its usage and the tool that runs it", async () => {
     const env = await callTool(tool(HELP), {}, fakeRun([ok({})]).fn);
     if (!env.ok || !isRecord(env.data) || !Array.isArray(env.data["commands"])) throw new Error(JSON.stringify(env));
