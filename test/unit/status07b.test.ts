@@ -41,7 +41,7 @@ function facts(sessions: StatusSession[], o: Partial<StatusFacts> = {}): StatusF
   return {
     schema: STATUS_SCHEMA,
     daemon: { running: true, pid: 42, version: "0", listener: "unix", socket: "/s", startedAt: 1 },
-    browser: { running: true, pid: 7, mode: "direct", tabs: sessions.reduce((n, s) => n + s.tabs, 0), webdriver: "hidden" },
+    browser: { running: true, pid: 7, mode: "direct", tabs: sessions.reduce((n, s) => n + s.tabs, 0), webdriver: "hidden", extraArgs: [], dropArgs: [] },
     sessions,
     plugins: { decode: [], challenge: [] },
     handoff: [],
@@ -122,7 +122,7 @@ describe("conflict rules (pure)", () => {
   });
 
   test("(d) a recording open on a session whose browser (or every tab) is gone", () => {
-    const gone = ruleRecordingWithoutBrowser(facts([sess("w", { tabs: 0, recording: REC })], { browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null } }));
+    const gone = ruleRecordingWithoutBrowser(facts([sess("w", { tabs: 0, recording: REC })], { browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null } }));
     expect(gone).toHaveLength(1);
     expect(gone[0]?.message).toContain("the browser is not running");
     expect(gone[0]?.next).toBe("`tabcap net stop --session w` finishes the bundle");
@@ -189,7 +189,7 @@ describe("--text", () => {
     expect(lines[1]).toBe("w: site shop (alice) · 1 tab(s) (current t1) · not recording · WAITING verify-page at http://127.0.0.1:9/verify (screenshot /shots/w.png) · trace off");
     expect(lines.at(-1)).toBe(`next: ${next}`);
     // nothing waits: the first conflict's next, else null
-    const rec = facts([sess("r", { recording: REC, tabs: 0, current: null })], { browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null } });
+    const rec = facts([sess("r", { recording: REC, tabs: 0, current: null })], { browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null } });
     expect(nextOf(rec, conflictsOf(rec))).toBe(conflictsOf(rec)[0]?.next ?? "?");
     expect(nextOf(facts([sess("ok")]), [])).toBeNull();
   });
@@ -221,7 +221,7 @@ describe("status off a daemon (no browser)", () => {
     const data = env.ok && isRecord(env.data) ? env.data : {};
     expect(data["schema"]).toBe(STATUS_SCHEMA);
     expect(data["daemon"]).toMatchObject({ running: true, pid: process.pid, listener: d.paths.listener });
-    expect(data["browser"]).toEqual({ running: false, pid: null, mode: null, tabs: 0, webdriver: null });
+    expect(data["browser"]).toEqual({ running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null });
     expect(data["sessions"]).toEqual([
       {
         session: "w",

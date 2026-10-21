@@ -21,6 +21,7 @@ import {
   isChromeApp,
   killAndWait,
   launchChrome,
+  type CustomArgs,
   type ProxyMode,
   type WebdriverMode,
 } from "./launcher.ts";
@@ -33,6 +34,8 @@ export type DirectOptions = {
   logFile: string;
   proxy: ProxyMode;
   webdriver: WebdriverMode;
+  /** 0.8.1-A: custom Chrome args (docs/04 §42). */
+  custom: CustomArgs;
   extensionDir: string | null;
   noStartupWindow: boolean;
   cdp?: "pipe" | "port";
@@ -70,6 +73,8 @@ export class DirectTransport implements Transport {
     readonly version: { product: string; userAgent: string },
     readonly front: FrontReport,
     readonly args: string[],
+    /** Custom drops that matched nothing (docs/04 §42). */
+    readonly unmatchedDrops: string[],
     readonly frontGuard: FrontGuard,
   ) {
     this.closed = cdp.closed;
@@ -93,6 +98,7 @@ export class DirectTransport implements Transport {
       platform: process.platform,
       proxy: o.proxy,
       webdriver: o.webdriver,
+      custom: o.custom,
       extensionDir: o.extensionDir,
       noStartupWindow: o.noStartupWindow,
       ...(o.cdp === undefined ? {} : { cdp: o.cdp }),
@@ -150,7 +156,7 @@ export class DirectTransport implements Transport {
       { read: frontmostAppAsync, activate: activateAppAsync, sleep: (ms) => Bun.sleep(ms), now: () => Date.now() },
       o.restoreFront && process.platform === "darwin",
     );
-    return new DirectTransport(cdp, attacher, launched.proc, launched.pid, launched.cdp, version, front, launched.args, guard);
+    return new DirectTransport(cdp, attacher, launched.proc, launched.pid, launched.cdp, version, front, launched.args, launched.unmatchedDrops, guard);
   }
 
   send(method: string, params: CdpParams = {}, sessionId: string | null = null, timeoutMs?: number): Promise<CdpResult> {

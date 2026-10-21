@@ -172,7 +172,8 @@ export type RecorderOptions = {
   dir: string;
   t: Transport;
   tabs: Tabs;
-  browser: { version: string; userAgent: string; webdriver: "hidden" | "visible" };
+  /** `launch`: 0.8.1-A, the command line as it goes into the manifest (docs/04 §42). */
+  browser: { version: string; userAgent: string; webdriver: "hidden" | "visible"; launch?: { args: string[]; extraArgs: string[]; dropArgs: string[] } };
   /** Console collector; its entries for this session's tabs become `console` events. */
   console?: ConsoleLog | null;
   /** Known-secret replacement for page-provided text (console). */
@@ -262,7 +263,7 @@ export class Recorder {
           version: TOOL_VERSION,
           daemon: TOOL_VERSION,
           extension: null,
-          browser: { name: "Chrome for Testing", version: o.browser.version.replace(/^[^/]*\//, ""), userAgent: o.browser.userAgent, webdriver: o.browser.webdriver },
+          browser: { name: "Chrome for Testing", version: o.browser.version.replace(/^[^/]*\//, ""), userAgent: o.browser.userAgent, webdriver: o.browser.webdriver, ...(o.browser.launch ?? {}) },
           platform: `${process.platform}-${process.arch}`,
         },
         session: { name: o.session, site: o.site?.site ?? null, account: o.site?.account ?? null, proxy: o.site?.proxy ?? null },

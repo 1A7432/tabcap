@@ -34,10 +34,31 @@ export function readConfig(file: string): TabcapConfig {
   return { chrome, proxy: str(raw, "proxy"), webdriver: str(raw, "webdriver") };
 }
 
-/** Write `chrome` / `proxy` / `webdriver`, keeping every other key of the file as it was. */
+/** Write `chrome` / `proxy` / `webdriver`, keeping every other key of the file (and of `chrome`, e.g. `args`) as it was. */
 export function writeConfig(file: string, cfg: TabcapConfig): void {
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  writeFileAtomic(file, JSON.stringify({ ...readRaw(file), ...cfg }, null, 2) + "\n");
+  const raw = readRaw(file);
+  const oldChrome = isRecord(raw["chrome"]) ? raw["chrome"] : {};
+  const chrome = cfg.chrome === null ? (raw["chrome"] ?? null) : { ...oldChrome, ...cfg.chrome };
+  writeFileAtomic(file, JSON.stringify({ ...raw, ...cfg, chrome }, null, 2) + "\n");
+}
+
+/**
+ * 0.8.1-A: `chrome.args` / `chrome.dropArgs`, the defaults for `browser start
+ * --chrome-arg` / `--drop-chrome-arg` (docs/04 §42). Absent = none; anything
+ * but a list of strings is an error (never silently ignored).
+ */
+export function readChromeArgsConfig(file: string): { add: string[]; drop: string[] } {
+  const c = readRaw(file)["chrome"];
+  const list = (key: string): string[] => {
+    const v = isRecord(c) ? c[key] : undefined;
+    if (v === undefined || v === null) return [];
+    if (!Array.isArray(v) || !v.every((x): x is string => typeof x === "string")) {
+      throw new TabcapError("bad-input", `config.json chrome.${key} must be a list of strings`, `Write it as "${key}": ["--name=value", …], or remove it.`);
+    }
+    return v;
+  };
+  return { add: list("args"), drop: list("dropArgs") };
 }
 
 // ------------------------------------------------------------ pool (0.4-D)

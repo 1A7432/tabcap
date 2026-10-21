@@ -27,6 +27,7 @@ import { redactedDetail, redactUrl, revealOf, withRedactedUrl, type LiveCtx } fr
 import { parseBodiesMode, type BodiesMode } from "../../shared/bodies.ts";
 import { readRecordBodies } from "../../shared/config.ts";
 import { allSiteRules } from "../siterules.ts";
+import { normalizedFlags } from "../../wire/profile.ts";
 
 /** 0.6-E: how a net command prints values (docs/04 §8.3); null with --reveal. */
 const liveCtx = (d: Daemon, a: Args): LiveCtx | null => (revealOf(a) ? null : { scrub: (s) => d.secrets.scrub(s) });
@@ -35,6 +36,12 @@ const liveCtx = (d: Daemon, a: Args): LiveCtx | null => (revealOf(a) ? null : { 
 export function bodiesOf(d: Daemon, a: Args): BodiesMode {
   const flag = optStr(a, "bodies");
   return flag === null ? readRecordBodies(d.paths.configFile) : parseBodiesMode(flag, "flag");
+}
+
+/** 0.8.1-A: the command line for the manifest: no local profile / extension path, known secrets replaced (docs/04 §42). */
+export function manifestLaunch(info: { args: string[]; extraArgs: string[]; dropArgs: string[] }, scrub: (s: string) => string): { args: string[]; extraArgs: string[]; dropArgs: string[] } {
+  const clean = (list: string[]) => normalizedFlags(list).map(scrub);
+  return { args: clean(info.args), extraArgs: clean(info.extraArgs), dropArgs: clean(info.dropArgs) };
 }
 
 export async function netStart(d: Daemon, a: Args, session: string): Promise<unknown> {
@@ -77,7 +84,7 @@ export async function netStart(d: Daemon, a: Args, session: string): Promise<unk
     dir,
     t,
     tabs,
-    browser: { version: info.version, userAgent: info.userAgent, webdriver: info.webdriver },
+    browser: { version: info.version, userAgent: info.userAgent, webdriver: info.webdriver, launch: manifestLaunch(info, (s) => d.secrets.scrub(s)) },
     console,
     scrub: (s) => d.secrets.scrub(s),
     site: bound,

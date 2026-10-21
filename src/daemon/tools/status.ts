@@ -18,8 +18,16 @@ export const STATUS_SCHEMA = "tabcap-status/0";
 
 export type StatusDaemon = { running: true; pid: number; version: string; listener: string; socket: string | null; port?: number; startedAt: number } | { running: false; listener: string };
 
-/** `webdriver`: 0.7.6-A, null while no browser runs (docs/04 §40). */
-export type StatusBrowser = { running: boolean; pid: number | null; mode: "direct" | "ext" | null; tabs: number; webdriver: "hidden" | "visible" | null };
+/** `webdriver`: 0.7.6-A (docs/04 §40); `extraArgs` / `dropArgs`: 0.8.1-A (§42); null while no browser runs. */
+export type StatusBrowser = {
+  running: boolean;
+  pid: number | null;
+  mode: "direct" | "ext" | null;
+  tabs: number;
+  webdriver: "hidden" | "visible" | null;
+  extraArgs: string[] | null;
+  dropArgs: string[] | null;
+};
 
 export type StatusRecording = { bundle: string; since: number; entries: number; decodePlugins: string[] };
 
@@ -252,7 +260,10 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
   const facts: StatusFacts = {
     schema: STATUS_SCHEMA,
     daemon,
-    browser: b === null ? { running: false, pid: null, mode: null, tabs: 0, webdriver: null } : { running: true, pid: b.info.pid, mode: b.t.kind, tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length, webdriver: b.info.webdriver },
+    browser:
+      b === null
+        ? { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null }
+        : { running: true, pid: b.info.pid, mode: b.t.kind, tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length, webdriver: b.info.webdriver, extraArgs: b.info.extraArgs, dropArgs: b.info.dropArgs },
     sessions,
     plugins: enabledPlugins(d.paths.config),
     handoff: d.guard
@@ -274,7 +285,7 @@ export function offlineStatus(configDir: string, listener: string): StatusAnswer
   const facts: StatusFacts = {
     schema: STATUS_SCHEMA,
     daemon: { running: false, listener },
-    browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null },
+    browser: { running: false, pid: null, mode: null, tabs: 0, webdriver: null, extraArgs: null, dropArgs: null },
     sessions: [],
     plugins: enabledPlugins(configDir),
     handoff: [],
@@ -291,6 +302,14 @@ const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
 const txt = (v: unknown): string => (typeof v === "string" ? v : typeof v === "number" || typeof v === "boolean" ? String(v) : "?");
 
 /** `tabcap status --text`: one screen — the daemon line, one line per session, then the conflicts. Reads the JSON defensively (it comes over the wire). */
+/** 0.8.1-A: `, chrome args +N -M` when the browser runs with custom args (docs/04 §42). */
+function chromeArgsText(br: Record<string, unknown>): string {
+  const n = (v: unknown): number => (Array.isArray(v) ? v.length : 0);
+  const add = n(br["extraArgs"]);
+  const drop = n(br["dropArgs"]);
+  return add + drop === 0 ? "" : `, chrome args +${add} -${drop}`;
+}
+
 export function renderStatusText(data: unknown): string {
   const s = rec(data);
   const dmn = rec(s["daemon"]);
@@ -299,7 +318,7 @@ export function renderStatusText(data: unknown): string {
   const plugins = [...strs(pl["decode"]).map((n) => `decode ${n}`), ...strs(pl["challenge"]).map((n) => `challenge ${n}`)];
   const head =
     dmn["running"] === true
-      ? `daemon pid ${txt(dmn["pid"])} (${txt(dmn["listener"])}) · ${br["running"] === true ? `browser pid ${txt(br["pid"])} ${txt(br["mode"])}, ${txt(br["tabs"])} tab(s), webdriver ${txt(br["webdriver"])}` : "browser not running"}`
+      ? `daemon pid ${txt(dmn["pid"])} (${txt(dmn["listener"])}) · ${br["running"] === true ? `browser pid ${txt(br["pid"])} ${txt(br["mode"])}, ${txt(br["tabs"])} tab(s), webdriver ${txt(br["webdriver"])}${chromeArgsText(br)}` : "browser not running"}`
       : "daemon not running (`tabcap daemon start`)";
   const lines = [`tabcap status · ${head} · plugins: ${plugins.length === 0 ? "none" : plugins.join(", ")}`];
   const sessions = recs(s["sessions"]);

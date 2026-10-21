@@ -2349,6 +2349,35 @@ export function startWebdriverSite(): WebdriverSite {
   return { origin: `http://127.0.0.1:${server.port}`, reports, stop: () => server.stop(true) };
 }
 
+// ---------------------------------------------------------------- 0.8.1-A: s71 custom Chrome args (docs/05 s71)
+// The page reports navigator.userAgent and navigator.webdriver by fetching
+// /s71/report; the server adds that request's User-Agent header. Oracle: the
+// server's log of reports, in arrival order.
+export type S71Report = { header: string; ua: string; webdriver: string };
+export type ChromeArgsSite = { origin: string; reports: S71Report[]; stop: () => void };
+
+const S71_PAGE = `<!doctype html><meta charset=utf-8><title>s71 chrome args</title><h1>s71</h1><script>
+fetch("/s71/report?ua=" + encodeURIComponent(navigator.userAgent) + "&webdriver=" + String(navigator.webdriver));
+</script>`;
+
+export function startChromeArgsSite(): ChromeArgsSite {
+  const reports: S71Report[] = [];
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      if (u.pathname === "/s71") return new Response(S71_PAGE, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      if (u.pathname === "/s71/report") {
+        reports.push({ header: req.headers.get("user-agent") ?? "", ua: u.searchParams.get("ua") ?? "", webdriver: u.searchParams.get("webdriver") ?? "" });
+        return new Response("ok", { headers: { "cache-control": "no-store" } });
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, reports, stop: () => server.stop(true) };
+}
+
 // ---------------------------------------------------------------- 0.8-A: s67–s70 protection families (docs/05 §16)
 // One server for all four scenarios. Pages and stubs are our own; only NAMES
 // (cookie names, host names, globals, class names) match the families of
