@@ -142,6 +142,16 @@ function stillWaiting(session: string, h: Handoff, message: string, next: string
   return new TabcapError("waiting", message, next, { state: "waiting", reason: h.reason, waitedMs: Date.now() - started, handoff: handoffView(h) });
 }
 
+/** --until-* look at the handoff's tab; it was closed (the human closed it, a login popup closed itself). */
+function tabGone(session: string, h: Handoff, started: number): TabcapError {
+  return new TabcapError(
+    "no-tab",
+    `the handoff's tab ${h.tab} of session "${session}" was closed, so no --until-* condition can be checked there; session "${session}" still waits`,
+    `When the user tells you they are done, run \`tabcap handoff continue${sessionFlag(session)}\`; \`tabcap handoff wait${sessionFlag(session)}\` without --until-* waits for that (over MCP: ${MCP_CONTINUE}, ${MCP_WAIT}).`,
+    { state: "waiting", reason: h.reason, waitedMs: Date.now() - started, handoff: handoffView(h) },
+  );
+}
+
 export async function handoffWait(d: Daemon, a: Args, session: string): Promise<unknown> {
   const conds = parseUntil(a);
   const timeoutMs = handoffWaitTimeout(a);
@@ -155,8 +165,15 @@ export async function handoffWait(d: Daemon, a: Args, session: string): Promise<
       `Look at the response (\`tabcap net body ${h.request ?? "<r-N>"}${sessionFlag(session)}\`), decide with the user, then \`tabcap handoff continue${sessionFlag(session)}\`${h.site === null ? "" : ` or \`tabcap guard resume --site ${h.site}\``}; \`tabcap handoff wait${sessionFlag(session)}\` without --until-* waits for that (over MCP: ${MCP_CONTINUE}, ${MCP_WAIT}).`,
     );
   }
-  const b = conds.length > 0 ? d.need() : d.browser;
-  const scope = b === null ? null : new FrameScope(b.t, b.tabs, b.tabs.pick(session, h.tab));
+  // Owner 10-21: without --until-* this only waits for the human and never touches the tab (it may be closed).
+  const b = conds.length > 0 ? d.need() : null;
+  const handoffTab = (): Tab => {
+    if (b === null) throw new TabcapError("internal", "no browser for the handoff's tab", "This is a bug.");
+    const tab = b.tabs.tabs.get(h.tab);
+    if (tab === undefined || tab.closed || tab.session !== session) throw tabGone(session, h, started);
+    return tab;
+  };
+  const scope = b === null ? null : new FrameScope(b.t, b.tabs, handoffTab());
   if (h.started !== undefined) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([h.started, new Promise<void>((r) => (timer = setTimeout(r, BASELINE_WAIT_MS)))]);
@@ -176,7 +193,7 @@ export async function handoffWait(d: Daemon, a: Args, session: string): Promise<
     for (let round = 0; ; round++) {
       if (d.guard.get(session) !== h || h.state !== "waiting") return view(session, h, started);
       if (conds.length > 0 && b !== null && scope !== null) {
-        const tab = b.tabs.pick(session, h.tab);
+        const tab = handoffTab();
         const results: Array<{ holds: boolean | null; detail: Record<string, unknown> }> = [];
         for (const c of conds) results.push(await check(b.t, tab, c, scope));
         if (d.guard.get(session) !== h || h.state !== "waiting") return view(session, h, started);

@@ -155,6 +155,13 @@ export type HandoffBaseline = { url: string | null; cookies: string[] | null };
 /** 0.7-E: how long an answer waits for a hand-off screenshot still being taken. */
 export const SHOT_WAIT_MS = 5000;
 
+/** Owner 10-21: a handoff that ended because its browser or session went away (Guard.drop). */
+const RESUMED_NEXT: Readonly<Record<string, string>> = {
+  "browser-gone": "The browser went away and the handoff with it; start it again (`tabcap browser start`) before going on.",
+  "session-stop": "The session was stopped and its handoff with it.",
+};
+
+
 /** Live output (docs/04 §8.3): the envelope scrubber replaces known secrets afterwards, so the redaction needs none here. */
 const SHOWN: LiveCtx = { scrub: (s) => s };
 
@@ -178,7 +185,7 @@ export function handoffView(h: Handoff, c: LiveCtx = SHOWN): Record<string, unkn
     ...(h.input === undefined ? {} : { input: h.input }),
     ...(h.condition === undefined ? {} : { condition: h.condition }),
     ...(h.protection === undefined || h.protection.length === 0 ? {} : { protection: h.protection }),
-    next: h.state === "waiting" ? nextOf(h) : h.resumedBy?.startsWith("plugin:") === true ? "A challenge handler answered (untrusted data in handlers[].answer); apply it if it fits, then go on." : "Go on.",
+    next: h.state === "waiting" ? nextOf(h) : h.resumedBy?.startsWith("plugin:") === true ? "A challenge handler answered (untrusted data in handlers[].answer); apply it if it fits, then go on." : (RESUMED_NEXT[h.resumedBy ?? ""] ?? "Go on."),
   };
 }
 
@@ -858,6 +865,27 @@ export class Guard {
   isHumanActive(session: string): boolean {
     const h = this.handoffs.get(session);
     return h !== undefined && h.state === "waiting" && h.humanActive === true;
+  }
+
+  /**
+   * Owner 10-21 (docs/04 §39): forget a session's handoff (`session stop`), or every handoff
+   * (`session` null: the browser went away, nothing is left to wait for). One still waiting ends
+   * as resumed by `by`; for `browser-gone` the `handoff` resumed event goes into the session's
+   * recording when it still runs (before the recordings are finished). Fetch stops stay: lifting
+   * them needs a decision (`guard resume --site`).
+   */
+  drop(session: string | null, by: "browser-gone" | "session-stop"): void {
+    for (const h of [...this.handoffs.values()]) {
+      if (session !== null && h.session !== session) continue;
+      this.handoffs.delete(h.session);
+      if (h.state !== "waiting") continue;
+      h.state = "resumed";
+      h.resumedAt = Date.now();
+      h.resumedBy = by;
+      if (by === "browser-gone") this.recorder?.(h.session)?.event("handoff", { state: "resumed", reason: h.reason, question: null, timeoutMs: null, answerRef: null, by }, { tab: h.tab });
+      log.info("guard: handoff dropped", { session: h.session, by });
+      this.emitState(h.session, "resumed");
+    }
   }
 
   /** Set by the daemon: the session's current recorder (for resume events). */

@@ -175,6 +175,8 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
 export async function browserStop(d: Daemon): Promise<unknown> {
   const b = d.browser;
   if (b === null) return { stopped: false, running: false };
+  // Owner 10-21 (as Daemon.browserGone): the handoffs end with the browser, their event before the recordings finish.
+  d.guard.drop(null, "browser-gone");
   const bundles: string[] = [];
   for (const [name, r] of d.recorders) {
     const res = await r.stop();
