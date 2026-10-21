@@ -10,48 +10,20 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isRecord } from "../../src/shared/json.ts";
 import { OVERLAY_EXPECTED, OVERLAY_PAGES, startOverlaySite, type OverlayPage, type Site } from "./site.ts";
+import { cliFor, rec, recs, s, until, type Env } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const S = ["--session", "ov"];
 
 let home = "";
 let site: Site;
 
-type Env = { ok: boolean; data: Record<string, unknown>; error?: Record<string, unknown>; raw: string };
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
-
-async function tabcap(...args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdout: "pipe", stderr: "pipe" });
-  const out = await new Response(p.stdout).text();
-  await p.exited;
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), ...(isRecord(env["error"]) ? { error: env["error"] } : {}), raw: out };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(...args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${JSON.stringify(e.error)}`);
-  return e.data;
-}
-
-async function until<T>(what: string, f: () => Promise<T>, good: (v: T) => boolean, ms = 15_000): Promise<T> {
-  const end = Date.now() + ms;
-  let v = await f();
-  while (!good(v)) {
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await Bun.sleep(150);
-    v = await f();
-  }
-  return v;
-}
+const cli = cliFor(() => home);
+const tabcap = (...args: string[]): Promise<Env> => cli.tabcap(args);
+const { ok } = cli;
 
 const hits = async (): Promise<Record<string, unknown>> => rec((await ok("evaluate", "window.__hits", ...S))["value"]);
 /** The clickable ref `find` gives for a named control (refs are per DOM node, so the same node has the same ref). */

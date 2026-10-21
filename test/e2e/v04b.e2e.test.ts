@@ -11,13 +11,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PredefinedNetworkConditions } from "../../src/daemon/tools/emulatespec.ts";
-import { isRecord } from "../../src/shared/json.ts";
 import { BIG_BYTES, startThrottleSite, type Site } from "./site.ts";
+import { cliFor, rec, type Env } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const S = ["--session", "thr"];
 
 // The slowest throttling preset (Offline aside): "Slow 3G", download in bytes per second.
@@ -27,26 +26,12 @@ const DOWNLOAD = PredefinedNetworkConditions[PRESET].download; // (500 * 1000 / 
 // (300000 / 50000 = 6 s); the preset's latency (2000 ms) and the headers only add to it.
 const LOWER_BOUND_MS = (BIG_BYTES / DOWNLOAD) * 1000;
 
-type Env = { ok: boolean; data: Record<string, unknown>; error?: Record<string, unknown> };
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
-
 let home = "";
 let site: Site;
 
-async function tabcap(...args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdout: "pipe", stderr: "pipe" });
-  const out = await new Response(p.stdout).text();
-  await p.exited;
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), ...(isRecord(env["error"]) ? { error: env["error"] } : {}) };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(...args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${JSON.stringify(e.error)}`);
-  return e.data;
-}
+const cli = cliFor(() => home);
+const tabcap = (...args: string[]): Promise<Env> => cli.tabcap(args);
+const { ok } = cli;
 
 /** One timed transfer of /big, measured by the page: wall ms and bytes received. */
 async function timedFetch(label: string): Promise<{ ms: number; bytes: number }> {

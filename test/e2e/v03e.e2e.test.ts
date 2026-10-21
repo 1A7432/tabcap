@@ -13,11 +13,11 @@ import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { clickRhythm, clickSegment, collapseMoves, diffEvents, formatDiff, RHYTHM_FIELDS, typingSegment, type Ev } from "./eventshape.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, startGuardSite, startProbeSite, type GuardSite, type ProbeSite } from "./site.ts";
+import { cliFor, rec, recs, s, until as poll, type Env } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const ORACLE_DIR = join(import.meta.dir, "..", "..", "fixtures", "probe", "oracle");
 const TEXT = "aB3 中";
 
@@ -26,11 +26,6 @@ let probe: ProbeSite;
 let guard: GuardSite;
 /** Every byte any tabcap command printed (stdout and stderr), for A7.10. */
 const printed: string[] = [];
-
-type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown> | null; raw: string };
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
 
 /**
  * 0.7.3: a trusted click on a navigating link succeeds either way; which proof it carries depends on
@@ -43,32 +38,12 @@ function deliveredOrNavigated(c: Record<string, unknown>): void {
   else expect(d).toMatchObject({ pointerdown: true, mousedown: true });
 }
 
-async function tabcap(...args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdout: "pipe", stderr: "pipe" });
-  const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  await p.exited;
-  printed.push(out, err);
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), error: isRecord(env["error"]) ? env["error"] : null, raw: out };
-}
+const cli = cliFor(() => home, { onOutput: (out, err) => printed.push(out, err) });
+const tabcap = (...args: string[]): Promise<Env> => cli.tabcap(args);
+const { ok } = cli;
 
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(...args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${JSON.stringify(e.error)}`);
-  return e.data;
-}
-
-async function until<T>(what: string, f: () => Promise<T> | T, good: (v: T) => boolean, ms = 15_000): Promise<T> {
-  const end = Date.now() + ms;
-  let v = await f();
-  while (!good(v)) {
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await Bun.sleep(100);
-    v = await f();
-  }
-  return v;
-}
+/** until(), polling every 100 ms. */
+const until = <T>(what: string, f: () => Promise<T> | T, good: (v: T) => boolean, ms = 15_000): Promise<T> => poll(what, f, good, ms, 100);
 
 function oracle(mode: string): Ev[] {
   const f = readdirSync(ORACLE_DIR).find((n) => n.endsWith(`-${mode}.json`));

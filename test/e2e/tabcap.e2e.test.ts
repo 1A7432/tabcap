@@ -11,11 +11,11 @@ import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { pngInfo, pngIsUniform } from "../../src/shared/png.ts";
 import { SLOW_MS, startSmokeSite, startSite, type Site } from "./site.ts";
+import { cliFor, okData, s, type Env } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const PASSWORD = "e2e-Pw-7f3k!Zq";
 const S = "e2e";
 
@@ -45,36 +45,21 @@ function frontmostProcess(): Front | null {
   return p.exitCode === 0 && Number.isSafeInteger(n) && n > 0 ? { pid: n, name: name.join("\n") } : null;
 }
 
-type Env = { ok: boolean; data: Record<string, unknown>; error?: { code: string; message: string; next: string } };
+const cli = cliFor(() => home, { onOutput: (out, stderr) => outputs.push(out, stderr) });
 
+/** A run, with the frontmost app recorded after it (focus rule above). */
 async function tabcap(...args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdout: "pipe", stderr: "pipe" });
-  const [out, stderr] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  await p.exited;
-  outputs.push(out, stderr);
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
+  const e = await cli.tabcap(args);
   if (front !== null) {
     const now = frontmostProcess();
     if (now?.pid !== front.pid) frontChanges.push({ cmd: args.join(" "), to: now });
     if (now !== null) front = now;
   }
-  const e = env["error"];
-  const err = isRecord(e) ? e : null;
-  return {
-    ok: env["ok"],
-    data: isRecord(env["data"]) ? env["data"] : {},
-    ...(err === null ? {} : { error: { code: s(err["code"]), message: s(err["message"]), next: s(err["next"]) } }),
-  };
+  return e;
 }
 
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(...args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${JSON.stringify(e.error)}`);
-  return e.data;
-}
+const ok = async (...args: string[]): Promise<Record<string, unknown>> => okData(await tabcap(...args), args);
 
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
 const refOf = (tree: string, re: RegExp): string => {
   const m = re.exec(tree);
   if (m === null || m[1] === undefined) throw new Error(`no ${re} in\n${tree}`);

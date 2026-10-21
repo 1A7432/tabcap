@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { startSite, type Site } from "./site.ts";
+import { rec, tabcap } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
@@ -92,15 +93,8 @@ class Client {
 }
 
 async function cli(args: string[]): Promise<Msg> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [out] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  await p.exited;
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env)) throw new Error(`not an envelope: ${out}`);
-  return env;
+  return (await tabcap(home, args)).envelope;
 }
-
-const rec = (v: unknown): Msg => (isRecord(v) ? v : {});
 
 /** Drop what differs between two runs of the same read-only command: the per-command `cmd` window id. */
 function stable(v: unknown): unknown {

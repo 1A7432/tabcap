@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, WALL_CODE, WALL_MARKER, startGuardSite, type GuardSite } from "./site.ts";
+import { cliFor, rec, recs, s, until } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 // POSIX file modes do not exist on Windows (files get the profile's default ACL, docs/08): mode checks skip there.
@@ -17,7 +18,6 @@ const POSIX_MODES = process.platform !== "win32";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const FAKE = join(import.meta.dir, "..", "fixtures", "plugins", "fake-verify");
 const SITE = "range-demo";
 const REF = `<secret:${SITE}.password>`;
@@ -27,48 +27,7 @@ let site: GuardSite;
 /** Every byte any tabcap command printed (stdout and stderr), for the leak check. */
 const printed: string[] = [];
 
-type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown> | null; raw: string; exit: number };
-
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
-
-async function tabcap(args: string[], stdin?: string): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], {
-    env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME },
-    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  const exit = await p.exited;
-  printed.push(out, err);
-  let env: unknown = null;
-  try {
-    env = JSON.parse(out);
-  } catch {
-    return { ok: exit === 0, data: {}, error: null, raw: out, exit };
-  }
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), error: isRecord(env["error"]) ? env["error"] : null, raw: out, exit };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${JSON.stringify(e.error)}`);
-  return e.data;
-}
-
-async function until<T>(what: string, f: () => Promise<T>, good: (v: T) => boolean, ms = 15_000): Promise<T> {
-  const end = Date.now() + ms;
-  let v = await f();
-  while (!good(v)) {
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await Bun.sleep(150);
-    v = await f();
-  }
-  return v;
-}
+const { tabcap, ok } = cliFor(() => home, { nonJson: "exit", onOutput: (out, err) => printed.push(out, err) });
 
 function walk(dir: string): string[] {
   const out: string[] = [];

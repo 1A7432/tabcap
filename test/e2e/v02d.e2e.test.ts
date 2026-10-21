@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { frontmostApp, isChromeApp } from "../../src/daemon/transport/direct/launcher.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { DATA_IMAGES, POST_PAD, SCAN_PORTS, SIGN_HEADER, SIGN_VALUE, startFieldSite, type Site } from "./site.ts";
+import { cliFor, rec, recs, s, until, type Env as CliEnv } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 // POSIX file modes do not exist on Windows (files get the profile's default ACL, docs/08): mode checks skip there.
@@ -20,57 +21,24 @@ const POSIX_MODES = process.platform !== "win32";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const S = "field";
 
 let home = "";
 let site: Site;
 
-type Env = { ok: boolean; data: Record<string, unknown>; error?: { code: string; message: string; next: string }; raw: string; exit: number };
+type Env = Omit<CliEnv, "error"> & { error?: { code: string; message: string; next: string } };
 
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
 const sha = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
-const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
 
+const cli = cliFor(() => home, { nonJson: "exit" });
+
+/** A run with its error's code / message / next as strings, and no error field when it has none. */
 async function tabcap(...args: string[]): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], { env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME }, stdout: "pipe", stderr: "pipe" });
-  const out = await new Response(p.stdout).text();
-  const exit = await p.exited;
-  let env: unknown = null;
-  try {
-    env = JSON.parse(out);
-  } catch {
-    return { ok: exit === 0, data: {}, raw: out, exit };
-  }
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  const e = env["error"];
-  const err = isRecord(e) ? e : null;
-  return {
-    ok: env["ok"],
-    data: isRecord(env["data"]) ? env["data"] : {},
-    ...(err === null ? {} : { error: { code: s(err["code"]), message: s(err["message"]), next: s(err["next"]) } }),
-    raw: out,
-    exit,
-  };
+  const { error, ...e } = await cli.tabcap(args);
+  return { ...e, ...(error === null ? {} : { error: { code: s(error["code"]), message: s(error["message"]), next: s(error["next"]) } }) };
 }
 
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(...args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${JSON.stringify(e.error)}`);
-  return e.data;
-}
-
-async function until<T>(what: string, f: () => Promise<T>, good: (v: T) => boolean, ms = 15_000): Promise<T> {
-  const end = Date.now() + ms;
-  let v = await f();
-  while (!good(v)) {
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await Bun.sleep(150);
-    v = await f();
-  }
-  return v;
-}
+const { ok } = cli;
 
 /** Ground truth for s20: which of the scanned ports really refuse connections here. */
 async function closedPort(port: number): Promise<boolean> {

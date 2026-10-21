@@ -15,15 +15,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BundleReader } from "../../src/bundle/reader.ts";
 import { Store } from "../../src/daemon/store/db.ts";
-import { isRecord } from "../../src/shared/json.ts";
 import { paths } from "../../src/shared/paths.ts";
 import { startForwardProxy, type FwdProxy } from "./fwdproxy.ts";
 import { startPoolSite, type PoolSite } from "./site.ts";
+import { cliFor, rec, s } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
 const enabled = process.env["TABCAP_E2E"] === "1" && CHROME !== "";
-const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 const SITE = "example";
 const P1 = { user: "pool1", pass: "e2e-Pool1:pw/7f3a!" };
 const P2 = { user: "pool2", pass: "e2e-Pool2 pw&c41d" };
@@ -38,30 +37,7 @@ let px1: FwdProxy;
 let px2: FwdProxy;
 const outputs: string[] = [];
 
-type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown> | null; raw: string };
-const s = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
-const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
-
-async function tabcap(args: string[], stdin?: string): Promise<Env> {
-  const p = Bun.spawn(["bun", MAIN, ...args], {
-    env: { ...process.env, TABCAP_HOME: home, TABCAP_CHROME: CHROME, TABCAP_LOG: "debug" },
-    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  await p.exited;
-  outputs.push(out, err);
-  const env: unknown = JSON.parse(out);
-  if (!isRecord(env) || typeof env["ok"] !== "boolean") throw new Error(`not an envelope: ${out}`);
-  return { ok: env["ok"], data: rec(env["data"]), error: isRecord(env["error"]) ? env["error"] : null, raw: out };
-}
-
-async function ok(...args: string[]): Promise<Record<string, unknown>> {
-  const e = await tabcap(args);
-  if (!e.ok) throw new Error(`tabcap ${args.join(" ")} failed: ${e.raw}`);
-  return e.data;
-}
+const { tabcap, ok } = cliFor(() => home, { env: { TABCAP_LOG: "debug" }, onOutput: (out, err) => outputs.push(out, err) });
 
 function walk(dir: string): string[] {
   if (!existsSync(dir)) return [];
