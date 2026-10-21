@@ -96,12 +96,37 @@ describe("tabcap update against a local registry", () => {
     return p;
   };
   const argvFile = join(dir, "npm-argv.txt");
+  // A fake npm writes its arguments to argvFile, one per line, prints a line on each
+  // output and exits with `code`. POSIX: a sh script. Windows: a .cmd batch file, the
+  // kind of npm a global install has there (npmForBinary -> <prefix>\npm.cmd), so the
+  // tests also show that Bun.spawn runs a .cmd directly. The batch file loops over %1
+  // with shift (any number of arguments); each redirection comes first on its line so
+  // an argument ending in a digit (tabcap@x.y.z) is not read as a handle number; echo
+  // ends lines with CRLF, which readArgv folds back.
   const fakeNpm = (name: string, code: number): string => {
+    if (process.platform === "win32") {
+      const p = join(dir, `${name}.cmd`);
+      const lines = ["@echo off", `type nul > "${argvFile}"`, ":next", 'if "%~1"=="" goto done', `>> "${argvFile}" echo %~1`, "shift", "goto next", ":done", "echo fake npm says hi", ">&2 echo fake npm warns", `exit /b ${code}`];
+      writeFileSync(p, lines.join("\r\n") + "\r\n");
+      return p;
+    }
     const p = join(dir, name);
     writeFileSync(p, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argvFile}'\necho "fake npm says hi"\necho "fake npm warns" >&2\nexit ${code}\n`);
     chmodSync(p, 0o755);
     return p;
   };
+  const readArgv = (): string => readFileSync(argvFile, "utf8").replaceAll("\r\n", "\n");
+  // Windows creates a symlink only with the privilege (elevated, or Developer Mode).
+  const canSymlink = ((): boolean => {
+    const probe = join(dir, "symlink-probe");
+    try {
+      writeFileSync(`${probe}.target`, "");
+      symlinkSync(`${probe}.target`, probe);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
   let latest = "0.0.0";
   let server: Server<undefined>;
   const saved: Record<string, string | undefined> = {};
@@ -174,8 +199,7 @@ describe("tabcap update against a local registry", () => {
     expect(existsSync(argvFile)).toBe(false);
   });
 
-  // The fake npm is a POSIX shell script.
-  test.skipIf(process.platform === "win32")("npm channel: runs npm install -g tabcap@<latest>", async () => {
+  test("npm channel: runs npm install -g tabcap@<latest>", async () => {
     latest = newer();
     const npm = fakeNpm("npm-ok", 0);
     setEnv("TABCAP_NPM", npm);
@@ -183,10 +207,10 @@ describe("tabcap update against a local registry", () => {
     expect(code).toBe(0);
     if (!envelope.ok) throw new Error(envelope.error.message);
     expect(envelope.data).toMatchObject({ updateAvailable: true, channel: "npm", action: "installed", npm: { command: [npm, "install", "-g", `tabcap@${latest}`] } });
-    expect(readFileSync(argvFile, "utf8")).toBe(`install\n-g\ntabcap@${latest}\n`);
+    expect(readArgv()).toBe(`install\n-g\ntabcap@${latest}\n`);
   });
 
-  test.skipIf(process.platform === "win32")("npm channel through a symlink: matched on the resolved path, the given path answered", async () => {
+  test.skipIf(!canSymlink)("npm channel through a symlink: matched on the resolved path, the given path answered", async () => {
     latest = newer();
     const link = join(dir, "tabcap-link");
     if (!existsSync(link)) symlinkSync(npmExe, link);
@@ -196,7 +220,7 @@ describe("tabcap update against a local registry", () => {
     expect(envelope.data).toMatchObject({ channel: "npm", executable: link, action: "check" });
   });
 
-  test.skipIf(process.platform === "win32")("npm failing -> error envelope with its exit code and output", async () => {
+  test("npm failing -> error envelope with its exit code and output", async () => {
     latest = newer();
     setEnv("TABCAP_NPM", fakeNpm("npm-fail", 1));
     const { code, envelope } = await update(npmExe);
@@ -208,6 +232,7 @@ describe("tabcap update against a local registry", () => {
     expect(envelope.error.next).toContain(`npm install -g tabcap@${latest}`);
   });
 
+  // The fake brew is a POSIX shell script, and Homebrew does not exist on Windows.
   test.skipIf(process.platform === "win32")("--check on Homebrew: compares, spawns nothing", async () => {
     latest = newer();
     rmSync(argvFile, { force: true });
@@ -220,7 +245,6 @@ describe("tabcap update against a local registry", () => {
     expect(existsSync(argvFile)).toBe(false);
   });
 
-  // The fake brew is a POSIX shell script, and Homebrew does not exist on Windows.
   test.skipIf(process.platform === "win32")("Homebrew channel: runs brew upgrade tabcap; the new keg means installed", async () => {
     latest = newer();
     const brew = fakeBrew("brew-ok", 0, latest);
