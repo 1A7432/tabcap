@@ -213,6 +213,16 @@ jobs:
           version: 0.16.0
       - name: wire binary (host)
         run: bun scripts/native.ts build --host
+      # One throwaway browser before the tests (scripts/e2e-warmup.ts: daemon, browser,
+      # a data: page, a screenshot, stop), so the shard's first file does not pay for a
+      # cold runner (main run 39608432213: a paint stall 7 s after the first start).
+      # The shard runs whatever the warm-up says.
+      - name: e2e warm-up
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          display() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 2560x1440x24" "$@"; else "$@"; fi; }
+          display bun scripts/e2e-warmup.ts
       - name: L2 e2e
         env:
           # v04w copies the Chrome for Testing wire profile it captures here (uploaded below).
