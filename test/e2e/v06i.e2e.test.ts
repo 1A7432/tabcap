@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { S54_ROWS, S55_STATUSES, startBodiesSite, type BodiesSite } from "./site.ts";
-import { cliFor, rec, s } from "./_cli.ts";
+import { byStart, cliFor, rec, s } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
@@ -145,8 +145,9 @@ describe.skipIf(!enabled)("tabcap 0.6-I L2 (body capture by resource type, site-
     expect(site.api.map((a) => a.status)).toEqual([...S55_STATUSES, 200]);
     await ok("net", "stop", ...S);
     // the bundle: the tripping request is the fourth /s55/api, a 500; breaker, waiting, resumed
+    // (the requests in the order they started, not their place in events.jsonl: byStart)
     const evs = events(bundle);
-    const apiReqs = evs.filter((e) => e["kind"] === "request" && new URL(s(e["url"])).pathname === "/s55/api");
+    const apiReqs = evs.filter((e) => e["kind"] === "request" && new URL(s(e["url"])).pathname === "/s55/api").sort(byStart);
     expect(apiReqs.map((e) => rec(e["response"])["status"])).toEqual([...S55_STATUSES, 200]);
     const tripped = apiReqs[3];
     expect(h["request"]).toBe(tripped?.["id"]);
