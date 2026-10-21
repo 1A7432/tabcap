@@ -36,7 +36,7 @@
 // Reproduce: bun test test/unit/embedded.test.ts
 
 import { createHash } from "node:crypto";
-import { decodeBase64Strict, decodeHtmlEntities } from "./decoders.ts";
+import { decodeBase64Strict, decodeHtmlEntities } from "./codecs.ts";
 
 export const MAX_SCRIPT_JSON_BYTES = 4 * 1024 * 1024;
 export const MAX_ASSIGNMENTS = 64;

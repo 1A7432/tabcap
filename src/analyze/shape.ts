@@ -38,12 +38,11 @@ import type { RequestEvent, ResourceType } from "../bundle/types.ts";
 import { RESOURCE_TYPES } from "../bundle/reader.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { bundleList } from "../shared/paths.ts";
+import { STEP_CAP, decodeBase64Strict } from "./codecs.ts";
 import {
-  STEP_CAP,
   STEP_NAMES,
   baseMime,
   binaryMagic,
-  decodeBase64Strict,
   decompress,
   extractJsonp,
   isBinaryMime,

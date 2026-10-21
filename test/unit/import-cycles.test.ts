@@ -1,6 +1,6 @@
-// Layering (review wave 2): the static runtime import graph of src/ has no
-// cycle through the modules below, the core daemon layer does not import
-// tools/fetch.ts, and bundle/usage.ts does not import daemon/fetch.
+// Layering (review waves 2 and 3): the static runtime import graph of src/
+// has no cycle at all, the core daemon layer does not import tools/fetch.ts,
+// and bundle/usage.ts does not import daemon/fetch.
 // Type-only imports are left out (Bun.Transpiler drops them; tsconfig has
 // verbatimModuleSyntax, so a runtime import is always written as one).
 // Offline and deterministic: it reads the source files only.
@@ -81,16 +81,25 @@ function cycles(g: Map<string, string[]>): string[][] {
 const graph = importGraph();
 const cyclic = cycles(graph);
 
-describe("import layering (review wave 2)", () => {
+describe("import layering (review waves 2 and 3)", () => {
   test("the scan sees the source tree", () => {
     expect(graph.size).toBeGreaterThan(100);
     expect(graph.get("daemon/tools/snapshot.ts")).toContain("daemon/browser/doc.ts");
+  });
+
+  test("no runtime import cycle anywhere in src/ (wave 3: analyze/decoders <-> analyze/embedded was the last)", () => {
+    expect(cyclic).toEqual([]);
   });
 
   test("no runtime import cycle through snapshot / challenge / landing / navigate / protection/live, or siterules / tools/fetch", () => {
     const watched = ["daemon/tools/snapshot.ts", "daemon/tools/challenge.ts", "daemon/tools/landing.ts", "daemon/tools/navigate.ts", "daemon/protection/live.ts", "daemon/siterules.ts", "daemon/tools/fetch.ts"];
     for (const m of watched) expect(graph.has(m)).toBe(true);
     expect(cyclic.filter((c) => c.some((m) => watched.includes(m)))).toEqual([]);
+  });
+
+  test("the text codecs shared by the decode chain and the embedded-state scanner live in analyze/codecs.ts, a leaf module", () => {
+    expect(graph.get("analyze/codecs.ts")).toEqual([]);
+    expect(graph.get("analyze/embedded.ts")).not.toContain("analyze/decoders.ts");
   });
 
   test("bundle/usage.ts does not import daemon/fetch (the JSON path parser is shared/jsonpath.ts)", () => {

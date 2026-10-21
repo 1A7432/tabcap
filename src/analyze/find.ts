@@ -27,11 +27,9 @@ import { parseInlineOrBlob, BundleReader } from "../bundle/reader.ts";
 import type { RawEvent, RequestEvent } from "../bundle/types.ts";
 import {
   Explorer,
-  STEP_CAP,
   STEP_NAMES,
   baseMime,
   binaryMagic,
-  decodeHtmlEntities,
   isBinaryMime,
   isCompressedMime,
   isPluginStep,
@@ -42,6 +40,7 @@ import {
   type OpaqueNode,
   type StepName,
 } from "./decoders.ts";
+import { STEP_CAP, decodeHtmlEntities } from "./codecs.ts";
 import { decodedPayload, viewProblem } from "./views.ts";
 
 export const MAX_HITS = 50;

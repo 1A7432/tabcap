@@ -50,7 +50,8 @@ import { BundleReader } from "../bundle/reader.ts";
 import { isSensitiveHeaderName, isSensitiveName } from "../bundle/redact.ts";
 import type { RawEvent, RequestEvent } from "../bundle/types.ts";
 import { classifyGroup, groupRequests, headerValues, singleSampleParams, splitKey, type DiffParam, type ParamLocation } from "./diff.ts";
-import { Explorer, STEP_CAP, baseMime, binaryMagic, isBinaryMime, jsonPathIndex, jsonPathKey, parseJsonDoc, type DecodeHit, type Matcher, type StepName } from "./decoders.ts";
+import { STEP_CAP } from "./codecs.ts";
+import { Explorer, baseMime, binaryMagic, isBinaryMime, jsonPathIndex, jsonPathKey, parseJsonDoc, type DecodeHit, type Matcher, type StepName } from "./decoders.ts";
 import { decodedPayload } from "./views.ts";
 
 export const DEPS_SCHEMA = "tabcap-deps/0";

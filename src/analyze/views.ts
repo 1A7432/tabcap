@@ -8,7 +8,8 @@
 // Oracle: test/unit/decode-views.test.ts (bundles with planted views).
 
 import type { DecodedView } from "../bundle/decoded.ts";
-import { STEP_CAP, pluginStep, type StepName } from "./decoders.ts";
+import { STEP_CAP } from "./codecs.ts";
+import { pluginStep, type StepName } from "./decoders.ts";
 
 export type ViewPayload = { bytes: Uint8Array; mime: string | null; prefix: StepName[]; by: string; link?: "strong" | "weak" };
 
