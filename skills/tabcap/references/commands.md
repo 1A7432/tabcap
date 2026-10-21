@@ -106,7 +106,7 @@ Example: `tabcap browser start --proxy none --chrome-arg=--lang=en-US`
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--proxy <mode>` |  | system (default) \| none (block everything but 127.0.0.1/localhost) \| <url> (loopback goes through the proxy too) |
+| `--proxy <mode>` |  | system (default) \| none (block everything but 127.0.0.1/localhost) \| <url> (scheme://host:port, loopback goes through the proxy too; no user:pass@: a proxy with a password goes into the store with `tabcap proxy add`) |
 | `--webdriver <mode>` |  | hidden (default: navigator.webdriver reads false, a launch switch, no page script) \| visible (Chrome's own value); default from config.json webdriver |
 | `--foreground` |  | open new tabs as the active tab of the window (still never steals the macOS foreground) |
 | `--executable-path <path>` |  | Chrome for Testing binary (else $TABCAP_CHROME, config.json, cache) |

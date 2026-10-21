@@ -88,10 +88,24 @@ export function parseWebdriver(value: string | undefined | null): WebdriverMode 
 
 export type ProxyMode = { kind: "system" } | { kind: "none" } | { kind: "url"; url: string };
 
-/** `system` (default: pass nothing), `none` (black-hole proxy), or a proxy URL. */
+/** `scheme://user[:pass]@…`: credentials in the URL's authority. */
+const URL_USERINFO = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i;
+
+/**
+ * `system` (default: pass nothing), `none` (black-hole proxy), or a proxy URL.
+ * Review 10-21: a URL with credentials is refused without echoing it (they would
+ * sit in argv, the answers and the manifest, and Chrome does not use them).
+ */
 export function parseProxy(value: string | undefined | null): ProxyMode {
   if (value === undefined || value === null || value === "" || value === "system") return { kind: "system" };
   if (value === "none") return { kind: "none" };
+  if (URL_USERINFO.test(value)) {
+    throw new TabcapError(
+      "usage",
+      "--proxy carries credentials (value not shown); credentials never go on a command line",
+      "Store an authenticated proxy once with `tabcap proxy add <name> --url scheme://host:port --user <user>` (the password at its prompt), then `tabcap account bind <site>.<user> --proxy <name>`: sessions started with `--site <site>` go out through it. `browser start --proxy` (and config.json proxy) take scheme://host:port only.",
+    );
+  }
   if (!/^(https?|socks[45]?):\/\/[^\s]+$/i.test(value) && !/^[\w.-]+:\d+$/.test(value)) {
     throw new TabcapError("usage", `bad --proxy value: ${value}`, "Use --proxy system, --proxy none, or --proxy http://host:port.");
   }
