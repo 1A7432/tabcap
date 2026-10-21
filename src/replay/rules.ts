@@ -21,6 +21,7 @@
 // Reproduce: bun test test/unit/replay-rules.test.ts
 
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { readConfigRaw } from "../shared/config.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
 import { isRecord, tryParseJson } from "../shared/json.ts";
@@ -249,9 +250,8 @@ export function readRulesFile(file: string): RuleSet {
 
 /** Rules from config.json: `sites.<site>.replay` first, then `replay`; none: NO_RULES. */
 export function rulesFromConfig(file: string, site: string | null): RuleSet {
-  if (!existsSync(file)) return NO_RULES;
-  const raw = tryParseJson(readFileSync(file, "utf8"));
-  if (!isRecord(raw)) return NO_RULES;
+  // Review wave 3: the one config.json reader (an absent file is {}, a broken one an error).
+  const raw = readConfigRaw(file);
   const out: CompiledRule[] = [];
   if (site !== null) {
     const sites = raw["sites"];
