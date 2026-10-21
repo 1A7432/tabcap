@@ -8,7 +8,9 @@
 // decision 2026-10-17: a CAS return URL's ticket is a constant of the
 // recording for replay, and the name list also classifies replay inputs.
 //   headers  cookie, set-cookie, authorization, proxy-authorization, x-api-key,
-//            and any header whose name contains token|secret|session|auth
+//            any header whose name contains token|secret|session|auth, matches
+//            the name rule below, or starts with x-csrf / x-xsrf (default@3:
+//            one test, isSensitiveHeaderName, for every path)
 //   names    query / form / JSON keys containing (token|secret|passw|session|sid|auth|api[-_]?key),
 //            or with a word `pass` / `pwd` (words split at non-alphanumerics,
 //            camelCase and letter / digit boundaries: user_pass, userPass, login-pwd,
@@ -95,6 +97,20 @@ export function nameWords(name: string): string[] {
 
 export function isSensitiveName(name: string): boolean {
   return SENSITIVE_NAME.test(name) || nameWords(name).some((w) => SENSITIVE_WORDS.has(w.toLowerCase()));
+}
+
+/** Header names session export always counted as credentials (x-csrf*, x-xsrf*, *-token, *-auth*, *api-key). */
+const SENSITIVE_HEADER_EXTRA = /^(x-csrf|x-xsrf)|-token$|-auth|(^|-)api-key$/;
+
+/**
+ * The one sensitive-header test (default@3, owner 2026-10-21): the header set and name parts
+ * (isSensitiveHeader), the name rule (isSensitiveName) and the session-export extras. Export
+ * redaction, live output, offline analysis, session export and the headers withheld from decode
+ * plugins all use it.
+ */
+export function isSensitiveHeaderName(name: string): boolean {
+  const n = name.toLowerCase();
+  return isSensitiveHeader(n) || isSensitiveName(name) || isSensitiveName(n) || SENSITIVE_HEADER_EXTRA.test(n);
 }
 
 /** Percent-encode only what would break a query/form string; placeholders stay readable. */
@@ -214,7 +230,7 @@ export class Redactor {
       const m = /^(\S+)\s+(.+)$/.exec(value);
       return m !== null && m[1] !== undefined && m[2] !== undefined ? `${m[1]} ${this.mask(m[2])}` : this.mask(value);
     }
-    if (isSensitiveHeader(n)) return this.mask(value);
+    if (isSensitiveHeaderName(n)) return this.mask(value);
     if (n === "referer" || n === "location") return this.url(value);
     return this.scrubText(value);
   }

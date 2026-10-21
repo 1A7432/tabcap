@@ -1,8 +1,9 @@
 // 0.6-E live output redaction (src/daemon/tools/liveredact.ts). Oracle: the
-// `bundle redact` name rule default@2 as docs/04 §8 states it (sensitive
-// header set + name parts; names with token / secret / passw / session / sid /
-// auth / api key, pass / pwd as a segment) and the s07 shapes of docs/05
-// (`x-csrf` is not sensitive; the `sid` cookie and `Authorization` are).
+// `bundle redact` rules as docs/04 §8 states them (default@3: one sensitive
+// header test = header set + name parts, the name rule, x-csrf* / x-xsrf*;
+// names with token / secret / passw / session / sid / auth / api key, pass /
+// pwd as a segment) and the s07 shapes of docs/05 (the `sid` cookie,
+// `Authorization` and, since the one header test of 2026-10-21, `x-csrf`).
 
 import { describe, expect, test } from "bun:test";
 import { Secrets } from "../../src/daemon/secrets.ts";
@@ -19,7 +20,7 @@ store.setStored([{ ref: "example.password", value: "St0re-pa55" }]);
 const withStore = { scrub: (s: string) => store.scrub(s) };
 
 describe("headers", () => {
-  test("sensitive set and name rule redacted whole; x-csrf, content-type, user-agent kept", () => {
+  test("sensitive set, name rule and x-csrf redacted whole; content-type, user-agent kept", () => {
     const h = redactHeaders(
       {
         authorization: "Bearer abc.def",
@@ -39,7 +40,7 @@ describe("headers", () => {
       "access-token": "<redacted:access-token>",
       "x-session-id": "<redacted:x-session-id>",
       "x-user-pwd": "<redacted:x-user-pwd>",
-      "x-csrf": "c5f0",
+      "x-csrf": "<redacted:x-csrf>",
       "content-type": "application/json",
       "user-agent": "Mozilla/5.0",
     });
@@ -101,7 +102,7 @@ describe("net show detail", () => {
     expect(d["url"]).toBe("http://127.0.0.1:1/api/data?sid=<redacted:sid>&page=1");
     const req = isRecord(d["request"]) ? d["request"] : {};
     const resp = isRecord(d["response"]) ? d["response"] : {};
-    expect(req["headers"]).toEqual({ "x-csrf": "c5f0", cookie: "sid=<redacted:sid>", authorization: "<redacted:authorization>", "content-type": "application/x-www-form-urlencoded" });
+    expect(req["headers"]).toEqual({ "x-csrf": "<redacted:x-csrf>", cookie: "sid=<redacted:sid>", authorization: "<redacted:authorization>", "content-type": "application/x-www-form-urlencoded" });
     expect(req["postData"]).toEqual({ inline: "a=1&secret=<redacted:secret>", bytes: 12, truncated: false });
     expect(resp["headers"]).toEqual({ "set-cookie": "sid=<redacted:sid>; Path=/", "content-type": "application/json" });
     expect(JSON.parse(JSON.stringify(ev))).toEqual(copy);

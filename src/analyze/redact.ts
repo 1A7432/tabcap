@@ -16,7 +16,7 @@
 // field names (shape.ts), and analyze find searches a text the caller supplied,
 // so neither is touched here.
 
-import { isSensitiveHeader, isSensitiveName } from "../bundle/redact.ts";
+import { isSensitiveHeaderName, isSensitiveName } from "../bundle/redact.ts";
 import { sha256Hex } from "../shared/ids.ts";
 import type { DiffResult } from "./diff.ts";
 import type { DepsResult } from "./deps.ts";
@@ -49,7 +49,7 @@ export class AnalyzeRedactor {
   }
 
   header(name: string, value: string): string {
-    return isSensitiveHeader(name) || isSensitiveName(name) ? this.mask(value) : value;
+    return isSensitiveHeaderName(name) ? this.mask(value) : value;
   }
 
   /** A diff parameter value: cookies always; header names by the header rule; the rest by name. */
