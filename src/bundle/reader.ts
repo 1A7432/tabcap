@@ -6,6 +6,9 @@
 // - decoded views added by `bundle decode` live in the decoded.jsonl sidecar
 //   (docs/04 §28); `events` and `requests()` carry them overlaid on their
 //   request events, the file itself is never changed.
+// The value lists (actors, resource types, body-missing reasons, header
+// sources) are the write-side contract's (types.ts); what is read is still
+// checked against them as untrusted input.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,19 +18,25 @@ import { bool, isRecord, num, oneOf, rec, str } from "../shared/json.ts";
 import { BlobStore } from "./blobs.ts";
 import { decodedOf, latestViews, overlayEvent, readSidecar } from "./decoded.ts";
 import { EVENTS_FILE, readManifest } from "./manifest.ts";
-import type {
-  Actor,
-  BodyMissingReason,
-  Headers,
-  HeadersSource,
-  InlineOrBlob,
-  Manifest,
-  RawEvent,
-  RequestEvent,
-  ResourceType,
-  ResponseBody,
-  ResponseSide,
+import {
+  ACTORS,
+  BODY_MISSING_REASONS,
+  HEADERS_SOURCES,
+  RESOURCE_TYPES,
+  type Actor,
+  type BodyMissing,
+  type Headers,
+  type HeadersSource,
+  type InlineOrBlob,
+  type Manifest,
+  type RawEvent,
+  type RequestEvent,
+  type ResourceType,
+  type ResponseBody,
+  type ResponseSide,
 } from "./types.ts";
+
+export { RESOURCE_TYPES };
 
 export type ReadIssue = {
   line: number; // 1-based line number in events.jsonl (0 = not line specific)
@@ -44,7 +53,6 @@ export interface BundleView {
   readBlob(ref: string): Uint8Array | null;
 }
 
-const ACTORS: readonly Actor[] = ["human", "ai", "system"];
 const isActor = (v: unknown): v is Actor => oneOf(ACTORS, v);
 
 /** Validate the §3 envelope of one parsed line; returns the event or a reason. */
@@ -111,7 +119,7 @@ function parseHeaders(v: unknown): Headers {
 }
 
 function parseHeadersSource(v: unknown): HeadersSource {
-  return v === "event" || v === "wire" || v === "merged" ? v : "event";
+  return oneOf(HEADERS_SOURCES, v) ? v : "event";
 }
 
 export function parseInlineOrBlob(v: unknown): InlineOrBlob | null {
@@ -121,24 +129,16 @@ export function parseInlineOrBlob(v: unknown): InlineOrBlob | null {
   return null;
 }
 
-export const RESOURCE_TYPES: readonly ResourceType[] = [
-  "document", "xhr", "fetch", "script", "stylesheet", "image", "font", "media", "websocket", "eventsource", "manifest", "other",
-];
-
 export function toResourceType(v: unknown): ResourceType {
   if (typeof v !== "string") return "other";
   const t = v.toLowerCase();
   return oneOf(RESOURCE_TYPES, t) ? t : "other";
 }
 
-const MISSING_REASONS: readonly BodyMissingReason[] = [
-  "too-large", "redirect", "not-modified", "no-content", "navigated", "evicted", "detached", "stopped", "failed", "unsupported",
-];
-
-function parseBodyMissing(v: unknown): ResponseSide["bodyMissing"] {
+function parseBodyMissing(v: unknown): BodyMissing | null {
   if (!isRecord(v)) return null;
   const reason = str(v, "reason");
-  if (!oneOf(MISSING_REASONS, reason)) return null;
+  if (!oneOf(BODY_MISSING_REASONS, reason)) return null;
   return { reason, detail: str(v, "detail") };
 }
 
