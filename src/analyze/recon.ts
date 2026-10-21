@@ -22,7 +22,8 @@
 //    other than cookies whose name has the csrf role (e.g. an x-csrf header)
 //    are listed too, with carrier = their location and origin from deps.
 // 4. protection: the guard's challenge detections (guard breaker events and
-//    the handoff that followed) and response signals from PROTECTION_SIGNALS
+//    the handoff of the same reason that followed; a human take-over is not a
+//    detection and is never paired) and response signals from PROTECTION_SIGNALS
 //    (names only, 推断). Identification only; never a bypass hint.
 // Oracle: test/unit/recon.test.ts (synthetic bundles with planted channels,
 // cookies and signals), test/e2e/v04j.e2e.test.ts (range s06 + s07, s15).
@@ -710,6 +711,7 @@ function protectionOf(reader: BundleReader, requests: readonly RequestEvent[]): 
     if (e === undefined || e.kind !== "guard" || e["event"] !== "breaker") continue;
     const d = isRecord(e["detail"]) ? e["detail"] : {};
     const request = str(d, "request");
+    const kind = str(d, "reason");
     let handed: { question: string | null; screenshot: string | null } | null = null;
     let resumedBy: string | null = null;
     for (let j = i + 1; j < events.length; j++) {
@@ -717,10 +719,15 @@ function protectionOf(reader: BundleReader, requests: readonly RequestEvent[]): 
       if (h === undefined) continue;
       if (h.kind === "guard" && h["event"] === "breaker") break;
       if (h.kind !== "handoff") continue;
+      // docs/04 §4.2 / §37: a handoff belongs to the breaker of the same reason. A `fetch-stop`
+      // never waits for the human and a take-over (`human-takeover`) writes no breaker, so a
+      // take-over after a fetch stop is not that stop's handoff.
+      const why = str(h, "reason");
+      if (why === "human-takeover" || (kind !== null && why !== null && why !== kind)) continue;
       if (h["state"] === "waiting" && handed === null) handed = { question: str(h, "question"), screenshot: str(h, "screenshot") };
       else if (h["state"] === "resumed" && resumedBy === null) resumedBy = str(h, "by") ?? "human";
     }
-    out.push({ source: "guard", kind: str(d, "reason") ?? "unknown", request, url: str(d, "url"), status: num(d, "status"), handedToHuman: handed, resumedBy, grade: "实测" });
+    out.push({ source: "guard", kind: kind ?? "unknown", request, url: str(d, "url"), status: num(d, "status"), handedToHuman: handed, resumedBy, grade: "实测" });
   }
   for (const rule of PROTECTION_SIGNALS) {
     const hits = new Map<string, string[]>();
