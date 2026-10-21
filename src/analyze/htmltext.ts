@@ -12,7 +12,7 @@
 // Untrusted input: linear scan, no recursion, bounded output.
 // Oracle: test/unit/where.test.ts (hand-written HTML with known cell paths).
 
-import { decodeHtmlEntities } from "./decoders.ts";
+import { decodeHtmlEntities } from "./codecs.ts";
 
 export const MAX_TEXT_NODES = 100_000;
 

@@ -14,7 +14,7 @@
 //
 // Not in 0.4 (backlog): relative time ("2 days ago"), timezone conversion.
 
-import { decodeHtmlEntities } from "./decoders.ts";
+import { decodeHtmlEntities } from "./codecs.ts";
 
 export const RULES = [
   "trim",
