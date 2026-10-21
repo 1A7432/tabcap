@@ -2,6 +2,7 @@
 //
 // FakeRec stands in for a session's Recorder where the guard and the take-over
 // need one (GuardRecorder: session, onIndexed, event, cmdStart, cmdEnd). It
+// takes the same typed fields as Recorder.event (bundle/types.ts EventFields),
 // collects what they write in `events`, and `emit()` plays a recorded request
 // to the onIndexed listeners. The options cover the ways the tests differ:
 // whether cmd windows have ids and leave events, what stored event a listener
@@ -9,9 +10,9 @@
 // options. Without options it is the quietest recorder: no cmd windows, the
 // request alone.
 
-import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
+import type { DaemonEventKind, NetEntry } from "../../src/daemon/capture/recorder.ts";
 import type { GuardRecorder } from "../../src/daemon/guard.ts";
-import type { Actor } from "../../src/bundle/types.ts";
+import type { Actor, EventFields } from "../../src/bundle/types.ts";
 
 export type FakeRecOptions = {
   /**
@@ -61,7 +62,7 @@ export class FakeRec implements GuardRecorder {
     return e;
   }
 
-  event(kind: string, fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor; cmd?: null } = {}): number | null {
+  event<K extends DaemonEventKind>(kind: K, fields: EventFields[K], o: { tab?: string | null; actor?: Actor; cmd?: null } = {}): number | null {
     this.events.push(this.o.eventOptions === true ? { kind, ...fields, _tab: o.tab ?? null, _actor: o.actor ?? "system", _cmd: o.cmd === null ? null : "window" } : { kind, ...fields });
     return ++this.n;
   }

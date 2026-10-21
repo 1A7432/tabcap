@@ -28,7 +28,25 @@ import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
 import { BundleWriter } from "../../bundle/writer.ts";
 import { TOOL_VERSION } from "../../bundle/manifest.ts";
-import type { Actor, BodyMissingReason, Headers, InlineOrBlob, ManifestTab, NavType, ResourceType, TraceMode, UnsequencedEvent } from "../../bundle/types.ts";
+import type {
+  Actor,
+  BodyMissingReason,
+  EnvStateFields,
+  EventFields,
+  Headers,
+  InitiatorFields,
+  InlineOrBlob,
+  ManifestTab,
+  NavType,
+  NoteFields,
+  RawEvent,
+  RequestDraft,
+  ResourceType,
+  ResponseFields,
+  SignalFields,
+  TraceMode,
+  UnsequencedKnown,
+} from "../../bundle/types.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
 import { monotonicToMono, nowMs, wallTimeToTs } from "../../shared/time.ts";
@@ -52,7 +70,7 @@ import { continueHeaders, initiatorMatch, markerOf, withoutMarker, type FetchReg
 import type { FetchCredentials } from "../fetch/spec.ts";
 import { decodedField, decodeSkip, type DecodeDirection, type DecodeJob, type DecodeOutcome } from "../hooks/decode.ts";
 import { BODIES_DEFAULT, keepsBody, SKIPPED_REASON, type BodiesMode } from "../../shared/bodies.ts";
-import { appendSidecar, readSidecar } from "../../bundle/decoded.ts";
+import { appendSidecar, readSidecar, type DecodedView } from "../../bundle/decoded.ts";
 
 const NETWORK_ENABLE = { maxTotalBufferSize: 256 * 1024 * 1024, maxResourceBufferSize: 64 * 1024 * 1024, maxPostDataSize: 1024 * 1024 };
 const FETCH_ENABLE = {
@@ -202,6 +220,9 @@ export type RecorderOptions = {
   humanRecorder?: boolean;
 };
 
+/** The kinds daemon code outside the recorder writes through `Recorder.event` (docs/04 §4.1, §4.2). */
+export type DaemonEventKind = "guard" | "handoff" | "finding" | "note" | "action" | "protection";
+
 /** What the recorder needs from the decode plugins (hooks/decode.ts DecodeSession). */
 export type RecorderDecode = {
   readonly empty: boolean;
@@ -253,6 +274,11 @@ export class Recorder {
     this.opts = o;
   }
 
+  /** Every line the recorder writes itself, typed per kind (docs/04 §4; bundle/types.ts EventFields). */
+  private put(ev: UnsequencedKnown | ((seq: number) => UnsequencedKnown)): RawEvent {
+    return this.writer.append(ev);
+  }
+
   static async start(o: RecorderOptions): Promise<Recorder> {
     mkdirSync(o.dir, { recursive: true, mode: 0o700 });
     mkdirSync(join(o.dir, "raw"), { recursive: true, mode: 0o700 });
@@ -276,7 +302,7 @@ export class Recorder {
     r.writer.updateManifest((m) => {
       m.record = { bodies: r.bodies };
     });
-    r.writer.append({ ts: nowMs(), mono: null, kind: "session", actor: "system", tab: null, cmd: null, phase: "start", name: o.session, mode: { capture: "mixed", trace: false, raw: true } });
+    r.put({ ts: nowMs(), mono: null, kind: "session", actor: "system", tab: null, cmd: null, phase: "start", name: o.session, mode: { capture: "mixed", trace: false, raw: true } });
     r.offs.push(
       o.t.onEvent((e) => r.onEvent(e)),
       o.t.onAttach((x) => r.onChildAttach(x)),
@@ -317,7 +343,7 @@ export class Recorder {
     }
     const put = await this.writer.putBlob(JSON.stringify(cookies));
     if (put.outcome !== "stored" || this.writerClosed) return;
-    this.writer.append({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: bt, cmd: this.cmdRef(), ...cookieStateFields(stateOrigin(url), put.ref, cookies.length, reason) });
+    this.put({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: bt, cmd: this.cmdRef(), ...cookieStateFields(stateOrigin(url), put.ref, cookies.length, reason) });
     this.stateCount++;
     try {
       this.opts.onCookieState?.();
@@ -352,7 +378,7 @@ export class Recorder {
     const bt = `t${this.bundleTab.size + 1}`;
     this.bundleTab.set(tab.id, bt);
     this.sessions.set(tab.sessionId, tab);
-    this.writer.append({
+    this.put({
       ts: nowMs(),
       mono: null,
       kind: "tab",
@@ -380,7 +406,7 @@ export class Recorder {
     if (host === undefined) return;
     this.sessions.set(x.sessionId, host);
     const type = x.type === "iframe" || x.type === "service_worker" || x.type === "worker" ? x.type : "worker";
-    this.writer.append({
+    this.put({
       ts: nowMs(),
       mono: null,
       kind: "tab",
@@ -399,14 +425,14 @@ export class Recorder {
     this.flush((p) => p.sessionId === x.sessionId, "detached");
     this.sessions.delete(x.sessionId);
     if (x.sessionId === host.sessionId) {
-      this.writer.append({ ts: nowMs(), mono: null, kind: "tab", actor: "system", tab: this.bundleTab.get(host.id) ?? null, cmd: this.cmdRef(), phase: "close", reason: "closed", url: host.url });
+      this.put({ ts: nowMs(), mono: null, kind: "tab", actor: "system", tab: this.bundleTab.get(host.id) ?? null, cmd: this.cmdRef(), phase: "close", reason: "closed", url: host.url });
     }
   }
 
   private writeNav(tab: Tab, url: string, type: NavType, loaderId: string | null, initial = false): void {
     const bt = this.bundleTab.get(tab.id) ?? null;
     const from = this.urlOf.get(tab.id) ?? null;
-    const ev = this.writer.append((seq) => ({
+    const ev = this.put((seq) => ({
       ts: nowMs(),
       mono: null,
       kind: "nav",
@@ -621,7 +647,10 @@ export class Recorder {
     tab: Tab,
     ws: string,
     url: string,
-    f: { ts: number; mono: number | null; phase: "frame" | "close" | "error"; direction: "send" | "recv" | null; opcode: 1 | 2 | null; bytes: Uint8Array | null; inline: string | null; reason: string | null },
+    f: { ts: number; mono: number | null; bytes: Uint8Array | null; inline: string | null; reason: string | null } & (
+      | { phase: "frame"; direction: "send" | "recv"; opcode: 1 | 2 }
+      | { phase: "close" | "error"; direction: null; opcode: null }
+    ),
   ): void {
     const actor = this.actor();
     const cmd = this.cmdRef();
@@ -637,17 +666,14 @@ export class Recorder {
           else reason = `payload too large: ${put.size} bytes > ${put.cap}`;
         }
         if (this.writerClosed) return;
-        const stored = this.writer.append({
+        const stored = this.put({
           ts: f.ts,
           mono: f.mono,
           kind: "ws",
           actor,
           tab: bt,
           cmd,
-          ws,
-          phase: f.phase,
-          ...(f.phase === "frame" ? { direction: f.direction, opcode: f.opcode, payload } : {}),
-          reason,
+          ...(f.phase === "frame" ? { ws, phase: f.phase, direction: f.direction, opcode: f.opcode, payload, reason } : { ws, phase: f.phase, reason }),
         });
         this.frames.push({
           id: `${ws}:${stored.seq}`,
@@ -708,7 +734,7 @@ export class Recorder {
           if (before !== null) prev.redirectFrom = await before;
           const post = inlineOnly ? null : await this.postOf(prev);
           if (this.writerClosed) return null;
-          const req = isRecord(ev["request"]) ? ev["request"] : {};
+          const req = ev.request;
           const request = post === null ? req : { ...req, postData: post.postData, ...(post.postDataMissing === null ? {} : { postDataMissing: post.postDataMissing }) };
           return this.appendRequest(prev, { ...ev, request, redirect: prev.redirectFrom === null ? null : { from: prev.redirectFrom } });
         })();
@@ -1016,13 +1042,13 @@ export class Recorder {
    * `ok: false`, an error here (bundle closed meanwhile) means no view.
    * 0.6-V: a CORS preflight and a 0-byte side are not offered (`decodeSkip`).
    */
-  private async decodeBodies(q: Pending, post: string | null, postStored: boolean, body: Uint8Array | null): Promise<{ request: Record<string, unknown> | null; response: Record<string, unknown> | null }> {
+  private async decodeBodies(q: Pending, post: string | null, postStored: boolean, body: Uint8Array | null): Promise<{ request: DecodedView | null; response: DecodedView | null }> {
     const none = { request: null, response: null };
     const dec = this.opts.decode;
     if (dec === undefined || dec === null || dec.empty) return none;
     // The plugin sees the headers as recorded: without a `tabcap fetch` marker (0.6-A).
     const reqH = mergeHeaders(withoutMarker(q.headers), this.extraReq.get(q.key) ?? null).headers;
-    const side = async (direction: DecodeDirection, bytes: Uint8Array, mime: string | null, response: DecodeJob["response"]): Promise<Record<string, unknown> | null> => {
+    const side = async (direction: DecodeDirection, bytes: Uint8Array, mime: string | null, response: DecodeJob["response"]): Promise<DecodedView | null> => {
       if (decodeSkip({ method: q.method, initiatorType: q.initiator?.["type"], requestHeaders: reqH, body: bytes }) !== null) return null;
       try {
         const out = await dec.decode({ direction, id: null, url: q.url, method: q.method, requestHeaders: reqH, response, body: bytes, mime });
@@ -1034,7 +1060,7 @@ export class Recorder {
       }
     };
     const request = post !== null && postStored ? await side("request", new TextEncoder().encode(post), headerValue(reqH, "content-type"), null) : null;
-    let response: Record<string, unknown> | null = null;
+    let response: DecodedView | null = null;
     if (body !== null && q.response !== null) {
       const respH = mergeHeaders(normalizeHeaders(q.response["headers"]), this.extraResp.get(q.key) ?? null).headers;
       response = await side("response", body, str(q.response, "mimeType") ?? headerValue(respH, "content-type"), { status: num(q.response, "status"), headers: respH });
@@ -1043,9 +1069,9 @@ export class Recorder {
   }
 
   /** A `note` event from the daemon (decode plugin disabled …); written while the bundle is open, also during stop. */
-  note(text: string, fields: Record<string, unknown> = {}): number | null {
+  note(text: string, fields: Pick<NoteFields, "plugin"> = {}): number | null {
     if (this.writerClosed) return null;
-    return this.writer.append({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(), text, refs: [], ...fields }).seq;
+    return this.put({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(), text, refs: [], ...fields }).seq;
   }
 
   private writerClosed = false;
@@ -1104,16 +1130,16 @@ export class Recorder {
       postData?: InlineOrBlob | null;
       postDataMissing?: { reason: string; detail: string | null } | null;
       unreadByPage?: boolean;
-      decoded?: { request: Record<string, unknown> | null; response: Record<string, unknown> | null };
+      decoded?: { request: DecodedView | null; response: DecodedView | null };
       skipped?: boolean;
     },
-  ): UnsequencedEvent {
+  ): RequestDraft {
     // 0.6-A: the marker of a `tabcap fetch` never reached the server (Request stage); the recorded headers say so.
     const reqH = mergeHeaders(withoutMarker(q.headers), o.extraReq);
     const r = q.response;
     // docs/04 §14: never `response: null`. No response at all (cut by a navigation,
     // failed before headers, still open at stop) → status null, empty headers, why.
-    let response: Record<string, unknown> =
+    let response: ResponseFields =
       o.skipped === true
         ? { status: null, headers: {}, body: { skipped: SKIPPED_REASON }, bodyMissing: null }
         : { status: null, headers: {}, body: null, bodyMissing: o.missing ?? { reason: "unsupported", detail: "no response" } };
@@ -1183,8 +1209,8 @@ export class Recorder {
     };
   }
 
-  private appendRequest(q: Pending, ev: UnsequencedEvent, reason: string | null = null): string {
-    const stored = this.writer.append((seq) => ({ ...ev, id: `r-${seq}` }));
+  private appendRequest(q: Pending, ev: RequestDraft, reason: string | null = null): string {
+    const stored = this.put((seq) => ({ ...ev, id: `r-${seq}` }));
     const id = `r-${stored.seq}`;
     const resp = isRecord(stored["response"]) ? stored["response"] : null;
     const body = resp !== null && isRecord(resp["body"]) ? resp["body"] : null;
@@ -1304,7 +1330,7 @@ export class Recorder {
     const bt = this.bundleTab.get(tabId);
     if (bt === undefined || this.stopping || this.writerClosed) return;
     const scrub = this.opts.scrub ?? ((s: string) => s);
-    this.writer.append({
+    this.put({
       ts: en.ts,
       mono: null,
       kind: "console",
@@ -1350,11 +1376,12 @@ export class Recorder {
   }
 
   /**
-   * Append a daemon-side event (`guard`, `handoff`, docs/04 §4.2; `finding`
-   * from `where --write-findings`, docs/04 §4.1) inside the current command
-   * window. Returns its seq, or null when the bundle is closed.
+   * Append a daemon-side event (`guard`, `handoff`, `protection`, docs/04 §4.2;
+   * `finding`, `note`, `action`, docs/04 §4.1) inside the current command
+   * window; `fields` is typed by the kind (bundle/types.ts EventFields).
+   * Returns its seq, or null when the bundle is closed.
    */
-  event(kind: "guard" | "handoff" | "finding" | "note" | "action" | "protection", fields: Record<string, unknown>, o: { tab?: string | null; actor?: Actor; cmd?: null } = {}): number | null {
+  event<K extends DaemonEventKind>(kind: K, fields: EventFields[K], o: { tab?: string | null; actor?: Actor; cmd?: null } = {}): number | null {
     if (this.writerClosed || this.stopping) return null;
     const ev = this.writer.append({
       ts: nowMs(),
@@ -1374,9 +1401,9 @@ export class Recorder {
    * envelope `mono` is the aggregate's first read. Returns the seq, or null
    * when the bundle is closed.
    */
-  signal(tabId: string, fields: Record<string, unknown>, mono: number | null): number | null {
+  signal(tabId: string, fields: SignalFields, mono: number | null): number | null {
     if (this.writerClosed) return null;
-    const ev = this.writer.append({ ts: nowMs(), mono, kind: "signal", actor: this.actor(), tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(), ...fields });
+    const ev = this.put({ ts: nowMs(), mono, kind: "signal", actor: this.actor(), tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(), ...fields });
     this.signalCount++;
     return ev.seq;
   }
@@ -1389,9 +1416,9 @@ export class Recorder {
    * is no blob. `tabId` is the daemon tab the probe page ran in. Returns the
    * seq, or null when the bundle is closed.
    */
-  envState(tabId: string, fields: Record<string, unknown>): number | null {
+  envState(tabId: string, fields: EnvStateFields): number | null {
     if (this.writerClosed || this.stopping) return null;
-    const ev = this.writer.append({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(), ...fields });
+    const ev = this.put({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(), ...fields });
     this.stateCount++;
     return ev.seq;
   }
@@ -1449,7 +1476,7 @@ export class Recorder {
     if (this.writerClosed || this.traceOpenSeq === null) return;
     const from = this.traceOpenSeq;
     this.traceOpenSeq = null;
-    const ev = this.writer.append({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(), text, refs: [] });
+    const ev = this.put({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(), text, refs: [] });
     this.writer.updateManifest((m) => {
       m.traceWindows = (m.traceWindows ?? []).map((w) => (w.fromSeq === from ? { ...w, toSeq: ev.seq } : w));
     });
@@ -1470,7 +1497,7 @@ export class Recorder {
   /** `cmd` start event; its id `c-<seq>` tags every event until the matching end. */
   cmdStart(c: { tab: string | null; argv: string[] | null; input: Record<string, unknown>; actor?: Actor }): string | null {
     if (this.writerClosed || this.stopping) return null;
-    const ev = this.writer.append((seq) => ({
+    const ev = this.put((seq) => ({
       ts: nowMs(),
       mono: null,
       kind: "cmd",
@@ -1496,7 +1523,7 @@ export class Recorder {
     const i = this.activeCmds.findIndex((x) => x.id === id);
     if (i < 0 || this.writerClosed) return;
     this.activeCmds.splice(i, 1);
-    this.writer.append({
+    this.put({
       ts: nowMs(),
       mono: null,
       kind: "cmd",
@@ -1550,7 +1577,7 @@ export class Recorder {
     for (const c of [...this.activeCmds]) {
       this.cmdEnd(c.id, { tab: null, ok: true, error: null, durationMs: Date.now() - c.started, outputSummary: { recordingStopped: true } });
     }
-    this.writer.append({ ts: nowMs(), mono: null, kind: "session", actor: "system", tab: null, cmd: null, phase: "stop", name: this.session, mode: { capture: "mixed", trace: this.writer.snapshot().mode.trace, raw: true } });
+    this.put({ ts: nowMs(), mono: null, kind: "session", actor: "system", tab: null, cmd: null, phase: "stop", name: this.session, mode: { capture: "mixed", trace: this.writer.snapshot().mode.trace, raw: true } });
     this.writerClosed = true;
     const m = await this.writer.close();
     await new Promise<void>((r) => this.raw.end(() => r()));
@@ -1567,7 +1594,7 @@ export class Recorder {
  * docs/04 §5.1 initiator. Script initiators usually carry only a stack; its top
  * frame (or the first async parent's) gives url / line / col. CDP numbers as is (0-based).
  */
-export function initiatorOf(init: Record<string, unknown> | null): Record<string, unknown> | null {
+export function initiatorOf(init: Record<string, unknown> | null): InitiatorFields | null {
   if (init === null) return null;
   let url = str(init, "url");
   let line = num(init, "lineNumber");

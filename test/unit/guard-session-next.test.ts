@@ -7,7 +7,8 @@
 // the flag. Oracle: the command lines themselves (src/cli/commands.ts SESSION).
 
 import { describe, expect, test } from "bun:test";
-import type { NetEntry } from "../../src/daemon/capture/recorder.ts";
+import type { DaemonEventKind, NetEntry } from "../../src/daemon/capture/recorder.ts";
+import type { EventFields } from "../../src/bundle/types.ts";
 import { Guard, type GuardRecorder } from "../../src/daemon/guard.ts";
 import { Secrets } from "../../src/daemon/secrets.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
@@ -18,7 +19,7 @@ class FakeRec implements GuardRecorder {
   onIndexed(_fn: (e: NetEntry) => void): () => void {
     return () => undefined;
   }
-  event(kind: "guard" | "handoff", fields: Record<string, unknown>): number | null {
+  event<K extends DaemonEventKind>(kind: K, fields: EventFields[K]): number | null {
     this.events.push({ kind, ...fields });
     return this.events.length;
   }

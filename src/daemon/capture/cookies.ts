@@ -10,9 +10,10 @@
 
 import { isRecord } from "../../shared/json.ts";
 import { hostInSite, siteHosts } from "../../shared/sites.ts";
+import type { StateReason, StoreStateFields } from "../../bundle/types.ts";
 import type { NavType } from "../browser/targets.ts";
 
-export type StateReason = "session-start" | "nav" | "session-stop" | "manual";
+export type { StateReason };
 
 /** The cookie objects of a Network.getCookies / Storage.getCookies result; anything malformed is dropped. */
 export function cookieArray(result: unknown): Record<string, unknown>[] {
@@ -56,7 +57,7 @@ export function navCookieParams(committed: string): { urls?: string[] } {
 }
 
 /** The fields of a `state` cookies event (envelope fields are the writer's). */
-export function cookieStateFields(origin: string | null, blob: string, count: number, reason: StateReason): Record<string, unknown> {
+export function cookieStateFields(origin: string | null, blob: string, count: number, reason: StateReason): StoreStateFields {
   return { what: "cookies", origin, blob, count, reason };
 }
 
