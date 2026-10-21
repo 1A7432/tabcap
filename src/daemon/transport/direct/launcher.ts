@@ -74,6 +74,13 @@ export const RECORDING_DISABLED_FEATURES = [
   "DestroyProfileOnBrowserClose",
 ];
 
+/**
+ * Review 10-21 (docs/07 §1.2): a release Chrome on Windows writes no log to stderr unless asked, so
+ * browser.log stayed empty there (CI of PR #31); warnings and errors to stderr, which the launcher points
+ * at browser.log. macOS and Linux print errors to stderr already and keep their command line.
+ */
+export const WINDOWS_LOG_FLAGS: readonly string[] = ["--enable-logging=stderr", "--log-level=1"];
+
 /** 0.7.6-A: navigator.webdriver reads false; a Blink switch, no page script (docs/04 §40). */
 export const HIDE_WEBDRIVER_FLAG = "--disable-blink-features=AutomationControlled";
 
@@ -284,6 +291,7 @@ export function buildArgsReport(o: ArgsOptions): { args: string[]; unmatched: st
   args.push(`--disable-features=${[...NETWORK_QUIET_DISABLED_FEATURES, ...RECORDING_DISABLED_FEATURES].join(",")}`);
   if (o.platform === "darwin") args.push("--use-mock-keychain");
   if (o.platform === "linux") args.push("--password-store=basic");
+  if (o.platform === "win32") args.push(...WINDOWS_LOG_FLAGS);
   if (o.proxy.kind === "none") args.push("--proxy-server=127.0.0.1:1", "--proxy-bypass-list=127.0.0.1;localhost");
   if (o.proxy.kind === "url") args.push(`--proxy-server=${o.proxy.url}`, "--proxy-bypass-list=<-loopback>");
   if (o.extensionDir !== null) args.push(`--load-extension=${o.extensionDir}`);
