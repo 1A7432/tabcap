@@ -47,7 +47,7 @@
 import { TabcapError } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
 import { BundleReader } from "../bundle/reader.ts";
-import { isSensitiveHeader, isSensitiveName } from "../bundle/redact.ts";
+import { isSensitiveHeaderName, isSensitiveName } from "../bundle/redact.ts";
 import type { RawEvent, RequestEvent } from "../bundle/types.ts";
 import { classifyGroup, groupRequests, headerValues, singleSampleParams, splitKey, type DiffParam, type ParamLocation } from "./diff.ts";
 import { Explorer, STEP_CAP, baseMime, binaryMagic, isBinaryMime, jsonPathIndex, jsonPathKey, parseJsonDoc, type DecodeHit, type Matcher, type StepName } from "./decoders.ts";
@@ -183,10 +183,13 @@ export function plainValue(v: string): boolean {
   return (NUMERIC.test(v) && v.replace(/^-/, "").length < MIN_NUMBER_LENGTH) || /^(true|false)$/i.test(v) || DATE.test(v) || ENUM_WORD.test(v);
 }
 
+/** A secret input: a header by the one sensitive-header test (docs/04 §8, review 10-21), anything else by the name rule. */
+export const sensitiveInput = (location: InputLocation, name: string): boolean => (location === "header" ? isSensitiveHeaderName(name) : isSensitiveName(name));
+
 /** The caller-input rule: not a cookie, not sensitive or signature-like, and a CALLER_NAMES name or plain values only. */
 export function isCallerInput(location: InputLocation, name: string, hints: readonly string[], values: readonly string[]): boolean {
   if (location === "cookie" || hints.includes("looks-signature") || hints.includes("looks-random")) return false;
-  if (isSensitiveName(name) || (location === "header" && isSensitiveHeader(name))) return false;
+  if (sensitiveInput(location, name)) return false;
   return CALLER_NAME_SET.has(normName(name)) || (values.length > 0 && values.every(plainValue));
 }
 
@@ -584,7 +587,7 @@ export class DepsGraph {
     const primary = sources[0] ?? null;
     const values = [...(this.distinctValues.get(gk)?.get(i.key) ?? new Set([v]))];
     const cls: DepsClass = primary !== null ? primary.kind : isCookie ? "unrecorded" : isCallerInput(i.location, i.name, [...hints], values) ? "caller-input" : "computed-in-page";
-    if (isSensitiveName(i.name) || (i.location === "header" && isSensitiveHeader(i.name))) hints.add("sensitive-name");
+    if (sensitiveInput(i.location, i.name)) hints.add("sensitive-name");
     return {
       location: i.location,
       name: i.name,

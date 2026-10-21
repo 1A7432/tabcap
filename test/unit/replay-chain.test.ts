@@ -97,7 +97,9 @@ describe("export-python, chain mode", () => {
     const client = readFileSync(join(out, "client.py"), "utf8");
     expect(client).toContain("def post_api_login(session: Session, *, user: str, password: Any = TODO, base_url: str | None = None)");
     expect(client).toContain(`_need("${TODO_SECRET}", password=password)`);
-    expect(client).toContain("def post_api_data(session: Session, *, x_csrf: str, base_url: str | None = None)");
+    // Review 10-21: x-csrf is a sensitive header (the one test), so a secret input; verify() still derives it from the login reply.
+    expect(client).toContain("def post_api_data(session: Session, *, x_csrf: Any = TODO, base_url: str | None = None)");
+    expect(client).toContain(`_need("${TODO_SECRET}", x_csrf=x_csrf)`);
     expect(client).toMatch(/header x-csrf: response of post_api_login \(r-\d+\) \$\.csrf -> x_csrf/);
     expect(client).toContain("def verify(base_url: str | None = None");
     expect(pyCompile(["client.py", "conftest.py", "test_replay.py"].map((f) => join(out, f)))).toBeNull();

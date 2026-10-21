@@ -250,7 +250,7 @@
 
 - 触发：`tabcap bundle export har` 默认开，`--no-redact` 关；`tabcap bundle redact <in> <out>` 生成脱敏副本。原包永不原地改。
 - 规则来源：`redaction.json`（可改），默认规则 `default@3`（10-21 作者定；`default@2` 只处理 request / ws / state / action / note / finding 几种事件与事件顶层的 `url` / `from` / `title`，guard、handoff、protection、cmd、console 事件与 manifest 的启动参数原样出包）：
-  - 请求/响应头（**敏感头判定**，`default@3` 起全仓只有这一份：导出、§8.3 实时输出与离线分析、§8.2 会话导出挑头、§28 不交给解码插件的头都用它；10-21 作者定，取原来三套判定的并集）：`cookie`、`set-cookie`、`authorization`、`proxy-authorization`、`x-api-key`；名字含 `token` / `secret` / `session` / `auth` 的；名字命中下一条名字规则的（`apikey`、`x-sid`、`x-password`、`x-user-pwd`…）；以 `x-csrf` / `x-xsrf` 开头的（以前只有会话导出算）。`default@2` 的导出只认前两类，实时输出认前三类。
+  - 请求/响应头（**敏感头判定**，`default@3` 起全仓只有这一份：导出、§8.3 实时输出与离线分析、§8.2 会话导出挑头、§28 不交给解码插件的头都用它，10-21 审查后 `analyze deps` 与 `replay export-python` 判断「秘密输入」的头也用它（`x-csrf` / `x-xsrf` 这类名字里不带 token 的头从此也是秘密输入：export-python 写成默认 TODO 的参数、不写录到的值，verify() 能从上一步答复取到的照取）；10-21 作者定，取原来三套判定的并集）：`cookie`、`set-cookie`、`authorization`、`proxy-authorization`、`x-api-key`；名字含 `token` / `secret` / `session` / `auth` 的；名字命中下一条名字规则的（`apikey`、`x-sid`、`x-password`、`x-user-pwd`…）；以 `x-csrf` / `x-xsrf` 开头的（以前只有会话导出算）。`default@2` 的导出只认前两类，实时输出认前三类。
   - query、表单、JSON 字段：名字含 `(token|secret|passw|session|sid|auth|api[-_]?key)`，或有一段正好是 `pass` / `pwd`（按非字母数字、驼峰、字母数字交界切段：`user_pass`、`userPass`、`login-pwd`、`Pwd2` 算，`bypass`、`passport`、`compass`、`passenger` 不算；`pass` / `pwd` 为 `default@2`，0.4 作者定。`ticket` 曾在 0.7-E 加入一天，作者 10-17 定去掉：CAS 回跳 URL 里的票据对回放是录制时的常量，而这张名单同时决定 export-python 把哪些输入当 secret）。
   - 值模式：18 位身份证、11 位手机号、邮箱、JWT（`xxx.yyy.zzz` 且 base64url）。
   - `state` 事件（cookies / storage）整体打码。

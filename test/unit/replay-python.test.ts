@@ -91,7 +91,8 @@ describe("generated package", () => {
     const fn = (n: string) => r.functions.find((f) => f.name === n);
     expect(fn("get_api_items")?.args).toEqual(["page"]);
     expect(fn("get_api_feed")?.args).toEqual([]);
-    expect(fn("post_api_search")?.args).toEqual(["page", "q", "t"]);
+    // Review 10-21: header x-csrf is a secret input (the one sensitive-header test), no longer a session value.
+    expect(fn("post_api_search")?.args).toEqual(["x_csrf", "page", "q", "t"]);
     expect(fn("get_api_sign")?.todo).toBe("query sig looks like a signature");
     expect(fn("post_api_upload")?.todo).toContain("request body was not recorded");
     expect(r.functions.map((f) => f.name)).not.toContain("get_img_logo_png");
