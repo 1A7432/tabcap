@@ -16,6 +16,7 @@ import { distanceFromLine, JITTER_PX, keyEventParams, minJerk, PATH_MS, planClic
 import { HELD_PAINT_POLL_MS, HELD_PAINT_WAIT_MS, paintCheck, pointerClick, trustedClickOn, typeKeys, type PointerDeps } from "../../src/daemon/tools/input.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { isRecord } from "../../src/shared/json.ts";
+import { setLogLevel } from "../../src/shared/log.ts";
 import { CdpTimeoutError } from "../../src/daemon/transport/direct/cdp.ts";
 import { until } from "./_platform.ts";
 import type { AttachedTarget, CdpEvent, CdpParams, CdpResult, Transport } from "../../src/daemon/transport/types.ts";
@@ -315,6 +316,29 @@ describe("click --trusted on a fake Chrome", () => {
     expect(waited.length * HELD_PAINT_POLL_MS).toBeLessThan(HELD_PAINT_WAIT_MS);
     expect(calls.filter((c) => c.method === "Runtime.evaluate").length).toBe(waited.length + 2);
     expect(calls.map((c) => c.method).filter((m) => m.includes("Screencast"))).toEqual(["Page.startScreencast", "Page.stopScreencast"]);
+  });
+
+  test("the held-frames log line carries the checks and the time from the screencast's start to the last check", async () => {
+    const { t } = fakeChrome({ raf: false, visibility: "visible" });
+    const deps = instantDeps(8);
+    const chunks: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (c: string | Uint8Array) => {
+      chunks.push(typeof c === "string" ? c : new TextDecoder().decode(c));
+      return true;
+    };
+    try {
+      setLogLevel("info");
+      await trustedClickOn(t, fakeTab(), NODE, "e3", deps);
+    } finally {
+      setLogLevel("warn");
+      process.stderr.write = orig;
+    }
+    const line = chunks.find((c) => c.includes("trusted input: slow frames, screencast held")) ?? "";
+    const fields: unknown = JSON.parse(line.slice(line.indexOf("{")));
+    const waited = deps.slept.filter((ms) => ms === HELD_PAINT_POLL_MS).length;
+    // The fake clock moves only in sleep, so the elapsed time is the polls' sum.
+    expect(fields).toMatchObject({ raf: false, painted: false, checks: waited + 1, elapsedMs: waited * HELD_PAINT_POLL_MS });
   });
 
   test("a hidden tab gets no screencast: degraded as before", async () => {
