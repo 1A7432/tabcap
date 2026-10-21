@@ -1,13 +1,16 @@
 // `tabcap replay …`: argument parsing and printing only; the work is in
-// src/replay/ (offline, no daemon).
+// src/replay/ (offline, no daemon). One exception: `replay check --live`
+// asks a running daemon for its fetch stops first (daemonGuardState).
 
 import { TabcapError, fail, ok, toFail, type Envelope } from "../shared/envelope.ts";
-import { paths } from "../shared/paths.ts";
+import { isRecord } from "../shared/json.ts";
+import { paths, type Paths } from "../shared/paths.ts";
+import { send } from "./client.ts";
 import { helpFor, helpGroup, parseCommand, specOf, usageOf, type CommandSpec } from "./commands.ts";
 import { startReplayServer, type ServeInfo } from "../replay/server.ts";
 import { exportSession } from "../replay/session.ts";
 import { exportPython } from "../replay/python.ts";
-import { DEFAULT_AGAINST, DEFAULT_HEADERS, check, renderCheckText } from "../replay/check.ts";
+import { DEFAULT_AGAINST, DEFAULT_HEADERS, check, renderCheckText, type LiveGuardState, type LiveStop } from "../replay/check.ts";
 import { headerNames } from "../replay/common.ts";
 import { accountProxy, writeProxyEnv, type AccountProxy } from "../replay/proxyenv.ts";
 import { BundleReader } from "../bundle/reader.ts";
@@ -27,6 +30,33 @@ function bundleAccountProxy(bundle: string): AccountProxy {
   const ap = accountProxy(paths().config, site, m.session.account);
   if (ap === null) throw new TabcapError("conflict", `--proxy-env: account ${site}.${m.session.account ?? "(first)"} is not bound to a pool proxy (system / none): there is no proxy URL to write`, "Leave out --proxy-env; or bind the account with `tabcap account bind <site>.<user> --proxy <name>`.");
   return ap;
+}
+
+/**
+ * `replay check --live` (docs/04 §31): the running daemon's fetch stops, read
+ * from its `status` answer (every session's `guardStops`; read-only, no cmd
+ * window); `{running:false}` when no daemon answers. Any other failure (a
+ * daemon of another version, a timeout) is passed on: the check does not go
+ * out unguarded on a guess. The answer is untrusted: malformed rows are left out.
+ */
+export async function daemonGuardState(p: Paths, sender: typeof send = send): Promise<LiveGuardState> {
+  const env = await sender(p, "status", {}, "default", ["status"], 5000);
+  if (!env.ok) {
+    if (env.error.code === "not-running") return { running: false };
+    throw new TabcapError(env.error.code, `replay check --live could not read the daemon's fetch stops: ${env.error.message}`, env.error.next);
+  }
+  const stops: LiveStop[] = [];
+  const sessions = isRecord(env.data) && Array.isArray(env.data["sessions"]) ? env.data["sessions"] : [];
+  for (const sess of sessions) {
+    const rows = isRecord(sess) && Array.isArray(sess["guardStops"]) ? sess["guardStops"] : [];
+    for (const g of rows) {
+      if (!isRecord(g)) continue;
+      const [site, rule, request, by, reason] = [g["site"], g["rule"], g["request"], g["by"], g["reason"]];
+      if (typeof site !== "string" || typeof rule !== "string" || typeof request !== "string" || typeof by !== "string" || typeof reason !== "string") continue;
+      if (!stops.some((x) => x.site === site && x.request === request)) stops.push({ site, rule, request, session: by, reason });
+    }
+  }
+  return { running: true, stops };
 }
 
 type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
@@ -144,6 +174,7 @@ export async function runReplay(argv: readonly string[]): Promise<Outcome> {
           configDir: paths().config,
           rules: bundleRules(bundle, str(a["rules"])),
           ...preferArg(a["prefer"]),
+          guardState: () => daemonGuardState(paths()),
         });
         const code = result.totals.different + result.totals.errors > 0 ? 1 : 0;
         if (a["text"] === true) return { code, envelope: ok(result), text: renderCheckText(result) };
