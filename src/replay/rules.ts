@@ -25,6 +25,7 @@ import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
 import { isRecord, tryParseJson } from "../shared/json.ts";
 import { baseMime, parseJsonDoc, utf8 } from "../analyze/decoders.ts";
+import { parseJsonPath, segMatches, type PathSeg } from "../shared/jsonpath.ts";
 
 export const RULES_SCHEMA = "tabcap-replay-rules/0";
 export const MAX_RULES_FILE_BYTES = 1024 * 1024;
@@ -64,9 +65,8 @@ export function preferred<T extends { status: number | null }>(list: readonly T[
   return [...list];
 }
 
-type Seg = { key: string } | { index: number } | { any: true };
-/** A JSON path (`$.a.b[0]`, `$.items[*].ts`, `$["x y"]`) or a bare name (a form field, or a top-level JSON key). */
-export type FieldPattern = { text: string; segs: Seg[]; name: string | null };
+/** A JSON path (`$.a.b[0]`, `$.items[*].ts`, `$["x y"]`; docs/04 §43) or a bare name (a form field, or a top-level JSON key). */
+export type FieldPattern = { text: string; segs: PathSeg[]; name: string | null };
 
 export type Rule = {
   /** Where the rule comes from: `rules[0]` (file), `replay.rules[1]`, `sites.example.replay.rules[0]`; `default` when none fits. */
@@ -136,57 +136,16 @@ function pluginName(v: unknown, where: string): string | null {
   return optString(v, where, (s) => (PLUGIN_NAME.test(s) ? null : "must be a plugin name ([a-z0-9][a-z0-9_-]{0,63})"));
 }
 
-/** Parse a JSON path or a bare name; a string is the reason it is not one. */
+/** Parse a JSON path (docs/04 §43, shared/jsonpath.ts) or a bare name; a string is the reason it is not one. */
 export function parseFieldPattern(text: string): FieldPattern | string {
   if (!text.startsWith("$")) {
     if (/[\0\r\n]/.test(text)) return "a name cannot hold NUL or line breaks";
-    return { text, segs: [{ key: text }], name: text };
+    return { text, segs: [{ kind: "key", key: text }], name: text };
   }
-  const segs: Seg[] = [];
-  let i = 1;
-  while (i < text.length) {
-    const c = text[i];
-    if (c === ".") {
-      let j = i + 1;
-      while (j < text.length && text[j] !== "." && text[j] !== "[") j++;
-      const k = text.slice(i + 1, j);
-      if (k === "") return `empty key at offset ${i} of ${text}`;
-      segs.push(k === "*" ? { any: true } : { key: k });
-      i = j;
-    } else if (c === "[") {
-      const close = text[i + 1] === '"' ? closingQuote(text, i + 1) : text.indexOf("]", i);
-      if (close < 0) return `unclosed [ at offset ${i} of ${text}`;
-      if (text[i + 1] === '"') {
-        if (text[close + 1] !== "]") return `expected ] after the quoted key at offset ${close + 1} of ${text}`;
-        let key: unknown;
-        try {
-          key = JSON.parse(text.slice(i + 1, close + 1));
-        } catch {
-          return `bad quoted key at offset ${i} of ${text}`;
-        }
-        if (typeof key !== "string") return `bad quoted key at offset ${i} of ${text}`;
-        segs.push({ key });
-        i = close + 2;
-      } else {
-        const inner = text.slice(i + 1, close);
-        if (inner === "*") segs.push({ any: true });
-        else if (/^(0|[1-9][0-9]{0,8})$/.test(inner)) segs.push({ index: Number(inner) });
-        else return `[${inner}] is not an index, [*] or a quoted key in ${text}`;
-        i = close + 1;
-      }
-    } else return `unexpected ${JSON.stringify(c)} at offset ${i} of ${text} (paths look like $.a.b[0], $.items[*].ts, $["x y"])`;
-  }
-  if (segs.length === 0) return `${text} names the whole body (use body "none" to leave the body out)`;
-  return { text, segs, name: null };
-}
-
-/** The index of the closing quote of a JSON string literal starting at `open`, or -1. */
-function closingQuote(text: string, open: number): number {
-  for (let i = open + 1; i < text.length; i++) {
-    if (text[i] === "\\") i++;
-    else if (text[i] === '"') return i;
-  }
-  return -1;
+  const r = parseJsonPath(text, { root: "required" });
+  if (!r.ok) return `${r.why} of ${text} (paths look like $.a.b[0], $.items[*].ts, $["x y"]; docs/04 §43)`;
+  if (r.segs.length === 0) return `${text} names the whole body (use body "none" to leave the body out)`;
+  return { text, segs: r.segs, name: null };
 }
 
 /** Glob to a regex: `**` any characters, `*` any characters but `/` (path) or any characters (names, hosts), `?` one. */
@@ -420,12 +379,6 @@ export type CanonBody = {
 
 const PATH_IDENT = /^[A-Za-z_$][\w$]*$/;
 const pathKey = (p: string, k: string) => (PATH_IDENT.test(k) ? `${p}.${k}` : `${p}[${JSON.stringify(k)}]`);
-
-function segMatches(s: Seg, step: string | number): boolean {
-  if ("any" in s) return true;
-  if ("key" in s) return typeof step === "string" && s.key === step;
-  return typeof step === "number" && s.index === step;
-}
 
 function ignoredAt(patterns: readonly FieldPattern[], steps: readonly (string | number)[]): boolean {
   return patterns.some((p) => p.segs.length === steps.length && p.segs.every((s, i) => segMatches(s, steps[i] ?? "")));

@@ -8,6 +8,7 @@
 
 import { TabcapError } from "./envelope.ts";
 import { isRecord } from "./json.ts";
+import { parseJsonPath, segText, type PathSeg } from "./jsonpath.ts";
 
 export const MAX_PATH_CHARS = 256;
 export const MAX_PATH_SEGMENTS = 32;
@@ -18,8 +19,6 @@ export const MAX_CONTEXT = 20;
 export const MAX_FIELDS = 32;
 /** In an object, a string field is grepped line by line when it has a newline or is this long (paths and ids stay as they are). */
 export const LONG_STRING = 1000;
-
-export type PathSeg = { kind: "key"; key: string } | { kind: "index"; index: number } | { kind: "all" };
 
 export type FilterOptions = {
   select: string | null;
@@ -51,47 +50,20 @@ export function hasFilters(o: FilterOptions): boolean {
   return o.select !== null || o.grep !== null || o.fields !== null;
 }
 
-/** `a.b[0].c`, `requests[*].url`, `[2]`: dotted keys, `[n]`, `[*]`. */
+/**
+ * `--select`: a JSON path of docs/04 §43 (shared/jsonpath.ts) on `data`; the
+ * `$` is optional (`requests[*].url` = `$.requests[*].url`), `$` alone is the
+ * whole of `data`. At most 256 characters and 32 steps.
+ */
 export function parsePath(path: string): PathSeg[] {
-  const bad = (why: string) => usage(`--select ${JSON.stringify(path.slice(0, 80))}: ${why}`, "Use dotted keys, [n] and [*], e.g. --select requests[*].url or --select requests[0].headers");
+  const bad = (why: string) => usage(`--select ${JSON.stringify(path.slice(0, 80))}: ${why}`, 'Use dotted names, [n], [*] and ["quoted name"] (docs/04 §43), e.g. --select requests[*].url or --select \'requests[0]["x-csrf"]\'');
   if (path.length === 0) throw bad("empty path");
   if (path.length > MAX_PATH_CHARS) throw bad(`longer than ${MAX_PATH_CHARS} characters`);
-  const segs: PathSeg[] = [];
-  let i = 0;
-  let needKey = true; // at the start or right after "."
-  while (i < path.length) {
-    const ch = path[i];
-    if (ch === "[") {
-      const close = path.indexOf("]", i);
-      if (close < 0) throw bad("unclosed [");
-      const inner = path.slice(i + 1, close);
-      if (inner === "*") segs.push({ kind: "all" });
-      else if (/^\d{1,9}$/.test(inner)) segs.push({ kind: "index", index: Number(inner) });
-      else throw bad(`[${inner.slice(0, 20)}] is neither [n] nor [*]`);
-      i = close + 1;
-      needKey = false;
-      continue;
-    }
-    if (ch === ".") {
-      if (needKey) throw bad("empty key");
-      i++;
-      needKey = true;
-      if (i >= path.length) throw bad("ends with .");
-      continue;
-    }
-    if (!needKey) throw bad(`expected . or [ at position ${i}`);
-    let j = i;
-    while (j < path.length && path[j] !== "." && path[j] !== "[" && path[j] !== "]" && !/\s/.test(path[j] ?? "")) j++;
-    if (j === i) throw bad(`unexpected ${JSON.stringify(path[i])} at position ${i}`);
-    segs.push({ kind: "key", key: path.slice(i, j) });
-    i = j;
-    needKey = false;
-  }
-  if (segs.length > MAX_PATH_SEGMENTS) throw bad(`more than ${MAX_PATH_SEGMENTS} segments`);
-  return segs;
+  const r = parseJsonPath(path, { root: "optional" });
+  if (!r.ok) throw bad(r.why);
+  if (r.segs.length > MAX_PATH_SEGMENTS) throw bad(`more than ${MAX_PATH_SEGMENTS} segments`);
+  return r.segs;
 }
-
-const segText = (s: PathSeg): string => (s.kind === "key" ? `.${s.key}` : s.kind === "index" ? `[${s.index}]` : "[*]");
 
 function shapeHint(v: unknown): string {
   if (Array.isArray(v)) return `an array of ${v.length}`;

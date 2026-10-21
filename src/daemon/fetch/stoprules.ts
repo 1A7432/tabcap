@@ -10,51 +10,30 @@
 //   json:<path>=<value>    the JSON body's value at path equals value
 //   json:<path>!=<value>   … differs from value (business error codes, e.g. json:$.code!=0)
 //   text:<regex>           the decoded body matches the regex (JavaScript, u flag, ≤ 256 chars)
-// <path> is `$` followed by `.name` / `[n]` steps. <value> is read as JSON when
-// it parses (0, true, "x", null), else as the literal string. 0.7.5: json:
+// <path> is a JSON path of docs/04 §43 (shared/jsonpath.ts: `$`, then `.name`,
+// `.*`, `[n]`, `[*]`, `["quoted name"]`). <value> is read as JSON when it
+// parses (0, true, "x", null), else as the literal string. 0.7.5: json:
 // rules judge JSON bodies only; a body that does not parse as JSON (an HTML
 // page, an empty 204, a text beacon) never fires them, whatever the
 // Content-Type says. A JSON body with nothing at the path has no value:
-// never equal to anything (so `!=` fires).
+// never equal to anything (so `!=` fires). With a wildcard the path selects
+// every matching value: `=` fires when one of them equals, `!=` when one of
+// them differs or none is there (review wave 2, docs/04 §43).
 
 import { TabcapError } from "../../shared/envelope.ts";
-import { isRecord } from "../../shared/json.ts";
-
-export type PathStep = string | number;
+import { jsonEqual, pathText, scanJsonPath, valuesAt, type PathSeg } from "../../shared/jsonpath.ts";
 
 export type StopRule =
   | { src: string; kind: "empty-body" }
   | { src: string; kind: "status-ge"; n: number }
   | { src: string; kind: "status-eq"; n: number }
-  | { src: string; kind: "json"; path: PathStep[]; op: "=" | "!="; value: unknown }
+  | { src: string; kind: "json"; path: PathSeg[]; op: "=" | "!="; value: unknown }
   | { src: string; kind: "text"; re: RegExp };
 
 export const MAX_RULE_REGEX = 256;
-const RULES_HELP = "Stop rules: empty-body | status>=<n> | status=<n> | json:<$.path>=<value> | json:<$.path>!=<value> | text:<regex>.";
+const RULES_HELP = "Stop rules: empty-body | status>=<n> | status=<n> | json:<$.path>=<value> | json:<$.path>!=<value> | text:<regex>; JSON paths: docs/04 §43.";
 
 const bad = (src: string, why: string) => new TabcapError("usage", `bad stop rule ${JSON.stringify(src.slice(0, 300))}: ${why}`, RULES_HELP);
-
-/** Parse a JSON path of the form `$`, `$.a.b`, `$.items[0].code`. */
-export function parsePath(src: string, rule: string): PathStep[] {
-  if (!src.startsWith("$")) throw bad(rule, "the JSON path must start with $");
-  const steps: PathStep[] = [];
-  let i = 1;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === ".") {
-      const m = /^[A-Za-z0-9_$-]+/.exec(src.slice(i + 1));
-      if (m === null) throw bad(rule, `expected a key after "." at position ${i + 1} of the path`);
-      steps.push(m[0]);
-      i += 1 + m[0].length;
-    } else if (c === "[") {
-      const m = /^\[(\d{1,9})\]/.exec(src.slice(i));
-      if (m === null || m[1] === undefined) throw bad(rule, `expected [<index>] at position ${i + 1} of the path`);
-      steps.push(Number(m[1]));
-      i += m[0].length;
-    } else throw bad(rule, `unexpected ${JSON.stringify(c)} in the path`);
-  }
-  return steps;
-}
 
 function statusNumber(s: string, rule: string): number {
   if (!/^\d{3}$/.test(s)) throw bad(rule, "the status must be a 3-digit number");
@@ -70,17 +49,20 @@ export function parseStopRule(src: string): StopRule {
   m = /^status\s*=\s*(\S+)$/.exec(s);
   if (m !== null) return { src: s, kind: "status-eq", n: statusNumber(m[1] ?? "", s) };
   if (s.startsWith("json:")) {
-    const j = /^json:(\$[^=!]*?)\s*(!=|=)\s*([\s\S]*)$/.exec(s);
-    if (j === null) throw bad(s, "expected json:<$.path>=<value> or json:<$.path>!=<value>");
-    const path = parsePath((j[1] ?? "").trim(), s);
-    const raw = j[3] ?? "";
+    const at = "json:".length;
+    if (s[at] !== "$") throw bad(s, "the JSON path must start with $");
+    const p = scanJsonPath(s, at, { root: "required" });
+    if (!p.ok) throw bad(s, `${p.why} of the path`);
+    const op = /^\s*(!=|=)\s*/.exec(s.slice(p.end));
+    if (op === null) throw bad(s, `expected = or != after the path, found ${JSON.stringify(s.slice(p.end, p.end + 10))} at character ${p.end - at + 1} of the path (write names with spaces, = or ! quoted: $["…"])`);
+    const raw = s.slice(p.end + op[0].length);
     let value: unknown = raw;
     try {
       value = JSON.parse(raw) as unknown;
     } catch {
       value = raw;
     }
-    return { src: s, kind: "json", path, op: j[2] === "!=" ? "!=" : "=", value };
+    return { src: s, kind: "json", path: p.segs, op: op[1] === "!=" ? "!=" : "=", value };
   }
   if (s.startsWith("text:")) {
     const re = s.slice(5);
@@ -104,33 +86,6 @@ export function parseStopRules(list: readonly string[]): StopRule[] {
 export type StopInput = { status: number | null; bytes: number; text: string | null };
 
 const NO_VALUE: unique symbol = Symbol("no value");
-
-/** The value at `path` in a JSON document, or NO_VALUE. */
-export function valueAt(doc: unknown, path: readonly PathStep[]): unknown {
-  let cur: unknown = doc;
-  for (const step of path) {
-    if (typeof step === "number") {
-      if (!Array.isArray(cur) || step >= cur.length) return NO_VALUE;
-      cur = cur[step];
-    } else {
-      if (!isRecord(cur) || !Object.hasOwn(cur, step)) return NO_VALUE;
-      cur = cur[step];
-    }
-  }
-  return cur;
-}
-
-/** Structural equality of JSON values. */
-export function jsonEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => jsonEqual(x, b[i]));
-  if (isRecord(a) && isRecord(b)) {
-    const ka = Object.keys(a);
-    const kb = Object.keys(b);
-    return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && jsonEqual(a[k], b[k]));
-  }
-  return false;
-}
 
 function show(v: unknown): string {
   if (v === NO_VALUE) return "no value";
@@ -169,9 +124,10 @@ export function firstStop(rules: readonly StopRule[], r: StopInput): { rule: str
       case "json": {
         const d = doc();
         if (d === NO_VALUE) break; // not a JSON body: no opinion
-        const v = valueAt(d, rule.path);
-        const equal = v !== NO_VALUE && jsonEqual(v, rule.value);
-        if (rule.op === "=" ? equal : !equal) return { rule: rule.src, detail: `${pathText(rule.path)} is ${show(v)}` };
+        // Every value at the path (more than one with a wildcard); none: no value, never equal.
+        const hits = valuesAt(d, rule.path);
+        const hit = rule.op === "=" ? hits.find((h) => jsonEqual(h.value, rule.value)) : hits.length === 0 ? { path: rule.path, value: NO_VALUE } : hits.find((h) => !jsonEqual(h.value, rule.value));
+        if (hit !== undefined) return { rule: rule.src, detail: `${pathText(hit.path)} is ${show(hit.value)}` };
         break;
       }
       case "text":
@@ -184,8 +140,4 @@ export function firstStop(rules: readonly StopRule[], r: StopInput): { rule: str
     }
   }
   return null;
-}
-
-export function pathText(path: readonly PathStep[]): string {
-  return "$" + path.map((s) => (typeof s === "number" ? `[${s}]` : `.${s}`)).join("");
 }

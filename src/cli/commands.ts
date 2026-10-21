@@ -80,7 +80,7 @@ export const isCommonFlag = (f: FlagSpec, skip: readonly string[] = COMMON_FLAGS
  * help index footer) rather than per command.
  */
 export const OUTPUT_FLAGS: readonly FlagSpec[] = [
-  { flag: "--select", key: "select", kind: "string", help: "keep only this part of data: dotted keys, [n], [*] (e.g. requests[*].url)", metavar: "path" },
+  { flag: "--select", key: "select", kind: "string", help: "keep only this part of data: a JSON path (docs/04 §43; $ optional): names, [n], [*], .*, [\"quoted name\"] (e.g. requests[*].url)", metavar: "path" },
   { flag: "--grep", key: "grep", kind: "string", help: "keep array elements whose JSON matches this regex (u flag, ≤ 256 chars); long text fields: matching lines with line numbers", metavar: "regex" },
   { flag: "--context", key: "context", kind: "number", help: "with --grep on text: lines around each match (max 20)", default: 0, metavar: "n" },
   { flag: "--max-matches", key: "maxMatches", kind: "number", help: "with --grep: keep at most this many matches (max 1000)", default: 50, metavar: "n" },

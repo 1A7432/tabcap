@@ -6092,7 +6092,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
       "alias": null,
       "default": null,
       "flag": "--select",
-      "help": "keep only this part of data: dotted keys, [n], [*] (e.g. requests[*].url)",
+      "help": "keep only this part of data: a JSON path (docs/04 §43; $ optional): names, [n], [*], .*, ["quoted name"] (e.g. requests[*].url)",
       "key": "select",
       "notOn": [],
       "repeatable": false,

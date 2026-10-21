@@ -1,8 +1,9 @@
 // Layering (review wave 2): the static runtime import graph of src/ has no
-// cycle through the modules below, and the core daemon layer does not import
-// tools/fetch.ts. Type-only imports are left out (Bun.Transpiler drops them;
-// tsconfig has verbatimModuleSyntax, so a runtime import is always written as
-// one). Offline and deterministic: it reads the source files only.
+// cycle through the modules below, the core daemon layer does not import
+// tools/fetch.ts, and bundle/usage.ts does not import daemon/fetch.
+// Type-only imports are left out (Bun.Transpiler drops them; tsconfig has
+// verbatimModuleSyntax, so a runtime import is always written as one).
+// Offline and deterministic: it reads the source files only.
 // Reproduce: bun test test/unit/import-cycles.test.ts
 
 import { describe, expect, test } from "bun:test";
@@ -90,6 +91,11 @@ describe("import layering (review wave 2)", () => {
     const watched = ["daemon/tools/snapshot.ts", "daemon/tools/challenge.ts", "daemon/tools/landing.ts", "daemon/tools/navigate.ts", "daemon/protection/live.ts", "daemon/siterules.ts", "daemon/tools/fetch.ts"];
     for (const m of watched) expect(graph.has(m)).toBe(true);
     expect(cyclic.filter((c) => c.some((m) => watched.includes(m)))).toEqual([]);
+  });
+
+  test("bundle/usage.ts does not import daemon/fetch (the JSON path parser is shared/jsonpath.ts)", () => {
+    expect(graph.get("bundle/usage.ts")?.filter((m) => m.startsWith("daemon/fetch/"))).toEqual([]);
+    expect(graph.get("shared/jsonpath.ts")?.every((m) => m.startsWith("shared/"))).toBe(true);
   });
 
   test("the core layer does not import tools/fetch.ts (the site rule is shared/sites.ts)", () => {

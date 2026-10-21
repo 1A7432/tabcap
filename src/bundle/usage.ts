@@ -28,7 +28,7 @@
 
 import { TabcapError } from "../shared/envelope.ts";
 import { isRecord, rec, str } from "../shared/json.ts";
-import { jsonEqual, parsePath, valueAt, type PathStep } from "../daemon/fetch/stoprules.ts";
+import { jsonEqual, scanJsonPath, valuesAt, type PathSeg } from "../shared/jsonpath.ts";
 import { isLoopbackHost, isPreflight } from "../replay/common.ts";
 import type { BundleReader } from "./reader.ts";
 import type { RawEvent, RequestEvent } from "./types.ts";
@@ -40,7 +40,7 @@ const EMPTY_PROBE_BYTES = 65_536;
 /** JSON bodies up to this size are parsed for business-code rules. */
 const BUSINESS_MAX_BYTES = 8 * 1024 * 1024;
 
-export type BusinessRule = { src: string; path: PathStep[]; ok: unknown };
+export type BusinessRule = { src: string; path: PathSeg[]; ok: unknown };
 
 export const USAGE_ACTORS = ["page", "fetch", "evaluate", "other"] as const;
 export type UsageActor = (typeof USAGE_ACTORS)[number];
@@ -98,25 +98,38 @@ export type UsageReport = {
 export const USAGE_NOTE =
   "counts and names only, no values; one row per host and actor (page / fetch / evaluate / other); intervals are between request starts of one row (CDP monotonic clock), CORS preflights left out; empty = a response with no body, 0 bytes or only whitespace (3xx and CORS preflights excluded); business errors are judged on JSON bodies only";
 
-/** `$.code=0` → path `$.code`, ok value 0 (JSON when it parses, else the string). */
+/**
+ * `$.code=0` → path `$.code`, ok value 0 (JSON when it parses, else the
+ * string). The path is a JSON path of docs/04 §43 (shared/jsonpath.ts); the
+ * first `=` after it starts the value.
+ */
 export function parseBusinessRule(src: string): BusinessRule {
-  const eq = src.indexOf("=");
-  if (eq <= 0) throw new TabcapError("usage", `bad --business-code ${JSON.stringify(src.slice(0, 200))}: expected <$.path>=<ok value>`, "e.g. --business-code '$.code=0'");
-  const pathSrc = src.slice(0, eq);
-  const raw = src.slice(eq + 1);
-  let path: PathStep[];
-  try {
-    path = parsePath(pathSrc, src);
-  } catch (e) {
-    throw new TabcapError("usage", e instanceof Error ? e.message.replace("bad stop rule", "bad --business-code").replace(/\.\s*Stop rules:.*$/, "") : "bad --business-code", "e.g. --business-code '$.code=0'");
-  }
+  const usage = (why: string) => new TabcapError("usage", `bad --business-code ${JSON.stringify(src.slice(0, 200))}: ${why}`, "e.g. --business-code '$.code=0' (JSON paths: docs/04 §43)");
+  if (!src.startsWith("$")) throw usage("expected <$.path>=<ok value>");
+  const p = scanJsonPath(src, 0, { root: "required" });
+  if (!p.ok) throw usage(p.why);
+  const eq = /^\s*=/.exec(src.slice(p.end));
+  if (eq === null) throw usage(`expected = after the path, found ${JSON.stringify(src.slice(p.end, p.end + 10))} at character ${p.end + 1} (write names with spaces, = or ! quoted: $["…"])`);
+  const raw = src.slice(p.end + eq[0].length);
   let ok: unknown = raw;
   try {
     ok = JSON.parse(raw) as unknown;
   } catch {
     ok = raw;
   }
-  return { src, path, ok };
+  return { src, path: p.segs, ok };
+}
+
+/**
+ * A JSON document is a business error when, for some rule, a value at its
+ * path is not the ok value or nothing is at the path (with a wildcard: any
+ * of the values; docs/04 §43).
+ */
+export function businessErrorIn(doc: unknown, rules: readonly BusinessRule[]): boolean {
+  return rules.some((rule) => {
+    const hits = valuesAt(doc, rule.path);
+    return hits.length === 0 || hits.some((h) => !jsonEqual(h.value, rule.ok));
+  });
 }
 
 /** `host:port`, or the scheme (`data`, `blob`, …) of a URL without a host. */
@@ -184,7 +197,7 @@ function isBusinessError(reader: BundleReader, r: RequestEvent, rules: readonly 
   }
   if (!isRecord(doc) && !Array.isArray(doc)) return false;
   // Anything but the ok value counts, a missing path included.
-  return rules.some((rule) => !jsonEqual(valueAt(doc, rule.path), rule.ok));
+  return businessErrorIn(doc, rules);
 }
 
 function maxBurst(starts: readonly number[]): number {
