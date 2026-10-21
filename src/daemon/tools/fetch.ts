@@ -21,7 +21,7 @@ import { isRecord, num, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
 import type { FetchRecord, Recorder } from "../capture/recorder.ts";
 import type { FetchReg } from "../capture/fetchmark.ts";
-import { fetchStoppedError, originOf, sessionFlag, STOP_RULE_NEXT } from "../guard.ts";
+import { fetchStoppedError, originOf, sessionFlag, STOP_RULE_NEXT, waitingError, type Handoff } from "../guard.ts";
 import type { Daemon } from "../state.ts";
 import type { Tab, Tabs } from "../browser/targets.ts";
 import type { ConsoleLog } from "../capture/console.ts";
@@ -238,6 +238,27 @@ async function runHelper(t: Transport, tab: Tab, reg: FetchReg, spec: FetchSpec,
   return res;
 }
 
+/**
+ * Owner 10-21 (docs/04 §26): the session waits for the human (guard.blocking, as at the command's
+ * entry), so this fetch is refused before it is sent; it takes no turn of the host's pacing.
+ */
+class WaitingRefusal extends TabcapError {
+  constructor(readonly h: Handoff) {
+    const e = waitingError(h);
+    super(e.code, e.message, e.next, e.extra);
+  }
+}
+
+function refuseWhileWaiting(d: Daemon, session: string, url: string | null): void {
+  const h = d.guard.blocking(session, "fetch", url);
+  if (h !== null) throw new WaitingRefusal(h);
+}
+
+/** A batch line not sent because the session waits: `waiting` / `guard.stopped` without the handoff view (the batch's answer carries it once). */
+function notSentLine(d: Daemon, e: WaitingRefusal): Envelope<unknown> {
+  return { ok: false, error: { code: e.code, message: d.secrets.scrub(`not sent: ${e.message}`), next: e.next, reason: e.h.reason } };
+}
+
 /** Parse config + command stop rules; a bad config rule is the config's fault (bad-input). */
 function stopRules(cfg: FetchConfig, spec: FetchSpec, site: string | null): StopRule[] {
   const fromConfig = cfg.stopOn.map((s) => {
@@ -273,6 +294,7 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
   const cfg = readFetchConfig(d.paths.configFile, where.site);
   const rules = stopRules(cfg, spec, where.site);
   const ends = endRules(d, spec, where.site);
+  refuseWhileWaiting(d, session, target.href);
   const stopped = d.guard.fetchStopOf(where.key);
   if (stopped !== null) throw fetchStoppedError(stopped);
   const started = Date.now();
@@ -286,6 +308,13 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
   // 0.7.5-A: --end-on joins the site's endOn in the guard's check of this fetch's response.
   const releaseEnds = ends.own.length > 0 ? d.guard.fetchEndRules(fetchId, ends.own) : null;
   try {
+    // The turn may have taken a while: a session that started waiting meanwhile sends nothing (and gives the turn back).
+    try {
+      refuseWhileWaiting(d, session, target.href);
+    } catch (e) {
+      slot.cancel();
+      throw e;
+    }
     const again = d.guard.fetchStopOf(where.key);
     if (again !== null) throw fetchStoppedError(again);
     const same = originOf(tab.url) === target.origin;
@@ -392,12 +421,20 @@ export async function fetchRun(d: Daemon, b: FetchBrowser, a: Args, session: str
     }
   });
   const out: Envelope<unknown>[] = [];
+  // Owner 10-21: from the first line the session's waiting refuses, no line is sent (an end rule does not stop a batch).
+  let refused: WaitingRefusal | null = null;
   for (let i = 0; i < batch.length; i++) {
     const line: unknown = batch[i];
+    const args = isRecord(line) ? line : {};
     try {
-      out.push({ ok: true, data: await fetchOne(d, b, isRecord(line) ? line : {}, session, ctx.cmd, i + 1) });
+      if (refused === null) refuseWhileWaiting(d, session, typeof args["url"] === "string" ? args["url"] : null);
+      if (refused !== null) throw refused;
+      out.push({ ok: true, data: await fetchOne(d, b, args, session, ctx.cmd, i + 1) });
     } catch (e) {
-      out.push(scrubFail(d, toFail(e)));
+      if (e instanceof WaitingRefusal) {
+        refused = e;
+        out.push(notSentLine(d, e));
+      } else out.push(scrubFail(d, toFail(e)));
       log.debug("fetch: batch line failed", { line: i + 1 });
     }
   }
