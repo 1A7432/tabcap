@@ -24,6 +24,7 @@ import type { FetchReg } from "../capture/fetchmark.ts";
 import { fetchStoppedError, originOf, sessionFlag, STOP_RULE_NEXT, waitingError, type Handoff } from "../guard.ts";
 import type { Daemon } from "../state.ts";
 import type { Tab, Tabs } from "../browser/targets.ts";
+import { inWorld, rootDoc } from "../browser/worlds.ts";
 import type { ConsoleLog } from "../capture/console.ts";
 import type { Transport } from "../transport/types.ts";
 import { helperResultOf, helperSource, type HelperResult } from "../fetch/helper.ts";
@@ -198,16 +199,36 @@ export function blockedNext(reason: string, mode: FetchCredentials, origin: stri
   return `The API ${what}: retry with \`--credentials omit\` (POST /fetch: "credentials": "omit"); no cookies are sent then, which is fine when the API authenticates by a header such as Authorization. Otherwise ${navigate}.`;
 }
 
-/** Run the helper in a fresh isolated world of the tab's main frame. */
+export const FETCH_WORLD = "tabcap-fetch";
+
+/**
+ * Compile the helper in the `tabcap-fetch` isolated world of the tab's main-frame document: one world per
+ * document, reused by every fetch on it (browser/worlds.ts; review 10-21, before each fetch made a new one).
+ * The document is keyed by the tab's committed-navigation count, so a fetch costs no frame-tree round trip:
+ * a new document always moves it (a same-document navigation does too, which only makes one more world).
+ * Only the compile is retried on a vanished context, never the run (that would send the request twice).
+ */
+export async function compileFetchHelper(t: Transport, tab: Tab, src: string): Promise<{ ctx: number; scriptId: string }> {
+  const doc = rootDoc(tab, { frameId: tab.targetId, loaderId: `nav-${tab.navEpoch}`, url: tab.url });
+  return inWorld(
+    t,
+    tab,
+    doc,
+    async (ctx) => {
+      const c = await t.send("Runtime.compileScript", { expression: src, sourceURL: "", persistScript: true, executionContextId: ctx }, tab.sessionId, 5000);
+      const scriptId = str(c, "scriptId");
+      if (scriptId === null) throw new TabcapError("internal", "the fetch helper did not compile", "This is a bug; rerun with TABCAP_LOG=debug and report the output.");
+      return { ctx, scriptId };
+    },
+    FETCH_WORLD,
+  );
+}
+
+/** Run the helper in the tabcap-fetch isolated world of the tab's main frame. */
 async function runHelper(t: Transport, tab: Tab, reg: FetchReg, spec: FetchSpec, target: URL, budgetMs: number): Promise<HelperResult> {
   const sid = tab.sessionId;
-  const w = await t.send("Page.createIsolatedWorld", { frameId: tab.targetId, worldName: "tabcap-fetch", grantUniveralAccess: false }, sid, 5000);
-  const ctx = num(w, "executionContextId");
-  if (ctx === null) throw new TabcapError("cdp", "Page.createIsolatedWorld returned no context", "Retry; if the tab is still loading, wait for it first.");
   const src = helperSource(reg.fnName, { url: target.href, method: spec.method, headers: spec.headers, body: spec.body, credentials: spec.credentials, marker: reg.marker, timeoutMs: Math.max(1, budgetMs) });
-  const c = await t.send("Runtime.compileScript", { expression: src, sourceURL: "", persistScript: true, executionContextId: ctx }, sid, 5000);
-  const scriptId = str(c, "scriptId");
-  if (scriptId === null) throw new TabcapError("internal", "the fetch helper did not compile", "This is a bug; rerun with TABCAP_LOG=debug and report the output.");
+  const { ctx, scriptId } = await compileFetchHelper(t, tab, src);
   reg.scriptId = scriptId;
   const r = await t.send("Runtime.runScript", { scriptId, executionContextId: ctx, awaitPromise: true, returnByValue: true }, sid, budgetMs + 5000);
   const res = isRecord(r["result"]) ? helperResultOf(r["result"]["value"]) : null;
