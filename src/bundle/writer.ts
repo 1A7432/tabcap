@@ -26,7 +26,7 @@ import {
   type NewManifestOptions,
 } from "./manifest.ts";
 import { parseEventsText } from "./reader.ts";
-import type { Actor, Manifest, ManifestCounts, RawEvent, UnsequencedEvent } from "./types.ts";
+import { ACTORS, type Actor, type Manifest, type ManifestCounts, type RawEvent, type UnsequencedEvent } from "./types.ts";
 
 export type WriterOptions = {
   /** Used when the directory has no manifest yet. `created` defaults to now(). */
@@ -40,8 +40,6 @@ export type WriterOptions = {
   /** Applied to every events.jsonl line before it is written (known proxy secrets, 0.4-D); must keep the line valid JSON. */
   scrubLine?: (line: string) => string;
 };
-
-const ACTORS: readonly Actor[] = ["human", "ai", "system"];
 
 /** Add one event to running counts (same rules as manifest.computeCounts). */
 function countEvent(c: ManifestCounts, e: RawEvent): void {
