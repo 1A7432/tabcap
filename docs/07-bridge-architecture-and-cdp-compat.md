@@ -23,7 +23,7 @@
 ### 1.1 `direct` 模式的启动与挂接协议（10-15 spike 1，Chrome for Testing 155，全部【实测】除非另注）
 
 启动参数：
-- `--user-data-dir=<profile>`、`--remote-debugging-pipe`（备选 `--remote-debugging-port=0` + 读 `DevToolsActivePort`）、`--load-extension=<ui ext>`、`--no-first-run`、`--no-default-browser-check`。
+- `--user-data-dir=<profile>`、`--remote-debugging-pipe`（备选 `--remote-debugging-port=0` + 读 `DevToolsActivePort`）、`--load-extension=<ui ext>`（只在有 UI 扩展时传：`TABCAP_EXTENSION_DIR`，或源码根目录的 `extension/` 里有 `manifest.json`，见 `src/daemon/tools/browser.ts`；仓库里目前没有扩展，所以实际不传，见下文）、`--no-first-run`、`--no-default-browser-check`。
 - macOS 固定加 **`--use-mock-keychain`**。否则每次启动都会弹 macOS 钥匙串对话框「Chrome for Testing 想要使用 Chromium Safe Storage」，在人点掉之前第一次导航一个请求都发不出去（实测卡 17.5 s，正好是弹窗到点击的间隔）；点「始终允许」也靠不住，CfT 是 ad-hoc 签名，ACL 绑代码哈希，换版本大概率再弹【推断】。代价：profile 里的 cookie 用固定密钥加密，保护退到文件权限，与 `store` 的定位一致。
 - **`--disable-features=…,PreconnectToSearch`**（0.4-D 起所有模式都加）【实测 spike 10-16，netlog】：带自己代理的 browser context 每次新开标签 / 每次导航都经该 context 的代理发 `CONNECT www.google.com:443`（对默认搜索引擎的 preconnect，与扩展无关）；单独关 `PreconnectToSearch` 就消失，关 `SearchEnginePreconnector` / `SearchEnginePreconnector2` / `LoadingPredictorUseOptimizationGuide` / `NavigationPredictor` 都无效。【实测 0.4-D e2e】加上之后两个池代理的日志里 CONNECT 为 0。
 - Chrome 自己会向 Google 发 GCM 注册请求，`--disable-background-networking` 挡不住，并且会走系统代理。端到端测试要用黑洞代理 `--proxy-server=127.0.0.1:1 --proxy-bypass-list="127.0.0.1;localhost"` 把外连全部截断【待验】；生产模式要不要跟随系统代理是作者的决定（见 §4 第 6 条）。
