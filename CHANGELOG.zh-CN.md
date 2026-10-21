@@ -4,6 +4,17 @@
 
 ## Unreleased
 
+### 审查后续第二波（结构、store、HAR、测试助手）
+
+- **站点归属只有一条规则**（`src/shared/sites.ts`）：去前导点、认子域、IP 只认相等；`fetch`、站点 guard、cookie 回写、`replay check --live` 都跟它（`--live` 以前只认精确主机）；`site add --domains` 入库前规整，不是主机名的值拒绝。
+- **JSON 路径只有一种语法**（docs/04 §43，`src/shared/jsonpath.ts`）：`--select`、停手 / 结束规则、`--business-code`、回放键规则共用同一文法（`$`、`.名`、`.*`、`[n]`、`[*]`、`["带引号"]`），其余写法报错并给出字符位置；停手规则新增 `[*]` 与带引号的键。
+- **分层。** 通用 CDP 辅助从 `tools/snapshot.ts` 搬到 `browser/doc.ts`；`bundle/usage.ts` 不再 import 守护进程；三个 import 环去掉两个，单测守住。
+- **`replay check --live` 的护栏。** 间隔不低于站点或全局的 `fetch.minIntervalMs`（更快的 `--rate` 按下限走并在 `warnings` 说明）；守护进程已停手的站点回 `guard.stopped`；没有守护进程时 `warnings` 写明停手规则不生效。
+- **Store。** `tabcap bundle list [--site] [--limit]` 读录制索引；`tabcap bundle prune (--keep N | --older-than <d>) [--site] [--yes]` 删最旧的录制（默认只列；守护进程仍开着的录制不删；不是 MCP 工具）。账号小时窗口过期行随写入清理。录制没有总量上限，靠 prune。
+- **HAR 往返。** `export har --embed-events` 把 manifest 放进 `log._manifest`，导入时恢复，`lossy` 不再列 `manifest`。
+- **第一波尾巴。** 生成的 `_verify.py` 扣留 tabcap 自己视为敏感的头；导出打码去掉 URL 的 `user:pass@`；`handoff wait` 的 `condition.url`、`browser start` / `browser status` 的 `args` / `extraArgs` / `dropArgs` 去 URL 凭据；`analyze deps` 与 `replay export-python` 把 `x-csrf` / `x-xsrf` 头当秘密输入（`x_csrf: Any = TODO`，由 `verify()` 从答复取）；`browser stop` 停掉进行中的 trace；`handoff continue` 的 not-found `next` 与接管问题带 `--session`；Python 客户端对人接管抛 `Waiting`（reason、next、session、url）；`fetch` 每个文档复用一个隔离世界；`parseManifest` 拒绝畸形的 `producer.browser` / `record` / `sample`；用户防护规则文件在 `browser start` 时编译一次，被跳过的文件进 `warnings`，嵌套无界量词的正则被拒。`fingerprint probe` 超时时报告探测页状态（`error.page`）；Windows 上启动的 Chrome 把日志写进 `browser.log`（仅 win32 加 `--enable-logging=stderr --log-level=1`）。
+- **测试。** e2e 的 CLI 助手收进 `test/e2e/_cli.ts`（去掉约 1000 行重复，失败时带 stdout 与 stderr）；单测的 `FakeRec` 替身收进 `test/unit/_fakes.ts`；三处依赖录制顺序的 e2e 断言改为按请求开始排序或集合比较。
+
 ### 审查后续第一波（作者 2026-10-21：全部发现按建议修）
 
 - **打码。** 导出打码（`bundle redact`、`export har --embed-events`、夹具）升到规则 `default@3`：所有事件递归遍历（guard 的 `detail.url` / `detail.detail`、handoff 的 `condition.value` / `question`、protection 指向、cmd 的 `argv` / `input` / `outputSummary` / `error`、console 的 `text` / `args`、manifest 的 `producer.browser.args` / `extraArgs` / `dropArgs` 都在内），按名打码的值在副本里处处替换。敏感头只有一份清单（导出、实时、会话导出三份的并集），导出、实时输出、离线分析、会话导出、交给解码插件的头都用它；`x-csrf` / `x-xsrf` / `apikey` / `x-sid` 之类在每条路径上都打码。实时打码补齐 `handoff status` / `handoff wait` / `waiting` 与 `guard.stopped` 错误、`tabcap status`（JSON 与 `--text`）、`fetch` 回答的 `end.detail` / `stopped.detail`。URL query 打码与 `redactDossier` 各只剩一份；离线 `analyze recon` 的档案也做库里已知秘密替换。
