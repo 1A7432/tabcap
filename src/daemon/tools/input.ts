@@ -456,7 +456,8 @@ export async function holdFrames(t: Transport, sessionId: string, clock: Pick<Po
       log.warn("trusted input: screencast did not stop", { error: String(e) });
     });
   };
-  const until = clock.now() + HELD_PAINT_WAIT_MS;
+  const started = clock.now();
+  const until = started + HELD_PAINT_WAIT_MS;
   let second = await paintCheck(t, sessionId);
   let checks = 1;
   while (!fullRate(second) && clock.now() + HELD_PAINT_POLL_MS < until) {
@@ -464,7 +465,9 @@ export async function holdFrames(t: Transport, sessionId: string, clock: Pick<Po
     second = await paintCheck(t, sessionId);
     checks++;
   }
-  log.info("trusted input: slow frames, screencast held", { raf: first.raf, frameMs: first.frameMs, after: second.frameMs, painted: second.painted, checks });
+  // elapsedMs: from the screencast's start to the end of the last check (each check can take ~1.3 s).
+  const elapsedMs = Math.round(clock.now() - started);
+  log.info("trusted input: slow frames, screencast held", { raf: first.raf, frameMs: first.frameMs, after: second.frameMs, painted: second.painted, checks, elapsedMs });
   if (fullRate(second)) return { paint: second, held: { raf: first.raf, frameMs: first.frameMs, visibility: first.visibility, held: "screencast" }, release };
   await release();
   return { paint: second, held: null, release: none };
