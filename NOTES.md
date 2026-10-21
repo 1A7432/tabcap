@@ -705,3 +705,9 @@
 - 做了什么：`ci-stab-081` rebase 到 `9269ec4`（0.9-A..D 已合）。冲突：`recorder.ts` 的 `loadingFailed` 保留 0.9-C 流式截断路径，两条 `track()` 都带 `[q]`；CHANGELOG 两份在 Unreleased 里 0.9 与作者决定项之后插入 CI 稳定性小节；NOTES 追加原 0.8.2 条目、不改写 0.9 历史。docs/04 §18、docs/07 Linux 帧段、`main.ts` / `browser.ts` / `ci.yml` 自动合并。作者定：先变基，不修 Bugbot 仍开着的 medium（`stopWithin` 超时后仍可能丢下未 settle 的 stop）。【实测】`tsc --noEmit` 干净；`guardjudge082` / `shutdown082` / `input-fidelity` / `recorder09c` / `downloads09d` 83 pass / 0 fail。
 - 卡在哪：Bugbot 那条按作者决定先不动。
 - 下一格从哪开始：推 `ci-stab-081`，等 #34 CI；全绿再 rebase 合入，然后处理 #29。
+
+## 2026-10-21 · 0.8.1 发布（主循环）
+- 做了什么：PR #27（0.8.1-A 自定义 Chrome 启动参数）三轮 CI：第一轮 Ubuntu e2e 第 3 片因 fwdproxy 未处理异常红（见上条），修后第二轮全绿；Bugbot 一条（无值列表开关覆盖）修后第三轮全绿、Bugbot 通过，`gh pr merge 27 --rebase`，main 2cfb8fa CI 全绿。PR #28 发布提交（与 0.8.0 同样 14 个文件）CI 全绿后合入 d8a17ad，推 v0.8.1 tag，release run 39592086012 全绿，五个 npm 包 latest 0.8.1（curl registry 核对），GitHub Release 取消草稿、非 prerelease、设为 latest，homebrew run 39593227989 把 0.8.1 推进 tap【实测】。本 PR：Scoop hash 换成 0.8.1 windows-x64 zip 的（下载后 `shasum -a 256` 与 SHA256SUMS 一致）。
+- 卡在哪：无。作者实际要加的参数本身的效果【待验】；本机 Zig 0.17 编不了 wireprint（见 0.8.1-A 条）。
+- 下一格从哪开始：作者用真实参数跑 0.8.1；按作者 10-20 的要求把本轮知识整理进思源 Learning Lab。
+
