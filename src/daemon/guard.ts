@@ -37,6 +37,7 @@
 //    (the baseline); `handoff wait --until-*` (tools/handoffwait.ts) ends it
 //    when a condition first seen false in this handoff holds.
 
+import type { GuardResumeBy, HandoffBy, HandoffCondition } from "../bundle/types.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
 import { log } from "../shared/log.ts";
@@ -59,7 +60,7 @@ export type ChallengeReason = "verify-page" | "stop-rule";
 export type HandoffReason = ChallengeReason | "human-takeover";
 
 /** Pure: does this recorded request look like a challenge page? */
-export function challengeOf(e: Pick<NetEntry, "type" | "status" | "mime" | "outcome">): ChallengeReason | null {
+export function challengeOf(e: Pick<NetEntry, "type" | "status" | "mime" | "outcome">): "verify-page" | null {
   if (e.outcome === "failed" || e.status !== 403) return null;
   if (e.type !== "xhr" && e.type !== "fetch" && e.type !== "document") return null;
   return (e.mime ?? "").toLowerCase() === "text/html" ? "verify-page" : null;
@@ -145,7 +146,7 @@ export type Handoff = {
   /** 0.7.5-B: `handoff wait` conditions seen not to hold during this handoff (keys like `url:/home`). */
   seenFalse?: Set<string>;
   /** 0.7.5-B: the condition that ended it (`resumedBy: "condition"`). */
-  condition?: { kind: string; value: string };
+  condition?: HandoffCondition;
   /** 0.8-A: protection families identified on the tab when it began (names; docs/04 §41.3). */
   protection?: string[];
 };
@@ -375,7 +376,7 @@ export class Guard {
   }
 
   /** `tabcap guard resume --site` (or `handoff continue` of the session that stopped it). */
-  resumeFetch(site: string, by: string, rec: GuardRecorder | undefined): FetchStop {
+  resumeFetch(site: string, by: GuardResumeBy, rec: GuardRecorder | undefined): FetchStop {
     const s = this.fetchStops.get(site);
     if (s === undefined) {
       const stopped = [...this.fetchStops.keys()];
@@ -655,7 +656,7 @@ export class Guard {
       });
   }
 
-  private async trip(rec: GuardRecorder, e: NetEntry, reason: ChallengeReason): Promise<void> {
+  private async trip(rec: GuardRecorder, e: NetEntry, reason: "verify-page"): Promise<void> {
     const session = rec.session;
     const bound = this.deps.siteOf(session);
     const h: Handoff = {
@@ -749,7 +750,7 @@ export class Guard {
   }
 
   /** End a handoff: `tabcap handoff continue` (human), a handler's answer, or (0.7.5-B) a `handoff wait` condition. */
-  resume(session: string, by: string, answerRef: string | null = null, condition: { kind: string; value: string } | null = null): Handoff {
+  resume(session: string, by: HandoffBy, answerRef: string | null = null, condition: HandoffCondition | null = null): Handoff {
     const h = this.handoffs.get(session);
     if (h === undefined || h.state !== "waiting") throw new TabcapError("not-found", `session "${session}" is not waiting for the human`, `Nothing to continue; run \`tabcap handoff status${sessionFlag(session)}\`.`);
     h.state = "resumed";

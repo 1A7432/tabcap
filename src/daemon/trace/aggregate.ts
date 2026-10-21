@@ -14,7 +14,7 @@
 //   counted, and every aggregate of that (document, api) gets truncated: true.
 
 import { isRecord, num, str } from "../../shared/json.ts";
-import type { SignalFrame } from "../../bundle/types.ts";
+import type { SignalFields, SignalFrame } from "../../bundle/types.ts";
 import { INSTRUMENTATION_EVENTS, instrumentationPauseName, SCRIPT_FIRST_STATEMENT } from "./signals.ts";
 
 export type TraceLimits = { stack: number; firstN: number; maxHits: number };
@@ -260,7 +260,7 @@ function summaryRef(r: DocRef): Pick<DocSummary, "tab" | "frame" | "nav" | "url"
 }
 
 /** Event fields of an aggregate (docs/04 §4.1 `signal`), envelope excluded. */
-export function signalFields(a: Aggregate, value: { present: boolean; value: unknown }): Record<string, unknown> {
+export function signalFields(a: Aggregate, value: { present: boolean; value: unknown }): SignalFields {
   return {
     frame: a.doc.frame,
     nav: a.doc.nav,

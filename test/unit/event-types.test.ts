@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { EventKind, GuardFields, HandoffFields } from "../../src/bundle/types.ts";
+import type { Recorder } from "../../src/daemon/capture/recorder.ts";
 import { REPO_ROOT } from "./_fixtures.ts";
 
 const DOC = readFileSync(join(REPO_ROOT, "docs", "04-evidence-bundle-spec-v0.md"), "utf8");
@@ -63,3 +64,23 @@ describe("types.ts mirrors docs/04 §4", () => {
     expect(new Set(head.split("|").map((s) => s.replaceAll('"', "")))).toEqual(new Set(Object.keys(HANDOFF_STATES)));
   });
 });
+
+/**
+ * Recorder.event is typed by kind: `bun run typecheck` fails as soon as one of
+ * these calls compiles again (each `@ts-expect-error` must see an error).
+ * Never called.
+ */
+export function driftedWrites(r: Pick<Recorder, "event">): void {
+  // @ts-expect-error a handoff field docs/04 §4.2 does not define
+  r.event("handoff", { state: "waiting", reason: "verify-page", question: "q", timeoutMs: null, answerRef: null, request: null, url: "u", screenshot: null, extra: 1 });
+  // @ts-expect-error a guard end event without its detail (§38)
+  r.event("guard", { event: "end", site: "s", account: null, rule: "x", request: "r-1" });
+  // @ts-expect-error a `by` §4.2 / §39 do not list
+  r.event("handoff", { state: "resumed", reason: "verify-page", question: null, timeoutMs: null, answerRef: null, by: "someone" });
+  // @ts-expect-error the take-over input is always trusted (§37)
+  r.event("action", { op: "input", event: "keydown", at: 1, target: null, value: null, phase: "done", error: null, shots: null, nav: null, trusted: false });
+  // @ts-expect-error a protection category §41 does not have
+  r.event("protection", { nav: null, url: "u", detections: [{ family: "f", name: "n", category: "bot", confidence: 1, matched: [] }] });
+  // @ts-expect-error `request` events are the recorder's own, numbered by their seq
+  r.event("request", {});
+}

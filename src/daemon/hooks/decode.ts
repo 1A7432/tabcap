@@ -46,6 +46,7 @@
 import { lstatSync } from "node:fs";
 import { isAbsolute, resolve, sep } from "node:path";
 import { isSensitiveHeaderName } from "../../bundle/redact.ts";
+import type { DecodedView } from "../../bundle/decoded.ts";
 import type { Headers } from "../../bundle/types.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord } from "../../shared/json.ts";
@@ -648,7 +649,7 @@ export class DecodeSession {
 export async function decodedField(
   out: DecodeOutcome,
   putBlob: (b: Uint8Array) => Promise<{ outcome: "stored"; ref: string; size: number } | { outcome: "too-large"; size: number; cap: number }>,
-): Promise<Record<string, unknown>> {
+): Promise<DecodedView> {
   const base = { by: out.by, version: out.version, direction: out.direction };
   if (!out.ok) return { ...base, mime: null, blob: null, bytes: null, ok: false, error: out.error };
   const put = await putBlob(out.body);
