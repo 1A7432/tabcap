@@ -29,6 +29,9 @@ export function checkSiteName(name: string): string {
 }
 
 // Migrations: index i takes the schema from version i to i + 1.
+// Reserved, not wired (docs/04 §8.1, docs/03 stage 2 `store`): the `login_recipes` table (login
+// recipes; no code reads or writes it) and `sessions.verified_at` (session expiry checks; read into
+// SavedSession.verifiedAt, never written). Kept as the planned schema, not dropped (review 10-21).
 export const MIGRATIONS: readonly string[] = [
   `CREATE TABLE sites (
      name TEXT PRIMARY KEY,
@@ -123,7 +126,7 @@ export const COOKIE_SECRET_MIN = 8;
 const REF_SAFE = /^[A-Za-z0-9_.-]{1,64}$/;
 export type GuardCounter = { site: string; sessionName: string; loginAttempts: number; lastAttemptAt: number | null };
 export type RequestCounter = { site: string; scope: string; requests: number; lastRequestAt: number | null };
-/** A `sessions` row: the cookies saved for a site's account (session stop / handoff continue of a site-bound session). */
+/** A `sessions` row: the cookies saved for a site's account (session stop / handoff continue of a site-bound session); `verifiedAt` is reserved and always null (nothing writes it yet). */
 export type SavedSession = { site: string; username: string; cookies: unknown; savedAt: number | null; verifiedAt: number | null };
 export type BundleRow = { path: string; site: string | null; sessionName: string | null; created: number; finished: number | null };
 
