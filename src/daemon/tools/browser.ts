@@ -2,7 +2,7 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { readChromeArgsConfig, readConfig, readHandoffConfig, readProtectionConfig } from "../../shared/config.ts";
+import { readChromeArgsConfig, readConfig, readConfigWarnings, readHandoffConfig, readProtectionConfig } from "../../shared/config.ts";
 import { TakeoverWatch, onHumanInput } from "../browser/takeover.ts";
 import { envVar } from "../../shared/env.ts";
 import { log } from "../../shared/log.ts";
@@ -80,18 +80,29 @@ function attempt<T>(f: () => T): T | null {
   }
 }
 
+/**
+ * Review wave 3 (docs/04 §44): the answer's `warnings` are the browser's own (`info.warnings`, as at
+ * start) followed by config.json's unknown keys, read again for every answer; a config.json that
+ * cannot be read is the answer's error.
+ */
+function withConfigWarnings(own: readonly string[], configFile: string): string[] {
+  return [...own, ...readConfigWarnings(configFile)];
+}
+
 export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
   if (d.browser !== null) {
     const info = d.browser.info;
     const cfgNow = readConfig(d.paths.configFile);
     const note = runningNote({ custom: customArgsOf(a, d.paths.configFile), proxy: optStr(a, "proxy") ?? cfgNow.proxy, webdriver: optStr(a, "webdriver") ?? cfgNow.webdriver }, info);
-    return { ...shownInfo(info), alreadyRunning: true, ...(note === null ? {} : { note }) };
+    return { ...shownInfo(info), warnings: withConfigWarnings(info.warnings, d.paths.configFile), alreadyRunning: true, ...(note === null ? {} : { note }) };
   }
   const cfg = readConfig(d.paths.configFile);
   // 0.7.1-A: a bad `handoff` value fails here, before anything starts (docs/04 §37).
   const handoff = readHandoffConfig(d.paths.configFile);
   // Review 10-21: so does a bad `protection.live` (docs/04 §41.3).
   const protection = readProtectionConfig(d.paths.configFile);
+  // Review wave 3: read before the launch, so the answer cannot fail once the browser runs.
+  const configWarnings = readConfigWarnings(d.paths.configFile);
   const exe = resolveExecutable({
     flag: optStr(a, "executablePath"),
     env: envVar("CHROME") ?? null,
@@ -181,7 +192,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     if (failedSandbox()) sandboxError();
     await d.browserGone();
   });
-  return { ...shownInfo(d.browser.info), alreadyRunning: false, extension: ext, detectTakeover: takeover !== null };
+  return { ...shownInfo(d.browser.info), warnings: [...d.browser.info.warnings, ...configWarnings], alreadyRunning: false, extension: ext, detectTakeover: takeover !== null };
 }
 
 export async function browserStop(d: Daemon): Promise<unknown> {
@@ -211,7 +222,8 @@ export async function browserStop(d: Daemon): Promise<unknown> {
   return { stopped: true, pid: b.info.pid, bundles };
 }
 
-export function browserStatus(d: Daemon): unknown {
+/** `browser status` without config.json: what `daemon status` embeds (it answers whatever the file holds). */
+export function browserFacts(d: Daemon): Record<string, unknown> {
   const b = d.browser;
   if (b === null) return { running: false };
   return {
@@ -224,4 +236,10 @@ export function browserStatus(d: Daemon): unknown {
     popupFocus: b.t.frontStats,
     recording: [...d.recorders.keys()],
   };
+}
+
+/** `browser status`: `browserFacts` with config.json's unknown-key warnings in `warnings` (also with no browser). */
+export function browserStatus(d: Daemon): unknown {
+  const facts = browserFacts(d);
+  return { ...facts, warnings: withConfigWarnings(d.browser?.info.warnings ?? [], d.paths.configFile) };
 }

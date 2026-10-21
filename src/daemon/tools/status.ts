@@ -8,7 +8,9 @@
 // before the command path (main.ts), so it opens no `cmd` window in any
 // recording and is never refused while a session waits.
 
+import { join } from "node:path";
 import { cachedNames } from "../protection/live.ts";
+import { readConfigWarnings } from "../../shared/config.ts";
 import { isRecord } from "../../shared/json.ts";
 import { decodePlugins, pluginsFor } from "../hooks/plugins.ts";
 import type { Daemon } from "../state.ts";
@@ -83,7 +85,13 @@ export type StatusFacts = {
  * finished (one clause per waiting session; a stop-rule wait is decided on the response first),
  * else the first conflict's next, else null.
  */
-export type StatusAnswer = StatusFacts & { conflicts: StatusConflict[]; next: string | null };
+/**
+ * Review wave 3 (docs/04 §44): config.json's unknown keys, read on every answer (also without a daemon or a
+ * browser); `browser.warnings` stays the browser's own. A config.json that cannot be read is the answer's error.
+ */
+export type StatusConfig = { warnings: string[] };
+
+export type StatusAnswer = StatusFacts & { config: StatusConfig; conflicts: StatusConflict[]; next: string | null };
 
 /** The top-level `next` of a status answer (pure). */
 export function nextOf(f: StatusFacts, conflicts: readonly StatusConflict[]): string | null {
@@ -303,8 +311,9 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
       .filter((h) => h.state === "waiting")
       .map((h) => ({ session: h.session, reason: h.reason, site: h.site, url: redactUrl(h.url, c), since: h.since, screenshot: h.screenshot })),
   };
+  const config = { warnings: readConfigWarnings(d.paths.configFile) };
   const conflicts = conflictsOf(facts);
-  return { ...facts, conflicts, next: nextOf(facts, conflicts) };
+  return { ...facts, config, conflicts, next: nextOf(facts, conflicts) };
 }
 
 function recordingSince(st: Record<string, unknown>): number {
@@ -314,6 +323,7 @@ function recordingSince(st: Record<string, unknown>): number {
 
 /** `tabcap status` when no daemon answers: the CLI still reports what it can read itself (plugins). */
 export function offlineStatus(configDir: string, listener: string): StatusAnswer {
+  const config = { warnings: readConfigWarnings(join(configDir, "config.json")) };
   const facts: StatusFacts = {
     schema: STATUS_SCHEMA,
     daemon: { running: false, listener },
@@ -323,7 +333,7 @@ export function offlineStatus(configDir: string, listener: string): StatusAnswer
     handoff: [],
   };
   const conflicts = conflictsOf(facts);
-  return { ...facts, conflicts, next: nextOf(facts, conflicts) };
+  return { ...facts, config, conflicts, next: nextOf(facts, conflicts) };
 }
 
 // ---------------------------------------------------------------- --text
@@ -353,6 +363,8 @@ export function renderStatusText(data: unknown): string {
       ? `daemon pid ${txt(dmn["pid"])} (${txt(dmn["listener"])}) · ${br["running"] === true ? `browser pid ${txt(br["pid"])} ${txt(br["mode"])}, ${txt(br["tabs"])} tab(s), webdriver ${txt(br["webdriver"])}${chromeArgsText(br)}` : "browser not running"}`
       : "daemon not running (`tabcap daemon start`)";
   const lines = [`tabcap status · ${head} · plugins: ${plugins.length === 0 ? "none" : plugins.join(", ")}`];
+  // Review wave 3: config.json's unknown keys, one line each, under the head line.
+  for (const w of strs(rec(s["config"])["warnings"])) lines.push(`warning: ${w}`);
   const sessions = recs(s["sessions"]);
   if (sessions.length === 0) lines.push("(no sessions)");
   for (const x of sessions) {

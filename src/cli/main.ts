@@ -11,7 +11,7 @@ import { computeCounts, writeFileAtomic } from "../bundle/manifest.ts";
 import { BundleReader } from "../bundle/reader.ts";
 import { parseBusinessRule, parseUsageActor, renderUsageText, usageReport, type UsageReport } from "../bundle/usage.ts";
 import { newSalt, redactBundle, writeSalt } from "../bundle/redact.ts";
-import { readConfig, writeConfig } from "../shared/config.ts";
+import { readConfig, readConfigWarnings, writeConfig } from "../shared/config.ts";
 import { envVar } from "../shared/env.ts";
 import { isRecord, oneOf } from "../shared/json.ts";
 import { paths } from "../shared/paths.ts";
@@ -310,6 +310,10 @@ function cmdInfo(p: Parsed): unknown {
 
 const PLATFORMS: readonly CftPlatform[] = ["mac-arm64", "mac-x64", "linux64", "win64"];
 
+/**
+ * `tabcap setup`. Review wave 3 (docs/04 §44): a config.json it cannot parse is refused before anything
+ * else (readConfig) and never rewritten; the answer's `warnings` are the written file's unknown keys.
+ */
 async function cmdSetup(args: Record<string, unknown>): Promise<unknown> {
   const p = paths();
   const exe = typeof args["executablePath"] === "string" ? args["executablePath"] : null;
@@ -321,13 +325,13 @@ async function cmdSetup(args: Record<string, unknown>): Promise<unknown> {
     if (v === null) throw new TabcapError("io", `${exe} --version failed`, "Make sure the path is a Chrome for Testing binary that runs on this machine.");
     const version = /(\d+(?:\.\d+)+)/.exec(v)?.[1] ?? v;
     writeConfig(p.configFile, { ...cfg, chrome: { executablePath: exe, version, platform: null } });
-    return { executablePath: exe, version, downloaded: false, config: p.configFile };
+    return { executablePath: exe, version, downloaded: false, config: p.configFile, warnings: readConfigWarnings(p.configFile) };
   }
   const plat = platArg ?? hostPlatform();
   if (!oneOf(PLATFORMS, plat)) throw new TabcapError("unsupported", `no Chrome for Testing build for ${plat ?? process.platform + "-" + process.arch}`, "Use --platform mac-arm64|mac-x64|linux64|win64, or --executable-path.");
   const r = await downloadCft(p.chromeCache, plat);
   writeConfig(p.configFile, { ...cfg, chrome: { executablePath: r.executablePath, version: r.version, platform: plat } });
-  return { ...r, platform: plat, config: p.configFile };
+  return { ...r, platform: plat, config: p.configFile, warnings: readConfigWarnings(p.configFile) };
 }
 
 async function runSpec(c: CommandSpec, argv: readonly string[], raw: readonly string[], opts: RunOptions): Promise<{ code: number; envelope: Envelope<unknown>; text?: string }> {

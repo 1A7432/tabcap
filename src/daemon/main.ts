@@ -20,7 +20,7 @@ import { BLOCKED_WHILE_WAITING, waitingError } from "./guard.ts";
 import { Store } from "./store/db.ts";
 import { screenshot } from "./tools/page.ts";
 import { setLogScrubber } from "../shared/log.ts";
-import { browserStatus, browserStop } from "./tools/browser.ts";
+import { browserFacts, browserStop } from "./tools/browser.ts";
 import { TOOLS } from "./tools/index.ts";
 import { TEXT_ACTIONS } from "./tools/registry.ts";
 import { scrubValue } from "./secrets.ts";
@@ -83,7 +83,14 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   if (action === "status") {
     // 0.7-E: a hand-off screenshot still being taken is waited for (bounded), so `screenshot` is its path
     await d.guard.shotTaken(null);
-    return markFetchAuth(d, ok(statusOf(d, daemonFacts(d))));
+    // Review wave 3: a config.json that cannot be read is the answer's error (docs/04 §44).
+    let st: Envelope<unknown>;
+    try {
+      st = ok(statusOf(d, daemonFacts(d)));
+    } catch (e) {
+      st = toEnvelope(e);
+    }
+    return markFetchAuth(d, st);
   }
   // status, daemon.status and daemon.shutdown are answered above (tools/registry.ts DAEMON_ACTIONS).
   const known = TOOLS[action];
@@ -256,7 +263,8 @@ function statusData(d: Daemon): unknown {
     startedAt: d.startedAt,
     store: d.store?.path ?? null,
     handoffs: d.guard.all().map((h) => ({ session: h.session, state: h.state, reason: h.reason })),
-    browser: browserStatus(d),
+    // Without config.json: daemon status answers whatever the file holds (review wave 3).
+    browser: browserFacts(d),
     recordings: [...d.recorders.values()].map((r) => r.status()),
   };
 }
