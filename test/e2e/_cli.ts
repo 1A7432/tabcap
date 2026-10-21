@@ -16,6 +16,20 @@ export const s = (v: unknown): string => (typeof v === "string" ? v : JSON.strin
 export const rec = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
 export const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
 
+/**
+ * Sort request events by when they started (timing.start, CDP monotonic ms), not by their place
+ * in events.jsonl: a request's seq is given when its event is written, after its body, so it can
+ * come after that of a request that started later (0.7.4).
+ */
+export function byStart(a: Record<string, unknown>, b: Record<string, unknown>): number {
+  const start = (e: Record<string, unknown>): number => {
+    const t = rec(e["timing"])["start"];
+    if (typeof t !== "number") throw new Error(`request ${s(e["id"])} has no timing.start`);
+    return t;
+  };
+  return start(a) - start(b);
+}
+
 /** One CLI run: the envelope's ok / data / error, the envelope itself, stdout as printed (`raw`), stderr and the exit code. */
 export type Env = { ok: boolean; data: Record<string, unknown>; error: Record<string, unknown> | null; envelope: Record<string, unknown>; raw: string; stderr: string; exit: number };
 

@@ -165,10 +165,14 @@ describe.skipIf(!enabled)("tabcap 0.6-B L2 (decode plugins on docs/05 s42)", () 
     expect((await ok("bundle", "info", b2))["decodedSidecar"]).toBe(true);
     const again = await ok("bundle", "decode", b2, "--plugin", "xor-decode");
     expect([again["appended"], again["unchanged"]]).toEqual([0, 2]);
-    expect(recs(res["rows"]).map((r) => [r["request"], r["direction"], r["by"], r["ok"]])).toEqual([
-      [token2, "response", "xor-decode", true],
-      [items2, "response", "xor-decode", true],
-    ]);
+    // rows follow the bundle's seq, which can put the token after items (a request's seq is given
+    // after its body, 0.7.4): compare as a set
+    expect(recs(res["rows"]).map((r) => [r["request"], r["direction"], r["by"], r["ok"]]).sort()).toEqual(
+      [
+        [token2, "response", "xor-decode", true],
+        [items2, "response", "xor-decode", true],
+      ].sort(),
+    );
     expect(BundleReader.open(b2).requests().map((r) => [r.id, r.seq])).toEqual(before.map((r) => [r.id, r.seq]));
     expect(await hits(b2, S42_TOKEN)).toEqual([{ ref: token2, part: "response", decode: [P], path: "$.token" }]);
     // net body of the session's last (finished) recording reads the view bundle decode added

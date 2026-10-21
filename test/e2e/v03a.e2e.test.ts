@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../../src/shared/json.ts";
 import { LOGIN_PASSWORD, LOGIN_USER, WALL_CODE, WALL_MARKER, startGuardSite, type GuardSite } from "./site.ts";
-import { cliFor, rec, recs, s, until } from "./_cli.ts";
+import { byStart, cliFor, rec, recs, s, until } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 // POSIX file modes do not exist on Windows (files get the profile's default ACL, docs/08): mode checks skip there.
@@ -206,7 +206,8 @@ describe.skipIf(!enabled)("tabcap 0.3-A L2 (store, secret fill, guard, handoff, 
     await ok("wait", "--text", "loaded 1", ...S);
     await ok("net", "stop", ...S);
     const evs = events(wallBundle);
-    const urls = evs.filter((e) => e["kind"] === "request").map((e) => new URL(s(e["url"])).pathname);
+    // in the order the requests started, not their place in events.jsonl (byStart)
+    const urls = evs.filter((e) => e["kind"] === "request").sort(byStart).map((e) => new URL(s(e["url"])).pathname);
     expect(urls.filter((u) => u === "/api/limited").length).toBe(7);
     expect(urls.lastIndexOf("/api/verified")).toBeGreaterThan(urls.indexOf("/api/limited"));
     expect(urls.lastIndexOf("/api/limited")).toBeGreaterThan(urls.lastIndexOf("/api/verified"));
