@@ -182,6 +182,8 @@ export class Daemon {
 
   /** Called when the browser connection goes away for any reason. */
   async browserGone(): Promise<void> {
+    // Owner 10-21: nothing is left to wait for; the handoffs end (their event goes in before the recordings finish).
+    this.guard.drop(null, "browser-gone");
     for (const [name, r] of this.recorders) {
       const res = await r.stop().catch(() => null);
       this.lastBundles.set(name, r);

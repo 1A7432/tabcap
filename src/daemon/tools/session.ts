@@ -198,6 +198,8 @@ export async function sessionStop(d: Daemon, a: Args): Promise<unknown> {
   const disposed = await d.pool.close(d.browser?.t ?? tabs.t, name);
   tabs.contexts.delete(name);
   d.sites.delete(name);
+  // Owner 10-21: the session's handoff ends with it (no event: its recording is finished above).
+  d.guard.drop(name, "session-stop");
   return { session: name, ...res, bundle, storeSession, ...(disposed ? { browserContext: "disposed" } : {}) };
 }
 
