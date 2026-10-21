@@ -91,6 +91,57 @@ describe("actor default (docs/04 §16)", () => {
   });
 });
 
+/** The request events of a finished bundle, by URL path. */
+function requestsOf(dir: string): Map<string, Record<string, unknown>> {
+  const events = readFileSync(join(dir, "events.jsonl"), "utf8").trim().split("\n").map((l): unknown => JSON.parse(l)).filter(isRecord);
+  return new Map(events.filter((e) => e["kind"] === "request").map((e) => [new URL(String(e["url"])).pathname, e]));
+}
+
+describe("request cmd: the command window it started in (docs/04 §3, review wave 3)", () => {
+  test("started in c-1, body in while c-2 runs → cmd c-1; started outside any window, written in c-2 → null", async () => {
+    const { t, emit } = fakeBrowser();
+    const tabs = new Tabs(t, false);
+    await tabs.createTab("s");
+    const dir = join(tmp("tabcap-reqcmd-"), "b");
+    const rec = await Recorder.start({ session: "s", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" } });
+    const req = (id: string, path: string, at: number) =>
+      emit("Network.requestWillBeSent", { requestId: id, loaderId: "L1", type: "XHR", timestamp: at, wallTime: 1760500000 + at, request: { url: `http://127.0.0.1:1${path}`, method: "GET", headers: {} } });
+    const finish = (id: string, at: number) => {
+      emit("Network.responseReceived", { requestId: id, type: "XHR", timestamp: at, response: { status: 200, headers: {}, mimeType: "application/json" } });
+      emit("Network.loadingFinished", { requestId: id, timestamp: at + 0.01 });
+    };
+    req("R0", "/before", 1);
+    const c1 = rec.cmdStart({ tab: "t1", argv: ["click", "e1"], input: { ref: "e1" } }) ?? "";
+    req("R1", "/slow", 2);
+    rec.cmdEnd(c1, { tab: "t1", ok: true, error: null, durationMs: 1, outputSummary: null });
+    const c2 = rec.cmdStart({ tab: "t1", argv: ["snapshot"], input: {} }) ?? "";
+    finish("R1", 3);
+    finish("R0", 3.1);
+    await Bun.sleep(50);
+    rec.cmdEnd(c2, { tab: "t1", ok: true, error: null, durationMs: 1, outputSummary: null });
+    await rec.stop();
+    const reqs = requestsOf(dir);
+    expect([c1, c2]).toEqual([expect.stringMatching(/^c-\d+$/), expect.stringMatching(/^c-\d+$/)]);
+    expect(reqs.get("/slow")).toMatchObject({ cmd: c1, outcome: "finished" });
+    expect(reqs.get("/before")).toMatchObject({ cmd: null, outcome: "finished" });
+  });
+
+  test("a request still open at stop is closed inside the stopping command but keeps the window it started in", async () => {
+    const { t, emit } = fakeBrowser();
+    const tabs = new Tabs(t, false);
+    await tabs.createTab("s");
+    const dir = join(tmp("tabcap-reqcmd-"), "b");
+    const rec = await Recorder.start({ session: "s", dir, t, tabs, browser: { version: "Chrome/155", userAgent: "UA", webdriver: "hidden" } });
+    const c1 = rec.cmdStart({ tab: "t1", argv: ["navigate", "http://127.0.0.1:1/"], input: {} }) ?? "";
+    emit("Network.requestWillBeSent", { requestId: "R1", loaderId: "L1", type: "XHR", timestamp: 1, wallTime: 1760500001, request: { url: "http://127.0.0.1:1/open", method: "GET", headers: {} } });
+    rec.cmdEnd(c1, { tab: "t1", ok: true, error: null, durationMs: 1, outputSummary: null });
+    const stopCmd = rec.cmdStart({ tab: null, argv: ["net", "stop"], input: {} }) ?? "";
+    await rec.stop();
+    expect(stopCmd).not.toBe(c1);
+    expect(requestsOf(dir).get("/open")).toMatchObject({ cmd: c1, outcome: "incomplete", response: { bodyMissing: { reason: "stopped" } } });
+  });
+});
+
 describe("setup temp cleanup (field report P2)", () => {
   test("stale .tmp-* of dead processes are removed; a live one and versions stay", () => {
     const cache = tmp("tabcap-cft-");
