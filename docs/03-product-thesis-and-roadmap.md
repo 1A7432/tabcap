@@ -110,7 +110,7 @@
 
 - **部分**（人接管时 AI 暂停已做，0.7.1-A，`04` §37；状态只有 `waiting` / `resumed`；浏览器侧提示与按钮、确认题、操作级录制未做）。`handoff` 完整版：协议化状态机、浏览器侧提示与按钮、确认题、人接管时 AI 暂停、人介入时刻的操作级录制。
 - **部分**（预算、熔断已做，0.4-D、0.6-A、0.6-I；探测模式未做，`probe` 只占位，`04` §4.2）。`guard` 完整版：预算、熔断、探测模式。
-- **部分**（会话 cookie 存库与恢复、证据包索引的写入已做；`login` 登录配方、过期检测未做）。`store` 完整版：登录配方（`login <站点>` 一条命令重登）、最近会话 cookie 复用与过期检测、证据包索引；`replay` 和 `watch` 先用旧会话，过期才重登，重登受 guard 限次。
+- **部分**（会话 cookie 存库与恢复、证据包索引的写入与读取（`bundle list` / `bundle prune`，10-21 审查后）已做；`login` 登录配方（`login_recipes` 表）、过期检测（`sessions.verified_at`）未做，两者 schema 预留、未接线，`04` §8.1）。`store` 完整版：登录配方（`login <站点>` 一条命令重登）、最近会话 cookie 复用与过期检测、证据包索引；`replay` 和 `watch` 先用旧会话，过期才重登，重登受 guard 限次。
 - **未做（阶段 2 backlog）**。`bridge` 的 `ext` 传输层：扩展挂 `chrome.debugger` 接管用户自己的 Chrome；扩展上 Chrome Web Store（unlisted）供一键安装。
 - **已做**（0.4）。`analyze deps`、`analyze trace`。
 - **已做**。`replay`：生成客户端 + 逐项比对；离线回放服务器。
