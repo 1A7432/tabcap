@@ -98,7 +98,8 @@ describe.skipIf(!enabled)("tabcap 0.6-D L2 (docs/05 s22, s47–s52: DOM-backed r
     for (const r of [user, pass, go, file, hover]) expect(full).not.toContain(`[${r}]`);
 
     expect(await ok("fill", user, S47_USER, ...S)).toMatchObject({ ref: user, kind: "input", length: S47_USER.length });
-    expect(await ok("type", "-t", ...S)).toMatchObject({ eventShape: "insert" });
+    // a word that starts with "-" goes after `--` (one-dash rule, 2026-10-22)
+    expect(await ok("type", ...S, "--", "-t")).toMatchObject({ eventShape: "insert" });
     expect(await ok("fill", pass, S47_PASS, ...S)).toMatchObject({ ref: pass, masked: true });
     expect(await ok("click", go, ...S)).toMatchObject({ ref: go, trusted: false, effect: "dom" });
     expect(await value("document.getElementById('s47-out').textContent", S)).toBe(`user=${S47_USER}-t;pass=${S47_PASS.length}`);

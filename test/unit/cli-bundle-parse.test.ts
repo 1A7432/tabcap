@@ -8,9 +8,11 @@
 // differs, the line says `old:` and the new answer follows the registry rule
 // (parseCommand): positionals are counted against the spec (`missing <x>`,
 // `unexpected argument: x`), a bool flag takes no `=value`, `--` ends options,
-// a word starting with "-" is positional unless the spec declares that
-// spelling (`-o` of import har), and a usage error's next is the command's
-// own usage line.
+// and a usage error's next is the command's own usage line. One-dash words
+// follow the owner's rule of 2026-10-22: before `--`, a word that starts with
+// "-" and is not a spelling the spec declares (`-o` of import har) is
+// `unknown option -x`, whose next adds where such an argument goes (after
+// `--`); `-` alone and negative numbers (`-1`) stay positional.
 // Reproduce: bun test test/unit/cli-bundle-parse.test.ts
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -42,6 +44,8 @@ afterAll(() => {
 });
 
 const U = (path: string): string => `Usage: ${usageOf(specOf(path))}`;
+/** The next of an undeclared one-dash word: the usage line, then where an argument that starts with "-" goes. */
+const DASH = (path: string): string => `${U(path)}. An argument that starts with "-" goes after \`--\`.`;
 const NEAR = (cmds: string): string => `Did you mean: ${cmds}? \`tabcap --help\` lists the command groups; \`tabcap help <command>\` shows one command.`;
 
 type Want = { code: number; error?: { code: string; message: string; next?: string }; data?: Record<string, unknown>; text?: string };
@@ -68,10 +72,14 @@ const CASES: Array<[string[], Want]> = [
   [["bundle", "info", "<B>", "--usage", "--business-code=$.code=0"], { code: 0, data: { schema: "tabcap-usage/0", businessRules: ["$.code=0"] } }],
   // old: "unknown option --" (`--` did not end the options)
   [["bundle", "info", "--", "<B>"], { code: 0, data: { events: 8 } }],
-  // old: "unknown option -x"
-  [["bundle", "info", "<B>", "-x"], { code: 2, error: { code: "usage", message: "unexpected argument: -x", next: U("bundle info") } }],
-  // old: usage error "unknown option -x"; now the bundle directory "-x", which does not exist
-  [["bundle", "info", "-x"], { code: 1, error: { code: "not-found", message: "bundle directory not found: -x" } }],
+  // old next of these three: the usage line alone
+  [["bundle", "info", "<B>", "-x"], { code: 2, error: { code: "usage", message: "unknown option -x", next: DASH("bundle info") } }],
+  [["bundle", "info", "<B>", "-x=1"], { code: 2, error: { code: "usage", message: "unknown option -x", next: DASH("bundle info") } }],
+  [["bundle", "info", "-x"], { code: 2, error: { code: "usage", message: "unknown option -x", next: DASH("bundle info") } }],
+  // old: "unknown option --" (`--` did not end the options); now the bundle directory "-x", which does not exist
+  [["bundle", "info", "--", "-x"], { code: 1, error: { code: "not-found", message: "bundle directory not found: -x" } }],
+  // old: "unknown option -1"; a negative number now stays positional before `--`: the bundle directory "-1"
+  [["bundle", "info", "-1"], { code: 1, error: { code: "not-found", message: "bundle directory not found: -1" } }],
   [["bundle", "info", "<B>", "--actor", "page"], { code: 2, error: { code: "usage", message: "--text, --business-code, --actor and --all-hosts belong to --usage", next: U("bundle info") } }],
   [["bundle", "info", "<B>", "--usage", "--actor", "bogus"], { code: 2, error: { code: "usage", message: 'bad --actor "bogus"', next: "Use one of: page, fetch, evaluate, other." } }],
   [["bundle", "info", "<B>", "--usage", "--actor=fetch", "--all-hosts"], { code: 0, data: { schema: "tabcap-usage/0" } }],
@@ -93,8 +101,8 @@ const CASES: Array<[string[], Want]> = [
   [["bundle", "export", "har", "<B>", "--rules", "<T>/no-such-rules.json", "--out", "<T>/x6.har"], { code: 1, error: { code: "not-found", message: "rules file not found: <T>/no-such-rules.json" } }],
   // old: ok, without the events (the value turned --embed-events off without a word)
   [["bundle", "export", "har", "<B>", "--embed-events=yes", "--out", "<T>/x7.har"], { code: 2, error: { code: "usage", message: "--embed-events takes no value", next: U("bundle export har") } }],
-  // old: "unknown option -o" (export har declares no -o)
-  [["bundle", "export", "har", "<B>", "-o", "<T>/x8.har"], { code: 2, error: { code: "usage", message: "unexpected argument: -o", next: U("bundle export har") } }],
+  // export har declares no -o; old next: the usage line alone
+  [["bundle", "export", "har", "<B>", "-o", "<T>/x8.har"], { code: 2, error: { code: "usage", message: "unknown option -o", next: DASH("bundle export har") } }],
   // bundle import har
   [["bundle", "import", "har", "<H>", "-o", "<T>/imp1"], { code: 0, data: { events: 8, restoredFromEvents: true } }],
   [["bundle", "import", "har", "<H>", "--out", "<T>/imp2"], { code: 0, data: { events: 8, restoredFromEvents: true } }],
