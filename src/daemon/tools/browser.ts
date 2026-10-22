@@ -243,12 +243,26 @@ export async function browserStop(d: Daemon): Promise<unknown> {
 /** 0.8.2 (docs/04 §18): the daemon's budget for stopping the browser, under the 15 s `daemon stop` gives it. */
 export const SHUTDOWN_BROWSER_MS = 10_000;
 
-/** Runs `stop`; past `ms`, runs `kill` and returns false without waiting for `stop` any longer. */
-export async function stopWithin(stop: () => Promise<unknown>, ms: number, kill: () => Promise<void>): Promise<boolean> {
+/** After a kill, how long the abandoned stop gets to settle (its CDP calls now fail fast) before the caller goes on. */
+export const STOP_SETTLE_MS = 1000;
+
+/**
+ * Runs `stop`; past `ms`, runs `kill`, then gives the stop STOP_SETTLE_MS to settle so its
+ * last steps (cookie saves into the store, recorder writes) do not race the caller's own
+ * teardown (Bugbot, PR #34); a late failure of the stop is logged, not thrown. False when killed.
+ */
+export async function stopWithin(stop: () => Promise<unknown>, ms: number, kill: () => Promise<void>, settleMs = STOP_SETTLE_MS): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const done = await Promise.race([stop().then(() => true), new Promise<false>((r) => (timer = setTimeout(() => r(false), ms)))]).finally(() => clearTimeout(timer));
-  if (!done) await kill();
-  return done;
+  const stopping = stop();
+  const done = await Promise.race([stopping.then(() => true), new Promise<false>((r) => (timer = setTimeout(() => r(false), ms)))]).finally(() => clearTimeout(timer));
+  if (done) return true;
+  await kill();
+  const settled = stopping.then(
+    () => undefined,
+    (e: unknown) => log.warn("browser stop failed after the kill", { error: String(e) }),
+  );
+  await Promise.race([settled, Bun.sleep(settleMs)]);
+  return false;
 }
 
 export function browserFacts(d: Daemon): Record<string, unknown> {
