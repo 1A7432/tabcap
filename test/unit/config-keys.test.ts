@@ -11,7 +11,9 @@
 // type as absent (`kind` in the table: chrome, proxy, webdriver,
 // chrome.executablePath / version / platform) is still read as absent, and is
 // named after the unknown keys as `config.json: <path> is <type>, not <kind>;
-// ignored` (the owner's message shape), within the same 20-line cap.
+// ignored` (the owner's message shape), within the same 20-line cap. `tabcap
+// setup` keeps a proxy / webdriver of the wrong type in the file it rewrites,
+// so its answer names them too (review of that package).
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -28,6 +30,7 @@ import {
   configWarnings,
   readChromeArgsConfig,
   readConfig,
+  readConfigRaw,
   readConfigWarnings,
   readFetchConfig,
   readHandoffConfig,
@@ -36,6 +39,7 @@ import {
   readRecordBodies,
   readSiteGuards,
   readTraceConfig,
+  writeConfig,
 } from "../../src/shared/config.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { isRecord } from "../../src/shared/json.ts";
@@ -214,6 +218,21 @@ describe("known keys of the wrong JSON type are warnings (owner 2026-10-22)", ()
     }
   });
 
+  test("writeConfig (tabcap setup) keeps a proxy / webdriver of the wrong type; absent or null ones are written null as before", () => {
+    const CFT = { executablePath: "/cft", version: "155", platform: null };
+    const f = file({ webdriver: true, proxy: 8080, chrome: "x", pool: { strategy: "lru" } });
+    writeConfig(f, { ...readConfig(f), chrome: CFT });
+    expect(readConfigRaw(f)).toEqual({ webdriver: true, proxy: 8080, chrome: CFT, pool: { strategy: "lru" } });
+    expect(readConfigWarnings(f)).toEqual(["config.json: webdriver is a boolean, not a string; ignored", "config.json: proxy is a number, not a string; ignored"]);
+    const g = file({ proxy: null });
+    writeConfig(g, { ...readConfig(g), chrome: CFT });
+    expect(readConfigRaw(g)).toEqual({ proxy: null, chrome: CFT, webdriver: null });
+    // A value the caller sets is written over whatever the file had.
+    const h = file({ proxy: ["socks5://127.0.0.1:1080"], webdriver: "visible" });
+    writeConfig(h, { chrome: CFT, proxy: "none", webdriver: null });
+    expect(readConfigRaw(h)).toEqual({ proxy: "none", webdriver: null, chrome: CFT });
+  });
+
   test("after the unknown keys, in file order", () => {
     expect(configWarnings({ webdriver: 1, zzz: 1, chrome: { platform: 2, flags: [] }, proxy: false })).toEqual([
       "config.json: unknown key zzz",
@@ -343,5 +362,30 @@ describe("where the warnings show", () => {
     expect(r.envelope).toMatchObject({ ok: true, data: { executablePath: exe, version: "155.0.7000.0", downloaded: false } });
     if (!r.envelope.ok || !isRecord(r.envelope.data)) throw new Error("expected data");
     expect(r.envelope.data["warnings"]).toEqual(["config.json: unknown key chrome.argz (did you mean args?)", "config.json: unknown key sites.x.guard.stopon (did you mean stopOn?)"]);
+  });
+
+  test.skipIf(process.platform === "win32")("tabcap setup keeps a proxy / webdriver of the wrong type and names them; the chrome it writes replaces a wrong one (fake binary; POSIX)", async () => {
+    const dir = tmp();
+    process.env["TABCAP_HOME"] = dir;
+    const p = paths({ TABCAP_HOME: dir });
+    mkdirSync(p.config, { recursive: true, mode: 0o700 });
+    writeFileSync(p.configFile, JSON.stringify({ webdriver: true, proxy: 8080, chrome: "x", zzz: 1 }));
+    expect(readConfigWarnings(p.configFile)).toEqual([
+      "config.json: unknown key zzz",
+      "config.json: webdriver is a boolean, not a string; ignored",
+      "config.json: proxy is a number, not a string; ignored",
+      "config.json: chrome is a string, not an object; ignored",
+    ]);
+    const exe = join(dir, "chrome");
+    writeFileSync(exe, '#!/bin/sh\necho "Google Chrome for Testing 155.0.7000.0"\n');
+    chmodSync(exe, 0o755);
+    const r = await run(["setup", "--executable-path", exe]);
+    if (!r.envelope.ok || !isRecord(r.envelope.data)) throw new Error(JSON.stringify(r.envelope));
+    expect(r.envelope.data["warnings"]).toEqual([
+      "config.json: unknown key zzz",
+      "config.json: webdriver is a boolean, not a string; ignored",
+      "config.json: proxy is a number, not a string; ignored",
+    ]);
+    expect(readConfigRaw(p.configFile)).toEqual({ webdriver: true, proxy: 8080, chrome: { executablePath: exe, version: "155.0.7000.0", platform: null }, zzz: 1 });
   });
 });
