@@ -24,7 +24,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { cfgKey, readConfigRaw } from "../shared/config.ts";
 import { TabcapError } from "../shared/envelope.ts";
 import { sha256Hex } from "../shared/ids.ts";
-import { isRecord, tryParseJson } from "../shared/json.ts";
+import { isRecord, stripBom, tryParseJson } from "../shared/json.ts";
 import { baseMime, parseJsonDoc, utf8 } from "../analyze/decoders.ts";
 import { parseJsonPath, segMatches, type PathSeg } from "../shared/jsonpath.ts";
 
@@ -243,7 +243,8 @@ export function readRulesFile(file: string): RuleSet {
   const st = statSync(file);
   if (!st.isFile()) throw new TabcapError("bad-input", `rules file is not a file: ${file}`, "Pass the path of a replay-rules.json file.");
   if (st.size > MAX_RULES_FILE_BYTES) throw new TabcapError("bad-input", `rules file is over ${MAX_RULES_FILE_BYTES} bytes: ${file}`, "Keep the rules file small; it holds rules, not data.");
-  const raw = tryParseJson(readFileSync(file, "utf8"));
+  // One leading byte order mark is skipped, as for config.json (owner 2026-10-22); the size limit above counts it.
+  const raw = tryParseJson(stripBom(readFileSync(file, "utf8")));
   if (raw === undefined) throw new TabcapError("bad-input", `rules file is not valid JSON: ${file}`, `Write a JSON object {"schema": "${RULES_SCHEMA}", "rules": […]}.`);
   return { rules: parseRulesDoc(raw, "rules", { requireSchema: true, where: "file" }), source: { kind: "file", file } };
 }

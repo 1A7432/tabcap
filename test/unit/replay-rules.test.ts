@@ -122,6 +122,20 @@ describe("rules document validation (untrusted input)", () => {
     expect(() => rulesFromConfig(cfg, null)).toThrow(/config.json replay|replay.rules\[0\]/);
   });
 
+  test("files: one leading byte order mark is skipped, as for config.json; two are not JSON (owner 2026-10-22)", () => {
+    const dir = join(root, "bom");
+    mkdirSync(dir, { recursive: true });
+    const BOM = "\uFEFF";
+    const doc = JSON.stringify({ schema: RULES_SCHEMA, rules: [{ match: { path: "/api/*" }, key: { body: "none" } }] });
+    writeFileSync(join(dir, "plain.json"), doc);
+    writeFileSync(join(dir, "bom.json"), `${BOM}${doc}`);
+    expect(readRulesFile(join(dir, "bom.json")).rules).toEqual(readRulesFile(join(dir, "plain.json")).rules);
+    writeFileSync(join(dir, "bom-bad.json"), `${BOM}{nope`);
+    expect(() => readRulesFile(join(dir, "bom-bad.json"))).toThrow(/not valid JSON/);
+    writeFileSync(join(dir, "two.json"), `${BOM}${BOM}${doc}`);
+    expect(() => readRulesFile(join(dir, "two.json"))).toThrow(/not valid JSON/);
+  });
+
   test("the first rule whose host, path and method fit applies; else the default", () => {
     const s = set([{ match: { path: "/api/*", method: "POST" }, key: { body: "none" } }, { match: { host: "127.0.0.*", path: "/api/**" } }, { match: { host: "127.0.0.1:4310" } }]);
     expect(pickRule(s, { url: `${O}/api/login`, method: "post" }).id).toBe("rules[0]");
