@@ -156,6 +156,8 @@ export type HandoffBaseline = { url: string | null; cookies: string[] | null };
 
 /** 0.7-E: how long an answer waits for a hand-off screenshot still being taken. */
 export const SHOT_WAIT_MS = 5000;
+/** 0.8.2 (docs/04 §18): how long an acting command waits for the documents it loaded to reach the index (the guard's judgement). */
+export const GUARD_JUDGE_MS = 2000;
 
 /** Owner 10-21: a handoff that ended because its browser or session went away (Guard.drop). */
 const RESUMED_NEXT: Readonly<Record<string, string>> = {

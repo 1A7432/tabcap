@@ -421,6 +421,14 @@ const DEFAULT_DEPS: PointerDeps = { rng: Math.random, sleep: (ms) => Bun.sleep(m
 export const HELD_PAINT_WAIT_MS = 3000;
 export const HELD_PAINT_POLL_MS = 250;
 
+/**
+ * 0.8.2: the screencast's wait ran out without one frame (CI PR #29, Linux, a machine slow at
+ * that moment: 4.3 s, no rAF). A screenshot makes the compositor draw one frame; one more
+ * check follows. Read-only, takes no focus.
+ */
+const NUDGE_SHOT = { format: "jpeg", quality: 1 };
+export const NUDGE_SHOT_TIMEOUT_MS = 1000;
+
 /** The first paint check when a screencast had to hold the frames (reported as `paint` in the output). */
 export type FramesHeld = { raf: boolean; frameMs: number | null; visibility: string | null; held: "screencast" };
 
@@ -440,15 +448,23 @@ export type PaintForInput = { paint: Paint; held: FramesHeld | null; release: ()
  * (`paint.held: "screencast"`). macOS draws such tabs at full rate (81/81 e2e
  * without a screencast) and does not take this branch. A hidden tab is left
  * alone (degraded as before), and so is one the screencast does not bring to
- * full rate within HELD_PAINT_WAIT_MS: the screencast is stopped and the last check decides.
+ * full rate within HELD_PAINT_WAIT_MS and one nudge screenshot (NUDGE_SHOT): the
+ * screencast is stopped and the last check decides.
  */
 export async function holdFrames(t: Transport, sessionId: string, clock: Pick<PointerDeps, "now" | "sleep"> = DEFAULT_DEPS): Promise<PaintForInput> {
   const none = async () => undefined;
   const first = await paintCheck(t, sessionId);
   if (first.visibility !== "visible" || fullRate(first)) return { paint: first, held: null, release: none };
+  // Frames the screencast sent while we waited (never acked: Chrome sends one, then waits);
+  // none at all means the compositor drew nothing, not only that the page's rAF was slow.
+  let frames = 0;
+  const off = t.onEvent((e) => {
+    if (e.method === "Page.screencastFrame" && e.sessionId === sessionId) frames++;
+  });
   try {
     await t.send("Page.startScreencast", HOLD_SCREENCAST, sessionId, 3000);
   } catch (e) {
+    off();
     log.info("trusted input: frames are slow and a screencast could not start", { raf: first.raf, frameMs: first.frameMs, error: String(e) });
     return { paint: first, held: null, release: none };
   }
@@ -466,9 +482,22 @@ export async function holdFrames(t: Transport, sessionId: string, clock: Pick<Po
     second = await paintCheck(t, sessionId);
     checks++;
   }
+  let nudged = false;
+  if (!fullRate(second)) {
+    nudged = await t.send("Page.captureScreenshot", NUDGE_SHOT, sessionId, NUDGE_SHOT_TIMEOUT_MS).then(
+      () => true,
+      (e: unknown) => {
+        log.info("trusted input: the nudge screenshot failed", { error: String(e) });
+        return false;
+      },
+    );
+    second = await paintCheck(t, sessionId);
+    checks++;
+  }
+  off();
   // elapsedMs: from the screencast's start to the end of the last check (each check can take ~1.3 s).
   const elapsedMs = Math.round(clock.now() - started);
-  log.info("trusted input: slow frames, screencast held", { raf: first.raf, frameMs: first.frameMs, after: second.frameMs, painted: second.painted, checks, elapsedMs });
+  log.info("trusted input: slow frames, screencast held", { raf: first.raf, frameMs: first.frameMs, after: second.frameMs, painted: second.painted, checks, elapsedMs, frames, nudged });
   if (fullRate(second)) return { paint: second, held: { raf: first.raf, frameMs: first.frameMs, visibility: first.visibility, held: "screencast" }, release };
   await release();
   return { paint: second, held: null, release: none };

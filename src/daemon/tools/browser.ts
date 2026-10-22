@@ -240,6 +240,17 @@ export async function browserStop(d: Daemon): Promise<unknown> {
 }
 
 /** `browser status` without config.json: what `daemon status` embeds (it answers whatever the file holds). */
+/** 0.8.2 (docs/04 §18): the daemon's budget for stopping the browser, under the 15 s `daemon stop` gives it. */
+export const SHUTDOWN_BROWSER_MS = 10_000;
+
+/** Runs `stop`; past `ms`, runs `kill` and returns false without waiting for `stop` any longer. */
+export async function stopWithin(stop: () => Promise<unknown>, ms: number, kill: () => Promise<void>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const done = await Promise.race([stop().then(() => true), new Promise<false>((r) => (timer = setTimeout(() => r(false), ms)))]).finally(() => clearTimeout(timer));
+  if (!done) await kill();
+  return done;
+}
+
 export function browserFacts(d: Daemon): Record<string, unknown> {
   const b = d.browser;
   if (b === null) return { running: false };

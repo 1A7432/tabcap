@@ -72,7 +72,6 @@ async function startHome(config: Record<string, unknown> | null): Promise<string
 describe.skipIf(!enabled)("tabcap 0.7.1-A L2 (human take-over on s62)", () => {
   let A = "";
   const S = ["--session", "a"];
-  let pingAt = { x: 0, y: 0 };
   let btn = "";
   let ping = "";
   let bundle = "";
@@ -106,7 +105,7 @@ describe.skipIf(!enabled)("tabcap 0.7.1-A L2 (human take-over on s62)", () => {
     await Bun.sleep(1000);
     const hs = await ok(A, "handoff", "status", ...S);
     expect(hs).toMatchObject({ session: "a", state: "running", handoff: null });
-    const page = rec(await ok(A, "evaluate", "({log: window.__s62, synth: window.__s62synth, ping: (() => { const r = document.getElementById('s62-ping').getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2}; })()})", ...S));
+    const page = rec(await ok(A, "evaluate", "({log: window.__s62, synth: window.__s62synth})", ...S));
     const v = rec(page["value"]);
     console.log(`[v071a] page log ${JSON.stringify(v["log"])}, synthetic rounds ${s(v["synth"])}`);
     // tabcap's own input reached the page as trusted events (so only the windows kept it out)
@@ -115,13 +114,16 @@ describe.skipIf(!enabled)("tabcap 0.7.1-A L2 (human take-over on s62)", () => {
     expect(log).toContain("key:true");
     expect(log).not.toContain("btn:false");
     expect(Number(v["synth"])).toBeGreaterThanOrEqual(1);
-    const p = rec(v["ping"]);
-    pingAt = { x: Math.round(Number(p["x"])), y: Math.round(Number(p["y"])) };
     const st = await ok(A, "status");
     expect(rec(recs(st["sessions"]).find((x) => x["session"] === "a"))).toMatchObject({ state: "running", reason: null });
   }, 90_000);
 
   test("(2) one trusted input outside every window: waiting/human-takeover; acting commands refused; handoff continue resumes; the bundle holds it", async () => {
+    // 0.8.2: the ping button's centre is measured here, so a failure late in (1) (CI PR #29: a
+    // trusted click on a slow machine) does not send the human's press to (0, 0) as well.
+    const at = rec(rec(await ok(A, "evaluate", "(() => { const r = document.getElementById('s62-ping').getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2}; })()", ...S))["value"]);
+    const pingAt = { x: Math.round(Number(at["x"])), y: Math.round(Number(at["y"])) };
+    expect(pingAt.x > 0 && pingAt.y > 0).toBe(true);
     expect(await inject(A, "a")).toMatchObject({ injected: "pointerdown", tab: "t1" });
     const hs = await until("the take-over", async () => {
       const h = await ok(A, "handoff", "status", ...S);
