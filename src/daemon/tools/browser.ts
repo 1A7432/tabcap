@@ -82,8 +82,8 @@ function attempt<T>(f: () => T): T | null {
 
 /**
  * Review wave 3 (docs/04 §44): the answer's `warnings` are the browser's own (`info.warnings`, as at
- * start) followed by config.json's unknown keys, read again for every answer; a config.json that
- * cannot be read is the answer's error.
+ * start) followed by config.json's warnings (unknown keys, then known keys of the wrong JSON type), read
+ * again for every answer; a config.json that cannot be read is the answer's error.
  */
 function withConfigWarnings(own: readonly string[], configFile: string): string[] {
   return [...own, ...readConfigWarnings(configFile)];
@@ -238,7 +238,7 @@ export function browserFacts(d: Daemon): Record<string, unknown> {
   };
 }
 
-/** `browser status`: `browserFacts` with config.json's unknown-key warnings in `warnings` (also with no browser). */
+/** `browser status`: `browserFacts` with config.json's warnings (unknown keys, wrong types) in `warnings` (also with no browser). */
 export function browserStatus(d: Daemon): unknown {
   const facts = browserFacts(d);
   return { ...facts, warnings: withConfigWarnings(d.browser?.info.warnings ?? [], d.paths.configFile) };
