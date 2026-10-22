@@ -6,6 +6,8 @@
 
 One UTF-8 byte order mark at the very start of the file is skipped (Windows editors save one); line and column numbers count from the character after it, and `tabcap setup` writes the file back without it.
 
+`chrome`, `proxy`, `webdriver`, `chrome.executablePath`, `chrome.version` and `chrome.platform` are read leniently: a value of another JSON type is read as if the key were absent (so is null) and named in the same `warnings`, after the unknown keys, e.g. `config.json: webdriver is a number, not a string; ignored`; past 20 lines in all, one line counts the rest of each kind. Every other key's reader refuses a wrong value with `bad-input` when a command reads it.
+
 | Key | Type | Default | Meaning | docs/04 |
 |---|---|---|---|---|
 | `chrome` | `object` | — | the browser `tabcap setup` recorded, and Chrome switches for `browser start` | §42 |
