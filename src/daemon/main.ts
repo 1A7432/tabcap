@@ -16,11 +16,11 @@ import { log } from "../shared/log.ts";
 import type { Paths } from "../shared/paths.ts";
 import { ACTION_COMMANDS, Daemon } from "./state.ts";
 import { DEFAULT_FETCH_CREDENTIALS } from "./fetch/spec.ts";
-import { BLOCKED_WHILE_WAITING, waitingError } from "./guard.ts";
+import { BLOCKED_WHILE_WAITING, GUARD_JUDGE_MS, waitingError } from "./guard.ts";
 import { Store } from "./store/db.ts";
 import { screenshot } from "./tools/page.ts";
 import { setLogScrubber } from "../shared/log.ts";
-import { browserFacts, browserStop } from "./tools/browser.ts";
+import { browserFacts, browserStop, SHUTDOWN_BROWSER_MS, stopWithin } from "./tools/browser.ts";
 import { TOOLS } from "./tools/index.ts";
 import { TEXT_ACTIONS } from "./tools/registry.ts";
 import { scrubValue } from "./secrets.ts";
@@ -126,6 +126,10 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     const data = withDownloadNotices(d, session, started, await tool(d, args, session, { cmd: startId }));
     // While recording, action commands say which command window they were (`net list --since c-<n>`).
     const out = startId !== null && ACTION_COMMANDS.has(action) && isRecord(data) && !("cmd" in data) ? { ...data, cmd: startId } : data;
+    // 0.8.2 (docs/04 §18): a document this command loaded is judged by the guard before the answer goes out.
+    const tabNow = BLOCKED_WHILE_WAITING.has(action) ? currentTab() : null;
+    const recNow = d.recorders.get(session);
+    if (tabNow !== null && recNow !== undefined) await recNow.documentsIndexed(tabNow, GUARD_JUDGE_MS);
     const h = d.guard.get(session);
     if (h !== null && h.state === "waiting" && h.since >= started && BLOCKED_WHILE_WAITING.has(action)) {
       // This very command ran into the challenge: stop here, with its own result attached
@@ -319,7 +323,18 @@ export async function runDaemon(paths: Paths): Promise<void> {
     if (stopping) return;
     stopping = true;
     log.info("daemon stopping");
-    await browserStop(d).catch((e: unknown) => log.error("browser stop failed", { error: String(e) }));
+    // 0.8.2 (docs/04 §18): `daemon stop` waits 15 s, then kills the daemon; a browser stop still
+    // running then left Chrome behind (Windows CI, PR #29). Past the budget the browser is killed.
+    const running = d.browser;
+    await stopWithin(
+      () => browserStop(d),
+      SHUTDOWN_BROWSER_MS,
+      async () => {
+        if (running === null) return;
+        log.warn("browser stop ran out of time; killing the browser", { ms: SHUTDOWN_BROWSER_MS, pid: running.info.pid });
+        await running.t.kill();
+      },
+    ).catch((e: unknown) => log.error("browser stop failed", { error: String(e) }));
     await d.decodeHost.close();
     server.stop(true);
     store.close();

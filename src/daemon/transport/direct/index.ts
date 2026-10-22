@@ -245,4 +245,10 @@ export class DirectTransport implements Transport {
     }
     this.cdp.close();
   }
+
+  /** 0.8.2 (docs/04 §18): the shutdown ran out of time; the browser goes now, its process does not outlive the daemon. */
+  async kill(): Promise<void> {
+    await killAndWait(this.proc, 0);
+    this.cdp.close();
+  }
 }

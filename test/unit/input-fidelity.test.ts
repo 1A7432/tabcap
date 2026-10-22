@@ -13,7 +13,7 @@ import { RefTable } from "../../src/daemon/browser/refs.ts";
 import { Tabs, type Tab } from "../../src/daemon/browser/targets.ts";
 import { Recorder } from "../../src/daemon/capture/recorder.ts";
 import { distanceFromLine, JITTER_PX, keyEventParams, minJerk, PATH_MS, planClick, planTyping, PRESS_GAP_MS, type Rng } from "../../src/daemon/tools/inputplan.ts";
-import { HELD_PAINT_POLL_MS, HELD_PAINT_WAIT_MS, paintCheck, pointerClick, trustedClickOn, typeKeys, type PointerDeps } from "../../src/daemon/tools/input.ts";
+import { HELD_PAINT_POLL_MS, HELD_PAINT_WAIT_MS, NUDGE_SHOT_TIMEOUT_MS, paintCheck, pointerClick, trustedClickOn, typeKeys, type PointerDeps } from "../../src/daemon/tools/input.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { isRecord } from "../../src/shared/json.ts";
 import { setLogLevel } from "../../src/shared/log.ts";
@@ -121,13 +121,29 @@ describe("typing plan against the Playwright type() oracle (s46)", () => {
 
 type Call = { method: string; params: CdpParams; timeoutMs: number | undefined };
 
-/** `frames`: the frame gap each paint check reports, in order (the last one repeats); default 16 ms. */
+/**
+ * `frames`: the frame gap each paint check reports, in order (the last one repeats); default 16 ms.
+ * `afterShot`: what the checks report once a Page.captureScreenshot ran (the nudge).
+ * `screencastFrames`: Page.screencastFrame events sent when the screencast starts.
+ */
 function fakeChrome(
-  o: { raf?: boolean; visibility?: string; moveTimeoutAt?: number; delivered?: boolean; frames?: Array<number | null>; probeReadFails?: boolean; onRelease?: () => void } = {},
+  o: {
+    raf?: boolean;
+    visibility?: string;
+    moveTimeoutAt?: number;
+    delivered?: boolean;
+    frames?: Array<number | null>;
+    afterShot?: { raf: boolean; frameMs: number | null };
+    screencastFrames?: number;
+    probeReadFails?: boolean;
+    onRelease?: () => void;
+  } = {},
 ) {
   const calls: Call[] = [];
+  const listeners = new Set<(e: CdpEvent) => void>();
   let moves = 0;
   let checks = 0;
+  let shot = false;
   const t: Transport = {
     kind: "direct",
     closed: new Promise<string>(() => undefined),
@@ -136,7 +152,12 @@ function fakeChrome(
       if (method === "Runtime.evaluate") {
         const frames = o.frames ?? [16];
         const frameMs = frames[Math.min(checks++, frames.length - 1)] ?? null;
+        if (shot && o.afterShot !== undefined) return { result: { value: { ...o.afterShot, visibility: o.visibility ?? "visible" } } };
         return { result: { value: { raf: o.raf ?? true, frameMs, visibility: o.visibility ?? "visible" } } };
+      }
+      if (method === "Page.captureScreenshot") shot = true;
+      if (method === "Page.startScreencast") {
+        for (let i = 0; i < (o.screencastFrames ?? 0); i++) for (const l of [...listeners]) l({ method: "Page.screencastFrame", params: { sessionId: i + 1 }, sessionId: "S1" });
       }
       if (method === "DOM.getBoxModel") return { model: { content: [41, 141, 301, 141, 301, 231, 41, 231] } };
       if (method === "Runtime.callFunctionOn") {
@@ -158,7 +179,10 @@ function fakeChrome(
       if (method === "Input.dispatchMouseEvent" && params["type"] === "mouseReleased") o.onRelease?.();
       return {};
     },
-    onEvent: () => () => undefined,
+    onEvent: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
     onAttach: () => () => undefined,
     onDetach: () => () => undefined,
     attach: () => Promise.reject(new Error("unused")),
@@ -167,7 +191,7 @@ function fakeChrome(
     targets: () => [],
   };
   const mouse = () => calls.filter((c) => c.method === "Input.dispatchMouseEvent").map((c) => String(c.params["type"]));
-  return { t, calls, mouse };
+  return { t, calls, mouse, listeners };
 }
 
 function fakeTab(): Tab {
@@ -314,8 +338,31 @@ describe("click --trusted on a fake Chrome", () => {
     const waited = deps.slept.filter((ms) => ms === HELD_PAINT_POLL_MS);
     expect(waited.length).toBe(Math.ceil(HELD_PAINT_WAIT_MS / HELD_PAINT_POLL_MS) - 1);
     expect(waited.length * HELD_PAINT_POLL_MS).toBeLessThan(HELD_PAINT_WAIT_MS);
-    expect(calls.filter((c) => c.method === "Runtime.evaluate").length).toBe(waited.length + 2);
-    expect(calls.map((c) => c.method).filter((m) => m.includes("Screencast"))).toEqual(["Page.startScreencast", "Page.stopScreencast"]);
+    // the first check, one per wait, the check right after the screencast started, the one after the nudge
+    expect(calls.filter((c) => c.method === "Runtime.evaluate").length).toBe(waited.length + 3);
+    expect(calls.map((c) => c.method).filter((m) => m.includes("Screencast") || m === "Page.captureScreenshot")).toEqual(["Page.startScreencast", "Page.captureScreenshot", "Page.stopScreencast"]);
+    expect(calls.find((c) => c.method === "Page.captureScreenshot")?.timeoutMs).toBe(NUDGE_SHOT_TIMEOUT_MS);
+  });
+
+  test("0.8.2 (CI PR #29): no frame with the screencast either → one screenshot nudges the compositor, the check after it decides: a held, trusted click", async () => {
+    const { t, calls, mouse, listeners } = fakeChrome({ raf: false, visibility: "visible", frames: [null], afterShot: { raf: true, frameMs: 17 } });
+    const r = await trustedClickOn(t, fakeTab(), NODE, "e3", instantDeps(9));
+    if (r.kind !== "clicked") throw new Error("expected a click");
+    expect(r.held).toEqual({ raf: false, frameMs: null, visibility: "visible", held: "screencast" });
+    expect(mouse().at(-1)).toBe("mouseReleased");
+    const order = calls.map((c) => (c.method === "Input.dispatchMouseEvent" ? `mouse:${String(c.params["type"])}` : c.method));
+    expect(order.indexOf("Page.captureScreenshot")).toBeLessThan(order.indexOf("mouse:mouseMoved"));
+    expect(order.lastIndexOf("Runtime.evaluate")).toBeGreaterThan(order.indexOf("Page.captureScreenshot"));
+    expect(order.indexOf("Page.stopScreencast")).toBeGreaterThan(order.lastIndexOf("mouse:mouseReleased"));
+    expect(listeners.size).toBe(0); // the frame counter is gone once the checks are done
+  });
+
+  test("0.8.2: frames the screencast sends are counted; a screen that comes in time needs no nudge", async () => {
+    const { t, calls, listeners } = fakeChrome({ frames: [null, 17], screencastFrames: 2 });
+    const r = await trustedClickOn(t, fakeTab(), NODE, "e3", instantDeps(10));
+    expect(r.kind === "clicked" ? r.held?.held : null).toBe("screencast");
+    expect(calls.some((c) => c.method === "Page.captureScreenshot")).toBe(false);
+    expect(listeners.size).toBe(0);
   });
 
   test("the held-frames log line carries the checks and the time from the screencast's start to the last check", async () => {
@@ -338,7 +385,8 @@ describe("click --trusted on a fake Chrome", () => {
     const fields: unknown = JSON.parse(line.slice(line.indexOf("{")));
     const waited = deps.slept.filter((ms) => ms === HELD_PAINT_POLL_MS).length;
     // The fake clock moves only in sleep, so the elapsed time is the polls' sum.
-    expect(fields).toMatchObject({ raf: false, painted: false, checks: waited + 1, elapsedMs: waited * HELD_PAINT_POLL_MS });
+    // One check per poll, the one right after the screencast started, the one after the nudge (0.8.2).
+    expect(fields).toMatchObject({ raf: false, painted: false, checks: waited + 2, elapsedMs: waited * HELD_PAINT_POLL_MS, frames: 0, nudged: true });
   });
 
   test("a hidden tab gets no screencast: degraded as before", async () => {

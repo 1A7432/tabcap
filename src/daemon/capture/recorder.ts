@@ -341,6 +341,8 @@ export class Recorder {
   private streams = new Map<string, StreamBody>();
   private unreadTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private inflight = new Set<Promise<void>>();
+  /** Requests that left `pending` and whose write (body, blob, decode) has not reached the index yet. */
+  private writing = new Map<string, Pending>();
   private offs: Array<() => void> = [];
   private stopping = false;
   private readonly t: Transport;
@@ -598,7 +600,7 @@ export class Recorder {
         if (q === undefined) return;
         this.pending.delete(key);
         this.disarmUnread(key);
-        this.track(this.finishOk(q, msOf(num(p, "timestamp"))));
+        this.track(this.finishOk(q, msOf(num(p, "timestamp"))), [q]);
         return;
       }
       case "Network.loadingFailed": {
@@ -615,12 +617,12 @@ export class Recorder {
         const missing = { reason: "failed" as const, detail: error.text };
         const stream = this.streams.get(key);
         if (stream === undefined) {
-          this.track(this.write(q, { outcome: "failed", endMono, body: null, missing, error }));
+          this.track(this.write(q, { outcome: "failed", endMono, body: null, missing, error }), [q]);
           return;
         }
         // 0.9-C: what arrived of a stream cut short is kept (partial).
         this.streams.delete(key);
-        this.track(stream.ready.then(() => this.write(q, { outcome: "failed", endMono, error, ...cutShort(stream, missing) })));
+        this.track(stream.ready.then(() => this.write(q, { outcome: "failed", endMono, error, ...cutShort(stream, missing) })), [q]);
         return;
       }
       case "Fetch.requestPaused":
@@ -1247,6 +1249,26 @@ export class Recorder {
     return () => this.indexListeners.delete(fn);
   }
 
+  /**
+   * 0.8.2 (docs/04 §18): wait, at most `ms`, until every document of `tabId` whose response has
+   * arrived is in the index, i.e. the guard has judged it. A navigation is ready once the new
+   * document has a context, often before its loadingFinished and body write; on a slow machine
+   * the answer went out first and missed the verify page the guard tripped on a moment later
+   * (v07b, Windows CI, PR #29). False when the wait ran out.
+   */
+  async documentsIndexed(tabId: string, ms: number): Promise<boolean> {
+    const doc = (q: Pending) => q.tab.id === tabId && q.type === "document" && q.response !== null;
+    const waitFor = [...this.pending.values(), ...this.writing.values()].filter(doc);
+    if (waitFor.length === 0) return true;
+    const until = Date.now() + ms;
+    while (waitFor.some((q) => this.pending.get(q.key) === q || this.writing.get(q.key) === q)) {
+      if (this.writerClosed) return true;
+      if (Date.now() >= until) return false;
+      await Bun.sleep(10);
+    }
+    return true;
+  }
+
   /** Requests of a tab (null: any tab) still waiting for loadingFinished / loadingFailed. */
   inflightOf(tabId: string | null): Array<{ key: string; method: string; url: string; loaderId: string | null }> {
     return [...this.pending.values()].filter((q) => tabId === null || q.tab.id === tabId).map((q) => ({ key: q.key, method: q.method, url: q.url, loaderId: q.loaderId }));
@@ -1469,7 +1491,7 @@ export class Recorder {
         }).catch((e: unknown) => log.error("recorder: write failed", { request: q.url, error: String(e) }));
       }
     };
-    this.track(writeAll());
+    this.track(writeAll(), batch.map(([, q]) => q));
   }
 
   /**
@@ -1521,13 +1543,17 @@ export class Recorder {
     if (viaFetch === undefined) return;
     this.pending.delete(key);
     this.fetched.delete(key);
-    this.track(this.write(q, { outcome: "finished", endMono: null, body: viaFetch.bytes, missing: null, error: null, unreadByPage: true }));
+    this.track(this.write(q, { outcome: "finished", endMono: null, body: viaFetch.bytes, missing: null, error: null, unreadByPage: true }), [q]);
   }
 
-  private track(p: Promise<void>): void {
+  private track(p: Promise<void>, writes: readonly Pending[] = []): void {
+    for (const q of writes) this.writing.set(q.key, q);
     const tracked = p.catch((e: unknown) => log.error("recorder: write failed", { error: String(e) }));
     this.inflight.add(tracked);
-    void tracked.finally(() => this.inflight.delete(tracked));
+    void tracked.finally(() => {
+      this.inflight.delete(tracked);
+      for (const q of writes) if (this.writing.get(q.key) === q) this.writing.delete(q.key);
+    });
   }
 
   private onConsole(tabId: string, en: ConsoleEntry): void {

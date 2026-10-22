@@ -36,5 +36,16 @@ export function removeHome(home: string, testFile: string, o: { bundles?: boolea
       cpSync(src, join(to, sub), { recursive: true, filter: (f) => sub !== "config" || f === src || f.endsWith(".log") });
     }
   }
-  rmSync(home, { recursive: true, force: true });
+  // 0.8.2: on Windows a browser process that is still exiting holds files in the home for a
+  // moment (EBUSY, PR #29); retry for up to 5 s before failing.
+  for (let i = 0; ; i++) {
+    try {
+      rmSync(home, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      const code = e instanceof Error && "code" in e ? e.code : null;
+      if (i >= 9 || !(code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY")) throw e;
+      Bun.sleepSync(500);
+    }
+  }
 }

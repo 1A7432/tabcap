@@ -11,7 +11,8 @@
 # uploaded whether the runs pass or fail. Every e2e run sets TABCAP_E2E_KEEP:
 # each test file's temp home leaves its daemon.log / browser.log (v04a also its
 # bundles) in ci-logs/keep/<file>/ (test/e2e/_daemon.ts removeHome); ordinary
-# shards run at TABCAP_LOG=info and upload them when the shard fails.
+# shards run at TABCAP_LOG=info and upload them when the shard fails. Every e2e
+# run also samples the runner's load into ci-logs/sampler.log (scripts/ci-sampler.ts).
 name: ci
 
 on:
@@ -259,6 +260,10 @@ jobs:
           fi
           bun -e 'if (!require("node:fs").existsSync(process.env.TABCAP_CHROME)) { console.log(`::error::TABCAP_CHROME=${process.env.TABCAP_CHROME} does not exist`); process.exit(1); }'
           display() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 2560x1440x24" "$@"; else "$@"; fi; }
+          # What the runner is busy with, every 10 s, uploaded with the logs (scripts/ci-sampler.ts).
+          bun scripts/ci-sampler.ts "$GITHUB_WORKSPACE/ci-logs/sampler.log" >/dev/null 2>&1 &
+          sampler=$!
+          trap 'kill $sampler 2>/dev/null || true' EXIT
           if [ -z "$E2E_ONLY" ]; then
             export TABCAP_LOG=info TABCAP_E2E_KEEP="$GITHUB_WORKSPACE/ci-logs/keep"
             files=$(bun scripts/e2e-shard.ts ${{ matrix.shard }}/3)
