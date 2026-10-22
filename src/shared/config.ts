@@ -3,7 +3,8 @@
 // untrusted JSON; keys tabcap does not write itself (e.g. `pool`) survive a
 // rewrite by `tabcap setup`. Review wave 3 (docs/04 §44): a file that exists
 // but is not a JSON object is an error on every path that reads it, never
-// the defaults; `tabcap setup` does not rewrite it.
+// the defaults; `tabcap setup` does not rewrite it. Owner 2026-10-22: one
+// leading UTF-8 byte order mark is skipped.
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -24,6 +25,8 @@ export type TabcapConfig = {
  * The whole config.json as an object; an absent file is `{}`. A file that cannot be read, is not
  * JSON (the message names the file and the line / column of the first syntax error) or is not an
  * object is an error: nothing falls back to the defaults, and `writeConfig` rewrites nothing.
+ * One leading byte order mark (U+FEFF, as Windows editors save it) is skipped before parsing, and
+ * line / column count from the character after it.
  */
 export function readConfigRaw(file: string): Record<string, unknown> {
   if (!existsSync(file)) return {};
@@ -33,6 +36,8 @@ export function readConfigRaw(file: string): Record<string, unknown> {
   } catch (e) {
     throw new TabcapError("io", `cannot read config.json: ${file}: ${e instanceof Error ? e.message : String(e)}`, "Check that it is a file you can read, or move it away.");
   }
+  // JSON.parse refuses a byte order mark; drop one before parsing and before locating a syntax error.
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -67,7 +72,8 @@ export function readConfig(file: string): TabcapConfig {
 
 /**
  * Write `chrome` / `proxy` / `webdriver`, keeping every other key of the file (and of `chrome`, e.g. `args`)
- * as it was. A file `readConfigRaw` refuses is left exactly as it is (the same error; no backup).
+ * as it was. A file `readConfigRaw` refuses is left exactly as it is (the same error; no backup). The file
+ * is written from the parsed object, so a byte order mark the old file started with is not written back.
  */
 export function writeConfig(file: string, cfg: TabcapConfig): void {
   const raw = readConfigRaw(file);
