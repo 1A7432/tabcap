@@ -11,6 +11,7 @@
 import { join } from "node:path";
 import { cachedNames } from "../protection/live.ts";
 import { readConfigWarnings } from "../../shared/config.ts";
+import { TabcapError } from "../../shared/envelope.ts";
 import { withoutUrlCredentials } from "../../shared/launchargs.ts";
 import { isRecord } from "../../shared/json.ts";
 import { decodePlugins, pluginsFor } from "../hooks/plugins.ts";
@@ -88,9 +89,13 @@ export type StatusFacts = {
  */
 /**
  * Review wave 3 (docs/04 §44): config.json's unknown keys, read on every answer (also without a daemon or a
- * browser); `browser.warnings` stays the browser's own. A config.json that cannot be read is the answer's error.
+ * browser); `browser.warnings` stays the browser's own. Owner 2026-10-22: a config.json that cannot be read
+ * (not JSON or not an object: `bad-input`; unreadable: `io`) is `error`, with `warnings` empty, and the rest of
+ * the answer stays, so a waiting handoff is still seen; `error` is null when the file reads.
  */
-export type StatusConfig = { warnings: string[] };
+export type StatusConfigError = { code: "bad-input" | "io"; message: string; next: string };
+
+export type StatusConfig = { warnings: string[]; error: StatusConfigError | null };
 
 export type StatusAnswer = StatusFacts & { config: StatusConfig; conflicts: StatusConflict[]; next: string | null };
 
@@ -313,9 +318,19 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
       .filter((h) => h.state === "waiting")
       .map((h) => ({ session: h.session, reason: h.reason, site: h.site, url: redactUrl(h.url, c), since: h.since, screenshot: h.screenshot })),
   };
-  const config = { warnings: readConfigWarnings(d.paths.configFile) };
+  const config = statusConfig(d.paths.configFile);
   const conflicts = conflictsOf(facts);
   return { ...facts, config, conflicts, next: nextOf(facts, conflicts) };
+}
+
+/** `config` of a status answer: the file's warnings, or the error `readConfigRaw` gives for it (`bad-input` / `io`); any other error propagates. */
+export function statusConfig(file: string): StatusConfig {
+  try {
+    return { warnings: readConfigWarnings(file), error: null };
+  } catch (e) {
+    if (e instanceof TabcapError && (e.code === "bad-input" || e.code === "io")) return { warnings: [], error: { code: e.code, message: e.message, next: e.next } };
+    throw e;
+  }
 }
 
 function recordingSince(st: Record<string, unknown>): number {
@@ -325,7 +340,7 @@ function recordingSince(st: Record<string, unknown>): number {
 
 /** `tabcap status` when no daemon answers: the CLI still reports what it can read itself (plugins). */
 export function offlineStatus(configDir: string, listener: string): StatusAnswer {
-  const config = { warnings: readConfigWarnings(join(configDir, "config.json")) };
+  const config = statusConfig(join(configDir, "config.json"));
   const facts: StatusFacts = {
     schema: STATUS_SCHEMA,
     daemon: { running: false, listener },
@@ -365,8 +380,12 @@ export function renderStatusText(data: unknown): string {
       ? `daemon pid ${txt(dmn["pid"])} (${txt(dmn["listener"])}) · ${br["running"] === true ? `browser pid ${txt(br["pid"])} ${txt(br["mode"])}, ${txt(br["tabs"])} tab(s), webdriver ${txt(br["webdriver"])}${chromeArgsText(br)}` : "browser not running"}`
       : "daemon not running (`tabcap daemon start`)";
   const lines = [`tabcap status · ${head} · plugins: ${plugins.length === 0 ? "none" : plugins.join(", ")}`];
-  // Review wave 3: config.json's unknown keys, one line each, under the head line.
-  for (const w of strs(rec(s["config"])["warnings"])) lines.push(`warning: ${w}`);
+  // Review wave 3: config.json's unknown keys, one line each, under the head line; owner 2026-10-22: a
+  // config.json that cannot be read is one `config error:` line and its `  next:` line in that place.
+  const cfg = rec(s["config"]);
+  const cfgError = isRecord(cfg["error"]) ? cfg["error"] : null;
+  if (cfgError !== null) lines.push(`config error: ${txt(cfgError["message"])}`, `  next: ${txt(cfgError["next"])}`);
+  for (const w of strs(cfg["warnings"])) lines.push(`warning: ${w}`);
   const sessions = recs(s["sessions"]);
   if (sessions.length === 0) lines.push("(no sessions)");
   for (const x of sessions) {

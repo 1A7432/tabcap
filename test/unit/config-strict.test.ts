@@ -4,7 +4,9 @@
 // the file and the line / column of the first syntax error; `tabcap setup`
 // refuses to rewrite such a file (no backup, no change); the replay rules from
 // config.json go through the same reader. Expected positions: RFC 8259's
-// grammar applied by hand to the texts below.
+// grammar applied by hand to the texts below. Owner 2026-10-22: `tabcap
+// status` is the exception: it keeps its whole view (a waiting handoff stays
+// visible) and answers the same error in `config.error`.
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -13,6 +15,7 @@ import { join } from "node:path";
 import { run } from "../../src/cli/main.ts";
 import { handleCommand } from "../../src/daemon/main.ts";
 import { Daemon } from "../../src/daemon/state.ts";
+import { offlineStatus, renderStatusText } from "../../src/daemon/tools/status.ts";
 import { loadRules, rulesFromConfig } from "../../src/replay/rules.ts";
 import {
   readChromeArgsConfig,
@@ -28,7 +31,7 @@ import {
   writeConfig,
 } from "../../src/shared/config.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
-import { jsonSyntaxErrorAt } from "../../src/shared/json.ts";
+import { isRecord, jsonSyntaxErrorAt } from "../../src/shared/json.ts";
 import { paths } from "../../src/shared/paths.ts";
 import { SLOW_IO_MS, removeTree } from "./_platform.ts";
 
@@ -182,5 +185,73 @@ describe("commands with an unparseable config.json answer the error", () => {
     const env = await handleCommand(d, { action: "browser.start", args: { executablePath: join(dir, "no-such-chrome") }, session: "a" }, () => undefined);
     expect(env).toMatchObject({ ok: false, error: { code: "bad-input" } });
     expect(d.browser).toBeNull();
+  });
+});
+
+describe("tabcap status keeps its view and reports a broken config.json in config.error (owner 2026-10-22)", () => {
+  const daemons: Daemon[] = [];
+  afterEach(async () => {
+    for (const d of daemons.splice(0)) await d.browser?.t.shutdown().catch(() => undefined);
+  });
+  // A trailing comma: the "}" at line 3, column 1 stands where a name must be (RFC 8259).
+  const BROKEN = '{\n  "webdriver": "visible",\n}\n';
+
+  function home(text: string | null): ReturnType<typeof paths> {
+    const p = paths({ TABCAP_HOME: tmp() });
+    mkdirSync(p.config, { recursive: true, mode: 0o700 });
+    if (text !== null) writeFileSync(p.configFile, text);
+    return p;
+  }
+
+  test("tabcap status keeps the session view when config.json is broken", async () => {
+    const p = home(BROKEN);
+    const want = thrown(() => readConfigRaw(p.configFile));
+    expect(want.message).toContain(p.configFile);
+    expect(want.message).toContain("line 3, column 1");
+    const d = new Daemon(p);
+    daemons.push(d);
+    d.sites.set("w", { site: "shop", account: "alice", proxy: null });
+    d.guard.takeover("w", { tab: "t1", url: "https://shop.test/login", event: "pointerdown", at: 1 }, undefined);
+    const env = await handleCommand(d, { action: "status", args: {}, session: "w" }, () => undefined);
+    expect(env.ok).toBe(true);
+    const data = env.ok && isRecord(env.data) ? env.data : {};
+    expect(data["config"]).toEqual({ warnings: [], error: { code: "bad-input", message: want.message, next: want.next } });
+    expect(data["handoff"]).toMatchObject([{ session: "w", reason: "human-takeover", site: "shop", url: "https://shop.test/login" }]);
+    expect(data["sessions"]).toMatchObject([{ session: "w", site: "shop", account: "alice", state: "waiting", reason: "human-takeover" }]);
+    expect(data["next"]).toContain("`tabcap handoff continue --session w`");
+    // --text: the error and its next under the first line; the WAITING line is still there (no
+    // browser, so no tab URL after it).
+    const lines = renderStatusText(data).split("\n");
+    expect(lines[0]).toStartWith("tabcap status · daemon pid ");
+    expect(lines[1]).toBe(`config error: ${want.message}`);
+    expect(lines[2]).toBe(`  next: ${want.next}`);
+    expect(lines[3]).toBe("w: site shop (alice) · 0 tab(s) · not recording · WAITING human-takeover · trace off");
+    expect(lines.some((l) => l.startsWith("warning:"))).toBe(false);
+    // browser status still refuses with the same error (docs/04 §44).
+    expect(await handleCommand(d, { action: "browser.status", args: {}, session: "w" }, () => undefined)).toMatchObject({ ok: false, error: { code: "bad-input", message: want.message } });
+  });
+
+  test("without a daemon (offlineStatus): the same config.error; --text puts it under the first line", () => {
+    const p = home(BROKEN);
+    const want = thrown(() => readConfigRaw(p.configFile));
+    const off = offlineStatus(p.config, "unix");
+    expect(off.config).toEqual({ warnings: [], error: { code: "bad-input", message: want.message, next: want.next } });
+    expect(off.daemon).toEqual({ running: false, listener: "unix" });
+    expect(off.plugins).toEqual({ decode: [], challenge: [] });
+    expect(renderStatusText(off)).toBe(["tabcap status · daemon not running (`tabcap daemon start`) · plugins: none", `config error: ${want.message}`, `  next: ${want.next}`, "(no sessions)", "conflicts: none"].join("\n"));
+  });
+
+  test("a file that is not an object is bad-input, one that cannot be read is io; an absent one is no error", () => {
+    const notObject = home("[]");
+    const e = thrown(() => readConfigRaw(notObject.configFile));
+    expect(e.message).toContain("JSON object");
+    expect(offlineStatus(notObject.config, "unix").config).toEqual({ warnings: [], error: { code: "bad-input", message: e.message, next: e.next } });
+    const unreadable = home(null);
+    mkdirSync(unreadable.configFile);
+    const io = offlineStatus(unreadable.config, "unix").config;
+    expect(io.warnings).toEqual([]);
+    expect(io.error?.code).toBe("io");
+    expect(io.error?.message).toContain(unreadable.configFile);
+    expect(offlineStatus(home(null).config, "unix").config).toEqual({ warnings: [], error: null });
   });
 });
