@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+### 审查后续的作者决定项（2026-10-22）
+
+- **单横线词是选项。** `--` 之前，以一个 `-` 开头、又不是该命令声明的短写法的词，回 usage 错误（退出码 2，`unknown option -x`；`next` 说明这样的参数放到 `--` 之后）。只有单独的 `-` 和负数（`-1`、`-2.5`）仍是位置参数；`--` 之后一切照旧是位置参数。以前 `tabcap bundle info -x` 会去找名叫 `-x` 的目录，`tabcap analyze find <bundle> -x` 会搜文本 `-x`（现在写 `-- -x`）。quiet 命令（`site add` / `proxy add` / `account add`）回 `unknown option (value not shown)`，因为这个词可能是口令。解析规则写在 docs/04 §2.1；docs/05 s47 的走法把 `-t` 放到 `--` 之后。
+- **`config.json` 坏了时 `tabcap status` 保留视图。** 回答的 `config` 是 `{warnings, error}`：文件不是 JSON、不是对象或读不了时放进 `config.error`（`{code, message, next}`，`warnings` 为空），会话、等人的交接和 `next` 照常回答；`--text` 在首行下打印 `config error:` 和它的 `next:`。`browser start`、`browser status`、`setup` 仍拒绝这样的文件。
+- **`config.json` 开头的 UTF-8 BOM 跳过。** 语法错误仍按真实行列报告；`writeConfig` 不会把 BOM 写回去。
+- **已知键类型写错进 warnings。** `chrome`、`proxy`、`webdriver`、`chrome.executablePath`、`chrome.version`、`chrome.platform` 仍当作没写，但每个键在 config 警告里占一行（`config.json: webdriver is a boolean, not a string; ignored`），排在未知键之后、共用 20 行上限；`null` 只在 tabcap 自己从不写 null 的键上报（`chrome`、`chrome.executablePath`、`chrome.version`）。`tabcap setup` 改写文件时保留类型写错的 `proxy` / `webdriver`（以前会用 `null` 覆写），所以它的警告也会点名。`skills/tabcap/references/config.md` 重新生成。
+- **按实现定案**（作者 2026-10-22）：`x-csrf` / `x-xsrf` 是敏感头（docs/05 s07、v06e 与 replay-python 快照），`--text` 里照旧显示账号名（docs/04 §30），只敲 `tabcap analyze` / `tabcap replay` 退出 2，页面请求的 `cmd` 取请求开始时的命令窗口（docs/04 §3）。
+- **Windows 的 `browser.log`。** 加了 `--enable-logging=stderr --log-level=1`（第二波）后 windows-latest 上的文件不再为空（CI run 39725056978）。
+
 ### 审查后续第三波（CLI 分发、带类型的事件写入、严格 config）
 
 - **只有一个命令解析器。** 所有命令（含 `bundle *`、`analyze *`、`replay *`）都经命令注册表解析，从同一张 handler 表（`src/cli/handlers.ts`）执行，`--text` 渲染也在表里。帮助文本不变。可见差异均来自注册表规则：布尔旗标拒绝 `=value`（以前 `--no-redact=1` 会静默照常脱敏）、`--` 结束选项、位置参数个数错报 `missing <x>` / `unexpected argument`、usage 错误的 `next` 只给本命令用法、只敲 `tabcap analyze` / `tabcap replay` 是未知命令（退出 2，与其他组一致）、`replay session -o=file` 被接受。`src/` 最后一个 import 环已拆，单测守住无环。`replay check --rate` 的帮助如实写下限。
