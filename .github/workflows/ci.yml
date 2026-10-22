@@ -100,7 +100,7 @@ jobs:
           sed 's/{{[A-Za-z]*}}/uv-warm/g' templates/python/pyproject.toml > .uv-warm/pyproject.toml
           uv sync --project .uv-warm --group test
           rm -rf .uv-warm
-      - name: runner probe (Windows): Defender mode and exclusions
+      - name: runner probe (Windows, Defender mode and exclusions)
         if: runner.os == 'Windows'
         # Diagnostic only, for the stalls described at the matrix: what Defender
         # is actually doing on the runner that ran this job. Best effort.
