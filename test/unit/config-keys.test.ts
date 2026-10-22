@@ -340,7 +340,7 @@ describe("where the warnings show", () => {
   test("a key of the wrong type shows in the same places, after the unknown keys (owner 2026-10-22)", async () => {
     const WRONG = "config.json: webdriver is a number, not a string; ignored";
     const { d, dir } = home(JSON.stringify({ webdriver: 3, fetch: { minIntervalMS: 100 } }));
-    expect(statusOf(d, DAEMON).config).toEqual({ warnings: [WARN, WRONG] });
+    expect(statusOf(d, DAEMON).config).toEqual({ warnings: [WARN, WRONG], error: null });
     const off = offlineStatus(paths({ TABCAP_HOME: dir }).config, "unix");
     expect(renderStatusText(off).split("\n")).toContain(`warning: ${WRONG}`);
     expect(data(await cmd(d, "browser.status"))).toEqual({ running: false, warnings: [WARN, WRONG] });
