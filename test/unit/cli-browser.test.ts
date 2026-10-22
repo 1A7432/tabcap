@@ -70,10 +70,17 @@ describe("argument parsing", () => {
     expect(thrown(session, ["./b", "-o", "s.json", "-q"])).toEqual({ code: "usage", message: "unknown option -q", next: `Usage: ${usageOf(session)}${hint}` });
     expect(parseCommand(spec(["evaluate"]), ["-1"]).args).toEqual({ expression: "-1" });
     expect(parseCommand(spec(["evaluate"]), ["--", "-q"]).args).toEqual({ expression: "-q" });
-    // a quiet command (a stray word may be a password) does not echo the word
-    const quiet = thrown(spec(["site", "add"]), ["example", "-hunter2"]);
-    expect(quiet.message).toBe("unknown option (value not shown)");
+    // a quiet command (a stray word may be a password) does not echo the word, and its next adds that a password
+    // is never an argument (after `--` it would be "unexpected argument #2")
+    const siteAdd = spec(["site", "add"]);
+    const quiet = thrown(siteAdd, ["example", "-hunter2"]);
+    expect(quiet).toEqual({
+      code: "usage",
+      message: "unknown option (value not shown)",
+      next: `Usage: ${usageOf(siteAdd)}. An argument that starts with "-" goes after \`--\`; a password is never an argument: type it at the prompt or pipe it with --password-stdin.`,
+    });
     expect(quiet.next).not.toContain("hunter2");
+    expect(thrown(siteAdd, ["example", "-=hunter2"]).message).toBe("unknown option (value not shown)");
     const r = await run(["evaluate", "-q"]);
     expect(r.code).toBe(2);
     expect(r.envelope).toMatchObject({ ok: false, error: { code: "usage", message: "unknown option -q" } });

@@ -1640,11 +1640,17 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
       continue;
     }
     const eq = a.indexOf("=");
-    const name = eq > 0 ? a.slice(0, eq) : a;
+    // `-=x` names nothing: the whole word is the unknown option (a long `--=x` stays `--`, never echoing the value).
+    const name = eq > 1 ? a.slice(0, eq) : a;
     const spec = c.flags.find((f) => spellingsOf(f).includes(name));
     if (spec === undefined && name.startsWith("--")) throw new TabcapError("usage", `unknown option ${name}`, usage);
-    // An undeclared one-dash word may be a value meant as a positional: say where it goes; quiet commands do not echo it (it may be a password).
-    if (spec === undefined) throw new TabcapError("usage", c.quiet === true ? "unknown option (value not shown)" : `unknown option ${name}`, `${usage}. An argument that starts with "-" goes after \`--\`.`);
+    if (spec === undefined) {
+      // An undeclared one-dash word may be a value meant as a positional: say where it goes. Quiet commands do not
+      // echo it (it may be a password) and add that a password is never an argument, since `--` would not take one.
+      const where = `${usage}. An argument that starts with "-" goes after \`--\``;
+      if (c.quiet === true) throw new TabcapError("usage", "unknown option (value not shown)", `${where}; a password is never an argument: type it at the prompt or pipe it with --password-stdin.`);
+      throw new TabcapError("usage", `unknown option ${name}`, `${where}.`);
+    }
     given.add(spec.flag);
     let value: string | undefined;
     if (spec.kind === "bool") {
