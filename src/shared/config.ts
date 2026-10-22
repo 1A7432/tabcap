@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { writeFileAtomic } from "../bundle/manifest.ts";
 import { TabcapError } from "./envelope.ts";
-import { isRecord, jsonSyntaxErrorAt, lineColumn, str } from "./json.ts";
+import { isRecord, jsonSyntaxErrorAt, lineColumn, str, stripBom } from "./json.ts";
 import { BODIES_DEFAULT, parseBodiesMode, type BodiesMode } from "./bodies.ts";
 
 export type TabcapConfig = {
@@ -40,7 +40,7 @@ export function readConfigRaw(file: string): Record<string, unknown> {
     throw new TabcapError("io", `cannot read config.json: ${file}: ${e instanceof Error ? e.message : String(e)}`, "Check that it is a file you can read, or move it away.");
   }
   // JSON.parse refuses a byte order mark; drop one before parsing and before locating a syntax error.
-  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  text = stripBom(text);
   let raw: unknown;
   try {
     raw = JSON.parse(text);

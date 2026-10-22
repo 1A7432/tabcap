@@ -33,6 +33,16 @@ export function tryParseJson(text: string): unknown {
   }
 }
 
+/**
+ * `text` without one leading byte order mark (U+FEFF, as Windows editors save
+ * it); anything else unchanged. RFC 8259 §8.1: a parser may ignore a BOM
+ * rather than treat it as an error, but JSON.parse refuses one. Only one is
+ * dropped, so a second is still a syntax error.
+ */
+export function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 /** Type guard: `v` is one of the string literals in `list`. */
 export function oneOf<T extends string>(list: readonly T[], v: unknown): v is T {
   return typeof v === "string" && (list as readonly string[]).includes(v);
