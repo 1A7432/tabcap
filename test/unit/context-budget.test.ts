@@ -126,6 +126,15 @@ describe("summaries", () => {
     expect(where["candidateCount"]).toBe(8);
     expect(where["query"]).toEqual({ input: "1", kind: "text", text: "1" });
   });
+
+  test("status: config keeps the warning count, the first 10 warnings and config.error (owner 2026-10-22)", () => {
+    const warnings = Array.from({ length: 12 }, (_, i) => `config.json: unknown key k${i}; ignored`);
+    expect(summaryOf("status", { schema: "tabcap-status/0", sessions: [], conflicts: [], handoff: [], config: { warnings, error: null } })["config"]).toEqual({ warningCount: 12, warnings: warnings.slice(0, 10), error: null });
+    const error = { code: "bad-input", message: "config.json is not valid JSON (line 1, column 2)", next: "Fix config.json." };
+    expect(summaryOf("status", { config: { warnings: [], error } })["config"]).toEqual({ warningCount: 0, warnings: [], error });
+    // no config key, or a malformed one: no warnings, no error
+    for (const data of [{ schema: "tabcap-status/0" }, { config: "x" }, { config: { warnings: "x", error: "x" } }]) expect(summaryOf("status", data)["config"]).toEqual({ warningCount: 0, warnings: [], error: null });
+  });
 });
 
 describe("--select", () => {
