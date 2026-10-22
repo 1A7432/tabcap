@@ -75,6 +75,8 @@ const CASES: Array<[string[], Want]> = [
   // old next of these three: the usage line alone
   [["bundle", "info", "<B>", "-x"], { code: 2, error: { code: "usage", message: "unknown option -x", next: DASH("bundle info") } }],
   [["bundle", "info", "<B>", "-x=1"], { code: 2, error: { code: "usage", message: "unknown option -x", next: DASH("bundle info") } }],
+  // a dash with nothing before the "=" names no option: the whole word (not "unknown option -", while "-" alone is positional)
+  [["bundle", "info", "<B>", "-=x"], { code: 2, error: { code: "usage", message: "unknown option -=x", next: DASH("bundle info") } }],
   [["bundle", "info", "-x"], { code: 2, error: { code: "usage", message: "unknown option -x", next: DASH("bundle info") } }],
   // old: "unknown option --" (`--` did not end the options); now the bundle directory "-x", which does not exist
   [["bundle", "info", "--", "-x"], { code: 1, error: { code: "not-found", message: "bundle directory not found: -x" } }],
