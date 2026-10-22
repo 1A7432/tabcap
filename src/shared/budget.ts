@@ -199,7 +199,8 @@ function statusSummary(data: Record<string, unknown>): Record<string, unknown> {
   const daemon = rec(data["daemon"]);
   const browser = rec(data["browser"]);
   const config = rec(data["config"]);
-  const warnings: unknown[] = Array.isArray(config["warnings"]) ? config["warnings"] : [];
+  // Only strings count: a malformed entry neither shows nor inflates warningCount.
+  const warnings = (Array.isArray(config["warnings"]) ? config["warnings"] : []).filter((w): w is string => typeof w === "string");
   return {
     daemon: { running: daemon["running"] },
     browser: { running: browser["running"], tabs: browser["tabs"] },
@@ -211,8 +212,8 @@ function statusSummary(data: Record<string, unknown>): Record<string, unknown> {
     conflicts: firstRows(data["conflicts"], ["code", "session"]),
     handoff: len(data["handoff"]),
     config: {
-      warningCount: len(warnings),
-      warnings: warnings.slice(0, SUMMARY_FIRST).filter((w): w is string => typeof w === "string"),
+      warningCount: warnings.length,
+      warnings: warnings.slice(0, SUMMARY_FIRST),
       error: isRecord(config["error"]) ? config["error"] : null,
     },
   };

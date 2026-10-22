@@ -133,8 +133,10 @@ const CASES: Record<string, { data: Record<string, unknown>; keys: string[]; fir
       plugins: {},
       handoff: [],
       conflicts: many((i) => ({ code: "c", session: `s${i}`, message: LONG })),
+      // configWarnings caps the list at 20 lines (MAX_WARNINGS); the summary keeps the first 10.
+      config: { warnings: Array.from({ length: 20 }, (_, i) => `config.json: unknown key k${i} (did you mean fetch?); ignored`), error: null },
     },
-    keys: ["daemon", "browser", "sessionCount", "sessions", "conflictCount", "conflicts"],
+    keys: ["daemon", "browser", "sessionCount", "sessions", "conflictCount", "conflicts", "config"],
     first: ["sessions", [{ session: "s0", state: "running", tabs: 1, recording: "/b0", trace: "off" }]],
   },
   "trace list": {
