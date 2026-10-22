@@ -7,7 +7,9 @@
 // `run(argv)` on a copy of fixtures/bundles/sample-v0 under an empty
 // TABCAP_HOME. Same answer: the old value. A line with `old:` differs; the new
 // answer follows the registry rule (parseCommand; an unknown command names the
-// closest commands; a bare group word is an unknown command, as `tabcap net`).
+// closest commands; a bare group word is an unknown command, as `tabcap net`;
+// before `--`, a one-dash word the spec does not declare is an unknown option,
+// the owner's rule of 2026-10-22).
 // Reproduce: bun test test/unit/cli-offline-dispatch.test.ts
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -39,6 +41,8 @@ afterAll(() => {
 });
 
 const U = (path: string): string => `Usage: ${usageOf(specOf(path))}`;
+/** The next of an undeclared one-dash word: the usage line, then where an argument that starts with "-" goes. */
+const DASH = (path: string): string => `${U(path)}. An argument that starts with "-" goes after \`--\`.`;
 const NEAR = (cmds: string): string => `Did you mean: ${cmds}? \`tabcap --help\` lists the command groups; \`tabcap help <command>\` shows one command.`;
 const ANALYZE_NEAR = NEAR("tabcap analyze find | tabcap analyze diff | tabcap analyze deps");
 const REPLAY_NEAR = NEAR("tabcap replay serve | tabcap replay check | tabcap replay session");
@@ -61,7 +65,9 @@ const CASES: Array<[string[], Want]> = [
   [["analyze", "find", "<B>", "x", "--bogus"], { code: 2, error: { code: "usage", message: "unknown option --bogus", next: U("analyze find") } }],
   // old: the analyze usage list (a --help after `--` was still taken as help); now the text searched for
   [["analyze", "find", "<B>", "--", "--help"], { code: 0, data: { query: { text: "--help", ignoreCase: false, normalized: "--help" } } }],
-  [["analyze", "find", "<B>", "-x"], { code: 0, data: { query: { text: "-x", ignoreCase: false, normalized: "-x" } } }],
+  // old: ok, the text "-x"; now an unknown option, and the text goes after `--`
+  [["analyze", "find", "<B>", "-x"], { code: 2, error: { code: "usage", message: "unknown option -x", next: DASH("analyze find") } }],
+  [["analyze", "find", "<B>", "--", "-x"], { code: 0, data: { query: { text: "-x", ignoreCase: false, normalized: "-x" } } }],
   [["analyze", "find", "<B>", "Order", "--ignore-case", "--text"], { code: 0, data: { query: { text: "Order", ignoreCase: true, normalized: "Order" } }, text: 'find "Order" in <B> [ignore-case]' }],
   [["analyze", "find", "<B>", "Order", "--", "--text"], { code: 0, data: { query: { text: "Order --text", ignoreCase: false, normalized: "Order --text" } } }],
   // old: "expected at least two bundles, got 1"
@@ -86,7 +92,7 @@ const CASES: Array<[string[], Want]> = [
   // old next: "Available: " and every replay usage line joined
   [["replay", "foo"], { code: 2, error: { code: "usage", message: "unknown command: replay foo", next: REPLAY_NEAR } }],
   // old: "unknown option --out" (every -o was rewritten to --out, also for serve, which has none)
-  [["replay", "serve", "<B>", "-o", "x"], { code: 2, error: { code: "usage", message: "unexpected argument: -o", next: U("replay serve") } }],
+  [["replay", "serve", "<B>", "-o", "x"], { code: 2, error: { code: "usage", message: "unknown option -o", next: DASH("replay serve") } }],
   // old: "--out needs a value" (the rewritten spelling)
   [["replay", "session", "<B>", "-o"], { code: 2, error: { code: "usage", message: "-o needs a value", next: U("replay session") } }],
   [["replay", "session", "<B>"], { code: 2, error: { code: "usage", message: "missing -o <file>", next: U("replay session") } }],

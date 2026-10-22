@@ -1607,18 +1607,18 @@ export function matchCommand(words: readonly string[]): CommandSpec | null {
 /** `given`: the flags on the command line by their main spelling (`--text` even where a positional shares its key, as in analyze find). */
 export type ParsedCommand = { args: Record<string, unknown>; session: string | null; help: boolean; given: ReadonlySet<string> };
 
-/** A one-dash word the spec declares as a flag spelling (`-o`, `-o=v`); any other word starting with one dash is positional. */
-function shortFlag(c: CommandSpec, a: string): boolean {
-  if (a.startsWith("--") || !a.startsWith("-")) return false;
-  const eq = a.indexOf("=");
-  const name = eq > 0 ? a.slice(0, eq) : a;
-  return c.flags.some((f) => spellingsOf(f).includes(name));
+/** Words that start with a dash yet stay positional before `--`: `-` alone (stdin) and negative numbers (`-1`, `-2.5`). */
+function dashPositional(a: string): boolean {
+  return a === "-" || /^-\d/.test(a);
 }
 
 /**
  * Parse argv (after the command path) against the spec. Options are `--name`
  * (`--name=value` too) and the one-dash spellings the spec declares (`-o`);
- * `--` ends options. Every command, offline or not, is parsed here.
+ * `--` ends options. Before `--`, any other word that starts with a dash is an
+ * unknown option (usage error), except `-` alone and negative numbers, which
+ * stay positional; after `--` every word is positional. Every command, offline
+ * or not, is parsed here.
  */
 export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCommand {
   const usage = `Usage: ${usageOf(c)}`;
@@ -1630,7 +1630,7 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
   const given = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] ?? "";
-    if (rest || a === "--" || (!a.startsWith("--") && !shortFlag(c, a))) {
+    if (rest || a === "--" || !a.startsWith("-") || dashPositional(a)) {
       if (a === "--" && !rest) rest = true;
       else pos.push(a);
       continue;
@@ -1642,7 +1642,9 @@ export function parseCommand(c: CommandSpec, argv: readonly string[]): ParsedCom
     const eq = a.indexOf("=");
     const name = eq > 0 ? a.slice(0, eq) : a;
     const spec = c.flags.find((f) => spellingsOf(f).includes(name));
-    if (spec === undefined) throw new TabcapError("usage", `unknown option ${name}`, usage);
+    if (spec === undefined && name.startsWith("--")) throw new TabcapError("usage", `unknown option ${name}`, usage);
+    // An undeclared one-dash word may be a value meant as a positional: say where it goes; quiet commands do not echo it (it may be a password).
+    if (spec === undefined) throw new TabcapError("usage", c.quiet === true ? "unknown option (value not shown)" : `unknown option ${name}`, `${usage}. An argument that starts with "-" goes after \`--\`.`);
     given.add(spec.flag);
     let value: string | undefined;
     if (spec.kind === "bool") {

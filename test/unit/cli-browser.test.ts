@@ -2,8 +2,9 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { COMMANDS, helpAll, helpFor, matchCommand, parseCommand } from "../../src/cli/commands.ts";
+import { COMMANDS, helpAll, helpFor, matchCommand, parseCommand, usageOf } from "../../src/cli/commands.ts";
 import { run } from "../../src/cli/main.ts";
+import { TabcapError } from "../../src/shared/envelope.ts";
 import { SLOW_IO_MS } from "./_platform.ts";
 
 const home = mkdtempSync(join(tmpdir(), "tabcap-cli-"));
@@ -49,6 +50,33 @@ describe("argument parsing", () => {
     expect(parseCommand(spec(["evaluate"]), ["--await", "--", "--x"]).args).toEqual({ await: true, expression: "--x" });
     expect(parseCommand(spec(["snapshot"]), ["--max-chars=500", "--timeout", "9000"]).args).toEqual({ maxChars: 500, timeoutMs: 9000 });
     expect(spec(["net", "body"]).action).toBe("net.body");
+  });
+  // The owner's rule of 2026-10-22: before `--`, a one-dash word the spec does not declare is an unknown option;
+  // `-` alone and negative numbers stay positional. Expected values: that rule as written in the brief.
+  test("one-dash words: a declared spelling is an option, -1 is positional, any other is an unknown option before --", async () => {
+    const thrown = (c: ReturnType<typeof spec>, argv: string[]): { code: string; message: string; next: string } => {
+      try {
+        parseCommand(c, argv);
+      } catch (e) {
+        if (e instanceof TabcapError) return { code: e.code, message: e.message, next: e.next };
+        throw e;
+      }
+      throw new Error(`no error for ${argv.join(" ")}`);
+    };
+    const hint = '. An argument that starts with "-" goes after `--`.';
+    const session = spec(["replay", "session"]);
+    expect(parseCommand(session, ["./b", "-o", "s.json"]).args).toEqual({ bundle: "./b", out: "s.json" });
+    expect(parseCommand(session, ["./b", "-o=s.json"]).args).toEqual({ bundle: "./b", out: "s.json" });
+    expect(thrown(session, ["./b", "-o", "s.json", "-q"])).toEqual({ code: "usage", message: "unknown option -q", next: `Usage: ${usageOf(session)}${hint}` });
+    expect(parseCommand(spec(["evaluate"]), ["-1"]).args).toEqual({ expression: "-1" });
+    expect(parseCommand(spec(["evaluate"]), ["--", "-q"]).args).toEqual({ expression: "-q" });
+    // a quiet command (a stray word may be a password) does not echo the word
+    const quiet = thrown(spec(["site", "add"]), ["example", "-hunter2"]);
+    expect(quiet.message).toBe("unknown option (value not shown)");
+    expect(quiet.next).not.toContain("hunter2");
+    const r = await run(["evaluate", "-q"]);
+    expect(r.code).toBe(2);
+    expect(r.envelope).toMatchObject({ ok: false, error: { code: "usage", message: "unknown option -q" } });
   });
   test("usage errors carry next and exit 2", async () => {
     for (const argv of [["click"], ["snapshot", "--bogus"], ["snapshot", "--max-chars", "x"], ["tab", "list", "extra"]]) {
