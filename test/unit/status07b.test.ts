@@ -244,8 +244,8 @@ describe("status off a daemon (no browser)", () => {
     expect(data["conflicts"]).toEqual([]);
     // no `trace` / `handoff` notice fields: it is not a session command
     expect(data["next"]).toBeNull();
-    // Review wave 3 (docs/04 §44): `config` carries config.json's unknown-key warnings.
-    expect(data["config"]).toEqual({ warnings: [] });
+    // Review wave 3 (docs/04 §44): `config` carries config.json's unknown-key warnings; `error` (owner 2026-10-22) is null while the file reads.
+    expect(data["config"]).toEqual({ warnings: [], error: null });
     expect(Object.keys(data).sort()).toEqual(["browser", "config", "conflicts", "daemon", "handoff", "next", "plugins", "schema", "sessions"]);
   });
 

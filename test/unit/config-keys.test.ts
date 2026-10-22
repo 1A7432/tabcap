@@ -182,19 +182,21 @@ describe("where the warnings show", () => {
   test("tabcap status: config.warnings (also without a daemon), its own --text lines; browser.warnings stays the browser's", () => {
     const { d, dir } = home(JSON.stringify({ fetch: { minIntervalMS: 100 } }));
     const s = statusOf(d, DAEMON);
-    expect(s.config).toEqual({ warnings: [WARN] });
+    expect(s.config).toEqual({ warnings: [WARN], error: null });
     expect(s.browser.warnings).toBeNull();
     const off = offlineStatus(paths({ TABCAP_HOME: dir }).config, "unix");
-    expect(off.config).toEqual({ warnings: [WARN] });
+    expect(off.config).toEqual({ warnings: [WARN], error: null });
     expect(renderStatusText(off).split("\n")).toContain(`warning: ${WARN}`);
     const clean = home("{}");
-    expect(statusOf(clean.d, DAEMON).config).toEqual({ warnings: [] });
+    expect(statusOf(clean.d, DAEMON).config).toEqual({ warnings: [], error: null });
     expect(renderStatusText(statusOf(clean.d, DAEMON))).not.toContain("warning:");
   });
 
-  test("tabcap status and browser status answer a broken config.json's error; daemon status still answers", async () => {
+  // Owner 2026-10-22: tabcap status keeps its view and reports the broken file in config.error
+  // (config-strict.test.ts has the whole answer); browser status still answers the error.
+  test("browser status answers a broken config.json's error, tabcap status reports it in config.error; daemon status still answers", async () => {
     const { d } = home('{"fetch": {},}');
-    expect(await cmd(d, "status")).toMatchObject({ ok: false, error: { code: "bad-input" } });
+    expect(await cmd(d, "status")).toMatchObject({ ok: true, data: { config: { warnings: [], error: { code: "bad-input" } } } });
     expect(await cmd(d, "browser.status")).toMatchObject({ ok: false, error: { code: "bad-input" } });
     expect(await cmd(d, "daemon.status")).toMatchObject({ ok: true, data: { running: true, browser: { running: false } } });
   });
