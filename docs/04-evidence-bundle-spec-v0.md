@@ -55,6 +55,8 @@
 
 留着没改的（NOTES 0.7-C 有清单）：落盘或直接透传落盘字段的（`ts`、blob 引用与事件里的 `size`、`net show` 的 `timing.start` / `end` 单调时钟）；与 `at` 已有别的含义冲突的（`console list` 的 `at` 是 `url:line:col`，`click` 的 `at` 是坐标，`net body --at` 是行列），所以 `console list` / ws 行的墙钟时刻仍叫 `ts`，`since` / `startedAt` / `savedAt` / `generatedAt` 等具名时刻也未改；`analyze find` 的 `hits[].ref`（console 命中时为 null，`where` / `find` 文档都以 `ref` 描述）；`wait` 块的 `ms`（字段名本身就是 `ms`；`fetch` 的 `timing.ms` 在 0.7-E 改成了 `timing.totalMs`，§36）；`session list` 的 `tabs`（数组）与 `status` 的 `tabs`（个数）。
 
+- **命令行解析**（`src/cli/commands.ts` `parseCommand`，每条命令都走它；单横线一条是作者 2026-10-22 定）：选项是 `--name` / `--name=value` 与该命令声明的单横线写法（如 `bundle import har` 的 `-o`），`--` 结束选项、之后每个词都是位置参数；`--` 之前，以 `-` 开头又不是该命令声明的写法的词回 `usage`（退出码 2）`unknown option -x`，`next` 在 Usage 行后加一句「以 `-` 开头的参数放到 `--` 之后」，只有单独的 `-` 与负数（`-1`、`-2.5`）仍是位置参数；`site add` / `proxy add` / `account add` 不回显这个词（可能是口令），信息是 `unknown option (value not shown)`。
+
 ## 3. 事件信封
 
 每行一个 JSON 对象，公共字段：
