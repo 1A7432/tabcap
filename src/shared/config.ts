@@ -6,7 +6,8 @@
 // the defaults; `tabcap setup` does not rewrite it. Owner 2026-10-22: one
 // leading UTF-8 byte order mark is skipped, and a value of the wrong JSON type
 // under a key whose reader ignores it (`kind` in CONFIG_KEYS) is named by
-// `configWarnings` after the unknown keys.
+// `configWarnings` after the unknown keys; `tabcap setup` keeps such a value of
+// `proxy` / `webdriver` in the file instead of rewriting it as null.
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -77,17 +78,23 @@ export function readConfig(file: string): TabcapConfig {
 }
 
 /**
- * Write `chrome` / `proxy` / `webdriver`, keeping every other key of the file (and of `chrome`, e.g. `args`)
- * as it was. A file `readConfigRaw` refuses is left exactly as it is (the same error; no backup). The file
+ * Write `chrome` (executablePath / version / platform) and `proxy` / `webdriver`, keeping every other key of
+ * the file (and of `chrome`, e.g. `args`) as it was. A `proxy` / `webdriver` the file has with the wrong JSON
+ * type, which `readConfig` reads as null, is kept as it is when `cfg` leaves it null (owner 2026-10-22: `tabcap
+ * setup` does not erase what the user wrote, and its `warnings` still name it); otherwise null is written,
+ * as before. A file `readConfigRaw` refuses is left exactly as it is (the same error; no backup). The file
  * is written from the parsed object, so a byte order mark the old file started with is not written back.
  */
-export function writeConfig(file: string, cfg: TabcapConfig): void {
+export function writeConfig(file: string, cfg: { chrome: NonNullable<TabcapConfig["chrome"]>; proxy: string | null; webdriver: string | null }): void {
   const raw = readConfigRaw(file);
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const old = raw[cfgKey("", "chrome")];
-  const oldChrome = isRecord(old) ? old : {};
-  const chrome = cfg.chrome === null ? (old ?? null) : { ...oldChrome, ...cfg.chrome };
-  writeFileAtomic(file, JSON.stringify({ ...raw, ...cfg, chrome }, null, 2) + "\n");
+  const chrome = { ...(isRecord(old) ? old : {}), ...cfg.chrome };
+  const kept = (k: "proxy" | "webdriver", v: string | null): unknown => {
+    const was = raw[cfgKey("", k)];
+    return v === null && was !== undefined && was !== null && typeof was !== "string" ? was : v;
+  };
+  writeFileAtomic(file, JSON.stringify({ ...raw, ...cfg, proxy: kept("proxy", cfg.proxy), webdriver: kept("webdriver", cfg.webdriver), chrome }, null, 2) + "\n");
 }
 
 /**

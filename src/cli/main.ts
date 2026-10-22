@@ -28,7 +28,9 @@ const PLATFORMS: readonly CftPlatform[] = ["mac-arm64", "mac-x64", "linux64", "w
 
 /**
  * `tabcap setup`. Review wave 3 (docs/04 §44): a config.json it cannot parse is refused before anything
- * else (readConfig) and never rewritten; the answer's `warnings` are the written file's unknown keys.
+ * else (readConfig) and never rewritten; the answer's `warnings` are the written file's (unknown keys, then
+ * known keys of the wrong JSON type). Setup rewrites `chrome` and its three keys; a `proxy` / `webdriver` of
+ * the wrong type stays in the file (writeConfig), so the warnings still name it (owner 2026-10-22).
  */
 async function cmdSetup(args: Record<string, unknown>): Promise<unknown> {
   const p = paths();
