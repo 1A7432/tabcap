@@ -35,6 +35,13 @@
 - **CI：Windows 的 unit job。** windows-latest 上单测的单条超时放到 15 s（其它平台仍 5 s）：2026-10-22 的两条 run（39711577071、39741072226）里三条写文件较多的单测停了 5.6 到 7.6 s，而它们在这个 runner 上平时只要 0.1 到 1.0 s。原因未知（runner 镜像本来就关了 Defender 实时监控并排除了 `C:\` / `D:\`）；job 现在把 Defender 的状态打印出来作为探针。
 - **Windows 的 `browser.log`。** 加了 `--enable-logging=stderr --log-level=1`（第二波）后 windows-latest 上的文件不再为空（CI run 39725056978）。
 
+### CI 稳定性（作者 2026-10-22：PR #29 的三处不稳全修）
+
+- 动作命令（`navigate`、`click`、`fill` 等会话等待时被拦的那一组）等它加载的文档写进录制索引后才回答，最多等 2 s。导航在新文档建了执行上下文时就算就绪，常早于正文写入；慢机器上 `navigate` 到验证页回了 `ok:true`，guard 随后才进 `waiting`。回答格式不变；没有待写的文档时不等。
+- 守护进程关停给浏览器 10 s，超时直接结束 Chrome。`daemon stop` 对 15 s 后还在关的守护进程会强杀，Chrome 因此留下来占着 profile 目录（Windows 上 EBUSY）。到点还没收完的录制会截断，这部分原来也一样丢。
+- Linux 上的 `click --trusted` / `hover`：开着的 screencast 在 3 s 内没带来一帧时，补一次 `Page.captureScreenshot` 让合成器出帧，再查一次绘制，仍不行才降成 DOM 点击。日志 `trusted input: slow frames, screencast held` 另带 `frames`（等待期间收到的 screencast 帧数）和 `nudged`。
+- 测试与 CI：e2e 删临时目录遇到 EBUSY / EPERM / ENOTEMPTY 重试 5 s；v071a 的接管用例自己量 ping 按钮的位置；`scripts/ci-sampler.ts` 每 10 s 记一次 runner 的 CPU、内存、Chrome / Bun 进程数，每 30 s 记最忙的进程，写到 `ci-logs/sampler.log`，随 e2e 日志上传。
+
 ### 审查后续第三波（CLI 分发、带类型的事件写入、严格 config）
 
 - **只有一个命令解析器。** 所有命令（含 `bundle *`、`analyze *`、`replay *`）都经命令注册表解析，从同一张 handler 表（`src/cli/handlers.ts`）执行，`--text` 渲染也在表里。帮助文本不变。可见差异均来自注册表规则：布尔旗标拒绝 `=value`（以前 `--no-redact=1` 会静默照常脱敏）、`--` 结束选项、位置参数个数错报 `missing <x>` / `unexpected argument`、usage 错误的 `next` 只给本命令用法、只敲 `tabcap analyze` / `tabcap replay` 是未知命令（退出 2，与其他组一致）、`replay session -o=file` 被接受。`src/` 最后一个 import 环已拆，单测守住无环。`replay check --rate` 的帮助如实写下限。
