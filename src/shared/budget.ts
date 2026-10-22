@@ -189,10 +189,17 @@ function checkSummary(data: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
-/** `status`: daemon and browser up or not, the sessions, the conflicts. */
+/**
+ * `status`: daemon and browser up or not, the sessions, the conflicts, the
+ * hand-offs, and `config` (owner 2026-10-22: the warning count, the first
+ * warnings and `config.error`, so a truncated status still shows a broken
+ * config.json; a missing or malformed `config` reads as no warnings, no error).
+ */
 function statusSummary(data: Record<string, unknown>): Record<string, unknown> {
   const daemon = rec(data["daemon"]);
   const browser = rec(data["browser"]);
+  const config = rec(data["config"]);
+  const warnings: unknown[] = Array.isArray(config["warnings"]) ? config["warnings"] : [];
   return {
     daemon: { running: daemon["running"] },
     browser: { running: browser["running"], tabs: browser["tabs"] },
@@ -203,6 +210,11 @@ function statusSummary(data: Record<string, unknown>): Record<string, unknown> {
     conflictCount: len(data["conflicts"]),
     conflicts: firstRows(data["conflicts"], ["code", "session"]),
     handoff: len(data["handoff"]),
+    config: {
+      warningCount: len(warnings),
+      warnings: warnings.slice(0, SUMMARY_FIRST).filter((w): w is string => typeof w === "string"),
+      error: isRecord(config["error"]) ? config["error"] : null,
+    },
   };
 }
 

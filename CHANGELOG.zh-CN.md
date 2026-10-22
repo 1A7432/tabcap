@@ -10,6 +10,7 @@
 - **`config.json` 坏了时 `tabcap status` 保留视图。** 回答的 `config` 是 `{warnings, error}`：文件不是 JSON、不是对象或读不了时放进 `config.error`（`{code, message, next}`，`warnings` 为空），会话、等人的交接和 `next` 照常回答；`--text` 在首行下打印 `config error:` 和它的 `next:`。`browser start`、`browser status`、`setup` 仍拒绝这样的文件。
 - **`config.json` 开头的 UTF-8 BOM 跳过。** 语法错误仍按真实行列报告；`writeConfig` 不会把 BOM 写回去。
 - **已知键类型写错进 warnings。** `chrome`、`proxy`、`webdriver`、`chrome.executablePath`、`chrome.version`、`chrome.platform` 仍当作没写，但每个键在 config 警告里占一行（`config.json: webdriver is a boolean, not a string; ignored`），排在未知键之后、共用 20 行上限；`null` 只在 tabcap 自己从不写 null 的键上报（`chrome`、`chrome.executablePath`、`chrome.version`）。`tabcap setup` 改写文件时保留类型写错的 `proxy` / `webdriver`（以前会用 `null` 覆写），所以它的警告也会点名。`skills/tabcap/references/config.md` 重新生成。
+- **超限的 `status` 摘要保留 `config`。** `tabcap status` 的回答超过 `TABCAP_OUTPUT_LIMIT` 时，摘要里现在有 `config: {warningCount, warnings, error}`（前 10 条警告，`config.error` 原样），截断的回答里仍看得见坏掉的 `config.json`；以前只有通用摘要给的键数（`config: 2`）。docs/04 §24 与 §35。
 - **按实现定案**（作者 2026-10-22）：`x-csrf` / `x-xsrf` 是敏感头（docs/05 s07、v06e 与 replay-python 快照），`--text` 里照旧显示账号名（docs/04 §30），只敲 `tabcap analyze` / `tabcap replay` 退出 2，页面请求的 `cmd` 取请求开始时的命令窗口（docs/04 §3）。
 - **Windows 的 `browser.log`。** 加了 `--enable-logging=stderr --log-level=1`（第二波）后 windows-latest 上的文件不再为空（CI run 39725056978）。
 
