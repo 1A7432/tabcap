@@ -21,6 +21,7 @@ import {
   readChromeArgsConfig,
   readConfig,
   readConfigRaw,
+  readConfigWarnings,
   readFetchConfig,
   readHandoffConfig,
   readPoolConfig,
@@ -142,6 +143,54 @@ describe("config.json that is not valid JSON: every reader refuses (docs/04 §44
     const e = thrown(() => writeConfig(f, { chrome: { executablePath: "/cft", version: "155", platform: null }, proxy: null, webdriver: null }));
     expect(e.code).toBe("bad-input");
     expect(readFileSync(f, "utf8")).toBe(before);
+  });
+});
+
+// Owner 2026-10-22: Windows editors save config.json with a UTF-8 byte order
+// mark. One leading U+FEFF is skipped; line / column count from the character
+// after it (expected positions: RFC 8259 by hand on the text after the mark).
+describe("a config.json that starts with a byte order mark", () => {
+  const BOM = "\uFEFF";
+  const file = (text: string): string => {
+    const f = join(tmp(), "config.json");
+    writeFileSync(f, text);
+    return f;
+  };
+
+  test("a valid object after the mark is read like the same file without it", () => {
+    const f = file(`${BOM}{"webdriver": "visible", "fetch": {"minIntervalMs": 500}, "fecth": {}}\n`);
+    expect([...readFileSync(f).subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(readConfigRaw(f)).toEqual({ webdriver: "visible", fetch: { minIntervalMs: 500 }, fecth: {} });
+    expect(readConfig(f).webdriver).toBe("visible");
+    expect(readFetchConfig(f, null).minIntervalMs).toBe(500);
+    expect(readConfigWarnings(f)).toEqual(["config.json: unknown key fecth (did you mean fetch?)"]);
+  });
+
+  test("a syntax error after the mark is reported at its own line and column", () => {
+    // Line 2 is `  "webdriver": "visible",,`: the second comma, column 26, is where a name must start.
+    const e = thrown(() => readConfigRaw(file(`${BOM}{\n  "webdriver": "visible",,\n  "proxy": "none"\n}\n`)));
+    expect(e.code).toBe("bad-input");
+    expect(e.message).toContain("is not valid JSON at line 2, column 26");
+    expect(e.next).toContain("at line 2, column 26");
+    // On line 1 the column counts from the character after the mark: `{"a" 1}` fails at the 1, column 6.
+    expect(thrown(() => readConfigRaw(file(`${BOM}{"a" 1}`))).message).toContain("at line 1, column 6");
+  });
+
+  test("only one mark is skipped: a second one is the syntax error at line 1, column 1", () => {
+    expect(thrown(() => readConfigRaw(file(`${BOM}${BOM}{}`))).message).toContain("at line 1, column 1");
+  });
+
+  test("writeConfig writes the file back without the mark and keeps the other keys", () => {
+    const f = file(`${BOM}{"sites": {"x": {"guard": {"stopOn": ["status>=403"]}}}, "proxy": "none"}\n`);
+    writeConfig(f, { ...readConfig(f), chrome: { executablePath: "/cft", version: "155", platform: null } });
+    expect(readFileSync(f)[0]).toBe(0x7b);
+    expect(readFileSync(f, "utf8")).not.toContain(BOM);
+    expect(readConfigRaw(f)).toEqual({
+      sites: { x: { guard: { stopOn: ["status>=403"] } } },
+      proxy: "none",
+      webdriver: null,
+      chrome: { executablePath: "/cft", version: "155", platform: null },
+    });
   });
 });
 

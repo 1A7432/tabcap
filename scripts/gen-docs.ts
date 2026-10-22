@@ -138,6 +138,8 @@ export function configDoc(): string {
     "",
     "`config.json` is in tabcap's config directory (`~/.config/tabcap/` on macOS, `$XDG_CONFIG_HOME/tabcap/` or `~/.config/tabcap/` on Linux, `%LOCALAPPDATA%\\tabcap\\config\\` on Windows; `tabcap setup` answers its path as `config`). Every key is optional; `<site>` stands for a store site name (`tabcap site list`). A file that is not valid JSON, or not a JSON object, is a `bad-input` error naming the line and column for every command that reads it (`tabcap status` instead keeps its answer and reports that error in `config.error`), and `tabcap setup` does not rewrite it. A key this table does not list at its level is not an error: `browser start` / `browser status` (`warnings`), `tabcap status` (`config.warnings`) and `tabcap setup` (`warnings`) name it, e.g. `config.json: unknown key fetch.minIntervalMS (did you mean minIntervalMs?)`. `replay` and `sites.<site>.replay` hold replay key rules, which refuse unknown keys. The last column is the section of docs/04 (the evidence bundle spec in the tabcap repository) that specifies the key.",
     "",
+    "One UTF-8 byte order mark at the very start of the file is skipped (Windows editors save one); line and column numbers count from the character after it, and `tabcap setup` writes the file back without it.",
+    "",
     "| Key | Type | Default | Meaning | docs/04 |",
     "|---|---|---|---|---|",
     ...rows,
