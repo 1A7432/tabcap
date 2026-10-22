@@ -83,7 +83,8 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   if (action === "status") {
     // 0.7-E: a hand-off screenshot still being taken is waited for (bounded), so `screenshot` is its path
     await d.guard.shotTaken(null);
-    // Review wave 3: a config.json that cannot be read is the answer's error (docs/04 §44).
+    // Owner 2026-10-22: a config.json that cannot be read is `config.error` inside the answer (statusConfig,
+    // docs/04 §44); this catch only covers anything else statusOf throws.
     let st: Envelope<unknown>;
     try {
       st = ok(statusOf(d, daemonFacts(d)));
