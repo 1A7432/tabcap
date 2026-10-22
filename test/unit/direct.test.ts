@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pickDownload } from "../../src/daemon/transport/direct/cft.ts";
 import { HIDE_WEBDRIVER_FLAG, binaryIn, buildArgs, cachedChrome, parseProxy, parseWebdriver, resolveExecutable } from "../../src/daemon/transport/direct/launcher.ts";
 import { ReadyTracker, originOf, toReadyInput } from "../../src/daemon/transport/direct/ready.ts";
-import { readConfig } from "../../src/shared/config.ts";
+import { readConfig, readConfigWarnings } from "../../src/shared/config.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 
 const base = { profileDir: "/p", platform: "darwin" as const, cdp: "pipe" as const, proxy: parseProxy("system"), webdriver: "hidden" as const, extensionDir: null, noStartupWindow: true };
@@ -83,6 +83,8 @@ describe("launcher flags (docs/07 §1.2 采用 rows)", () => {
     expect(readConfig(file).webdriver).toBe("visible");
     writeFileSync(file, JSON.stringify({ webdriver: 3 }));
     expect(readConfig(file).webdriver).toBeNull();
+    // Owner 2026-10-22: still read as absent, and named in the config.json warnings.
+    expect(readConfigWarnings(file)).toEqual(["config.json: webdriver is a number, not a string; ignored"]);
     writeFileSync(file, "{}");
     expect(parseWebdriver(readConfig(file).webdriver)).toBe("hidden");
   });

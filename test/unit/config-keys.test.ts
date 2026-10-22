@@ -7,6 +7,11 @@
 // and `tabcap setup` (`warnings`). The replay rules subtrees keep refusing
 // unknown keys themselves (docs/04 §31). Expected texts: the owner's example
 // in the decision ("sites.x.guard.stopon (did you mean stopOn?)").
+// Owner 2026-10-22: a known key whose reader reads a value of the wrong JSON
+// type as absent (`kind` in the table: chrome, proxy, webdriver,
+// chrome.executablePath / version / platform) is still read as absent, and is
+// named after the unknown keys as `config.json: <path> is <type>, not <kind>;
+// ignored` (the owner's message shape), within the same 20-line cap.
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -19,6 +24,7 @@ import { offlineStatus, renderStatusText, statusOf } from "../../src/daemon/tool
 import { rulesFromConfig } from "../../src/replay/rules.ts";
 import {
   CONFIG_KEYS,
+  type ConfigKeyInfo,
   configWarnings,
   readChromeArgsConfig,
   readConfig,
@@ -150,6 +156,96 @@ describe("unknown keys are warnings (docs/04 §44)", () => {
   });
 });
 
+describe("known keys of the wrong JSON type are warnings (owner 2026-10-22)", () => {
+  const file = (raw: unknown): string => {
+    const f = join(tmp(), "config.json");
+    writeFileSync(f, JSON.stringify(raw));
+    return f;
+  };
+
+  test("only the keys whose reader reads a wrong type as absent carry a kind", () => {
+    const kinds: Record<string, string> = {};
+    for (const [layer, entries] of Object.entries(CONFIG_KEYS)) {
+      for (const [key, k] of Object.entries(entries)) {
+        const info: ConfigKeyInfo = k;
+        if (info.kind !== undefined) kinds[layer === "" ? key : `${layer}.${key}`] = info.kind;
+      }
+    }
+    expect(kinds).toEqual({ chrome: "object", proxy: "string", webdriver: "string", "chrome.executablePath": "string", "chrome.version": "string", "chrome.platform": "string" });
+  });
+
+  test("each such key: one line naming the type it has and the one it needs; the value is still read as absent", () => {
+    const raw = { proxy: 8080, webdriver: true, chrome: { executablePath: ["/cft/chrome"], version: 155, platform: {}, args: ["--lang=en-US"] } };
+    expect(configWarnings(raw)).toEqual([
+      "config.json: proxy is a number, not a string; ignored",
+      "config.json: webdriver is a boolean, not a string; ignored",
+      "config.json: chrome.executablePath is an array, not a string; ignored",
+      "config.json: chrome.version is a number, not a string; ignored",
+      "config.json: chrome.platform is an object, not a string; ignored",
+    ]);
+    const f = file(raw);
+    expect(readConfig(f)).toEqual({ chrome: null, proxy: null, webdriver: null });
+    expect(readChromeArgsConfig(f)).toEqual({ add: ["--lang=en-US"], drop: [] });
+    // A wrong version / platform next to a good executablePath: only those two read as absent.
+    const g = file({ chrome: { executablePath: "/cft/chrome", version: 155, platform: false } });
+    expect(readConfigWarnings(g)).toEqual(["config.json: chrome.version is a number, not a string; ignored", "config.json: chrome.platform is a boolean, not a string; ignored"]);
+    expect(readConfig(g).chrome).toEqual({ executablePath: "/cft/chrome", version: null, platform: null });
+  });
+
+  test("chrome that is not an object: one line, nothing under it is looked at, and its switches are none", () => {
+    expect(configWarnings({ chrome: "/cft/chrome" })).toEqual(["config.json: chrome is a string, not an object; ignored"]);
+    expect(configWarnings({ chrome: [{ executablePath: 1 }] })).toEqual(["config.json: chrome is an array, not an object; ignored"]);
+    const f = file({ chrome: ["--lang=en-US"] });
+    expect(readConfig(f).chrome).toBeNull();
+    expect(readChromeArgsConfig(f)).toEqual({ add: [], drop: [] });
+  });
+
+  test("null reads as absent and is not named (tabcap setup writes proxy / webdriver null itself)", () => {
+    expect(configWarnings({ chrome: null, proxy: null, webdriver: null })).toEqual([]);
+    expect(configWarnings({ chrome: { executablePath: null, version: null, platform: null } })).toEqual([]);
+  });
+
+  test("keys whose reader refuses a wrong value stay that reader's bad-input, not a warning", () => {
+    const raw = { pool: { strategy: 1 }, fetch: { minIntervalMs: "1" }, record: { bodies: 5 }, trace: { decode: "yes" }, handoff: { detectTakeover: 1 }, protection: { live: "no" }, chrome: { args: "--x" } };
+    expect(configWarnings(raw)).toEqual([]);
+    const f = file(raw);
+    for (const read of [readPoolConfig, (x: string) => readFetchConfig(x, null), readRecordBodies, readTraceConfig, readHandoffConfig, readProtectionConfig, readChromeArgsConfig]) {
+      expect(() => read(f)).toThrow(TabcapError);
+    }
+  });
+
+  test("after the unknown keys, in file order", () => {
+    expect(configWarnings({ webdriver: 1, zzz: 1, chrome: { platform: 2, flags: [] }, proxy: false })).toEqual([
+      "config.json: unknown key zzz",
+      "config.json: unknown key chrome.flags",
+      "config.json: webdriver is a number, not a string; ignored",
+      "config.json: chrome.platform is a number, not a string; ignored",
+      "config.json: proxy is a boolean, not a string; ignored",
+    ]);
+  });
+
+  test("the same 20-line cap; the last line counts what is left of each kind", () => {
+    const unknown = (n: number): Record<string, number> => Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, i]));
+    const fiveWrong = { proxy: 1, webdriver: 2, chrome: { executablePath: 3, version: 4, platform: 5 } };
+    // 18 unknown + 5 wrong: the first two wrong-type lines fit.
+    const a = configWarnings({ ...unknown(18), ...fiveWrong });
+    expect(a).toHaveLength(21);
+    expect(a.slice(18, 20)).toEqual(["config.json: proxy is a number, not a string; ignored", "config.json: webdriver is a number, not a string; ignored"]);
+    expect(a[20]).toBe("config.json: 3 more keys of the wrong type not listed");
+    // 20 unknown + 1 wrong: none fits.
+    const b = configWarnings({ ...unknown(20), webdriver: 1 });
+    expect(b).toHaveLength(21);
+    expect(b[19]).toBe("config.json: unknown key k19");
+    expect(b[20]).toBe("config.json: 1 more key of the wrong type not listed");
+    // 25 unknown + 2 wrong: both counts.
+    const c = configWarnings({ ...unknown(25), proxy: [], webdriver: {} });
+    expect(c).toHaveLength(21);
+    expect(c[20]).toBe("config.json: 5 more unknown keys and 2 more keys of the wrong type not listed");
+    // Exactly 20 lines in all: no count line.
+    expect(configWarnings({ ...unknown(19), webdriver: 1 })).toHaveLength(20);
+  });
+});
+
 describe("where the warnings show", () => {
   const prevHome = process.env["TABCAP_HOME"];
   afterAll(() => {
@@ -204,6 +300,15 @@ describe("where the warnings show", () => {
   test("browser status without a browser: warnings from config.json", async () => {
     const { d } = home(JSON.stringify({ fetch: { minIntervalMS: 100 } }));
     expect(data(await cmd(d, "browser.status"))).toEqual({ running: false, warnings: [WARN] });
+  });
+
+  test("a key of the wrong type shows in the same places, after the unknown keys (owner 2026-10-22)", async () => {
+    const WRONG = "config.json: webdriver is a number, not a string; ignored";
+    const { d, dir } = home(JSON.stringify({ webdriver: 3, fetch: { minIntervalMS: 100 } }));
+    expect(statusOf(d, DAEMON).config).toEqual({ warnings: [WARN, WRONG] });
+    const off = offlineStatus(paths({ TABCAP_HOME: dir }).config, "unix");
+    expect(renderStatusText(off).split("\n")).toContain(`warning: ${WRONG}`);
+    expect(data(await cmd(d, "browser.status"))).toEqual({ running: false, warnings: [WARN, WRONG] });
   });
 
   test.skipIf(!FAKE_CHROME)(

@@ -4,7 +4,7 @@
 // skills/tabcap/references/guides.md from the task guides (src/cli/guides.ts),
 // the same source as `tabcap guide`, and (review wave 3) skills/tabcap/references/config.md
 // from the config.json key table (src/shared/config.ts CONFIG_KEYS), the same source as
-// the readers and the unknown-key warnings. The READMEs are written by hand and carry
+// the readers and the unknown-key and wrong-type warnings. The READMEs are written by hand and carry
 // no generated table (they link to the reference).
 // test/unit/schema.test.ts fails when a committed file is out of date.
 
@@ -12,7 +12,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { OUTPUT_FLAGS, OUTPUT_FLAGS_NOT_ON, groupedCommands, isCommonFlag, usageOf, type CommandSpec, type FlagSpec } from "../src/cli/commands.ts";
 import { GUIDES, type Guide } from "../src/cli/guides.ts";
-import { CONFIG_KEYS } from "../src/shared/config.ts";
+import { CONFIG_KEYS, type ConfigKeyInfo } from "../src/shared/config.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export const SKILL_DIR = "skills/tabcap";
@@ -131,6 +131,14 @@ export function configDoc(): string {
       return `| \`${layer === "" ? key : `${layer}.${key}`}\` | \`${cell(k.type)}\` | ${dflt} | ${cell(k.about)} | ${k.doc ?? "—"} |`;
     }),
   );
+  // Owner 2026-10-22: the keys whose reader reads a value of the wrong JSON type as absent (`kind`).
+  const lenient = Object.entries(CONFIG_KEYS).flatMap(([layer, keys]) =>
+    Object.entries(keys).flatMap(([key, k]) => {
+      const info: ConfigKeyInfo = k;
+      return info.kind === undefined ? [] : [`\`${layer === "" ? key : `${layer}.${key}`}\``];
+    }),
+  );
+  const named = lenient.length < 2 ? lenient.join("") : `${lenient.slice(0, -1).join(", ")} and ${lenient.at(-1) ?? ""}`;
   return [
     "<!-- GENERATED from src/shared/config.ts (CONFIG_KEYS) by `bun run gen:docs`; do not edit by hand. -->",
     "",
@@ -139,6 +147,8 @@ export function configDoc(): string {
     "`config.json` is in tabcap's config directory (`~/.config/tabcap/` on macOS, `$XDG_CONFIG_HOME/tabcap/` or `~/.config/tabcap/` on Linux, `%LOCALAPPDATA%\\tabcap\\config\\` on Windows; `tabcap setup` answers its path as `config`). Every key is optional; `<site>` stands for a store site name (`tabcap site list`). A file that is not valid JSON, or not a JSON object, is a `bad-input` error naming the line and column for every command that reads it (`tabcap status` instead keeps its answer and reports that error in `config.error`), and `tabcap setup` does not rewrite it. A key this table does not list at its level is not an error: `browser start` / `browser status` (`warnings`), `tabcap status` (`config.warnings`) and `tabcap setup` (`warnings`) name it, e.g. `config.json: unknown key fetch.minIntervalMS (did you mean minIntervalMs?)`. `replay` and `sites.<site>.replay` hold replay key rules, which refuse unknown keys. The last column is the section of docs/04 (the evidence bundle spec in the tabcap repository) that specifies the key.",
     "",
     "One UTF-8 byte order mark at the very start of the file is skipped (Windows editors save one); line and column numbers count from the character after it, and `tabcap setup` writes the file back without it.",
+    "",
+    `${named} are read leniently: a value of another JSON type is read as if the key were absent (so is null) and named in the same \`warnings\`, after the unknown keys, e.g. \`config.json: webdriver is a number, not a string; ignored\`; past 20 lines in all, one line counts the rest of each kind. Every other key's reader refuses a wrong value with \`bad-input\` when a command reads it.`,
     "",
     "| Key | Type | Default | Meaning | docs/04 |",
     "|---|---|---|---|---|",
