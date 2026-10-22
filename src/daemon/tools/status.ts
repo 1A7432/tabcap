@@ -88,10 +88,11 @@ export type StatusFacts = {
  * else the first conflict's next, else null.
  */
 /**
- * Review wave 3 (docs/04 §44): config.json's unknown keys, read on every answer (also without a daemon or a
- * browser); `browser.warnings` stays the browser's own. Owner 2026-10-22: a config.json that cannot be read
- * (not JSON or not an object: `bad-input`; unreadable: `io`) is `error`, with `warnings` empty, and the rest of
- * the answer stays, so a waiting handoff is still seen; `error` is null when the file reads.
+ * Review wave 3 (docs/04 §44): config.json's warnings (unknown keys, then known keys of the wrong JSON type),
+ * read on every answer (also without a daemon or a browser); `browser.warnings` stays the browser's own. Owner
+ * 2026-10-22: a config.json that cannot be read (not JSON or not an object: `bad-input`; unreadable: `io`) is
+ * `error`, with `warnings` empty, and the rest of the answer stays, so a waiting handoff is still seen; `error`
+ * is null when the file reads.
  */
 export type StatusConfigError = { code: "bad-input" | "io"; message: string; next: string };
 
@@ -380,8 +381,8 @@ export function renderStatusText(data: unknown): string {
       ? `daemon pid ${txt(dmn["pid"])} (${txt(dmn["listener"])}) · ${br["running"] === true ? `browser pid ${txt(br["pid"])} ${txt(br["mode"])}, ${txt(br["tabs"])} tab(s), webdriver ${txt(br["webdriver"])}${chromeArgsText(br)}` : "browser not running"}`
       : "daemon not running (`tabcap daemon start`)";
   const lines = [`tabcap status · ${head} · plugins: ${plugins.length === 0 ? "none" : plugins.join(", ")}`];
-  // Review wave 3: config.json's unknown keys, one line each, under the head line; owner 2026-10-22: a
-  // config.json that cannot be read is one `config error:` line and its `  next:` line in that place.
+  // Review wave 3: config.json's warnings (unknown keys, wrong types), one line each, under the head line; owner
+  // 2026-10-22: a config.json that cannot be read is one `config error:` line and its `  next:` line in that place.
   const cfg = rec(s["config"]);
   const cfgError = isRecord(cfg["error"]) ? cfg["error"] : null;
   if (cfgError !== null) lines.push(`config error: ${txt(cfgError["message"])}`, `  next: ${txt(cfgError["next"])}`);
