@@ -131,14 +131,18 @@ export function configDoc(): string {
       return `| \`${layer === "" ? key : `${layer}.${key}`}\` | \`${cell(k.type)}\` | ${dflt} | ${cell(k.about)} | ${k.doc ?? "—"} |`;
     }),
   );
-  // Owner 2026-10-22: the keys whose reader reads a value of the wrong JSON type as absent (`kind`).
+  // Owner 2026-10-22: the keys whose reader reads a value of the wrong JSON type as absent (`kind`), and which
+  // of them take null without a warning (`nullable`).
   const lenient = Object.entries(CONFIG_KEYS).flatMap(([layer, keys]) =>
     Object.entries(keys).flatMap(([key, k]) => {
       const info: ConfigKeyInfo = k;
-      return info.kind === undefined ? [] : [`\`${layer === "" ? key : `${layer}.${key}`}\``];
+      return info.kind === undefined ? [] : [{ name: `\`${layer === "" ? key : `${layer}.${key}`}\``, nullable: info.nullable === true }];
     }),
   );
-  const named = lenient.length < 2 ? lenient.join("") : `${lenient.slice(0, -1).join(", ")} and ${lenient.at(-1) ?? ""}`;
+  const list = (xs: readonly string[]): string => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1) ?? ""}`);
+  const named = list(lenient.map((x) => x.name));
+  const nullNamed = list(lenient.filter((x) => !x.nullable).map((x) => x.name));
+  const nullTaken = list(lenient.filter((x) => x.nullable).map((x) => x.name));
   return [
     "<!-- GENERATED from src/shared/config.ts (CONFIG_KEYS) by `bun run gen:docs`; do not edit by hand. -->",
     "",
@@ -148,7 +152,7 @@ export function configDoc(): string {
     "",
     "One UTF-8 byte order mark at the very start of the file is skipped (Windows editors save one); line and column numbers count from the character after it, and `tabcap setup` writes the file back without it.",
     "",
-    `${named} are read leniently: a value of another JSON type is read as if the key were absent (so is null) and named in the same \`warnings\`, after the unknown keys, e.g. \`config.json: webdriver is a number, not a string; ignored\`; past 20 lines in all, one line counts the rest of each kind. Every other key's reader refuses a wrong value with \`bad-input\` when a command reads it.`,
+    `${named} are read leniently: a value of another JSON type is read as if the key were absent and named in the same \`warnings\`, after the unknown keys, e.g. \`config.json: webdriver is a number, not a string; ignored\`; past 20 lines in all, one line counts the rest of each kind. null is read as absent too, and named only under ${nullNamed} (tabcap itself writes null under ${nullTaken}). \`tabcap setup\` rewrites \`chrome\` and keeps a \`proxy\` / \`webdriver\` of the wrong type as it is, so its \`warnings\` name them too. Every other key's reader refuses a wrong value with \`bad-input\` when a command reads it.`,
     "",
     "| Key | Type | Default | Meaning | docs/04 |",
     "|---|---|---|---|---|",

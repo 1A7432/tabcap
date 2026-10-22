@@ -176,6 +176,14 @@ describe("known keys of the wrong JSON type are warnings (owner 2026-10-22)", ()
       }
     }
     expect(kinds).toEqual({ chrome: "object", proxy: "string", webdriver: "string", "chrome.executablePath": "string", "chrome.version": "string", "chrome.platform": "string" });
+    // null is taken silently only where tabcap writes it itself: setup's proxy / webdriver, platform for --executable-path.
+    const nullable = Object.entries(CONFIG_KEYS).flatMap(([layer, entries]) =>
+      Object.entries(entries).flatMap(([key, k]) => {
+        const info: ConfigKeyInfo = k;
+        return info.nullable === true ? [layer === "" ? key : `${layer}.${key}`] : [];
+      }),
+    );
+    expect(nullable).toEqual(["proxy", "webdriver", "chrome.platform"]);
   });
 
   test("each such key: one line naming the type it has and the one it needs; the value is still read as absent", () => {
@@ -204,9 +212,17 @@ describe("known keys of the wrong JSON type are warnings (owner 2026-10-22)", ()
     expect(readChromeArgsConfig(f)).toEqual({ add: [], drop: [] });
   });
 
-  test("null reads as absent and is not named (tabcap setup writes proxy / webdriver null itself)", () => {
-    expect(configWarnings({ chrome: null, proxy: null, webdriver: null })).toEqual([]);
-    expect(configWarnings({ chrome: { executablePath: null, version: null, platform: null } })).toEqual([]);
+  test("null reads as absent; it is named only where tabcap never writes it (chrome, chrome.executablePath, chrome.version)", () => {
+    expect(configWarnings({ proxy: null, webdriver: null, chrome: { executablePath: "/cft/chrome", version: "155", platform: null } })).toEqual([]);
+    expect(configWarnings({ chrome: null, proxy: null })).toEqual(["config.json: chrome is null, not an object; ignored"]);
+    expect(configWarnings({ chrome: { executablePath: null, version: null, platform: null } })).toEqual([
+      "config.json: chrome.executablePath is null, not a string; ignored",
+      "config.json: chrome.version is null, not a string; ignored",
+    ]);
+    const f = file({ chrome: { executablePath: "/cft/chrome", version: null } });
+    expect(readConfig(f).chrome).toEqual({ executablePath: "/cft/chrome", version: null, platform: null });
+    expect(readConfigWarnings(f)).toEqual(["config.json: chrome.version is null, not a string; ignored"]);
+    expect(readConfig(file({ chrome: null })).chrome).toBeNull();
   });
 
   test("keys whose reader refuses a wrong value stay that reader's bad-input, not a warning", () => {

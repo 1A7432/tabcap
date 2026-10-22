@@ -63,8 +63,9 @@ export function readConfigRaw(file: string): Record<string, unknown> {
 }
 
 /**
- * `chrome` (executablePath, version, platform) / `proxy` / `webdriver`. A value of the wrong JSON type is read as
- * absent, like null; `configWarnings` names it (these keys carry a `kind` in CONFIG_KEYS).
+ * `chrome` (executablePath, version, platform) / `proxy` / `webdriver`. A value of the wrong JSON type, null
+ * included, is read as absent; `configWarnings` names it (these keys carry a `kind` in CONFIG_KEYS), except a
+ * null under a `nullable` key.
  */
 export function readConfig(file: string): TabcapConfig {
   const raw = readConfigRaw(file);
@@ -415,9 +416,11 @@ export type ConfigKind = "string" | "object";
  * `bun run gen:docs`): its type and default as a reader would write them, one sentence, and the
  * docs/04 section that specifies it (null: docs/04 has none). `kind` (owner 2026-10-22) is set only
  * on the keys whose reader reads a value of another JSON type as absent instead of refusing it
- * (`readConfig`): `configWarnings` names such a value; null is the same as an absent key there.
+ * (`readConfig`): `configWarnings` names such a value. null reads as absent too, and is named unless
+ * the key is `nullable`: the keys tabcap itself writes null under (`tabcap setup`: `proxy` / `webdriver`
+ * the file does not have, `chrome.platform` for `--executable-path`).
  */
-export type ConfigKeyInfo = { type: string; default: string; about: string; doc: string | null; kind?: ConfigKind };
+export type ConfigKeyInfo = { type: string; default: string; about: string; doc: string | null; kind?: ConfigKind; nullable?: true };
 
 const shown = (v: unknown): string => JSON.stringify(v);
 
@@ -442,8 +445,8 @@ const REPLAY_KEYS = {
 export const CONFIG_KEYS = {
   "": {
     chrome: { type: "object", default: "—", about: "the browser `tabcap setup` recorded, and Chrome switches for `browser start`", doc: "§42", kind: "object" },
-    proxy: { type: '"system" | "none" | "<scheme>://host:port"', default: '"system"', about: "default of `browser start --proxy`; no `user:pass@` (store such a proxy with `tabcap proxy add`)", doc: "§42", kind: "string" },
-    webdriver: { type: '"hidden" | "visible"', default: '"hidden"', about: "default of `browser start --webdriver`", doc: "§40", kind: "string" },
+    proxy: { type: '"system" | "none" | "<scheme>://host:port"', default: '"system"', about: "default of `browser start --proxy`; no `user:pass@` (store such a proxy with `tabcap proxy add`)", doc: "§42", kind: "string", nullable: true },
+    webdriver: { type: '"hidden" | "visible"', default: '"hidden"', about: "default of `browser start --webdriver`", doc: "§40", kind: "string", nullable: true },
     pool: { type: "object", default: "—", about: "how `--account auto` picks accounts, proxy rotation, health checks and hourly budgets", doc: null },
     fetch: { type: "object", default: "—", about: "pacing and stop rules of `tabcap fetch` for every host", doc: "§26" },
     sites: { type: "object (store site name → settings)", default: "{}", about: "settings of one store site: `fetch`, `guard`, `replay`", doc: "§26" },
@@ -456,7 +459,7 @@ export const CONFIG_KEYS = {
   chrome: {
     executablePath: { type: "string", default: "—", about: "the Chrome for Testing binary, written by `tabcap setup`; `--executable-path` and `$TABCAP_CHROME` come first", doc: null, kind: "string" },
     version: { type: "string", default: "—", about: "its version, written by `tabcap setup`", doc: null, kind: "string" },
-    platform: { type: "string | null", default: "—", about: "the build `tabcap setup` downloaded (mac-arm64, mac-x64, linux64, win64); null for `--executable-path`", doc: null, kind: "string" },
+    platform: { type: "string | null", default: "—", about: "the build `tabcap setup` downloaded (mac-arm64, mac-x64, linux64, win64); null for `--executable-path`", doc: null, kind: "string", nullable: true },
     args: { type: "string[]", default: "[]", about: "Chrome switches added at every `browser start`, before `--chrome-arg`", doc: "§42" },
     dropArgs: { type: "string[]", default: "[]", about: "tabcap's own switches removed at every `browser start`, before `--drop-chrome-arg`", doc: "§42" },
   },
@@ -581,8 +584,8 @@ function unknownKey(path: string, k: string, layer: ConfigLayer): string {
 /**
  * One warning per key CONFIG_KEYS does not list at its level (a case slip, a typo, a key at the
  * wrong level), with the nearest key of the level or the levels that know it; then (owner
- * 2026-10-22) one per key with a `kind` whose value is of another JSON type (null is not: it reads
- * as absent), `<path> is <type>, not <kind>; ignored`. At most 20 lines in all, unknown keys first,
+ * 2026-10-22) one per key with a `kind` whose value is of another JSON type (null too, unless the
+ * key is `nullable`), `<path> is <type>, not <kind>; ignored`. At most 20 lines in all, unknown keys first,
  * then one line with the count of each kind not listed. Never an error: a level that is not an
  * object is left to its reader (unless its key has a `kind`), and the replay rules subtrees to their
  * own parser. Read-only.
@@ -600,7 +603,7 @@ export function configWarnings(raw: Record<string, unknown>): string[] {
         else moreUnknown++;
         continue;
       }
-      if (info.kind !== undefined && v !== null && !ofKind(v, info.kind)) wrongType.push(`config.json: ${path} is ${jsonTypeWord(v)}, not ${KIND_WORD[info.kind]}; ignored`);
+      if (info.kind !== undefined && !(v === null && info.nullable === true) && !ofKind(v, info.kind)) wrongType.push(`config.json: ${path} is ${jsonTypeWord(v)}, not ${KIND_WORD[info.kind]}; ignored`);
       if (!isRecord(v)) continue;
       const child = layer === "" ? k : `${layer}.${k}`;
       const named = NAMED[child];
