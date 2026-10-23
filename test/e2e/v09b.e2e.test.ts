@@ -9,7 +9,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { S73_NAMES, startPermissionSite, type PermissionSite } from "./site.ts";
-import { cliFor, rec, s, until } from "./_cli.ts";
+import { cliFor, rec, recs, s } from "./_cli.ts";
 import { removeHome } from "./_daemon.ts";
 
 const CHROME = process.env["TABCAP_CHROME"] ?? "";
@@ -130,27 +130,25 @@ describe.skipIf(!enabled)("tabcap 0.9-B L2 (permissions on s73)", () => {
     await ok("session", "stop", "p");
   }, 120_000);
 
-  test("6. geolocation: granted plus an emulated position is answered only while focus emulation is on (click --trusted); a hidden tab's own request hangs", async () => {
-    // a second tab of the window is a background tab: hidden (the window's only tab is visible and answers at once)
+  test("6. geolocation: the window's only (visible) tab is answered with the emulated position; a hidden background tab's own request hangs, granted or not", async () => {
+    // CI of the 0.9 stack (PRs #38, #40, Linux and Windows): `click --trusted` in a hidden tab got no answer in 2
+    // of 12 runs, so that path is not a reliable way to a position and is no longer asserted (docs/04 §46 note).
+    // close session a's other tabs (step 1 opened B's page beside t1): t1 is then the window's only tab, visible
+    for (const t of recs((await ok("tab", "list", ...A))["tabs"])) if (t["tab"] !== "t1") await ok("tab", "close", s(t["tab"]), ...A);
+    await ok("tab", "select", "t1", ...A);
+    await ok("navigate", `${site.a}/s73/geo`, ...A);
+    expect((await ok("evaluate", "document.visibilityState", ...A))["value"]).toBe("visible");
+    await ok("emulate", "--geolocation", "31.23,121.47", ...A);
+    const g = await ok("permission", "grant", "geolocation", ...A);
+    expect(s(g["note"])).toContain("hidden");
+    expect((await ok("evaluate", "s73Geo()", "--await", ...A))["value"]).toEqual({ lat: 31.23, lon: 121.47 });
+
+    // a second tab of the window is a background tab: hidden; same origin, same permission, same emulated position
     const geo = s((await ok("tab", "new", `${site.a}/s73/geo`, ...A))["tab"]);
     const T = ["--tab", geo, ...A];
     expect((await ok("evaluate", "document.visibilityState", ...T))["value"]).toBe("hidden");
     await ok("emulate", "--geolocation", "31.23,121.47", ...T);
-    await ok("permission", "grant", "geolocation", ...T);
-    const tree = s((await ok("snapshot", "--interactive", ...T))["tree"]);
-    const ref = /button "locate" \[(e\d+)\]/.exec(tree)?.[1];
-    if (ref === undefined) throw new Error(`no locate button in:\n${tree}`);
-
-    // without focus emulation the page's request stays pending until its own 4 s timeout
     expect((await ok("evaluate", "s73Geo()", "--await", ...T))["value"]).toEqual({ hung: true });
-
-    expect(await ok("click", ref, "--trusted", ...T)).toMatchObject({ trusted: true });
-    const out = await until(
-      "the position in #out",
-      async () => (await ok("evaluate", "document.getElementById('out').textContent", ...T))["value"],
-      (v) => typeof v === "string" && v !== "",
-    );
-    expect(JSON.parse(s(out))).toEqual({ lat: 31.23, lon: 121.47 });
   }, 120_000);
 
   test("7. the settings live in the running browser only: after browser stop and start every state is prompt again", async () => {

@@ -2543,7 +2543,7 @@ export function startNavStatusSite(): NavStatusSite {
 // page's own world for navigator.permissions.query of five names and answers
 // the table (oracle: what the page itself sees). /s73/geo: window.s73Geo() is
 // getCurrentPosition's outcome with an outer 4 s timeout ({hung:true} when
-// Chrome never answered), and a button #go that writes that outcome into #out.
+// Chrome never answered).
 export const S73_NAMES = ["geolocation", "notifications", "clipboard-read", "camera", "midi"] as const;
 export type PermissionSite = { a: string; b: string; stop: () => void };
 
@@ -2558,22 +2558,13 @@ window.s73State = async () => {
 </script>`;
 
 const S73_GEO = `<!doctype html><meta charset=utf-8><title>s73 geolocation</title><h1>s73 geo</h1>
-<button id=go>locate</button><p id=status></p><pre id=out></pre><script>
+<script>
 window.s73Geo = () => new Promise((resolve) => {
   const timer = setTimeout(() => resolve({ hung: true }), 4000);
   navigator.geolocation.getCurrentPosition(
     (p) => { clearTimeout(timer); resolve({ lat: p.coords.latitude, lon: p.coords.longitude }); },
     (e) => { clearTimeout(timer); resolve({ error: e.code, message: e.message }); },
   );
-});
-// While the position is asked for, #status ticks every 50 ms, as a page's spinner would: the post-action
-// wait of \`click --trusted\` (100 ms without DOM changes, 3 s at most) and with it the focus emulation then
-// last until the answer. Without it a slow machine answered after the click had ended and the hidden tab hung
-// (Windows CI, PR #40: {hung:true} after 9.9 s; the same step took 6.0 s on the runs that passed).
-document.getElementById("go").addEventListener("click", async () => {
-  let n = 0;
-  const tick = setInterval(() => { document.getElementById("status").textContent = "locating " + ++n; }, 50);
-  try { document.getElementById("out").textContent = JSON.stringify(await window.s73Geo()); } finally { clearInterval(tick); document.getElementById("status").textContent = "done"; }
 });
 </script>`;
 
