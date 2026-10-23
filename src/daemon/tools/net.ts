@@ -123,7 +123,7 @@ export async function netStart(d: Daemon, a: Args, session: string): Promise<unk
     alreadyRecording: false,
     bodies,
     instrumentation:
-      "Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied; streaming responses (text/event-stream, application/x-ndjson) are passed through at once and read as they arrive; while a same-origin `tabcap fetch` runs, its tab's fetch() requests also pause at the Request stage (the x-tabcap-fetch marker is removed, nothing else changes)",
+      "Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied; streaming responses (text/event-stream, application/x-ndjson) are passed through at once and read as they arrive; attachments (Content-Disposition: attachment) are passed through at once too (they are downloads, kept in the bundle's downloads/); while a same-origin `tabcap fetch` runs, its tab's fetch() requests also pause at the Request stage (the x-tabcap-fetch marker is removed, nothing else changes)",
     ...(decode.empty ? {} : { decode: decode.plugins.map((p) => p.name) }),
   };
 }

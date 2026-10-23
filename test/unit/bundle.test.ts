@@ -28,7 +28,7 @@ describe("§11 sample (oracle)", () => {
     expect(r.events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(r.isComplete()).toBe(true);
     expect(r.manifest.format).toBe("evidence-bundle/0");
-    expect(r.manifest.counts).toEqual({ events: 8, requests: 3, bodies: 0, blobBytes: 0, bodyMissing: {} });
+    expect(r.manifest.counts).toEqual({ events: 8, requests: 3, bodies: 0, blobBytes: 0, bodyMissing: {}, downloads: 0 });
     // the "..." placeholder field of the sample is an unknown field: kept verbatim
     expect(r.byKind("request").map((e) => e["..."])).toEqual(["…", "…", "…"]);
     expect(r.requests().map((q) => [q.id, q.method, q.outcome])).toEqual([

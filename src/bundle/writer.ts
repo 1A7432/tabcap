@@ -44,6 +44,7 @@ export type WriterOptions = {
 /** Add one event to running counts (same rules as manifest.computeCounts). */
 function countEvent(c: ManifestCounts, e: RawEvent): void {
   c.events++;
+  if (e.kind === "download") c.downloads++;
   if (e.kind !== "request") return;
   c.requests++;
   const resp = e["response"];
