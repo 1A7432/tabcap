@@ -190,7 +190,7 @@ export async function applyPermissions(t: Transport, req: PermissionRequest, tim
 }
 
 const GEO_NOTE =
-  "geolocation: a page's own location request stays pending in a `hidden` tab (the background tabs tabcap opens; a window's only tab is visible), granted or not. It is answered only while focus emulation is on (during `click --trusted` and the like). Give the position with `tabcap emulate --geolocation lat,lon`.";
+  "geolocation: a page's own location request stays pending in a `hidden` tab (the background tabs tabcap opens), granted or not; a visible tab (a window's only tab) is answered. A `--trusted` action makes a hidden tab visible only until that command ends, so an answer that comes later stays pending too: not a reliable way to get a position. Give the position with `tabcap emulate --geolocation lat,lon`.";
 
 /** The `note` of the answer (null: nothing to say). */
 export function permissionNote(o: { names: readonly string[]; origin: string; shared: boolean }): string | null {

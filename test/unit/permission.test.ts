@@ -263,19 +263,20 @@ describe("applyPermissions", () => {
 const rec = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null ? Object.fromEntries(Object.entries(v)) : {});
 
 describe("answer note and mode", () => {
-  test("shared default context: the note says who sees it; geolocation adds the focus-emulation caveat; neither: no note", () => {
+  test("shared default context: the note says who sees it; geolocation adds the hidden-tab caveat; neither: no note", () => {
     const shared = permissionNote({ names: ["midi"], origin: "http://a.test", shared: true });
     expect(shared).toContain("default context");
     expect(shared).toContain("http://a.test");
     expect(shared).not.toContain("geolocation");
     const geo = permissionNote({ names: ["geolocation", "notifications"], origin: "http://a.test", shared: false });
     expect(geo).toContain("hidden");
-    expect(geo).toContain("focus emulation");
+    expect(geo).toContain("visible tab");
+    expect(geo).toContain("not a reliable way");
     expect(geo).toContain("emulate --geolocation");
     expect(geo).not.toContain("default context");
     const both = permissionNote({ names: ["geolocation"], origin: "http://a.test", shared: true });
     expect(both).toContain("default context");
-    expect(both).toContain("focus emulation");
+    expect(both).toContain("not a reliable way");
     expect(permissionNote({ names: ["midi"], origin: "http://a.test", shared: false })).toBeNull();
   });
 
