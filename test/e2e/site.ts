@@ -2587,3 +2587,146 @@ export function startPermissionSite(): PermissionSite {
     },
   };
 }
+
+// ---------------------------------------------------------------- 0.9-C: s74 streaming responses and SSE (docs/05 §19)
+// `/s74` has three page functions that record what the page itself received
+// (Date.now() per chunk / progress / message, on the same clock as the server's
+// log); the stream routes send one piece per chunk, `gap` ms apart, and log each
+// request: the pieces planned, when each chunk went out and its bytes, how the
+// stream ended (done / cut / client-gone) and the bytes sent (sha256 oracle).
+// /s74/cut resets the connection after half the pieces (the ReadableStream
+// errors; Bun prints that error, it is expected).
+
+/** One piece of an s74 event stream and the message the SSE rules make of it (null: comment / retry). */
+export type S74Piece = { text: string; message: { event: string; id: string; data: string } | null };
+
+/** The s74 event stream: a comment, `retry: 100000`, n messages (every third `event: a` with two data lines), then `done` (WHATWG: it keeps the last id). */
+export function s74Stream(n: number, crlf: boolean): S74Piece[] {
+  const nl = crlf ? "\r\n" : "\n";
+  const out: S74Piece[] = [
+    { text: `: comment line${nl}${nl}`, message: null },
+    { text: `retry: 100000${nl}${nl}`, message: null },
+  ];
+  for (let i = 1; i <= n; i++) {
+    if (i % 3 === 0) out.push({ text: `event: a${nl}id: ${i}${nl}data: line one ${i}${nl}data: line two ${i}${nl}${nl}`, message: { event: "a", id: String(i), data: `line one ${i}\nline two ${i}` } });
+    else {
+      const data = JSON.stringify({ choices: [{ delta: { content: `tok${i} 中文` } }] });
+      out.push({ text: `id: ${i}${nl}data: ${data}${nl}${nl}`, message: { event: "message", id: String(i), data } });
+    }
+  }
+  out.push({ text: `event: done${nl}data: [DONE]${nl}${nl}`, message: { event: "done", id: n > 0 ? String(n) : "", data: "[DONE]" } });
+  return out;
+}
+
+export type S74Send = {
+  path: string;
+  query: string;
+  method: string;
+  pieces: string[];
+  /** Each chunk sent: Date.now() and its bytes. */
+  chunks: Array<{ at: number; bytes: number }>;
+  ended: "done" | "cut" | "client-gone" | null;
+  /** The bytes sent so far, in order. */
+  sent: Uint8Array[];
+};
+export type StreamSite = { origin: string; sends: S74Send[]; json: string; stop: () => void };
+
+const S74_PAGE = `<!doctype html><meta charset=utf-8><title>s74 streams</title><h1>s74</h1><script>
+window.s74Fetch = async (path, q) => {
+  const t0 = Date.now(); const chunks = []; let bytes = 0;
+  try {
+    const r = await fetch(path + "?" + q, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: "hello" }) });
+    const rd = r.body.getReader();
+    for (;;) { const { value, done } = await rd.read(); if (done) break; chunks.push({ at: Date.now(), bytes: value.byteLength }); bytes += value.byteLength; }
+    return { ok: true, status: r.status, t0, chunks, bytes, end: Date.now() };
+  } catch (e) { return { ok: false, error: String(e), t0, chunks, bytes, end: Date.now() }; }
+};
+window.s74Xhr = (path, q) => new Promise((res) => {
+  const t0 = Date.now(); const x = new XMLHttpRequest(); const prog = [];
+  x.open("POST", path + "?" + q);
+  x.onprogress = (e) => prog.push({ at: Date.now(), loaded: e.loaded });
+  x.onloadend = () => res({ status: x.status, t0, prog, bytes: new TextEncoder().encode(x.responseText).length, end: Date.now() });
+  x.send("{}");
+});
+window.s74Es = (path, q) => new Promise((res) => {
+  const t0 = Date.now(); const got = []; const es = new EventSource(path + "?" + q);
+  const rec = (e) => { got.push({ at: Date.now(), type: e.type, lastEventId: e.lastEventId, data: e.data }); if (e.type === "done") { es.close(); res({ t0, got }); } };
+  es.onmessage = rec; es.addEventListener("a", rec); es.addEventListener("done", rec);
+  es.onerror = () => { got.push({ at: Date.now(), type: "error" }); };
+  setTimeout(() => { es.close(); res({ t0, got, timeout: true }); }, 30000);
+});
+</script>`;
+
+export function startStreamSite(): StreamSite {
+  const sends: S74Send[] = [];
+  const json = JSON.stringify({ s74: "plain", items: [1, 2, 3] });
+  const enc = new TextEncoder();
+  const stream = (req: Request, u: URL, pieces: string[], contentType: string, cut: boolean): Response => {
+    const gap = Number(u.searchParams.get("gap") ?? 200);
+    const log: S74Send = { path: u.pathname, query: u.search.slice(1), method: req.method, pieces, chunks: [], ended: null, sent: [] };
+    sends.push(log);
+    let i = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        const step = () => {
+          const piece = pieces[i++];
+          if (piece === undefined) return;
+          const b = enc.encode(piece);
+          try {
+            c.enqueue(b);
+          } catch {
+            log.ended = "client-gone";
+            return;
+          }
+          log.chunks.push({ at: Date.now(), bytes: b.length });
+          log.sent.push(b);
+          if (cut && i === Math.ceil(pieces.length / 2)) {
+            log.ended = "cut";
+            c.error(new Error("s74 /s74/cut resets this stream on purpose"));
+            return;
+          }
+          if (i === pieces.length) {
+            log.ended = "done";
+            c.close();
+            return;
+          }
+          timer = setTimeout(step, gap);
+        };
+        step();
+      },
+      cancel() {
+        if (timer !== null) clearTimeout(timer);
+        log.ended = "client-gone";
+      },
+    });
+    return new Response(body, { headers: { "content-type": contentType, "cache-control": "no-cache" } });
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    idleTimeout: 60,
+    fetch(req) {
+      const u = new URL(req.url);
+      const n = Number(u.searchParams.get("n") ?? 6);
+      const crlf = u.searchParams.get("crlf") === "1";
+      switch (u.pathname) {
+        case "/s74":
+          return new Response(S74_PAGE, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+        case "/s74/other":
+          return new Response("<!doctype html><meta charset=utf-8><title>s74 other</title><h1>other</h1>", { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+        case "/s74/json":
+          return new Response(json, { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+        case "/s74/sse":
+        case "/s74/es":
+        case "/s74/cut":
+          return stream(req, u, s74Stream(n, crlf).map((p) => p.text), "text/event-stream; charset=utf-8", u.pathname === "/s74/cut");
+        case "/s74/ndjson":
+          return stream(req, u, Array.from({ length: n }, (_, k) => `${JSON.stringify({ i: k, t: "tok" })}\n`), "application/x-ndjson", false);
+        default:
+          return new Response("nf", { status: 404 });
+      }
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, sends, json, stop: () => server.stop(true) };
+}
