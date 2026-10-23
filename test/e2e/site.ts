@@ -2742,3 +2742,94 @@ export function startStreamSite(): StreamSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, sends, json, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.9-D: s75 downloads (docs/05 s75)
+// /s75 has four triggers — an attachment link (/s75/file), `a[download]` of
+// the same-origin text /s75/plain, a blob: URL and a data: URL (both written
+// by the page script; their bytes are S75_BLOB / S75_DATA) — and links to
+// /s75/big?mb=<n>, a slow attachment with Content-Length (256 KiB every
+// 20 ms). /s75/nav is an attachment to navigate to. Every file name carries
+// the run's tag, so a test can look for this run's files in ~/Downloads. The
+// range records every attachment it served (oracle): the bytes it sent and
+// their sha256, and whether the whole body went out.
+
+export const S75_BLOB = "s75 blob body\n";
+export const S75_DATA = "s75 data body";
+
+export type S75Served = { path: string; query: string; bytes: number; sha256: string; complete: boolean };
+export type DownloadSite = { origin: string; tag: string; served: S75Served[]; stop: () => void };
+
+const s75Page = (tag: string): string => `<!doctype html><meta charset=utf-8><title>s75 downloads</title><h1>s75</h1>
+<a id=file href="/s75/file">attachment</a>
+<a id=adl href="/s75/plain" download="s75-${tag}-plain.txt">a download</a>
+<a id=big href="/s75/big?mb=8">big 8</a>
+<a id=big64 href="/s75/big?mb=64">big 64</a>
+<script>
+const b = document.createElement("a"); b.id = "blob"; b.textContent = "blob"; b.download = "s75-${tag}-blob.txt";
+b.href = URL.createObjectURL(new Blob([${JSON.stringify(S75_BLOB)}], { type: "text/plain" })); document.body.append(b);
+const d = document.createElement("a"); d.id = "data"; d.textContent = "data"; d.download = "s75-${tag}-data.txt";
+d.href = "data:text/plain," + encodeURIComponent(${JSON.stringify(S75_DATA)}); document.body.append(d);
+</script>`;
+
+export function startDownloadSite(tag: string): DownloadSite {
+  const served: S75Served[] = [];
+  const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
+  const fixed = (u: URL, body: string, headers: Record<string, string>): Response => {
+    const bytes = new TextEncoder().encode(body);
+    served.push({ path: u.pathname, query: u.search.slice(1), bytes: bytes.length, sha256: sha(bytes), complete: true });
+    return new Response(bytes, { headers: { "cache-control": "no-store", ...headers } });
+  };
+  const attachment = (name: string) => ({ "content-disposition": `attachment; filename="${name}"` });
+  const big = (u: URL): Response => {
+    const mb = Math.max(1, Math.min(256, Number(u.searchParams.get("mb") ?? 8) || 8));
+    const chunks = mb * 4;
+    const log: S75Served = { path: u.pathname, query: u.search.slice(1), bytes: 0, sha256: "", complete: false };
+    served.push(log);
+    const h = createHash("sha256");
+    let i = 0;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(c) {
+        if (i >= chunks) {
+          log.sha256 = h.digest("hex");
+          log.complete = true;
+          c.close();
+          return;
+        }
+        // 256 KiB of one byte value per chunk, the value moving on: a fixed, non-repeating-by-block content.
+        const chunk = new Uint8Array(256 * 1024).fill(97 + (i % 26));
+        i++;
+        h.update(chunk);
+        log.bytes += chunk.length;
+        c.enqueue(chunk);
+        await Bun.sleep(20);
+      },
+      cancel() {
+        log.complete = false;
+      },
+    });
+    return new Response(body, { headers: { "content-type": "application/octet-stream", "content-length": String(mb * 1024 * 1024), "cache-control": "no-store", ...attachment(`s75-${tag}-big-${mb}.bin`) } });
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    idleTimeout: 120,
+    fetch(req) {
+      const u = new URL(req.url);
+      switch (u.pathname) {
+        case "/s75":
+          return new Response(s75Page(tag), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+        case "/s75/file":
+          return fixed(u, `s75 attachment ${tag}\n`, { "content-type": "text/plain", ...attachment(`s75-${tag}.txt`) });
+        case "/s75/plain":
+          return fixed(u, `s75 plain text ${tag}\n`, { "content-type": "text/plain" });
+        case "/s75/nav":
+          return fixed(u, `s75 navigation download ${tag}\n`, { "content-type": "application/octet-stream", ...attachment(`s75-${tag}-nav.bin`) });
+        case "/s75/big":
+          return big(u);
+        default:
+          return new Response("nf", { status: 404 });
+      }
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, tag, served, stop: () => server.stop(true) };
+}
