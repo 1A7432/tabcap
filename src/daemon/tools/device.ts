@@ -115,7 +115,7 @@ export async function emulate(d: Daemon, a: Args, session: string): Promise<unkn
         tab: tab.id,
         emulation: settings,
         cleared,
-        note: `each emulate call replaces all earlier settings of this tab; pass every setting you want in one call${settings.geolocation === undefined ? "" : "; the page still has to be granted the geolocation permission"}`,
+        note: `each emulate call replaces all earlier settings of this tab; pass every setting you want in one call${settings.geolocation === undefined ? "" : "; the page still has to be granted the geolocation permission (`tabcap permission grant geolocation`)"}`,
       };
     },
     { timeoutMs: timeoutOf(a) },

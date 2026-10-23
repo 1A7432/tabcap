@@ -2537,3 +2537,54 @@ export function startNavStatusSite(): NavStatusSite {
     },
   };
 }
+
+// ---------------------------------------------------------------- 0.9-B: s73 permissions (docs/05 s73)
+// Two origins A and B serve the same pages. /s73: window.s73State() asks the
+// page's own world for navigator.permissions.query of five names and answers
+// the table (oracle: what the page itself sees). /s73/geo: window.s73Geo() is
+// getCurrentPosition's outcome with an outer 4 s timeout ({hung:true} when
+// Chrome never answered), and a button #go that writes that outcome into #out.
+export const S73_NAMES = ["geolocation", "notifications", "clipboard-read", "camera", "midi"] as const;
+export type PermissionSite = { a: string; b: string; stop: () => void };
+
+const S73_PAGE = `<!doctype html><meta charset=utf-8><title>s73 permissions</title><h1>s73</h1><script>
+window.s73State = async () => {
+  const out = {};
+  for (const name of ${JSON.stringify(S73_NAMES)}) {
+    try { out[name] = (await navigator.permissions.query({ name })).state; } catch (e) { out[name] = "error: " + e.message; }
+  }
+  return out;
+};
+</script>`;
+
+const S73_GEO = `<!doctype html><meta charset=utf-8><title>s73 geolocation</title><h1>s73 geo</h1>
+<button id=go>locate</button><pre id=out></pre><script>
+window.s73Geo = () => new Promise((resolve) => {
+  const timer = setTimeout(() => resolve({ hung: true }), 4000);
+  navigator.geolocation.getCurrentPosition(
+    (p) => { clearTimeout(timer); resolve({ lat: p.coords.latitude, lon: p.coords.longitude }); },
+    (e) => { clearTimeout(timer); resolve({ error: e.code, message: e.message }); },
+  );
+});
+document.getElementById("go").addEventListener("click", async () => { document.getElementById("out").textContent = JSON.stringify(await window.s73Geo()); });
+</script>`;
+
+export function startPermissionSite(): PermissionSite {
+  const fetchPage = (req: Request): Response => {
+    const p = new URL(req.url).pathname;
+    const html = (body: string) => new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+    if (p === "/s73") return html(S73_PAGE);
+    if (p === "/s73/geo") return html(S73_GEO);
+    return new Response("nf", { status: 404 });
+  };
+  const a = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: fetchPage });
+  const b = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: fetchPage });
+  return {
+    a: `http://127.0.0.1:${a.port}`,
+    b: `http://127.0.0.1:${b.port}`,
+    stop: () => {
+      a.stop(true);
+      b.stop(true);
+    },
+  };
+}

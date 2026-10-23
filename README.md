@@ -84,7 +84,7 @@ The commands come in groups; `tabcap help <group>` lists one, for example `tabca
 | Sites, sessions, tabs | `site`, `account`, `proxy` (*experimental*), `session start/stop/list/export`, `tab list/select/new/close` |
 | Page | `navigate`, `go`, `reload`, `snapshot`, `outline`, `find`, `wait`, `html` |
 | Input | `click`, `hover`, `fill`, `type`, `press-key`, `upload`, `dialog` |
-| Page tools | `evaluate`, `screenshot`, `resize`, `emulate`, `console list/show` |
+| Page tools | `evaluate`, `screenshot`, `resize`, `emulate`, `permission grant/deny/reset`, `console list/show` |
 | Network | `net start/stop/list/show/body/grep/wait`, `fetch`, `where`, `recon` (*experimental*) |
 | Handoff | `handoff status/continue`, `guard resume`, `plugin init/list/enable/disable` |
 | Offline | `bundle export/import/redact/info/decode`, `analyze find/diff/deps/chain/shape/schema-diff/recon`, `replay serve/check/session/export-python`, `schema` |

@@ -146,7 +146,7 @@ Example: `tabcap mcp --print-config claude-code`
 | Option | Default | Meaning |
 |---|---|---|
 | `--print-config <host>` |  | print where and how to register tabcap mcp in one host instead of serving: claude-code \| cursor \| codex \| gemini-cli \| windsurf \| claude-desktop |
-| `--all-tools` |  | one tool per command with its full help (about 96 tools, ~84 KB of definitions in the model's context) instead of the core set |
+| `--all-tools` |  | one tool per command with its full help (about 99 tools, ~88 KB of definitions in the model's context) instead of the core set |
 
 ## Sites, sessions and tabs
 
@@ -605,6 +605,51 @@ Example: `tabcap emulate --viewport 390x844x3,mobile,touch`
 | `--network-conditions <preset>` |  | Offline \| Slow 3G \| Fast 3G \| Slow 4G \| Fast 4G |
 | `--cpu-throttling-rate <n>` |  | CPU slowdown factor 1–20 (1: off) |
 | `--geolocation <lat,lon>` |  | <latitude>,<longitude> |
+
+### `tabcap permission grant`
+
+grant permissions (Chrome's names: geolocation, notifications, camera, clipboard-read, push ...) for the current tab's origin (or --origin) only, until browser stop. Sessions share the default browser context (the answer says shared); a session start --site session has its own. A hidden tab's geolocation request keeps waiting (the answer's note says how). direct mode only → tab, origin, setting, names, context, shared
+
+```
+tabcap permission grant <names>... [--session name] [--timeout ms] [--tab t2] [--origin url]
+```
+
+Example: `tabcap permission grant geolocation notifications`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--origin <url>` |  | set it for this URL's origin (path, query and fragment dropped) instead of the current tab's; http(s) only |
+
+### `tabcap permission deny`
+
+deny permissions (the page's request fails at once, no prompt) for the current tab's origin (or --origin) only, until browser stop. Sessions share the default browser context (the answer says shared); a session start --site session has its own. A hidden tab's geolocation request keeps waiting (the answer's note says how). direct mode only → tab, origin, setting, names, context, shared
+
+```
+tabcap permission deny <names>... [--session name] [--timeout ms] [--tab t2] [--origin url]
+```
+
+Example: `tabcap permission deny geolocation notifications`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--origin <url>` |  | set it for this URL's origin (path, query and fragment dropped) instead of the current tab's; http(s) only |
+
+### `tabcap permission reset`
+
+set permissions back to undecided (prompt) for the current tab's origin (or --origin) only, until browser stop. Sessions share the default browser context (the answer says shared); a session start --site session has its own. A hidden tab's geolocation request keeps waiting (the answer's note says how). direct mode only → tab, origin, setting, names, context, shared
+
+```
+tabcap permission reset <names>... [--session name] [--timeout ms] [--tab t2] [--origin url]
+```
+
+Example: `tabcap permission reset geolocation notifications`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--origin <url>` |  | set it for this URL's origin (path, query and fragment dropped) instead of the current tab's; http(s) only |
 
 ### `tabcap console list`
 
