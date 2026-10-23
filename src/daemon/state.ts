@@ -10,6 +10,7 @@ import { Tabs, type Tab } from "./browser/targets.ts";
 import type { ConsoleLog } from "./capture/console.ts";
 import type { DirectTransport } from "./transport/direct/index.ts";
 import type { TakeoverWatch } from "./browser/takeover.ts";
+import { dropStaging, type Downloads } from "./capture/downloads.ts";
 import { Guard } from "./guard.ts";
 import { Secrets } from "./secrets.ts";
 import type { Store } from "./store/db.ts";
@@ -60,8 +61,9 @@ export type LastAction = { action: string; at: number; cmd: string | null };
 /**
  * `takeover`: the 0.7.1-A take-over listener (null: `handoff.detectTakeover` is off).
  * `extensionDir`: the UI extension tabcap loaded, if any (its `--load-extension` item reads <extension> in a manifest, docs/04 §42).
+ * `downloads`: 0.9-D, the browser's downloads (docs/04 §48) and this run's staging directory.
  */
-export type Running = { t: DirectTransport; tabs: Tabs; console: ConsoleLog; info: BrowserInfo; takeover: TakeoverWatch | null; extensionDir: string | null };
+export type Running = { t: DirectTransport; tabs: Tabs; console: ConsoleLog; info: BrowserInfo; takeover: TakeoverWatch | null; extensionDir: string | null; downloads: Downloads };
 
 /** `proxy`: the pool proxy name the session goes out through (its own browser context), `system` / `none`, or null (unbound account). */
 export type SiteBinding = { site: string; account: string | null; proxy: string | null };
@@ -184,6 +186,8 @@ export class Daemon {
   async browserGone(): Promise<void> {
     // Owner 10-21: nothing is left to wait for; the handoffs end (their event goes in before the recordings finish).
     this.guard.drop(null, "browser-gone");
+    // 0.9-D: downloads still running end as `browser-gone` in the recordings finished below (docs/04 §48).
+    this.browser?.downloads.markGone();
     for (const [name, r] of this.recorders) {
       const res = await r.stop().catch(() => null);
       this.lastBundles.set(name, r);
@@ -195,6 +199,8 @@ export class Daemon {
     this.browser?.tabs.dispose();
     this.browser?.console.dispose();
     this.browser?.takeover?.dispose();
+    this.browser?.downloads.dispose();
+    if (this.browser !== null) dropStaging(this.browser.downloads.staging);
     this.browser = null;
     this.pool.reset();
   }

@@ -29,6 +29,7 @@ import { budgetBlock } from "./tools/pool.ts";
 import { CdpClosedError, CdpError, CdpTimeoutError } from "./transport/direct/cdp.ts";
 import { TRACE_PAUSED_NOTE } from "./trace/tracer.ts";
 import { statusOf, type StatusDaemon } from "./tools/status.ts";
+import { NOT_RECORDING_NEXT, type Downloads } from "./capture/downloads.ts";
 
 /** How often the daemon looks for proxies whose health check is due (pool.health.intervalS, down back-off). */
 const HEALTH_TICK_MS = 15_000;
@@ -122,7 +123,7 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   d.noteAction(session, { action, at: started, cmd: startId });
   let env: Envelope<unknown>;
   try {
-    const data = await tool(d, args, session, { cmd: startId });
+    const data = withDownloadNotices(d, session, started, await tool(d, args, session, { cmd: startId }));
     // While recording, action commands say which command window they were (`net list --since c-<n>`).
     const out = startId !== null && ACTION_COMMANDS.has(action) && isRecord(data) && !("cmd" in data) ? { ...data, cmd: startId } : data;
     const h = d.guard.get(session);
@@ -164,6 +165,18 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     }
   }
   return env;
+}
+
+/**
+ * 0.9-D (docs/04 §48): downloads that began on this session's tabs while the command ran on them
+ * and were canceled because the session does not record: `downloads` in the answer, and a `next`
+ * that says how to keep the file (after the tool's own `next`, if it has one).
+ */
+export function withDownloadNotices(d: { readonly browser: { readonly downloads: Pick<Downloads, "takeNotices"> } | null }, session: string, started: number, data: unknown): unknown {
+  const list = d.browser?.downloads.takeNotices(session, started) ?? [];
+  if (list.length === 0 || !isRecord(data)) return data;
+  const own = typeof data["next"] === "string" ? `${data["next"]} ` : "";
+  return { ...data, downloads: list, next: `${own}${NOT_RECORDING_NEXT}` };
 }
 
 /**
