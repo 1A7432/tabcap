@@ -124,8 +124,9 @@ describe("permissionOrigin", () => {
 });
 
 describe("descriptorOf and closestPermission", () => {
-  test("push carries userVisibleOnly, every other name goes as a bare name", () => {
+  test("push carries userVisibleOnly, fullscreen allowWithoutGesture, every other name goes as a bare name", () => {
     expect(descriptorOf("push")).toEqual({ name: "push", userVisibleOnly: true });
+    expect(descriptorOf("fullscreen")).toEqual({ name: "fullscreen", allowWithoutGesture: true });
     for (const n of ["geolocation", "notifications", "clipboard-read", "midi", "camera", "somethingnew"]) expect(descriptorOf(n)).toEqual({ name: n });
   });
 
