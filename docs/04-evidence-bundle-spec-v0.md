@@ -1212,7 +1212,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   - 流超过 32 MiB 后，没正常结束的也写 `too-large`（不写 `partial`：什么都没留）。`streamResourceContent` 成功之后又来一条不带 `data`、`dataLength` > 0 的 `dataReceived`（字节缺了）时不用拼出的正文：正常结束退回 `getResponseBody`，没正常结束照原规则写 `bodyMissing`。
   - 读取：`net list --kind sse` 的回答键是 `messages`，其余同 `--kind ws`（`total` / `matched` / `shown` / 分页）；`net body r-12:34` 的回答多 `{sse, index, event, lastEventId}`，内联 data 落成 `exports/sse/<id>.txt`；`net show r-12:34` 是 `{id, kind:"sse", sse, seq, tab, url, index, event, lastEventId, retry, bytes, ts, at, data:{path, blob, bytes, textHead, truncated}}`；`net wait` 的回答在部分正文时也带 `partial:true`；包读取器 `parseSse` / `BundleReader.sseMessages()` 按不可信输入检查字段。
   - 打码（§8）：`sse` 的 `data` 按文本 `ws` 正文处理（JSON 按名字规则，其余按值模式）；所属请求的正文是 `text/event-stream`，照旧只按值模式。HAR 导出丢弃 `sse`（`dropped.sse`），`--embed-events` 原样带上。
-  - 【实测 10-23，CfT 155 有头，`v09c` 7 轮】`EventSource` 那条：靶场发完 `done` 立刻结束流、页面收到 `done` 即 `close()`，两者谁先到 Chrome 是竞态：1 轮 `finished`，6 轮 `failed`（`net::ERR_ABORTED`、`canceled:true`）带 `partial:true`，两种情况正文都是靶场所发的全部字节、`sse` 事件都与页面记录和 `eventSourceMessageReceived` 逐条相等。`05` s74 第 2 条写的「三条请求 finished」对这一条不成立；e2e 按这两种结果之一断言，`05` 的 expected 未改，等作者定（NOTES 10-23）。
+  - 【实测 10-23，CfT 155 有头，`v09c` 7 轮】`EventSource` 请求：靶场发完 `done` 立刻结束流、页面收到 `done` 即 `close()` 时，两者谁先到 Chrome 是竞态：1 轮 `finished`，6 轮 `failed`（`net::ERR_ABORTED`、`canceled:true`）带 `partial:true`，两种情况正文都是靶场所发的全部字节。录制器两种都照规则写；靶场 s74 因此拆成两个确定的情形（主循环 10-23 定，`05` s74）：缺省流由靶场结束、页面在随后的 `error` 事件里才关 → `finished`；`hold=1` 靶场不结束、页面收到 `done` 即关 → `failed` + `canceled` + `partial`。
 
 ## 48. 0.9-D 下载进证据包，录制外拒绝（10-23 作者定：没在录制时取消并提示先 `net start`；单个文件 200 MiB；字段与下列细节按实现定案）
 
