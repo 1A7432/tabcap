@@ -89,6 +89,8 @@ exports[`tools/list --all-tools: generated from the command table tool names (sn
   "tabcap_console_show",
   "tabcap_wait",
   "tabcap_net_wait",
+  "tabcap_download_list",
+  "tabcap_download_wait",
   "tabcap_fetch",
   "tabcap_where",
   "tabcap_recon",

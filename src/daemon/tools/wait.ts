@@ -71,7 +71,7 @@ function guard(tab: Tab): void {
 
 const raise = (ms: number) => (ms >= WAIT_MAX_MS ? "" : `, or raise --timeout (max ${WAIT_MAX_MS})`);
 
-function timeoutError(what: string, ms: number, outstanding: string, look: string): TabcapError {
+export function timeoutError(what: string, ms: number, outstanding: string, look: string): TabcapError {
   return new TabcapError("timeout", `${what} did not happen within ${ms} ms`, `Still outstanding: ${outstanding}. ${look}${raise(ms)}.`);
 }
 
@@ -376,7 +376,7 @@ export async function netWait(d: Daemon, a: Args, session: string): Promise<unkn
   });
 }
 
-function lookLabel(l: LookBack): string {
+export function lookLabel(l: LookBack): string {
   if (l.from === "action") return `the start of the last action (${l.action ?? "?"}${l.cmd === null ? "" : ` ${l.cmd}`})`;
   if (l.from === "cmd") return `the start of ${l.cmd ?? "?"}`;
   if (l.from === "fresh") return "the wait began (--fresh)";

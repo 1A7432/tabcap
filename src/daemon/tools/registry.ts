@@ -78,6 +78,9 @@ export const TOOL_ACTIONS = {
   "console.show": row(),
   wait: row(),
   "net.wait": row(),
+  // download list (read-only) and download wait (a wait, like net wait), 0.9-D
+  "download.list": row(),
+  "download.wait": row(),
   "handoff.status": row(),
   "handoff.continue": row(),
   "handoff.wait": row(),

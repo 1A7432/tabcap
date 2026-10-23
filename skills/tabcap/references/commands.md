@@ -2,7 +2,7 @@
 
 # tabcap command reference
 
-Every command prints one JSON envelope on stdout: `{"ok":true,"data":…}` or `{"ok":false,"error":{"code","message","next"}}`. Browser commands also take `--session <name>` (else `$TABCAP_SESSION`, else `default`) and most take `--timeout <ms>` (default 30000; `wait` / `net wait` 10000); they are left out below. `tabcap <command> --help` prints the same as one section here; `tabcap schema --json` is the machine-readable form.
+Every command prints one JSON envelope on stdout: `{"ok":true,"data":…}` or `{"ok":false,"error":{"code","message","next"}}`. Browser commands also take `--session <name>` (else `$TABCAP_SESSION`, else `default`) and most take `--timeout <ms>` (default 30000; `wait` / `net wait` / `download wait` 10000); they are left out below. `tabcap <command> --help` prints the same as one section here; `tabcap schema --json` is the machine-readable form.
 
 ## Output flags (every command)
 
@@ -812,6 +812,32 @@ Example: `tabcap net wait --url /api/search --method POST`
 | `--tab <t2>` |  | only requests of this tab |
 | `--since <c-12\|start>` |  | look back to this command's start (c-12), or `start` for the whole recording |
 | `--fresh` |  | only requests finishing after the wait begins |
+
+### `tabcap download list`
+
+the downloads of the session's recording (else its last one), in the order they began: id, tab, url, suggestedFilename, state (completed | canceled), reason, bytes, totalBytes, file (its copy in the bundle's downloads/), sha256; then those still in progress (guid, receivedBytes). tabcap keeps downloads only while the session records (net start) and cancels the others (the command's answer says so), one file at most 200 MiB
+
+```
+tabcap download list [--session name]
+```
+
+Example: `tabcap download list`
+
+### `tabcap download wait`
+
+wait until a matching download ended, completed or canceled (needs net start); counts downloads since the start of the last action command, like net wait → id, state, reason, file, sha256
+
+```
+tabcap download wait [--session name] [--timeout ms] [--url s] [--since c-12|start] [--fresh]
+```
+
+Example: `tabcap download wait --url /export.csv --timeout 60000`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--url <s>` |  | URL substring of the download (any download without it) |
+| `--since <c-12\|start>` |  | look back to this command's start (c-12), or `start` for the whole recording |
+| `--fresh` |  | only downloads ending after the wait begins |
 
 ### `tabcap fetch`
 
