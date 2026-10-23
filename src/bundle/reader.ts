@@ -34,13 +34,14 @@ import {
   type ResourceType,
   type ResponseBody,
   type ResponseSide,
+  type SseEvent,
 } from "./types.ts";
 
 export { RESOURCE_TYPES };
 
 export type ReadIssue = {
   line: number; // 1-based line number in events.jsonl (0 = not line specific)
-  kind: "truncated-last-line" | "bad-json" | "bad-envelope" | "seq-order" | "bad-request" | "bad-sidecar";
+  kind: "truncated-last-line" | "bad-json" | "bad-envelope" | "seq-order" | "bad-request" | "bad-sse" | "bad-sidecar";
   detail: string;
 };
 
@@ -152,6 +153,7 @@ function parseBody(v: unknown): ResponseBody | null {
     truncated: v["truncated"] === true,
   };
   if (v["decodeFailed"] === true) body.decodeFailed = true;
+  if (v["partial"] === true) body.partial = true;
   return body;
 }
 
@@ -234,6 +236,29 @@ export function parseRequest(e: RawEvent): RequestEvent | string {
   return out;
 }
 
+/**
+ * Typed view of an `sse` event (§4.1, §47), or a reason it is not one. The
+ * fields are checked as untrusted input; extra fields are kept.
+ */
+export function parseSse(e: RawEvent): SseEvent | string {
+  if (e.kind !== "sse") return "not an sse event";
+  const sse = str(e, "sse");
+  const index = num(e, "index");
+  const event = str(e, "event");
+  const id = str(e, "id");
+  const retry = e["retry"];
+  const at = e["at"];
+  const data = parseInlineOrBlob(e["data"]);
+  if (sse === null || !/^r-\d+$/.test(sse)) return "sse is not a request id";
+  if (index === null || !Number.isSafeInteger(index) || index < 0) return "index is not a count";
+  if (event === null) return "event is not a string";
+  if (id === null) return "id is not a string";
+  if (retry !== null && (typeof retry !== "number" || !Number.isSafeInteger(retry) || retry < 0)) return "retry is not a count or null";
+  if (at !== null && (typeof at !== "number" || !Number.isFinite(at))) return "at is not a number or null";
+  if (data === null) return "data is neither inline nor a blob";
+  return { ...e, kind: "sse", sse, nav: str(e, "nav"), index, event, id, retry, data, at };
+}
+
 // ------------------------------------------------------------ reader
 
 export class BundleReader implements BundleView {
@@ -284,6 +309,18 @@ export class BundleReader implements BundleView {
       const r = parseRequest(e);
       if (typeof r === "string") this.issues.push({ line: 0, kind: "bad-request", detail: `seq ${e.seq}: ${r}` });
       else out.push(r);
+    }
+    return out;
+  }
+
+  /** 0.9-C: the `sse` events (§47), in bundle order; unusable ones are added to `issues`. */
+  sseMessages(): SseEvent[] {
+    const out: SseEvent[] = [];
+    for (const e of this.events) {
+      if (e.kind !== "sse") continue;
+      const m = parseSse(e);
+      if (typeof m === "string") this.issues.push({ line: 0, kind: "bad-sse", detail: `seq ${e.seq}: ${m}` });
+      else out.push(m);
     }
     return out;
   }

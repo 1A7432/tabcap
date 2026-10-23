@@ -614,11 +614,18 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--all", key: "all", kind: "bool", help: "also failed requests and data: URLs" },
       { flag: "--page-size", key: "pageSize", kind: "number", help: "requests per page (max 1000); 0 returns every match", default: 30, metavar: "n" },
       { flag: "--page-idx", key: "pageIdx", kind: "number", help: "page to return, 0-based; nextPageIdx names the next one", default: 0, metavar: "n" },
-      { flag: "--kind", key: "kind", kind: "string", help: "http (requests) | ws (WebSocket frames: id, direction, opcode, bytes, ts)", default: "http", metavar: "http|ws" },
+      {
+        flag: "--kind",
+        key: "kind",
+        kind: "string",
+        help: "http (requests) | ws (WebSocket frames: id, direction, opcode, bytes, ts) | sse (Server-Sent Events messages of text/event-stream responses that ended: id, request, index, event, lastEventId, bytes, ts)",
+        default: "http",
+        metavar: "http|ws|sse",
+      },
       REVEAL,
     ],
     summary:
-      "recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, bytes, outcome, cmd; always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34)",
+      "recorded requests, oldest first: id, method, url (cut at 255 chars; net show has it whole), status, mime, bytes, outcome, cmd (partial: a stream that ended early, the body is what arrived); always total / matched / shown / hidden {failed, data} (failed and data: are hidden unless asked for); 30 per page unless --page-size (0: everything) (--kind ws: WebSocket frames r-12:34; --kind sse: SSE messages r-12:34)",
     example: "tabcap net list --resource-types xhr,fetch --status 2xx",
     action: "net.list",
   },
@@ -642,7 +649,7 @@ export const COMMANDS: CommandSpec[] = [
       REVEAL,
     ],
     summary:
-      "a response body (r-12) or WebSocket frame payload (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); a body with a decoded view (decode plugin, or the page view of `trace start --decode`) shows the view (--raw: the original); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)",
+      "a response body (r-12), WebSocket frame payload or SSE message data (r-12:34) as a file path + a text preview of up to 10000 chars (never the whole body inline); a body with a decoded view (decode plugin, or the page view of `trace start --decode`) shows the view (--raw: the original); --grep / --lines / --at read only the lines needed (long lines as a 500-char window), --pretty breaks minified code first; --file writes the whole decoded, scrubbed body to a file for your own tools (rg / grep)",
     example: "tabcap net body r-12 --grep 'sign|token' --pretty",
     action: "net.body",
     localPaths: ["out"],
@@ -652,7 +659,7 @@ export const COMMANDS: CommandSpec[] = [
     pos: ["id"],
     flags: [SESSION, REVEAL],
     summary:
-      "one request in full: method, url, status, request / response headers, postData (over 2 KB: path + first 2 KB), body path, timing, initiator, nav, tab, outcome; r-12:34 shows a WebSocket frame; sensitive headers, cookie values and query / body fields read <redacted:name> unless --reveal",
+      "one request in full: method, url, status, request / response headers, postData (over 2 KB: path + first 2 KB), body path, timing, initiator, nav, tab, outcome; r-12:34 shows a WebSocket frame or an SSE message; sensitive headers, cookie values and query / body fields read <redacted:name> unless --reveal",
     example: "tabcap net show r-12",
     action: "net.show",
   },

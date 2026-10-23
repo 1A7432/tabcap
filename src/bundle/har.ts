@@ -29,7 +29,13 @@ export type HarPage = {
   title: string;
   pageTimings: { onContentLoad: number; onLoad: number };
 };
-export type HarContent = { size: number; mimeType: string; text?: string; encoding?: "base64" };
+export type HarContent = { size: number; mimeType: string; text?: string; encoding?: "base64"; comment?: string };
+
+/**
+ * 0.9-C (docs/04 §47): `response.content.comment` of a body that is what arrived of a stream that
+ * did not end normally (`response.body.partial`); import restores `partial` from exactly this text.
+ */
+export const PARTIAL_COMMENT = "partial: the stream ended before the response was complete";
 export type HarWsMessage = { type: "send" | "receive"; time: number; opcode: number; data: string };
 export type HarEntry = {
   pageref?: string;
@@ -316,6 +322,7 @@ function toEntry(view: BundleView, events: readonly RawEvent[], r: RequestEvent,
       content.text = t.text;
       if (t.base64) content.encoding = "base64";
     }
+    if (resp.body.partial === true) content.comment = PARTIAL_COMMENT;
   }
 
   const entry: HarEntry = {
@@ -453,7 +460,7 @@ type HarEntryIn = {
   status: number;
   statusText: string;
   respHeaders: HarHeaderIn[];
-  content: { text: string | null; base64: boolean; mimeType: string | null };
+  content: { text: string | null; base64: boolean; mimeType: string | null; comment: string | null };
   serverIPAddress: string | null;
   raw: Record<string, unknown>;
   ws: { type: string; time: number; opcode: number; data: string }[];
@@ -541,7 +548,7 @@ function parseHar(json: unknown): HarIn {
       status,
       statusText: str(resp, "statusText") ?? "",
       respHeaders: parseHeadersIn(resp["headers"], `${where}.response.headers`),
-      content: { text: str(content, "text"), base64: content["encoding"] === "base64", mimeType: str(content, "mimeType") },
+      content: { text: str(content, "text"), base64: content["encoding"] === "base64", mimeType: str(content, "mimeType"), comment: str(content, "comment") },
       serverIPAddress: str(e, "serverIPAddress"),
       raw: e,
       ws,
@@ -935,6 +942,7 @@ async function requestFromEntry(w: BundleWriter, e: HarEntryIn, seqOfPage: Reado
       if (put.outcome === "stored") {
         body = { blob: put.ref, size: put.size, base64: dec.base64, wireEncoding: dec.wireEncoding, truncated: false };
         if (dec.decodeFailed) body["decodeFailed"] = true;
+        if (e.content.comment === PARTIAL_COMMENT) body["partial"] = true;
       } else {
         bodyMissing = { reason: "too-large", detail: `${put.size} bytes > ${put.cap}` };
       }

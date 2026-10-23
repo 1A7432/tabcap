@@ -124,9 +124,9 @@ export type WsFields =
 /**
  * §4.1 `sse`, §47 (0.9-C): one message of a `text/event-stream` response, written right after its
  * `request`. `id` is the last event ID at dispatch ("" before any `id` field); `at` is the monotonic ms
- * the bytes completing the message arrived, null when unknown.
+ * the bytes completing the message arrived, null when unknown; `nav` is the request's.
  */
-export type SseFields = { sse: string; index: number; event: string; id: string; retry: number | null; data: InlineOrBlob; at: number | null };
+export type SseFields = { sse: string; nav: string | null; index: number; event: string; id: string; retry: number | null; data: InlineOrBlob; at: number | null };
 
 /** §4.1 `download`, §48 (0.9-D): one download of a recording session, written when it ended. */
 export type DownloadFields = {
