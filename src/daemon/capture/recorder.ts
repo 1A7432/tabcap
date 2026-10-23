@@ -33,6 +33,13 @@
 // A text/event-stream body becomes one `sse` event per message right after its
 // `request` event (shared/sse.ts). If the command fails, the old rule applies:
 // Network.getResponseBody on loadingFinished.
+// Downloads (0.9-D, docs/04 §48): capture/downloads.ts decides about each
+// download and writes its `download` event through `download()`, with the
+// command window and actor of when it began (`downloadStart()`). A response
+// with `Content-Disposition: attachment` is continued at the Response stage
+// at once, without Fetch.getResponseBody: that would only answer once the
+// whole file arrived (the download itself waits meanwhile) and carry it over
+// CDP; the request ends as loadingFailed net::ERR_ABORTED anyway.
 
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
@@ -41,6 +48,7 @@ import { TOOL_VERSION } from "../../bundle/manifest.ts";
 import type {
   Actor,
   BodyMissingReason,
+  DownloadFields,
   EnvStateFields,
   EventFields,
   Headers,
@@ -158,6 +166,31 @@ export type WsFrameEntry = {
   /** Inline payload as stored in the event (text, or base64 for opcode 2). */
   inline: string | null;
   reason: string | null;
+};
+
+/** One `download` event of the recording (0.9-D, docs/04 §48), for `download list` / `download wait`. */
+export type DownloadEntry = {
+  /** `d-<seq>`. */
+  id: string;
+  seq: number;
+  /** Daemon tab id. */
+  tab: string;
+  url: string;
+  urlTruncated?: true;
+  suggestedFilename: string;
+  guid: string;
+  state: DownloadFields["state"];
+  reason: DownloadFields["reason"];
+  bytes: number;
+  totalBytes: number | null;
+  /** "downloads/<sha256>" inside the bundle, or null. */
+  file: string | null;
+  sha256: string | null;
+  startedTs: number;
+  /** The command window open when it began. */
+  cmd: string | null;
+  /** Daemon clock when the event was written (the look-back of `download wait`). */
+  at: number;
 };
 
 /** One `sse` event of the recording (0.9-C, docs/04 §47), for `net list --kind sse` / `net body` / `net show`. */
@@ -287,6 +320,9 @@ export class Recorder {
   readonly frames: WsFrameEntry[] = [];
   /** 0.9-C: the `sse` events written so far, in order. */
   readonly sse: SseEntry[] = [];
+  /** 0.9-D: the `download` events written so far, in order. */
+  readonly downloads: DownloadEntry[] = [];
+  private downloadListeners = new Set<(e: DownloadEntry) => void>();
   private ws = new WsBook();
   /** Keeps `ws` events in CDP order even when a large payload goes to a blob first. */
   private wsChain: Promise<void> = Promise.resolve();
@@ -972,6 +1008,8 @@ export class Recorder {
       // 0.9-C (docs/04 §47): a streaming response goes on at once (the finally below); Fetch.getResponseBody
       // would only answer once the stream ended, and the page would get nothing until then.
       if (isStreamingType(pausedHeader(p["responseHeaders"], "content-type"))) return;
+      // 0.9-D (docs/04 §48): an attachment is a download; its body would be read whole first (see the header).
+      if (isAttachment(pausedHeader(p["responseHeaders"], "content-disposition"))) return;
       if (p["resourceType"] === "Document" && tab !== undefined && str(p, "frameId") === tab.targetId) {
         const until = performance.now() + DOC_HOLD_MS;
         while (this.oldDocBusy(sid, networkId) && performance.now() < until) await Bun.sleep(2);
@@ -1531,6 +1569,61 @@ export class Recorder {
     return this.navOf.get(tabId) ?? null;
   }
 
+  /**
+   * 0.9-D (docs/04 §48): what a download beginning now on daemon tab `tabId`
+   * belongs to — the open command window and the actor (as for a `request`,
+   * decided when it starts), the tab's nav epoch. Null when the tab is not in
+   * this recording or the recording is closing.
+   */
+  downloadStart(tabId: string): { cmd: string | null; actor: Actor; nav: string | null } | null {
+    if (this.writerClosed || this.stopping || !this.bundleTab.has(tabId)) return null;
+    return { cmd: this.cmdRef(), actor: this.actor(), nav: this.navOf.get(tabId) ?? null };
+  }
+
+  /**
+   * Write a `download` event (§4.1, §48) when the download ended; `start` is
+   * what `downloadStart` said when it began. Allowed during stop's before-stop
+   * hooks (downloads still running are written then). Returns the entry, or
+   * null when the bundle is closed.
+   */
+  download(tabId: string, fields: Omit<DownloadFields, "id">, start: { cmd: string | null; actor: Actor }): DownloadEntry | null {
+    if (this.writerClosed) return null;
+    const ev = this.put((seq) => ({ ts: nowMs(), mono: null, kind: "download", actor: start.actor, tab: this.bundleTab.get(tabId) ?? null, cmd: start.cmd, id: `d-${seq}`, ...fields }));
+    const entry: DownloadEntry = {
+      id: `d-${ev.seq}`,
+      seq: ev.seq,
+      tab: tabId,
+      url: fields.url,
+      ...(fields.urlTruncated === true ? { urlTruncated: true as const } : {}),
+      suggestedFilename: fields.suggestedFilename,
+      guid: fields.guid,
+      state: fields.state,
+      reason: fields.reason,
+      bytes: fields.bytes,
+      totalBytes: fields.totalBytes,
+      file: fields.file,
+      sha256: fields.sha256,
+      startedTs: fields.startedTs,
+      cmd: start.cmd,
+      at: Date.now(),
+    };
+    this.downloads.push(entry);
+    for (const fn of [...this.downloadListeners]) {
+      try {
+        fn(entry);
+      } catch (e) {
+        log.warn("recorder: download listener failed", { error: String(e) });
+      }
+    }
+    return entry;
+  }
+
+  /** Called for every `download` event written (`download wait`). */
+  onDownload(fn: (e: DownloadEntry) => void): () => void {
+    this.downloadListeners.add(fn);
+    return () => this.downloadListeners.delete(fn);
+  }
+
   /** Record the store site / account / proxy (names only) of the session in the manifest (docs/04 §7, §8.1). */
   setSite(site: string | null, account: string | null, proxy: string | null = null): void {
     if (this.writerClosed) return;
@@ -1804,6 +1897,12 @@ function pausedHeader(list: unknown, name: string): string | null {
     if (n !== null && v !== null && n.toLowerCase() === name) return v;
   }
   return null;
+}
+
+/** 0.9-D: a `Content-Disposition` header value (untrusted) that makes the response a download: its type is `attachment`. */
+export function isAttachment(value: string | null): boolean {
+  if (value === null) return false;
+  return (value.split(";")[0] ?? "").trim().toLowerCase() === "attachment";
 }
 
 /** 0.9-C: a stream past the blob cap (docs/04 §5.2 rule 4): nothing kept. */

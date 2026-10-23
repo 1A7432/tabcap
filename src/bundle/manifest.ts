@@ -41,7 +41,7 @@ export type NewManifestOptions = {
 };
 
 export function emptyCounts(): ManifestCounts {
-  return { events: 0, requests: 0, bodies: 0, blobBytes: 0, bodyMissing: {} };
+  return { events: 0, requests: 0, bodies: 0, blobBytes: 0, bodyMissing: {}, downloads: 0 };
 }
 
 export function newManifest(o: NewManifestOptions): Manifest {
@@ -142,6 +142,7 @@ export function parseManifest(raw: unknown): Manifest {
     counts.blobBytes = num(countsRaw, "blobBytes") ?? 0;
     const bm = rec(countsRaw, "bodyMissing") ?? {};
     for (const [k, v] of Object.entries(bm)) if (typeof v === "number") counts.bodyMissing[k] = v;
+    counts.downloads = num(countsRaw, "downloads") ?? 0;
   }
 
   const redactionRaw = rec(raw, "redaction");
@@ -309,13 +310,15 @@ export function writeManifest(dir: string, m: Manifest): void {
 
 /**
  * Counts from the event stream (§7). `bodies` = request events whose response
- * carries a body blob; `blobBytes` = total size of distinct blobs on disk.
+ * carries a body blob; `blobBytes` = total size of distinct blobs on disk;
+ * `downloads` = `download` events (0.9-D, §48).
  */
 export function computeCounts(events: readonly RawEvent[], blobBytes: number): ManifestCounts {
   const c = emptyCounts();
   c.events = events.length;
   c.blobBytes = blobBytes;
   for (const e of events) {
+    if (e.kind === "download") c.downloads++;
     if (e.kind !== "request") continue;
     c.requests++;
     const resp = isRecord(e["response"]) ? e["response"] : null;

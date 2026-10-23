@@ -27,6 +27,9 @@
 // the value patterns (a URL's userinfo is dropped, owner 10-21). Envelope fields, ids (r-12, c-3, n-5), blob refs and the
 // store names (site, account) are not values and stay. The manifest's browser
 // args / extraArgs / dropArgs, tabs[].firstUrl and notes are walked the same way.
+// A `download` event (0.9-D, docs/04 §48) keeps its guid and sha256; the copy
+// has no downloads/ directory (a file's content cannot be redacted field by
+// field), so its `file` is null and it carries `redacted: true`.
 // Two passes: pass 1 collects every value masked by a name rule (manifest and
 // all events); pass 2 also replaces those exact values in every walked string
 // (min length 6), so a token masked in a request URL reads the same in a cmd
@@ -483,6 +486,11 @@ function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewri
         d["size"] = nb.size;
       }
     }
+  } else if (kind === "download") {
+    // 0.9-D (docs/04 §48): the file stays out of the copy; the guid is Chrome's and the hash names content, not a value.
+    for (const k of ["file", "sha256", "guid", "redacted"]) own.add(k);
+    e["file"] = null;
+    e["redacted"] = true;
   } else if (kind === "state") {
     own.add("blob");
     if (isBlobRef(e["blob"])) {
@@ -581,7 +589,7 @@ export type RedactBundleResult = { out: string; saltFile: string; events: number
 
 /**
  * `tabcap bundle redact <in> <out>`: write a redacted copy. The copy has no raw/
- * (raw CDP is unredacted) and no exports/. `seq` values are preserved.
+ * (raw CDP is unredacted), no exports/ and no downloads/ (0.9-D). `seq` values are preserved.
  */
 export async function redactBundle(inDir: string, outDir: string, opts: Partial<RedactOptions> = {}): Promise<RedactBundleResult> {
   if (existsSync(outDir) && readdirSync(outDir).length > 0) {

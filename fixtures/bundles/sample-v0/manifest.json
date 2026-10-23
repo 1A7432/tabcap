@@ -30,7 +30,8 @@
     "requests": 3,
     "bodies": 0,
     "blobBytes": 0,
-    "bodyMissing": {}
+    "bodyMissing": {},
+    "downloads": 0
   },
   "redaction": null,
   "imported": null,

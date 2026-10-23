@@ -733,6 +733,8 @@ export type ManifestCounts = {
   bodies: number;
   blobBytes: number;
   bodyMissing: BodyMissingCounts;
+  /** 0.9-D (docs/04 §48): `download` events (completed and canceled); 0 in bundles written before. */
+  downloads: number;
 };
 
 export type Producer = {
