@@ -1154,7 +1154,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **值的检查**（页面里读出来的是不可信数据）：是整数且 100 ≤ 值 ≤ 599 才用，否则 `null`。`0`（about:blank、`chrome-error://` 错误页）、没有 navigation 记录、不是数字，都是 `null`。读的时候上下文没了（文档恰好又换了）按 `inWorld` 重试一次，仍失败就是 `null`：读不到状态码不让整条命令失败。
 - **语义**（【实测 spike-dp5 E1，CfT 155，与 `Network.responseReceived {type:"Document"}` 逐条对照】，`07` §1.1）：
   - 200 / 404 / 500 / 203 照实；302 → 200、302 → 404，同源与跨源重定向都是最后一跳的状态码（跨源重定向时 `redirectCount` 被隐藏为 0，状态码不受影响）。
-  - 页面脚本 `location.replace` 到 404：是回答时已经在的那个文档的状态码（就绪等待照现有规则）。
+  - 页面脚本 `location.replace` 到 404：是回答时已经在的那个文档的状态码（就绪等待照现有规则）。`url` / `title` / `readyState` 与 `status` 出自同一个文档：状态码与 `location.href` 在隔离世界里同一次读出，与就绪确认的 URL 不同时（替换恰好在两次读之间提交：`location.replace` 会取消旧文档还在加载的资源，它因此短暂变成 `complete`）重新确认再读，最多 3 次，始终对不上为 `null`（0.9-D 验收时补【实测：一次回答了 url `/s72/js` 配 `/s72/missing` 的 404】）。
   - 同文档导航（hash、`history.pushState`）不换文档，`status` 是当前文档原来的；`go back` 回到的文档是它自己的；`reload` 是重新加载那次的；bfcache 关着（tabcap 默认 `--disable-back-forward-cache`）。
   - `data:` URL 为 200（Chrome 这么报）；about:blank 为 `null`。
   - 204 与「导航变成下载」不提交新文档，`Page.navigate` 回 `net::ERR_ABORTED`：`navigate` 照旧报 `page` 错误（变成下载的那种按 §48 改回答），不会读到旧文档的状态码。连接被拒等网络错误照旧报 `page` 错误。
