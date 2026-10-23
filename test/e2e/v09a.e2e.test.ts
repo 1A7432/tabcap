@@ -54,7 +54,7 @@ describe.skipIf(!enabled)("tabcap 0.9-A L2 (navigation status on s72)", () => {
     removeHome(home, import.meta.file);
   });
 
-  test("1. navigate: 200, 404, 500, 203, redirect to 404, cross-origin redirect to 200, script replace to 404 — the last hop's status", async () => {
+  test("1. navigate: 200, 404, 500, 203, redirect to 404, cross-origin redirect to 200 — the last hop's status; script replace — url and status of one document", async () => {
     const cases: Array<[string, number]> = [
       [`${site.a}/s72/ok`, 200],
       [`${site.a}/s72/missing`, 404],
@@ -62,12 +62,28 @@ describe.skipIf(!enabled)("tabcap 0.9-A L2 (navigation status on s72)", () => {
       [`${site.a}/s72/partial`, 203],
       [`${site.a}/s72/moved`, 404],
       [`${site.a}/s72/away`, 200],
-      [`${site.a}/s72/js`, 404],
     ];
     for (const [url, status] of cases) {
       const ans = await hop(["navigate", url]);
       expect([url, ans["status"]]).toEqual([url, status]);
     }
+    // /s72/js replaces itself with /s72/missing from a page script. docs/04 §45: the answer is the document the
+    // tab shows when tabcap answers, and url and status come from that ONE document. Which one it is depends on
+    // when the replacement commits (location.replace cancels the old page's loads, so it turns `complete` for a
+    // moment; measured 0.9-D review: once url /s72/js came with the 404 of /s72/missing), so the oracle is the
+    // range's own log: the answered URL is one of the two documents it served, with the status it served for it.
+    const jsFrom = site.log.length;
+    const js = await ok("navigate", `${site.a}/s72/js`, ...S);
+    const until = Date.now() + 5000;
+    while (!site.log.slice(jsFrom).some((h) => h.path === "/s72/missing") && Date.now() < until) await Bun.sleep(50);
+    const served = site.log.slice(jsFrom).filter((h) => h.path === "/s72/js" || h.path === "/s72/missing");
+    expect(served).toEqual([
+      { origin: "a", path: "/s72/js", status: 200 },
+      { origin: "a", path: "/s72/missing", status: 404 },
+    ]);
+    const shown = served.find((h) => `${site.a}${h.path}` === js["url"]);
+    expect(shown).toBeDefined();
+    expect(js["status"]).toBe(shown?.status ?? -1);
     // the redirects really were followed by the browser: the range saw both hops
     const moved = site.log.filter((h) => h.path === "/s72/moved" || h.path === "/s72/away");
     expect(moved).toEqual([

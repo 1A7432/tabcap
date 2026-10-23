@@ -396,7 +396,7 @@
 ### s72 nav-status（P1；0.9-A，`04` §45）
 - 页面（`test/e2e/site.ts` 的 `startNavStatusSite`，两个源 A、B）：`/s72/ok` 200、`/s72/missing` 404、`/s72/boom` 500、`/s72/partial` 203、`/s72/moved` 302 → `/s72/missing`、`/s72/away` 302 → B 的 `/s72/ok`（跨源）、`/s72/js` 200 但脚本 `location.replace('/s72/missing')`（页面还挂着一张 2 s 才回的图 `/hold`，旧文档在替换提交前不会 `complete`，答复的就一定是 404 那份文档而不是靠时序；`/hold` 不在 `/s72/` 下，不进 oracle）、`/s72/empty` 204，`/s72/` 下其余路径 404，`/s72/forge` 见第 5 步。服务器按到达顺序记下每个请求的路径与它回的状态码（oracle）。
 - 走法与 expected（`test/e2e/v09a.e2e.test.ts`），不开录制：
-  1. 依次 `navigate` 到 ok / missing / boom / partial / moved / away / js：回答 `status` 依次为 200、404、500、203、404、200、404，每个都等于服务器为该次导航最后一跳记下的状态码；`url` 是最后一跳的 URL。
+  1. 依次 `navigate` 到 ok / missing / boom / partial / moved / away：回答 `status` 依次为 200、404、500、203、404、200，每个都等于服务器为该次导航最后一跳记下的状态码；`url` 是最后一跳的 URL。`navigate` 到 js：服务器依次记下 `/s72/js` 200 与 `/s72/missing` 404；回答的 `url` 是这两个之一（回答时标签上的那个文档，`04` §45），`status` 等于服务器为这个 URL 回的状态码（url 与 status 出自同一个文档）。（0.9-D 验收时改：原写「js 为 404」比 §45 严，替换提交的时机决定回答哪个文档；实测一次回答了 url `/s72/js` 配 404，即 url 与 status 出自两个文档，产品已改为同一次读取，见 NOTES 10-23。）
   2. 在 missing 上 `navigate …/s72/missing#x`（同文档）：`status` 404；`evaluate "history.pushState({}, '', '/s72/pushed')"` 后 `reload`：重新加载的是 `/s72/pushed`（靶场对未知路径回 404），`status` 404；`navigate /s72/ok` 再 `go back`：`status` 404。
   3. `navigate /s72/empty`：照旧回 `page` 错误（`net::ERR_ABORTED`），不带 `status`；之后 `tab list` 显示标签仍在上一页。
   4. `tab new <A>/s72/boom`：回答 `status` 500。`navigate about:blank`：`status` 为 `null`。

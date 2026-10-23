@@ -6,7 +6,7 @@
 
 ### 对照 DrissionPage 5.0 之后（0.9-A、0.9-B）
 
-- **导航回答带 `status`（0.9-A，docs/04 §45）。** `navigate`、`tab new`、`go`、`reload` 的回答多一个 `status`：标签上显示的那个主文档的 HTTP 状态码（重定向取最后一跳；`about:blank`、`chrome-error://` 页和读不到记录的文档为 `null`）。404 / 403 的页面照样加载、照样算就绪，以前要读页面文字或开录制才知道。值在就绪确认之后、在 tabcap 自己的隔离世界里读 `performance.getEntriesByType("navigation")[0].responseStatus`，只认 100–599 的整数，所以页面改不了它、不开 `Network` 域、不用 `net start`；读失败不让命令失败。同文档导航（`#hash`、`pushState`）沿用该文档原来的状态码；`click` / `press-key` 引起的导航不带 `status`（录制后看 `net list`）；204 与下载仍是 `page` 错误 `net::ERR_ABORTED`。文档：docs/04 §45、docs/05 s72（`test/e2e/v09a.e2e.test.ts`）、docs/07 §1.1（E1）。
+- **导航回答带 `status`（0.9-A，docs/04 §45）。** `navigate`、`tab new`、`go`、`reload` 的回答多一个 `status`：标签上显示的那个主文档的 HTTP 状态码，与它的 URL 同一次读出，所以页面脚本立刻替换自己时 `url`、`title` 与 `status` 也总是同一个文档的（重定向取最后一跳；`about:blank`、`chrome-error://` 页和读不到记录的文档为 `null`）。404 / 403 的页面照样加载、照样算就绪，以前要读页面文字或开录制才知道。值在就绪确认之后、在 tabcap 自己的隔离世界里读 `performance.getEntriesByType("navigation")[0].responseStatus`，只认 100–599 的整数，所以页面改不了它、不开 `Network` 域、不用 `net start`；读失败不让命令失败。同文档导航（`#hash`、`pushState`）沿用该文档原来的状态码；`click` / `press-key` 引起的导航不带 `status`（录制后看 `net list`）；204 与下载仍是 `page` 错误 `net::ERR_ABORTED`。文档：docs/04 §45、docs/05 s72（`test/e2e/v09a.e2e.test.ts`）、docs/07 §1.1（E1）。
 
 ### 审查后续的作者决定项（2026-10-22）
 

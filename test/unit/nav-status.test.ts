@@ -8,7 +8,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { Tabs, type Tab } from "../../src/daemon/browser/targets.ts";
-import { navStatusOf, readNavStatus } from "../../src/daemon/tools/navigate.ts";
+import { NAV_STATUS_TRIES, navStatusOf, readNavStatus, withNavStatus, type NavResult, type NavStatusRead } from "../../src/daemon/tools/navigate.ts";
+import type { PageState } from "../../src/daemon/transport/direct/ready.ts";
 import type { AttachedTarget, CdpParams, CdpResult, Transport } from "../../src/daemon/transport/types.ts";
 
 describe("navStatusOf: what a page's responseStatus may become", () => {
@@ -60,12 +61,16 @@ async function tabOf(t: Transport): Promise<Tab> {
 }
 
 const value = (v: unknown): CdpResult => ({ result: { type: "object", value: v } });
+const HREF = "http://127.0.0.1:1/s72/ok";
+/** What the page answers to the status read: its URL and the entry's status. */
+const page = (status: unknown, href: unknown = HREF): CdpResult => value({ href, status });
+const none: NavStatusRead = { href: null, status: null };
 
 describe("readNavStatus", () => {
   test("reads the entry in an isolated world of the root frame, not in the page's main world", async () => {
-    const f = fake(() => value(404));
+    const f = fake(() => page(404));
     const tab = await tabOf(f.t);
-    expect(await readNavStatus(f.t, tab)).toBe(404);
+    expect(await readNavStatus(f.t, tab)).toEqual({ href: HREF, status: 404 });
     const world = f.calls.find((c) => c.method === "Page.createIsolatedWorld");
     expect(world?.params["frameId"]).toBe("F1");
     const ev = f.calls.find((c) => c.method === "Runtime.evaluate");
@@ -73,25 +78,33 @@ describe("readNavStatus", () => {
     expect(ev?.params["returnByValue"]).toBe(true);
     expect(String(ev?.params["expression"])).toContain('getEntriesByType("navigation")');
     expect(String(ev?.params["expression"])).toContain("responseStatus");
+    expect(String(ev?.params["expression"])).toContain("location.href");
     expect(ev?.sessionId).toBe(tab.sessionId);
   });
 
   test("a value out of range, not a number, or absent is null", async () => {
     for (const v of [0, 99, 600, 299.5, "200", null, undefined, { responseStatus: 200 }]) {
-      const f = fake(() => value(v));
-      expect([String(v), await readNavStatus(f.t, await tabOf(f.t))]).toEqual([String(v), null]);
+      const f = fake(() => page(v));
+      expect([String(v), await readNavStatus(f.t, await tabOf(f.t))]).toEqual([String(v), { href: HREF, status: null }]);
     }
+    // not an object, or a URL that is not a string: nothing usable
+    for (const v of [200, null, "x"]) {
+      const f = fake(() => value(v));
+      expect(await readNavStatus(f.t, await tabOf(f.t))).toEqual(none);
+    }
+    const odd = fake(() => page(200, 42));
+    expect(await readNavStatus(odd.t, await tabOf(odd.t))).toEqual({ href: null, status: 200 });
     const f = fake(() => ({ result: { type: "undefined" } }));
-    expect(await readNavStatus(f.t, await tabOf(f.t))).toBeNull();
+    expect(await readNavStatus(f.t, await tabOf(f.t))).toEqual(none);
   });
 
   test("a vanished context is made again and the read retried once", async () => {
     const f = fake((_p, n) => {
       if (n === 1) throw new Error(STALE);
-      return value(503);
+      return page(503);
     });
     const tab = await tabOf(f.t);
-    expect(await readNavStatus(f.t, tab)).toBe(503);
+    expect(await readNavStatus(f.t, tab)).toEqual({ href: HREF, status: 503 });
     expect(f.calls.filter((c) => c.method === "Page.createIsolatedWorld")).toHaveLength(2);
   });
 
@@ -99,29 +112,83 @@ describe("readNavStatus", () => {
     const stale = fake(() => {
       throw new Error(STALE);
     });
-    expect(await readNavStatus(stale.t, await tabOf(stale.t))).toBeNull();
+    expect(await readNavStatus(stale.t, await tabOf(stale.t))).toEqual(none);
     expect(stale.calls.filter((c) => c.method === "Runtime.evaluate")).toHaveLength(2);
 
     const thrown = fake(() => ({ exceptionDetails: { text: "Uncaught", exception: { description: "TypeError: boom" } } }));
-    expect(await readNavStatus(thrown.t, await tabOf(thrown.t))).toBeNull();
+    expect(await readNavStatus(thrown.t, await tabOf(thrown.t))).toEqual(none);
 
     const noTree = fake(
-      () => value(200),
+      () => page(200),
       () => {
         throw new Error("Page.getFrameTree: target closed");
       },
     );
-    expect(await readNavStatus(noTree.t, await tabOf(noTree.t))).toBeNull();
+    expect(await readNavStatus(noTree.t, await tabOf(noTree.t))).toEqual(none);
 
-    const emptyTree = fake(() => value(200), () => ({}));
-    expect(await readNavStatus(emptyTree.t, await tabOf(emptyTree.t))).toBeNull();
+    const emptyTree = fake(() => page(200), () => ({}));
+    expect(await readNavStatus(emptyTree.t, await tabOf(emptyTree.t))).toEqual(none);
   });
 
   test("another error than a vanished context is not retried", async () => {
     const f = fake(() => {
       throw new Error("Runtime.evaluate: Execution was terminated");
     });
-    expect(await readNavStatus(f.t, await tabOf(f.t))).toBeNull();
+    expect(await readNavStatus(f.t, await tabOf(f.t))).toEqual(none);
     expect(f.calls.filter((c) => c.method === "Runtime.evaluate")).toHaveLength(1);
+  });
+});
+
+describe("withNavStatus: url, title, readyState and status from one document", () => {
+  const A = "http://127.0.0.1:1/s72/js";
+  const B = "http://127.0.0.1:1/s72/missing";
+  const confirmed: NavResult = { tab: "t1", url: A, title: "js", readyState: "complete", nav: "n-1" };
+  const stateB: PageState = { href: B, readyState: "complete", title: "missing" };
+  function io(reads: NavStatusRead[], confirms: Array<PageState | null>) {
+    const calls = { read: 0, confirm: 0 };
+    return {
+      calls,
+      io: {
+        read: async () => reads[calls.read++] ?? none,
+        confirm: async () => confirms[calls.confirm++] ?? null,
+        navOf: () => `n-${calls.confirm + 1}`,
+      },
+    };
+  }
+
+  test("the status read sees the confirmed URL: one read, the answer unchanged plus status", async () => {
+    const x = io([{ href: A, status: 200 }], []);
+    expect(await withNavStatus(confirmed, x.io)).toEqual({ ...confirmed, status: 200 });
+    expect(x.calls).toEqual({ read: 1, confirm: 0 });
+  });
+
+  test("measured race (0.9-D review): confirmed /s72/js, the status read already on /s72/missing → confirm again, answer the 404 document", async () => {
+    const x = io([{ href: B, status: 404 }, { href: B, status: 404 }], [stateB]);
+    expect(await withNavStatus(confirmed, x.io)).toEqual({ tab: "t1", url: B, title: "missing", readyState: "complete", nav: "n-2", status: 404 });
+    expect(x.calls).toEqual({ read: 2, confirm: 1 });
+  });
+
+  test("never the same document within the tries: status null, the last confirmed state", async () => {
+    const reads = Array.from({ length: NAV_STATUS_TRIES }, (_, i) => ({ href: `http://127.0.0.1:1/r${i}`, status: 200 }));
+    const confirms = Array.from({ length: NAV_STATUS_TRIES }, (_, i) => ({ href: `http://127.0.0.1:1/c${i}`, readyState: "complete", title: `c${i}` }));
+    const x = io(reads, confirms);
+    const r = await withNavStatus(confirmed, x.io);
+    expect(r.status).toBeNull();
+    expect(r.url).toBe(`http://127.0.0.1:1/c${NAV_STATUS_TRIES - 1}`);
+    expect(x.calls).toEqual({ read: NAV_STATUS_TRIES, confirm: NAV_STATUS_TRIES });
+  });
+
+  test("an unreadable status read is retried after a fresh confirmation; a page that no longer answers: null", async () => {
+    const x = io([none, { href: A, status: 500 }], [{ href: A, readyState: "complete", title: "js" }]);
+    expect((await withNavStatus(confirmed, x.io)).status).toBe(500);
+    const y = io([none], [null]);
+    expect(await withNavStatus(confirmed, y.io)).toEqual({ ...confirmed, status: null });
+    expect(y.calls).toEqual({ read: 1, confirm: 1 });
+  });
+
+  test("a hash or pushState URL is compared as is (both reads see the same location.href)", async () => {
+    const hashed = { ...confirmed, url: `${B}#x` };
+    const x = io([{ href: `${B}#x`, status: 404 }], []);
+    expect((await withNavStatus(hashed, x.io)).status).toBe(404);
   });
 });

@@ -11,7 +11,7 @@ import { DEFAULT_COMMAND_TIMEOUT_MS, type NavType, type Tab } from "../browser/t
 import { inWorld, rootDoc } from "../browser/worlds.ts";
 import { protectionField } from "../protection/live.ts";
 import type { Daemon } from "../state.ts";
-import { confirmState, startReadyWait } from "../transport/direct/ready.ts";
+import { confirmState, startReadyWait, type PageState } from "../transport/direct/ready.ts";
 import type { Transport } from "../transport/types.ts";
 import { checkSessionName, optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { withPostWait } from "./settle.ts";
@@ -25,21 +25,56 @@ export function navStatusOf(v: unknown): number | null {
   return typeof v === "number" && Number.isInteger(v) && v >= 100 && v <= 599 ? v : null;
 }
 
-/** In tabcap's isolated world, so the page can neither rewrite `performance` for it nor see the call. */
-const NAV_STATUS_EXPR = '(() => { const e = performance.getEntriesByType("navigation")[0]; return e === undefined ? null : e.responseStatus; })()';
+/**
+ * In tabcap's isolated world, so the page can neither rewrite `performance` for it nor see the call.
+ * The URL comes from the same read: the status belongs to the document at that URL.
+ */
+const NAV_STATUS_EXPR = '(() => { const e = performance.getEntriesByType("navigation")[0]; return { href: location.href, status: e === undefined ? null : e.responseStatus }; })()';
+
+/** One read of the main document: its URL and its status (null: unreadable or no valid status). */
+export type NavStatusRead = { href: string | null; status: number | null };
 
 /**
- * The HTTP status of the main document the tab shows now, read after the readiness
- * confirmation. Never throws: a document that cannot be read (it changed under the
- * read twice, the tab went away) is null, and the command still answers.
+ * The URL and HTTP status of the main document the tab shows now. Never throws: a
+ * document that cannot be read (it changed under the read twice, the tab went away)
+ * gives nulls, and the command still answers.
  */
-export async function readNavStatus(t: Transport, tab: Tab): Promise<number | null> {
+export async function readNavStatus(t: Transport, tab: Tab): Promise<NavStatusRead> {
   try {
     const doc = rootDoc(tab, await docIdentity(t, tab));
-    return await inWorld(t, tab, doc, async (ctx) => navStatusOf(callResult(await t.send("Runtime.evaluate", { expression: NAV_STATUS_EXPR, contextId: ctx, returnByValue: true }, tab.sessionId, 5000))));
+    const v = await inWorld(t, tab, doc, async (ctx) => callResult(await t.send("Runtime.evaluate", { expression: NAV_STATUS_EXPR, contextId: ctx, returnByValue: true }, tab.sessionId, 5000)));
+    if (!isRecord(v)) return { href: null, status: null };
+    return { href: typeof v["href"] === "string" ? v["href"] : null, status: navStatusOf(v["status"]) };
   } catch {
-    return null;
+    return { href: null, status: null };
   }
+}
+
+/** How often `withNavStatus` reads again when the document changed between the readiness confirmation and the status read. */
+export const NAV_STATUS_TRIES = 3;
+
+/**
+ * The answer's `url` / `title` / `readyState` and its `status` from ONE document. A page
+ * script can replace the document right after the readiness confirmation (`location.replace`
+ * cancels the old document's pending loads, so it turns `complete` for a moment): the status
+ * read then sees another URL than the one confirmed. Then the state is confirmed again and the
+ * status read again, at most NAV_STATUS_TRIES times; `status` is null when they never agree.
+ * Measured 0.9-D review (10-23): `navigate /s72/js` once answered url /s72/js with the 404 of
+ * the /s72/missing it replaced itself with.
+ */
+export async function withNavStatus(
+  r: NavResult,
+  io: { read: () => Promise<NavStatusRead>; confirm: () => Promise<PageState | null>; navOf: () => string | null },
+): Promise<NavResult & { status: number | null }> {
+  let cur = r;
+  for (let i = 0; i < NAV_STATUS_TRIES; i++) {
+    const s = await io.read();
+    if (s.href !== null && s.href === cur.url) return { ...cur, status: s.status };
+    const st = await io.confirm();
+    if (st === null) break;
+    cur = { ...cur, url: st.href, title: st.title, readyState: st.readyState, nav: io.navOf() };
+  }
+  return { ...cur, status: null };
 }
 
 /**
@@ -53,10 +88,12 @@ async function settled(d: Daemon, t: Transport, tab: Tab, a: Args, nav: () => Pr
     t,
     tab,
     optBool(a, "noWait"),
-    async () => {
-      const r = await nav();
-      return { ...r, status: await readNavStatus(t, tab) };
-    },
+    async () =>
+      withNavStatus(await nav(), {
+        read: () => readNavStatus(t, tab),
+        confirm: () => confirmState(t, tab.sessionId, 2000),
+        navOf: () => d.navOf(tab),
+      }),
     { navigationDone: true },
   );
   return { ...result, wait, ...(await protectionField(d, t, tab)) };
