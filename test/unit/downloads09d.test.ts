@@ -15,7 +15,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { storeDownload } from "../../src/bundle/downloads.ts";
 import { exportHar } from "../../src/bundle/har.ts";
 import { BundleReader } from "../../src/bundle/reader.ts";
@@ -154,7 +154,7 @@ describe("0.9-D helpers", () => {
     const second = openStaging(root);
     expect(second).not.toBe(first);
     expect(existsSync(first)).toBe(false);
-    expect(readdirSync(root).sort()).toEqual(["keep.txt", second.split("/").pop() ?? ""].sort());
+    expect(readdirSync(root).sort()).toEqual(["keep.txt", basename(second)].sort());
     if (process.platform !== "win32") {
       expect(mode(root)).toBe("700");
       expect(mode(second)).toBe("700");

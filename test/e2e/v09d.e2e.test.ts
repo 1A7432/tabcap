@@ -151,9 +151,10 @@ describe.skipIf(!enabled)("tabcap 0.9-D L2 (s75 downloads)", () => {
       expect(sha(bytes)).toBe(w.sha());
       expect(got["sha256"]).toBe(w.sha());
       expect(got["bytes"]).toBe(bytes.length);
-      expect((statSync(file).mode & 0o777).toString(8)).toBe("600");
+      // POSIX permission bits; Windows reports 666 / 777 (other tests guard them the same way)
+      if (process.platform !== "win32") expect((statSync(file).mode & 0o777).toString(8)).toBe("600");
     }
-    expect((statSync(join(bundle, "downloads")).mode & 0o777).toString(8)).toBe("700");
+    if (process.platform !== "win32") expect((statSync(join(bundle, "downloads")).mode & 0o777).toString(8)).toBe("700");
     const list = await ok("download", "list", ...S);
     expect(list).toMatchObject({ recording: true, total: 4 });
     expect(recs(list["downloads"]).map((x) => [x["suggestedFilename"], x["state"], x["tab"]])).toEqual(want.map((w) => [w.name, "completed", "t1"]));
