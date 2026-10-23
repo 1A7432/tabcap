@@ -62,7 +62,7 @@ A challenge (an HTML 403 "please verify" page while `net start` records) or the 
 ## Cheat-sheet
 
 ```sh
-tabcap navigate <url>                       # opens the session's background tab
+tabcap navigate <url>                       # background tab; answer has status (HTTP code)
 tabcap snapshot --interactive               # controls with refs; find <text> for one element
 tabcap click e4 --snapshot                  # waits for navigation + quiet DOM
 tabcap fill e2 alice                        # type <text> for the focused element

@@ -132,7 +132,7 @@ exports[`tools/list --all-tools: generated from the command table tool names (sn
 
 exports[`tools/list --all-tools: generated from the command table navigate's inputSchema (snapshot) 1`] = `
 {
-  "description": "load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav",
+  "description": "load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav, status (the HTTP status of the main document the tab shows, the last hop of a redirect; null for about:blank and error pages)",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {

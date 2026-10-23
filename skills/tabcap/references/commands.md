@@ -266,7 +266,7 @@ Example: `tabcap tab select t2`
 
 ### `tabcap tab new`
 
-open a new tab in the session, load a URL and make it the current tab (same as navigate --new-tab)
+open a new tab in the session, load a URL and make it the current tab (same as navigate --new-tab; the answer has status too)
 
 ```
 tabcap tab new <url> [--session name] [--timeout ms] [--background] [--no-wait]
@@ -293,7 +293,7 @@ Example: `tabcap tab close t2`
 
 ### `tabcap navigate`
 
-load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav
+load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav, status (the HTTP status of the main document the tab shows, the last hop of a redirect; null for about:blank and error pages)
 
 ```
 tabcap navigate <url> [--session name] [--timeout ms] [--tab t2] [--new-tab] [--no-wait]
@@ -309,7 +309,7 @@ Example: `tabcap navigate http://127.0.0.1:8080/ --session example`
 
 ### `tabcap go`
 
-history back / forward, waits until ready and the DOM is quiet
+history back / forward, waits until ready and the DOM is quiet; the answer has status of the document it lands on
 
 ```
 tabcap go back|forward [--session name] [--timeout ms] [--tab t2] [--no-wait]
@@ -324,7 +324,7 @@ Example: `tabcap go back`
 
 ### `tabcap reload`
 
-reload the current tab, waits until ready and the DOM is quiet
+reload the current tab, waits until ready and the DOM is quiet; the answer has status of the reloaded document
 
 ```
 tabcap reload [--session name] [--timeout ms] [--tab t2] [--ignore-cache] [--no-wait]
