@@ -23,6 +23,16 @@
 // §28). The original body is never changed. A plugin disabled after repeated
 // failures gets a `note` event. 0.7-E: the plugin set is read per body, so a
 // plugin enabled while the recording runs applies to the next body.
+// Streaming responses (0.9-C, docs/04 §47): a text/event-stream or
+// application/x-ndjson response is continued at the Response stage at once,
+// without Fetch.getResponseBody (which only answers once the stream ended, so
+// the page got nothing before: 0.8.1 buffered every stream it recorded), and
+// read as it arrives with Network.streamResourceContent (stream.ts). A stream
+// that ends normally is written from those bytes; one cut short (loadingFailed,
+// a navigation commit, stop, tab close) keeps what arrived, `response.body.partial`.
+// A text/event-stream body becomes one `sse` event per message right after its
+// `request` event (shared/sse.ts). If the command fails, the old rule applies:
+// Network.getResponseBody on loadingFinished.
 
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
@@ -64,7 +74,9 @@ import {
   requestTiming,
   resourceType,
 } from "./cdpnet.ts";
-import { framePayload, WsBook, type WsConn } from "./ws.ts";
+import { framePayload, WS_INLINE_MAX, WsBook, type WsConn } from "./ws.ts";
+import { StreamBody } from "./stream.ts";
+import { isEventStream, isStreamingType, parseEventStream, type ByteSpan, type SseMessage } from "../../shared/sse.ts";
 import { cookieArray, cookieStateFields, navCookieParams, navWantsCookies, stateOrigin, type StateReason } from "./cookies.ts";
 import { continueHeaders, initiatorMatch, markerOf, withoutMarker, type FetchReg } from "./fetchmark.ts";
 import type { FetchCredentials } from "../fetch/spec.ts";
@@ -120,6 +132,8 @@ export type NetEntry = {
   decoded?: { by: string; version: string; mime: string | null; blob: string; bytes: number };
   /** 0.6-I: the body was not stored because of `net start --bodies` (`response.body.skipped`). */
   bodySkipped?: string;
+  /** 0.9-C: a streaming response that did not end normally; the body is what arrived (`response.body.partial`). */
+  partial?: true;
   /** Daemon clock when the event was written. */
   at: number;
 };
@@ -144,6 +158,27 @@ export type WsFrameEntry = {
   /** Inline payload as stored in the event (text, or base64 for opcode 2). */
   inline: string | null;
   reason: string | null;
+};
+
+/** One `sse` event of the recording (0.9-C, docs/04 §47), for `net list --kind sse` / `net body` / `net show`. */
+export type SseEntry = {
+  /** `<request id>:<event seq>`, e.g. `r-12:34`. */
+  id: string;
+  request: string;
+  seq: number;
+  /** Daemon tab id. */
+  tab: string;
+  url: string;
+  index: number;
+  event: string;
+  lastEventId: string;
+  retry: number | null;
+  /** UTF-8 bytes of the message data. */
+  size: number;
+  ts: number;
+  at: number | null;
+  blob: string | null;
+  inline: string | null;
 };
 
 type Pending = {
@@ -250,6 +285,8 @@ export class Recorder {
   readonly cmdStarts = new Map<string, number>();
   readonly index: NetEntry[] = [];
   readonly frames: WsFrameEntry[] = [];
+  /** 0.9-C: the `sse` events written so far, in order. */
+  readonly sse: SseEntry[] = [];
   private ws = new WsBook();
   /** Keeps `ws` events in CDP order even when a large payload goes to a blob first. */
   private wsChain: Promise<void> = Promise.resolve();
@@ -264,6 +301,8 @@ export class Recorder {
   private extraReq = new Map<string, Headers>();
   private extraResp = new Map<string, Headers>();
   private fetched = new Map<string, FetchedBody>();
+  /** 0.9-C: streaming responses being read as they arrive, by request key. */
+  private streams = new Map<string, StreamBody>();
   private unreadTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private inflight = new Set<Promise<void>>();
   private offs: Array<() => void> = [];
@@ -510,9 +549,14 @@ export class Recorder {
         q.response = isRecord(p["response"]) ? p["response"] : null;
         q.responseMono = msOf(num(p, "timestamp"));
         q.type = resourceType(p["type"]);
-        this.armUnread(key, q);
+        // 0.9-C: a streaming response is read as it arrives; rule 9 (the Fetch body of an unread response) never applies to it.
+        if (q.response !== null && isStreamingType(str(q.response, "mimeType"))) this.streamStart(key, q);
+        else this.armUnread(key, q);
         return;
       }
+      case "Network.dataReceived":
+        this.streams.get(key)?.data(p, msOf(num(p, "timestamp")));
+        return;
       case "Network.loadingFinished": {
         const q = this.pending.get(key);
         if (q === undefined) return;
@@ -531,7 +575,16 @@ export class Recorder {
           canceled: p["canceled"] === true,
           blockedReason: str(p, "blockedReason"),
         };
-        this.track(this.write(q, { outcome: "failed", endMono: msOf(num(p, "timestamp")), body: null, missing: { reason: "failed", detail: error.text }, error }));
+        const endMono = msOf(num(p, "timestamp"));
+        const missing = { reason: "failed" as const, detail: error.text };
+        const stream = this.streams.get(key);
+        if (stream === undefined) {
+          this.track(this.write(q, { outcome: "failed", endMono, body: null, missing, error }));
+          return;
+        }
+        // 0.9-C: what arrived of a stream cut short is kept (partial).
+        this.streams.delete(key);
+        this.track(stream.ready.then(() => this.write(q, { outcome: "failed", endMono, error, ...cutShort(stream, missing) })));
         return;
       }
       case "Fetch.requestPaused":
@@ -916,6 +969,9 @@ export class Recorder {
       return;
     }
     try {
+      // 0.9-C (docs/04 §47): a streaming response goes on at once (the finally below); Fetch.getResponseBody
+      // would only answer once the stream ended, and the page would get nothing until then.
+      if (isStreamingType(pausedHeader(p["responseHeaders"], "content-type"))) return;
       if (p["resourceType"] === "Document" && tab !== undefined && str(p, "frameId") === tab.targetId) {
         const until = performance.now() + DOC_HOLD_MS;
         while (this.oldDocBusy(sid, networkId) && performance.now() < until) await Bun.sleep(2);
@@ -957,12 +1013,22 @@ export class Recorder {
     const pre = status === null ? null : noBodyReason(q.method, status);
     const viaFetch = this.fetched.get(q.key);
     this.fetched.delete(q.key);
+    const stream = this.streams.get(q.key);
+    this.streams.delete(q.key);
+    if (stream !== undefined) await stream.ready;
+    // 0.9-C: a stream read as it arrived is written from those bytes (same as Network.getResponseBody, one round trip less).
+    const streamed = stream === undefined ? null : stream.bytes();
+    let spans: ByteSpan[] | null = null;
     let skipped = false;
     if (pre !== null) missing = { reason: pre, detail: null };
     else if (q.type === "websocket") missing = { reason: "unsupported", detail: "websocket handshake has no body" };
     // 0.6-I: a body the --bodies mode skips is never asked from Chrome.
     else if (!keepsBody(this.bodies, q.type)) skipped = true;
-    else if (viaFetch !== undefined) body = viaFetch.bytes;
+    else if (stream !== undefined && stream.tooLarge) missing = tooLarge(stream);
+    else if (stream !== undefined && streamed !== null) {
+      body = streamed;
+      spans = stream.spans();
+    } else if (viaFetch !== undefined) body = viaFetch.bytes;
     else {
       try {
         const r = await this.t.send("Network.getResponseBody", { requestId: q.requestId }, q.sessionId, 20_000);
@@ -973,7 +1039,7 @@ export class Recorder {
         missing = { reason: bodyErrorReason(msg, commit !== undefined && commit > q.startedLocal, q.tab.closed), detail: msg };
       }
     }
-    await this.write(q, { outcome: "finished", endMono, body, missing, error: null, skipped });
+    await this.write(q, { outcome: "finished", endMono, body, missing, error: null, skipped, spans });
   }
 
   private async write(
@@ -987,21 +1053,27 @@ export class Recorder {
       unreadByPage?: boolean;
       /** 0.6-I: the --bodies mode skips this body (finishOk did not ask for it). */
       skipped?: boolean;
+      /** 0.9-C: the body is what arrived of a stream that did not end normally. */
+      partial?: true;
+      /** 0.9-C: when the body's bytes arrived (a stream read as it arrived); null / absent: unknown. */
+      spans?: ByteSpan[] | null;
     },
   ): Promise<void> {
-    let bodyRef: { blob: string; size: number } | null = null;
+    let bodyRef: { blob: string; size: number; partial?: true } | null = null;
     let missing = o.missing;
     // 0.6-I: a body Fetch rescued (navigation, unread by the page) is dropped too when the mode skips its type.
     const skipped = o.skipped === true || (o.body !== null && !keepsBody(this.bodies, q.type));
     if (skipped) missing = null;
     else if (o.body !== null) {
       const put = await this.writer.putBlob(o.body);
-      if (put.outcome === "stored") bodyRef = { blob: put.ref, size: put.size };
+      if (put.outcome === "stored") bodyRef = { blob: put.ref, size: put.size, ...(o.partial === true ? { partial: true as const } : {}) };
       else missing = { reason: "too-large", detail: `${put.size} bytes > ${put.cap}` };
     }
     const { postData, postDataMissing, post } = await this.postOf(q);
     if (q.redirectPending !== null) q.redirectFrom = await q.redirectPending;
     const decoded = await this.decodeBodies(q, post, postData !== null, o.body !== null && bodyRef !== null ? o.body : null);
+    // 0.9-C: the messages of a stored event stream body, large data in blobs first (docs/04 §47).
+    const messages = o.body !== null && bodyRef !== null && q.response !== null && isEventStream(str(q.response, "mimeType")) ? await this.sseMessages(o.body, o.spans ?? null) : [];
     if (this.writerClosed) return;
     const ev = this.buildEvent(q, {
       outcome: o.outcome,
@@ -1019,7 +1091,52 @@ export class Recorder {
     });
     this.extraReq.delete(q.key);
     this.extraResp.delete(q.key);
-    this.appendRequest(q, ev, missing?.reason ?? null);
+    this.appendRequest(q, ev, missing?.reason ?? null, messages.length === 0 ? undefined : (id) => this.appendSse(q, id, ev.ts, messages));
+  }
+
+  /** 0.9-C: parse an event stream body into messages; data over WS_INLINE_MAX bytes goes to a blob (docs/04 §47). */
+  private async sseMessages(body: Uint8Array, spans: ByteSpan[] | null): Promise<SseOut[]> {
+    const out: SseOut[] = [];
+    for (const m of parseEventStream(body, spans)) {
+      const bytes = new TextEncoder().encode(m.data);
+      let data: InlineOrBlob = { inline: m.data };
+      if (bytes.length > WS_INLINE_MAX) {
+        // A message is part of a body already stored under the same cap, so the blob is never refused; inline if it were.
+        const put = await this.writer.putBlob(bytes);
+        if (put.outcome === "stored") data = { blob: put.ref, size: put.size };
+      }
+      out.push({ m, data, size: bytes.length });
+    }
+    return out;
+  }
+
+  /**
+   * 0.9-C: the `sse` events of request `id`, written right after it (docs/04 §47):
+   * envelope mono = `at`, ts from `at` on the request's clock (else the request's
+   * ts), actor / cmd / nav the request's.
+   */
+  private appendSse(q: Pending, id: string, requestTs: number, messages: SseOut[]): void {
+    const tab = this.bundleTab.get(q.tab.id) ?? null;
+    for (const { m, data, size } of messages) {
+      const ts = m.at !== null && q.wallTs !== null && q.startMono !== null ? Math.round((q.wallTs + (m.at - q.startMono)) * 1000) / 1000 : requestTs;
+      const stored = this.put({ ts, mono: m.at, kind: "sse", actor: q.actor, tab, cmd: q.fetchCmd ?? q.cmd, sse: id, nav: q.nav, index: m.index, event: m.event, id: m.id, retry: m.retry, data, at: m.at });
+      this.sse.push({
+        id: `${id}:${stored.seq}`,
+        request: id,
+        seq: stored.seq,
+        tab: q.tab.id,
+        url: q.url,
+        index: m.index,
+        event: m.event,
+        lastEventId: m.id,
+        retry: m.retry,
+        size,
+        ts,
+        at: m.at,
+        blob: "blob" in data ? data.blob : null,
+        inline: "inline" in data ? data.inline : null,
+      });
+    }
   }
 
   /** The request body of `q` as the bundle stores it (docs/04 §5.2): inline up to INLINE_POST_MAX, else a blob. */
@@ -1131,7 +1248,7 @@ export class Recorder {
     o: {
       outcome: "finished" | "failed" | "incomplete";
       endMono: number | null;
-      body: { blob: string; size: number } | null;
+      body: { blob: string; size: number; partial?: true } | null;
       missing: { reason: BodyMissingReason; detail: string | null } | null;
       error: { text: string; canceled: boolean; blockedReason: string | null } | null;
       extraReq: Headers | null;
@@ -1174,7 +1291,14 @@ export class Recorder {
             ? { skipped: SKIPPED_REASON }
             : o.body === null
               ? null
-              : { blob: o.body.blob, size: o.body.size, base64: false, wireEncoding: headerValue(respH.headers, "content-encoding"), truncated: false },
+              : {
+                  blob: o.body.blob,
+                  size: o.body.size,
+                  base64: false,
+                  wireEncoding: headerValue(respH.headers, "content-encoding"),
+                  truncated: false,
+                  ...(o.body.partial === true ? { partial: true as const } : {}),
+                },
         bodyMissing: o.body === null && o.skipped !== true ? (o.missing ?? { reason: "unsupported", detail: null }) : null,
         ...(o.decoded?.response === null || o.decoded?.response === undefined ? {} : { decoded: o.decoded.response }),
       };
@@ -1212,16 +1336,19 @@ export class Recorder {
       timing: { ...requestTiming(q.startMono, q.responseMono, end, r === null ? null : r["timing"]), cdp: r !== null && isRecord(r["timing"]) ? r["timing"] : null },
       outcome: o.outcome,
       error: o.error,
-      // Incomplete requests whose body was still rescued by Fetch keep it; mark where it came from.
-      ...(o.outcome === "incomplete" && o.body !== null && o.skipped !== true ? { bodySource: "fetch" } : {}),
+      // Incomplete requests whose body was still rescued by Fetch keep it; mark where it came from
+      // (0.9-C: not the part of a stream that arrived, `body.partial`).
+      ...(o.outcome === "incomplete" && o.body !== null && o.body.partial !== true && o.skipped !== true ? { bodySource: "fetch" } : {}),
       // docs/04 §5.2 rule 9: finished from the Fetch body, the page never read it (no loadingFinished).
       ...(o.unreadByPage === true ? (o.skipped === true ? { unreadByPage: true } : { bodySource: "fetch", unreadByPage: true }) : {}),
     };
   }
 
-  private appendRequest(q: Pending, ev: RequestDraft, reason: string | null = null): string {
+  private appendRequest(q: Pending, ev: RequestDraft, reason: string | null = null, after?: (id: string) => void): string {
     const stored = this.put((seq) => ({ ...ev, id: `r-${seq}` }));
     const id = `r-${stored.seq}`;
+    // 0.9-C: the request's `sse` events follow it directly, before the index and its listeners (net wait) hear of it.
+    after?.(id);
     const resp = isRecord(stored["response"]) ? stored["response"] : null;
     const body = resp !== null && isRecord(resp["body"]) ? resp["body"] : null;
     const missing = resp !== null && isRecord(resp["bodyMissing"]) ? str(resp["bodyMissing"], "reason") : null;
@@ -1241,6 +1368,7 @@ export class Recorder {
       blob: body === null ? null : str(body, "blob"),
       bodyMissing: missing ?? (body === null ? reason : null),
       ...(skipped === null ? {} : { bodySkipped: skipped }),
+      ...(body !== null && body["partial"] === true ? { partial: true as const } : {}),
       cmd: typeof stored["cmd"] === "string" ? stored["cmd"] : null,
       at: Date.now(),
       ...(stored["unreadByPage"] === true ? { unreadByPage: true } : {}),
@@ -1285,17 +1413,45 @@ export class Recorder {
         const viaFetch = this.fetched.get(key);
         this.fetched.delete(key);
         if (q.response === null && viaFetch !== undefined) q.response = viaFetch.response;
+        // 0.9-C: a stream still open keeps what arrived (partial), read after the grace like a rescued body.
+        const stream = this.streams.get(key);
+        this.streams.delete(key);
+        if (stream !== undefined) await stream.ready;
+        const cut = stream === undefined ? null : cutShort(stream, { reason, detail: null });
+        const body =
+          cut !== null && (cut.body !== null || viaFetch === undefined)
+            ? cut
+            : { body: viaFetch?.bytes ?? null, missing: viaFetch === undefined ? { reason, detail: null } : null };
         // One failed write must not drop the rest of the batch.
         await this.write(q, {
           outcome: "incomplete",
           endMono: null,
-          body: viaFetch?.bytes ?? null,
-          missing: viaFetch === undefined ? { reason, detail: null } : null,
           error: null,
+          ...body,
         }).catch((e: unknown) => log.error("recorder: write failed", { request: q.url, error: String(e) }));
       }
     };
     this.track(writeAll());
+  }
+
+  /**
+   * 0.9-C (docs/04 §47): read a streaming response as it arrives. The answer of
+   * Network.streamResourceContent is what came before, every later
+   * dataReceived carries the rest (stream.ts). A failure (Chrome without the
+   * command, the request already over) is logged; the body is then read the
+   * old way at loadingFinished. A body the --bodies mode skips is not asked for.
+   */
+  private streamStart(key: string, q: Pending): void {
+    if (!keepsBody(this.bodies, q.type) || this.streams.has(key)) return;
+    const stream = new StreamBody(this.writer.blobs.sizeCap);
+    this.streams.set(key, stream);
+    stream.ready = this.t.send("Network.streamResourceContent", { requestId: q.requestId }, q.sessionId, 10_000).then(
+      (r) => stream.started(r),
+      (e: unknown) => {
+        stream.failed();
+        log.warn("recorder: Network.streamResourceContent failed; the body is read when the response ends", { request: q.url, error: String(e) });
+      },
+    );
   }
 
   /** docs/04 §5.2 rule 9: check this request again `unreadAfterMs` after its response. */
@@ -1573,6 +1729,7 @@ export class Recorder {
       if (c.handshake === null && tab !== undefined) this.writeHandshake(c, c.key.split("|")[0] ?? "", tab, "incomplete", null, "stopped");
     }
     while (this.inflight.size > 0 && Date.now() < deadline) await Promise.race([...this.inflight, Bun.sleep(200)]);
+    this.streams.clear();
     // docs/04 §4.1: the last cookie snapshot, while the tabs' sessions still answer.
     for (const tab of this.opts.tabs.sessionTabs(this.session)) await this.cookieState(tab, "session-stop");
     this.stopping = true;
@@ -1632,4 +1789,40 @@ function isFinalFetch(r: FetchRecord): boolean {
 
 function msOf(seconds: number | null): number | null {
   return seconds === null ? null : monotonicToMono(seconds);
+}
+
+/** 0.9-C: one parsed SSE message ready to write, its data inline or in a blob. */
+type SseOut = { m: SseMessage; data: InlineOrBlob; size: number };
+
+/** The first value of a header in Fetch.requestPaused `responseHeaders` ([{name, value}], untrusted), by lowercase name. */
+function pausedHeader(list: unknown, name: string): string | null {
+  if (!Array.isArray(list)) return null;
+  for (const h of list) {
+    if (!isRecord(h)) continue;
+    const n = str(h, "name");
+    const v = str(h, "value");
+    if (n !== null && v !== null && n.toLowerCase() === name) return v;
+  }
+  return null;
+}
+
+/** 0.9-C: a stream past the blob cap (docs/04 §5.2 rule 4): nothing kept. */
+function tooLarge(stream: StreamBody): { reason: BodyMissingReason; detail: string } {
+  return { reason: "too-large", detail: `${stream.received} bytes > ${stream.cap}` };
+}
+
+/**
+ * 0.9-C (docs/04 §47): the body of a stream that did not end normally: the
+ * bytes that arrived, `partial`, with their arrival spans; nothing arrived (or
+ * it was never read as it arrived) → `missing`, the old rule; past the cap →
+ * too-large.
+ */
+function cutShort(
+  stream: StreamBody,
+  missing: { reason: BodyMissingReason; detail: string | null },
+): { body: Uint8Array | null; missing: { reason: BodyMissingReason; detail: string | null } | null; partial?: true; spans?: ByteSpan[] } {
+  if (stream.tooLarge) return { body: null, missing: tooLarge(stream) };
+  const bytes = stream.bytes();
+  if (bytes === null || bytes.length === 0) return { body: null, missing };
+  return { body: bytes, missing: null, partial: true, spans: stream.spans() };
 }

@@ -20,7 +20,7 @@
 // Placeholder: «r:<kind>:<first 8 hex of sha256(salt + value)>». The kind is
 // derived from the value only, so one value maps to one placeholder across
 // headers, URLs, bodies and state, which keeps `diff` classifications intact.
-// Events (default@3): request headers / bodies, ws payloads, state blobs,
+// Events (default@3): request headers / bodies, ws payloads, sse data (0.9-C: as a text ws payload), state blobs,
 // action.value, note.text and finding.claim keep their own rules; every other
 // string of every event is walked: URL-shaped strings (and `url` / `from` /
 // `*Url` fields) by the URL rule, `--switch=value` by its value, the rest by
@@ -467,6 +467,20 @@ function redactEvent(r: Redactor, e: Record<string, unknown>, rewrite: BlobRewri
       if (nb !== null) {
         p["blob"] = nb.ref;
         p["size"] = nb.size;
+      }
+    }
+  } else if (kind === "sse") {
+    // 0.9-C (docs/04 §47): a message's data is page text, redacted like a text WebSocket payload.
+    own.add("data");
+    const d = e["data"];
+    if (isRecord(d) && typeof d["inline"] === "string") {
+      const out = r.text(d["inline"], null);
+      if (out !== null) d["inline"] = out;
+    } else if (isRecord(d) && isBlobRef(d["blob"])) {
+      const nb = rewrite(d["blob"], (b) => r.bytes(b, null));
+      if (nb !== null) {
+        d["blob"] = nb.ref;
+        d["size"] = nb.size;
       }
     }
   } else if (kind === "state") {

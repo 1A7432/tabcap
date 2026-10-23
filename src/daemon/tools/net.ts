@@ -6,10 +6,10 @@ import { BlobStore } from "../../bundle/blobs.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { compactStamp, nowMs } from "../../shared/time.ts";
 import { isTextMime } from "../capture/cdpnet.ts";
-import { Recorder, type NetEntry, type WsFrameEntry } from "../capture/recorder.ts";
+import { Recorder, type NetEntry, type SseEntry, type WsFrameEntry } from "../capture/recorder.ts";
 import { pageOf, parseListQuery, selectNet, type ListQuery, type Paged } from "./netquery.ts";
 import { bodyPreview, listUrl } from "./formatters.ts";
-import { findRequestEvent, frameDetail, materialize, notFound, requestDetail } from "./netshow.ts";
+import { findRequestEvent, frameDetail, materialize, notFound, requestDetail, sseDetail } from "./netshow.ts";
 import { inlineBytes } from "../capture/ws.ts";
 import type { Daemon } from "../state.ts";
 import { noteAccountRequest } from "./pool.ts";
@@ -28,6 +28,7 @@ import { parseBodiesMode, type BodiesMode } from "../../shared/bodies.ts";
 import { readRecordBodies } from "../../shared/config.ts";
 import { allSiteRules } from "../siterules.ts";
 import { hostLaunchContext, normalizedLaunchArgs, type LaunchArgsContext } from "../../shared/launchargs.ts";
+import { isEventStream } from "../../shared/sse.ts";
 
 /** 0.6-E: how a net command prints values (docs/04 §8.3); null with --reveal. */
 const liveCtx = (d: Daemon, a: Args): LiveCtx | null => (revealOf(a) ? null : { scrub: (s) => d.secrets.scrub(s) });
@@ -122,7 +123,7 @@ export async function netStart(d: Daemon, a: Args, session: string): Promise<unk
     alreadyRecording: false,
     bodies,
     instrumentation:
-      "Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied; while a same-origin `tabcap fetch` runs, its tab's fetch() requests also pause at the Request stage (the x-tabcap-fetch marker is removed, nothing else changes)",
+      "Fetch interception (Response stage) on XHR / Fetch / Document: responses pause ~2 ms while bodies are copied; streaming responses (text/event-stream, application/x-ndjson) are passed through at once and read as they arrive; while a same-origin `tabcap fetch` runs, its tab's fetch() requests also pause at the Request stage (the x-tabcap-fetch marker is removed, nothing else changes)",
     ...(decode.empty ? {} : { decode: decode.plugins.map((p) => p.name) }),
   };
 }
@@ -136,24 +137,27 @@ export async function netStop(d: Daemon, _a: Args, session: string): Promise<unk
   return { session, bundle: res.dir, requests: res.requests, counts: res.counts };
 }
 
-type Rec = { dir: string; index: NetEntry[]; frames: WsFrameEntry[]; recording: boolean; rec: Recorder };
+type Rec = { dir: string; index: NetEntry[]; frames: WsFrameEntry[]; sse: SseEntry[]; recording: boolean; rec: Recorder };
 
 export function current(d: Daemon, session: string): Rec {
   const r = d.recorders.get(session);
-  if (r !== undefined) return { dir: r.dir, index: r.index, frames: r.frames, recording: true, rec: r };
+  if (r !== undefined) return { dir: r.dir, index: r.index, frames: r.frames, sse: r.sse, recording: true, rec: r };
   const last = d.lastBundles.get(session);
-  if (last !== undefined) return { dir: last.dir, index: last.index, frames: last.frames, recording: false, rec: last };
+  if (last !== undefined) return { dir: last.dir, index: last.index, frames: last.frames, sse: last.sse, recording: false, rec: last };
   throw new TabcapError("not-found", `session "${session}" has no recording`, "Run `tabcap net start`, reproduce the page action, then `tabcap net list`.");
 }
 
 export function netList(d: Daemon, a: Args, session: string): unknown {
-  const { dir, index, frames, recording, rec } = current(d, session);
+  const { dir, index, frames, sse, recording, rec } = current(d, session);
   const kind = optStr(a, "kind") ?? "http";
-  if (kind !== "http" && kind !== "ws") throw new TabcapError("usage", `--kind ${kind}?`, "Use `--kind http` (requests, the default) or `--kind ws` (WebSocket frames).");
+  if (kind !== "http" && kind !== "ws" && kind !== "sse") {
+    throw new TabcapError("usage", `--kind ${kind}?`, "Use `--kind http` (requests, the default), `--kind ws` (WebSocket frames) or `--kind sse` (Server-Sent Events messages).");
+  }
   const q = parseListQuery(a, (id) => rec.cmdStarts.get(id) ?? null);
   const c = liveCtx(d, a);
   const shownUrl = (u: string) => listUrl(c === null ? u : redactUrl(u, c));
   if (kind === "ws") return wsList(dir, frames, recording, session, q, shownUrl);
+  if (kind === "sse") return sseList(dir, sse, recording, session, q);
   const r = selectNet(index, q);
   const notes: string[] = [];
   if (r.hidden.failed > 0) notes.push(`${r.hidden.failed} failed request(s) hidden: --failed shows only them, --all shows everything`);
@@ -210,6 +214,38 @@ function wsList(dir: string, frames: WsFrameEntry[], recording: boolean, session
   };
 }
 
+/**
+ * 0.9-C `net list --kind sse` (docs/04 §47): the `sse` events written so far
+ * (streams that ended or were cut short), oldest first; `--filter` is a
+ * substring of the request URL, `--tab` and paging as for requests.
+ */
+function sseList(dir: string, sse: SseEntry[], recording: boolean, session: string, q: ListQuery): unknown {
+  const all = sse
+    .filter((m) => q.filter === null || m.url.includes(q.filter))
+    .filter((m) => q.tab === null || m.tab === q.tab)
+    .map((m) => ({ id: m.id, request: m.request, index: m.index, event: m.event, lastEventId: m.lastEventId, bytes: m.size, ts: m.ts }));
+  const page = pageOf(all, q.paging);
+  return {
+    session,
+    bundle: dir,
+    recording,
+    total: sse.length,
+    matched: all.length,
+    shown: page.rows.length,
+    ...pagedFields(page),
+    messages: page.rows,
+    ...(page.nextPageIdx !== null ? { note: `more: --page-idx ${page.nextPageIdx}` } : {}),
+  };
+}
+
+/** 0.9-C `net body r-12:34` of an SSE message: its data as a file (inline data is materialised under exports/sse/). */
+function sseBody(dir: string, m: SseEntry, out: string | null, search: SearchCtx | null, exp: FileCtx | null): unknown {
+  const path = m.blob !== null ? new BlobStore(dir).pathOf(m.blob) : materialize(dir, "sse", `${m.id}.txt`, m.inline ?? "");
+  if (path === null || !existsSync(path)) throw new TabcapError("not-found", `message ${m.id} has no stored data`, "The bundle is damaged; record again.");
+  if (exp !== null) return exp.write({ id: m.id, url: m.url, bytes: readFileSync(path), mime: "text/plain", resourceType: null, charset: () => null });
+  return bodyResult({ id: m.id, url: m.url, path, blob: m.blob, mime: "text/plain", out, extra: { sse: m.request, index: m.index, event: m.event, lastEventId: m.lastEventId } }, search);
+}
+
 /** `net body r-12:34`: a frame payload as a file (inline payloads are materialised under exports/ws/). */
 function frameBody(dir: string, frames: WsFrameEntry[], id: string, out: string | null, search: SearchCtx | null, exp: FileCtx | null = null): unknown {
   const f = frames.find((x) => x.id === id);
@@ -244,7 +280,7 @@ async function netBodyOf(d: Daemon, a: Args, session: string): Promise<unknown> 
   if ((idArg === null || idArg === "") === (url === null || url === "")) {
     throw new TabcapError("usage", url === null ? "missing id" : "give either an id or --url, not both", "Usage: tabcap net body <id> [--out path], or tabcap net body --url <script url> --at line:col");
   }
-  const { dir, index, frames, recording, rec } = current(d, session);
+  const { dir, index, frames, sse, recording, rec } = current(d, session);
   let id = idArg ?? "";
   let byUrl: Record<string, unknown> = {};
   if (url !== null && url !== "") {
@@ -257,7 +293,12 @@ async function netBodyOf(d: Daemon, a: Args, session: string): Promise<unknown> 
   const exp: FileCtx | null = toFile
     ? { write: (b) => exportBody({ ...b, scrub, pretty: optBool(a, "pretty"), where: rec.recording ? { bundle: dir } : { cache: d.paths.cache } }) }
     : null;
-  if (id.includes(":")) return frameBody(dir, frames, id, optStr(a, "out"), s === null ? null : { s, scrub, charset: () => null, resourceType: null }, exp);
+  if (id.includes(":")) {
+    const search = s === null ? null : { s, scrub, charset: () => null, resourceType: null };
+    const m = frames.some((f) => f.id === id) ? undefined : sse.find((x) => x.id === id);
+    if (m !== undefined) return sseBody(dir, m, optStr(a, "out"), search, exp);
+    return frameBody(dir, frames, id, optStr(a, "out"), search, exp);
+  }
   const e = index.find((x) => x.id === id);
   if (e === undefined) throw new TabcapError("not-found", `no request ${id} in ${dir}`, "Run `tabcap net list` for request ids.");
   if (e.blob === null && e.bodySkipped !== undefined) {
@@ -282,8 +323,11 @@ async function netBodyOf(d: Daemon, a: Args, session: string): Promise<unknown> 
   const useView = dv !== null && !wantRaw;
   const blob = useView && dv !== null ? dv.blob : e.blob;
   const mime = useView && dv !== null ? dv.mime : e.mime;
-  const viewExtra =
-    dv === null ? {} : useView ? { view: "decoded", decoded: { by: dv.by, version: dv.version, mime: dv.mime, ...(dv.link === undefined ? {} : { link: dv.link }) } } : { view: "raw" };
+  const viewExtra = {
+    ...(dv === null ? {} : useView ? { view: "decoded", decoded: { by: dv.by, version: dv.version, mime: dv.mime, ...(dv.link === undefined ? {} : { link: dv.link }) } } : { view: "raw" }),
+    // 0.9-C: the body is what arrived of a stream that did not end normally (docs/04 §47).
+    ...(e.partial === true ? { partial: true } : {}),
+  };
   const path = store.pathOf(blob);
   if (path === null || !existsSync(path)) throw new TabcapError("not-found", `blob ${blob} is missing from ${dir}`, "The bundle is damaged; record again.");
   // A decoded view is the plugin's text: decoded as UTF-8, never with the original's charset.
@@ -359,15 +403,16 @@ function bodyResult(o: { id: string; url: string; path: string; blob: string | n
 
 export async function netShow(d: Daemon, a: Args, session: string): Promise<unknown> {
   const id = reqStr(a, "id", "tabcap net show <id>");
-  const { dir, frames, recording, rec } = current(d, session);
+  const { dir, frames, sse, recording, rec } = current(d, session);
   if (id.includes(":")) {
     const f = frames.find((x) => x.id === id);
-    if (f === undefined) throw notFound(id, dir);
+    const m = f === undefined ? sse.find((x) => x.id === id) : undefined;
+    if (f === undefined && m === undefined) throw notFound(id, dir);
     const fc = liveCtx(d, a);
-    const fd = frameDetail(dir, f);
+    const fd = f !== undefined ? frameDetail(dir, f) : m !== undefined ? sseDetail(dir, m) : {};
     return { session, bundle: dir, recording, ...(fc === null ? fd : withRedactedUrl(fd, fc)) };
   }
-  if (!/^r-\d+$/.test(id)) throw new TabcapError("usage", `not a request id: ${id}`, "Ids look like r-12 (request) or r-12:34 (WebSocket frame); see `tabcap net list`.");
+  if (!/^r-\d+$/.test(id)) throw new TabcapError("usage", `not a request id: ${id}`, "Ids look like r-12 (request) or r-12:34 (WebSocket frame or SSE message); see `tabcap net list`.");
   await rec.flushEvents();
   const ev = findRequestEvent(dir, id);
   if (ev === null) throw notFound(id, dir);
@@ -377,7 +422,13 @@ export async function netShow(d: Daemon, a: Args, session: string): Promise<unkn
   const detailOf = (e: Record<string, unknown>) => requestDetail(e, store, (text) => materialize(dir, "post", `${id}${c === null ? "" : ".redacted"}.txt`, text));
   const detail = c === null ? detailOf(ev) : redactedDetail(ev, c, detailOf);
   const ws = ev["type"] === "websocket" ? { frames: frames.filter((f) => f.ws === id && f.phase === "frame").length, framesHint: "`tabcap net list --kind ws` lists them; `net show <id>:<seq>` shows one" } : {};
-  return { session, bundle: dir, recording, ...detail, ...ws };
+  // 0.9-C (docs/04 §47): an event stream request says how many messages it had, as a handshake its frames.
+  const resp = isRecord(ev["response"]) ? ev["response"] : null;
+  const sseInfo =
+    resp !== null && isEventStream(typeof resp["mimeType"] === "string" ? resp["mimeType"] : null)
+      ? { sse: { messages: sse.filter((m) => m.request === id).length, hint: "`tabcap net list --kind sse` lists them; `net show <id>:<seq>` shows one" } }
+      : {};
+  return { session, bundle: dir, recording, ...detail, ...ws, ...sseInfo };
 }
 
 /** `tabcap net grep <regex>`: raw-text search over every recorded response body (netsearch.ts). */

@@ -1,7 +1,7 @@
-// `tabcap net show <id>`: one request (r-12) or WebSocket frame (r-12:34) in
-// full, from the bundle: request line, headers, postData, response, body path,
-// timing, initiator, nav epoch, tab, outcome. Large values are summarised:
-// postData over 2 KB and long header values come back as a path / head.
+// `tabcap net show <id>`: one request (r-12), WebSocket frame or SSE message
+// (r-12:34) in full, from the bundle: request line, headers, postData,
+// response, body path, timing, initiator, nav epoch, tab, outcome. Large values
+// are summarised: postData over 2 KB and long header values come back as a path / head.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -9,7 +9,7 @@ import { BlobStore } from "../../bundle/blobs.ts";
 import { EVENTS_FILE } from "../../bundle/manifest.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
-import type { WsFrameEntry } from "../capture/recorder.ts";
+import type { SseEntry, WsFrameEntry } from "../capture/recorder.ts";
 import { inlineBytes } from "../capture/ws.ts";
 import { latestViews, overlayEvent, parseDecoded, readSidecar } from "../../bundle/decoded.ts";
 
@@ -138,7 +138,14 @@ export function requestDetail(ev: Record<string, unknown>, store: Pick<BlobStore
           ? body !== null && typeof body["skipped"] === "string"
             ? { skipped: body["skipped"] }
             : null
-          : { path: store.pathOf(blob), blob, bytes: num(body ?? {}, "size"), wireEncoding: body === null ? null : (body["wireEncoding"] ?? null) },
+          : {
+              path: store.pathOf(blob),
+              blob,
+              bytes: num(body ?? {}, "size"),
+              wireEncoding: body === null ? null : (body["wireEncoding"] ?? null),
+              // 0.9-C: what arrived of a stream that did not end normally (docs/04 §47).
+              ...(body !== null && body["partial"] === true ? { partial: true } : {}),
+            },
       bodyMissing: missing,
       ...decodedDetail(resp["decoded"], store),
     },
@@ -186,6 +193,41 @@ export function frameDetail(dir: string, f: WsFrameEntry): Record<string, unknow
   };
 }
 
+/** 0.9-C: detail of an SSE message (`r-12:34`, docs/04 §47): its fields + the data's path and a 2 KB head. */
+export function sseDetail(dir: string, m: SseEntry): Record<string, unknown> {
+  let path: string | null;
+  let bytes: Uint8Array | null;
+  if (m.blob !== null) {
+    const store = new BlobStore(dir);
+    path = store.pathOf(m.blob);
+    bytes = store.tryRead(m.blob);
+  } else {
+    bytes = new TextEncoder().encode(m.inline ?? "");
+    path = materialize(dir, "sse", `${m.id}.txt`, bytes);
+  }
+  const text = bytes === null ? null : head(decoder().decode(bytes.subarray(0, SHOW_INLINE_MAX * 4)));
+  return {
+    id: m.id,
+    kind: "sse",
+    sse: m.request,
+    seq: m.seq,
+    tab: m.tab,
+    url: m.url,
+    index: m.index,
+    event: m.event,
+    lastEventId: m.lastEventId,
+    retry: m.retry,
+    bytes: m.size,
+    ts: m.ts,
+    at: m.at,
+    data: path === null ? null : { path, blob: m.blob, bytes: bytes?.length ?? m.size, textHead: text, truncated: text !== null && (bytes?.length ?? 0) > SHOW_INLINE_MAX },
+  };
+}
+
 export function notFound(id: string, dir: string): TabcapError {
-  return new TabcapError("not-found", `no request ${id} in ${dir}`, id.includes(":") ? "Run `tabcap net list --kind ws` for frame ids." : "Run `tabcap net list` for request ids (`--all` includes failed and data: requests).");
+  return new TabcapError(
+    "not-found",
+    `no request ${id} in ${dir}`,
+    id.includes(":") ? "Run `tabcap net list --kind ws` for frame ids, `--kind sse` for SSE message ids." : "Run `tabcap net list` for request ids (`--all` includes failed and data: requests).",
+  );
 }

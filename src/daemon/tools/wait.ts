@@ -322,6 +322,8 @@ export async function netWait(d: Daemon, a: Args, session: string): Promise<unkn
     blob: e.blob,
     path: e.blob === null ? null : store.pathOf(e.blob),
     outcome: e.outcome,
+    // 0.9-C: a stream that ended early matched with the part that arrived (docs/04 §47).
+    ...(e.partial === true ? { partial: true } : {}),
     alreadyFinished: already,
     lookBack: { from: look.from, cmd: look.cmd, action: look.action },
     waitedMs: Date.now() - started,
