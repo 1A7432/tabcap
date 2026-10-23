@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### 录制中的流式响应、部分正文、SSE 消息（0.9-C）
+
+- **修复：录制不再扣住流式响应。** 0.8.1 的录制器用 Fetch 拦截先复制每个 XHR / fetch / document 的正文再放行响应，而 `text/event-stream`、`application/x-ndjson` 的复制要等整条流结束才返回：`net start` 录制期间，页面在流结束前一个字节都收不到（1.6 s 的流在 1.8 s 一次到达，15 s 的在 15.8 s，EventSource 的消息同时到达；`EventSource` 请求在 Fetch 域里是 XHR，也被拦了）。现在这两种响应立刻放行，边到达边读（`Network.streamResourceContent`，Chrome 拒绝时退回原来的结束后读取）；正常结束的流存下的字节与以前相同。`net start` 回答的 `instrumentation` 写明了这一点。docs/04 §47、§5.2 第 7 / 8 条。
+- **部分正文。** 没正常结束的流（网络错误、导航、`net stop` / `session stop`、标签关闭）保留已到达的字节：`response.body.partial: true`，`bodyMissing` 为 null，`outcome` / `error` 照旧（`failed` / `incomplete`）；一个字节都没到的仍写原来的 `bodyMissing`。`net list` 的行、`net show`、`net body`、`net wait` 都带 `partial: true`。HAR 导出写 `content.comment: "partial: the stream ended before the response was complete"`，`bundle import har` 正好读到这句时还原 `partial`。超过 32 MiB 的流什么都不留（`too-large`）。
+- **新的 `sse` 事件。** `text/event-stream` 响应（fetch、XHR、EventSource 都算）的每条消息是一条 `sse` 事件，紧跟所属请求写：`{sse:"r-N", nav, index, event, id（last event ID）, retry, data, at}`，按 WHATWG 规则解析；`at` 是让这条消息完整的那段字节到达的 CDP 时刻（毫秒），可读出首字时间与生成速度。`net list --kind sse` 列出它们（id 形如 `r-12:34`，`--filter` 按请求 URL，`--tab`，分页），`net body r-12:34` 把一条消息的 data 给成文件，`net show r-12:34` 显示一条，`net show r-12` 给条数（`sse.messages`）。包读取器有 `parseSse` / `sseMessages()`；`bundle redact` 按文本 WebSocket 帧处理其 data；HAR 导出不带它们（`--embed-events` 除外）。`net wait --url <流>` 返回就是「回答完了」的信号：skills/tabcap/references/recording.md 写了 LLM 聊天站的步骤。靶场场景 s74，e2e `test/e2e/v09c.e2e.test.ts`。
+
 ### 对照 DrissionPage 5.0 之后：导航 `status` 与 `tabcap permission`（0.9-A、0.9-B）
 
 - **导航回答带 `status`（0.9-A，docs/04 §45）。** `navigate`、`tab new`、`go`、`reload` 的回答多一个 `status`：标签上显示的那个主文档的 HTTP 状态码，与它的 URL 同一次读出，所以页面脚本立刻替换自己时 `url`、`title` 与 `status` 也总是同一个文档的（重定向取最后一跳；`about:blank`、`chrome-error://` 页和读不到记录的文档为 `null`）。404 / 403 的页面照样加载、照样算就绪，以前要读页面文字或开录制才知道。值在就绪确认之后、在 tabcap 自己的隔离世界里读 `performance.getEntriesByType("navigation")[0].responseStatus`，只认 100–599 的整数，所以页面改不了它、不开 `Network` 域、不用 `net start`；读失败不让命令失败。同文档导航（`#hash`、`pushState`）沿用该文档原来的状态码；`click` / `press-key` 引起的导航不带 `status`（录制后看 `net list`）；204 与下载仍是 `page` 错误 `net::ERR_ABORTED`。文档：docs/04 §45、docs/05 s72（`test/e2e/v09a.e2e.test.ts`）、docs/07 §1.1（E1）。
