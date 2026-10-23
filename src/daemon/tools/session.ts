@@ -105,7 +105,8 @@ export async function bindAccount(
       if (tabs.sessionTabs(session).length > 0) {
         throw new TabcapError("conflict", `session "${session}" already has tabs outside account ${site}.${acc.username}'s browser context`, `Start a new session name for this account (its tabs must open in its own context), or \`tabcap session stop ${session}\` first.`);
       }
-      const ctx = await d.pool.open(t, { session, site, account: acc.username, proxy: row ?? null });
+      // 0.9-D: the context's downloads go into this browser run's staging directory (docs/04 §48).
+      const ctx = await d.pool.open(t, { session, site, account: acc.username, proxy: row ?? null, downloadPath: d.browser?.downloads.staging ?? null });
       opened = true;
       try {
         restored = await d.pool.restoreCookies(store, t, ctx);

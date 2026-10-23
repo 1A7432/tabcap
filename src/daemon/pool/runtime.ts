@@ -26,6 +26,7 @@ import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
 import { cookieArray } from "../capture/cookies.ts";
+import { downloadBehavior } from "../capture/downloads.ts";
 import type { AccountRow, ProxyRow, Store } from "../store/db.ts";
 import type { CdpEvent, Transport } from "../transport/types.ts";
 import { checkThrough, chromeProxyServer, patchFor, proxyOrigin, type HttpClient } from "./proxy.ts";
@@ -194,8 +195,13 @@ export class Pool {
 
   // ---------------------------------------------------------- contexts
 
-  /** Create the account's browser context, through `proxy` when it has a pool proxy (null: no proxyServer). */
-  async open(t: Transport, o: { session: string; site: string; account: string; proxy: ProxyRow | null }): Promise<PoolContext> {
+  /**
+   * Create the account's browser context, through `proxy` when it has a pool proxy (null: no proxyServer).
+   * 0.9-D (docs/04 §48): with `downloadPath`, the context's downloads go there (tabcap's staging
+   * directory) before any tab opens in it: a new context does not take the default context's behaviour.
+   * When Chrome refuses, the context is disposed again and the error is `cdp`.
+   */
+  async open(t: Transport, o: { session: string; site: string; account: string; proxy: ProxyRow | null; downloadPath?: string | null }): Promise<PoolContext> {
     const px = o.proxy;
     const origin = px === null ? null : proxyOrigin(px);
     const creds = px === null || px.password === null ? null : { username: px.username ?? "", password: px.password };
@@ -209,6 +215,14 @@ export class Pool {
     const r = await t.send("Target.createBrowserContext", params, null, 10_000);
     const id = str(r, "browserContextId");
     if (id === null) throw new TabcapError("cdp", "Target.createBrowserContext returned no browserContextId", "Retry; if it persists restart the browser.");
+    if (o.downloadPath !== undefined && o.downloadPath !== null) {
+      try {
+        await t.send("Browser.setDownloadBehavior", downloadBehavior(o.downloadPath, id), null, 10_000);
+      } catch (e) {
+        await t.send("Target.disposeBrowserContext", { browserContextId: id }, null, 10_000).catch(() => undefined);
+        throw new TabcapError("cdp", `the account's browser context did not take tabcap's download behaviour: ${e instanceof Error ? e.message : String(e)}`, "Retry `tabcap session start`; if it persists restart the browser.");
+      }
+    }
     const ctx: PoolContext = { session: o.session, site: o.site, account: o.account, proxy: px === null ? null : px.name, browserContextId: id, origin, creds };
     this.contexts.set(o.session, ctx);
     try {

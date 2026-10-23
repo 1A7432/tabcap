@@ -7,7 +7,7 @@
 //            user-default ACL of the profile (no POSIX modes on Windows).
 //   config   daemon.sock (Unix), daemon.pid, daemon.json, daemon.log, config.json, profiles/
 //   cache    chrome/<version>/ (Chrome for Testing downloads)
-//   data     shots/, bundles/
+//   data     shots/, bundles/, downloads/ (0.9-D: one staging directory per browser run, docs/04 §48)
 // The daemon listens on a Unix socket on macOS / Linux and on loopback TCP with
 // a per-start bearer token on Windows (Bun.serve has no `unix` there).
 // The socket normally lives in config/, but sun_path is short (macOS 104,
@@ -49,6 +49,8 @@ export type Paths = {
   chromeCache: string;
   shots: string;
   bundles: string;
+  /** 0.9-D: where each browser run's download staging directory goes (docs/04 §48). */
+  downloads: string;
 };
 
 /** Longest usable socket path in bytes (sun_path minus the NUL). */
@@ -157,6 +159,7 @@ export function paths(env: Record<string, string | undefined> = process.env, pla
     chromeCache: join(cache, "chrome"),
     shots: join(data, "shots"),
     bundles: join(data, "bundles"),
+    downloads: join(data, "downloads"),
   };
 }
 

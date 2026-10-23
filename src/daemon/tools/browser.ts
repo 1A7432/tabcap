@@ -8,6 +8,8 @@ import { envVar } from "../../shared/env.ts";
 import { log } from "../../shared/log.ts";
 import { Tabs } from "../browser/targets.ts";
 import { ConsoleLog } from "../capture/console.ts";
+import { Downloads, downloadBehavior, dropStaging, openStaging } from "../capture/downloads.ts";
+import { TabcapError } from "../../shared/envelope.ts";
 import type { BrowserInfo, Daemon } from "../state.ts";
 import { DirectTransport } from "../transport/direct/index.ts";
 import {
@@ -145,7 +147,18 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     await t.shutdown().catch(() => undefined);
     throw sandboxError();
   }
+  // 0.9-D (docs/04 §48): before the first tab, downloads go into this run's staging directory (never the
+  // user's ~/Downloads); a browser whose downloads tabcap cannot take over is not kept.
+  const staging = openStaging(d.paths.downloads);
+  try {
+    await t.send("Browser.setDownloadBehavior", downloadBehavior(staging), null, 10_000);
+  } catch (e) {
+    await t.shutdown().catch(() => undefined);
+    dropStaging(staging);
+    throw new TabcapError("cdp", `the browser did not take tabcap's download behaviour: ${e instanceof Error ? e.message : String(e)}`, "Retry `tabcap browser start`; without it downloads would land in the user's own Downloads folder, so the browser was stopped.");
+  }
   const tabs = new Tabs(t, foreground);
+  const downloads = new Downloads({ t, tabs, staging, recorder: (s) => d.recorders.get(s), scrub: (s) => d.secrets.scrub(s) });
   // Review 10-21 (docs/04 §41.1): the live probe's families are read and compiled once per browser start.
   const liveFamilies = protection.live ? readLiveFamilies(d.paths.config) : null;
   // 0.7.1-A: the take-over listener on every owned tab (direct mode; off with handoff.detectTakeover:false).
@@ -160,6 +173,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     console: new ConsoleLog(t, tabs),
     takeover,
     extensionDir: ext,
+    downloads,
     info: {
       transport: "direct",
       channel: t.channel,
@@ -217,8 +231,11 @@ export async function browserStop(d: Daemon): Promise<unknown> {
   b.tabs.dispose();
   b.console.dispose();
   b.takeover?.dispose();
+  b.downloads.dispose();
   d.pool.reset();
   await b.t.shutdown();
+  // 0.9-D: what is left in the staging directory is no recording's (docs/04 §48).
+  dropStaging(b.downloads.staging);
   return { stopped: true, pid: b.info.pid, bundles };
 }
 

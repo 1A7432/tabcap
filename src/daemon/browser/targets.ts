@@ -66,6 +66,8 @@ export class Tabs {
   /** Browser context of a session whose account goes out through a pool proxy (0.4-D); absent: the default context. */
   readonly contexts = new Map<string, string>();
   private tabSeq = 0;
+  /** Commands running on a tab right now (inside `run`), by daemon tab id (0.9-D: a download that begins then is that command's). */
+  private running = new Map<string, number>();
   private addedListeners = new Set<(tab: Tab) => Promise<void>>();
   private navListeners = new Set<(tab: Tab, e: CdpEvent) => void>();
   private offs: Array<() => void> = [];
@@ -298,6 +300,11 @@ export class Tabs {
     return ok ? "; the pending page load was stopped so the tab stays usable" : "; stopping the pending page load failed too";
   }
 
+  /** 0.9-D (docs/04 §48): a command is running on the tab now (its `run` job has started and not ended). */
+  busy(tab: Tab): boolean {
+    return (this.running.get(tab.id) ?? 0) > 0;
+  }
+
   /**
    * Run `fn` on the tab's queue with a command timeout. The dialog lock: a tab
    * with an open JavaScript dialog refuses commands; a dialog opening while the
@@ -336,6 +343,7 @@ export class Tabs {
           }),
         );
       }
+      this.running.set(tab.id, (this.running.get(tab.id) ?? 0) + 1);
       try {
         return await Promise.race([fn(), ...guards]);
       } catch (e) {
@@ -351,6 +359,9 @@ export class Tabs {
       } finally {
         clearTimeout(timer);
         if (onDialog !== undefined) tab.dialogWaiters.delete(onDialog);
+        const n = (this.running.get(tab.id) ?? 1) - 1;
+        if (n > 0) this.running.set(tab.id, n);
+        else this.running.delete(tab.id);
       }
     });
     tab.queue = job.catch(() => undefined);
