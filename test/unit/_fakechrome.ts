@@ -28,6 +28,8 @@ export type FakeChromeConfig = {
   evaluate?: Array<{ when: string; value: unknown }>;
   /** Runtime.evaluate answers those entries only when it names an execution context (an isolated world); the main world gets undefined. */
   evaluateNeedsContext?: boolean;
+  /** These methods answer a CDP error with this message (0.9-D: Browser.setDownloadBehavior refused). */
+  fail?: Record<string, string>;
 };
 
 const SCRIPT = String.raw`
@@ -90,7 +92,9 @@ input.on("data", (d) => {
       if (typeof params.stderr === "string") writeSync(2, params.stderr);
       process.exit(133);
     }
-    out(sessionId === undefined ? { id, result: answer(method, params, sessionId) } : { id, result: answer(method, params, sessionId), sessionId });
+    const failed = cfg.fail !== undefined && typeof cfg.fail[method] === "string" ? { code: -32000, message: cfg.fail[method] } : null;
+    const reply = failed === null ? { id, result: answer(method, params, sessionId) } : { id, error: failed };
+    out(sessionId === undefined ? reply : { ...reply, sessionId });
     if (method === "Browser.close") process.exit(0);
   }
 });
