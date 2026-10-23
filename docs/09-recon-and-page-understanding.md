@@ -427,7 +427,7 @@ t1 XX 管理系统  /main.jsp  GBK   frameset 3 帧
 | s57 | chart-instance | 数据只在 ECharts / Chart.js 实例里 | `read` 拿到 series 数据；`where` 能指向实例 | P2 |
 | s58 | report-viewer | 报表查看器风格：iframe + 绝对定位的 div 碎片 + 分页 API + 导出端点 | recon 认出查看器并指向导出端点；导出文件进包 | P2 |
 
-10-21 改号：s57（原 s41）、s58（原 s42）。原来的两个号与 `05` 已落地的 s41 embedded-state、s42 decode-plugins 撞号，改用空号；`05` §19 场景索引列了全部编号与空号。
+10-21 改号：s57（原 s41）、s58（原 s42）。原来的两个号与 `05` 已落地的 s41 embedded-state、s42 decode-plugins 撞号，改用空号；`05` §20 场景索引列了全部编号与空号。
 
 ## 13. 主循环的意见（10-15，供作者决策；本节没有任何已定事项）
 

@@ -122,6 +122,34 @@ export type WsFields =
   | { ws: string; phase: "close" | "error"; reason: string | null };
 
 /**
+ * §4.1 `sse`, §47 (0.9-C): one message of a `text/event-stream` response, written right after its
+ * `request`. `id` is the last event ID at dispatch ("" before any `id` field); `at` is the monotonic ms
+ * the bytes completing the message arrived, null when unknown.
+ */
+export type SseFields = { sse: string; index: number; event: string; id: string; retry: number | null; data: InlineOrBlob; at: number | null };
+
+/** §4.1 `download`, §48 (0.9-D): one download of a recording session, written when it ended. */
+export type DownloadFields = {
+  /** Always "d-" + seq. */
+  id: string;
+  nav: string | null;
+  url: string;
+  urlTruncated?: true;
+  suggestedFilename: string;
+  guid: string;
+  state: "completed" | "canceled";
+  reason: "too-large" | "canceled" | "stopped" | "browser-gone" | null;
+  bytes: number;
+  totalBytes: number | null;
+  /** "downloads/<sha256>" inside the bundle; null when no file was kept (or the copy is redacted). */
+  file: string | null;
+  sha256: string | null;
+  startedTs: number;
+  /** §48: `bundle redact` copies carry no downloads/. */
+  redacted?: true;
+};
+
+/**
  * An AI command is a start / end pair (docs/04 §14, §15). Events written while
  * the command runs carry `cmd: <start id>`; the start event's own `cmd` is its id.
  */
@@ -319,6 +347,8 @@ export type ResponseBody = {
   truncated: boolean;
   /** HAR import only (§9.2): content-encoding present but bytes would not decode. */
   decodeFailed?: boolean;
+  /** §47 (0.9-C): a streaming response that did not end normally; the bytes are what arrived. */
+  partial?: true;
 };
 
 /** 0.6-I (§5.2 rule 10): `response.body` of a body `net start --bodies` did not store; `bodyMissing` is then null. */
@@ -643,6 +673,8 @@ export type EventFields = {
   nav: NavFields;
   request: RequestFields;
   ws: WsFields;
+  sse: SseFields;
+  download: DownloadFields;
   cmd: CmdFields;
   console: ConsoleFields;
   action: ActionFields;
@@ -674,6 +706,8 @@ export type SessionEvent = EventOf<"session">;
 export type TabEvent = EventOf<"tab">;
 export type NavEvent = EventOf<"nav">;
 export type WsEvent = EventOf<"ws">;
+export type SseEvent = EventOf<"sse">;
+export type DownloadEvent = EventOf<"download">;
 export type CmdStartEvent = Omit<Envelope, "kind"> & { kind: "cmd" } & CmdStartFields;
 export type CmdEndEvent = Omit<Envelope, "kind"> & { kind: "cmd" } & CmdEndFields;
 export type CmdEvent = CmdStartEvent | CmdEndEvent;

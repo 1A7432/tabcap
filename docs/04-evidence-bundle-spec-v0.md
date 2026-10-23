@@ -90,6 +90,10 @@
 
 **`ws`**：`{tab, ws:"r-<握手请求 seq>", phase:"frame"|"close"|"error", direction:"send"|"recv", opcode:1|2, payload:{inline:string}|{blob:"sha256:…", size}|null, reason}`。握手本身是一条 `type:"websocket"` 的 `request`。帧正文超过 blob 上限时 `payload:null`，`reason` 写明（`payload too large: <n> bytes > <上限>`）；其余帧 `reason:null`。
 
+**`sse`**（0.9-C，§47）：`{tab, sse:"r-<请求 seq>", index, event, id, retry, data:{inline:string}|{blob:"sha256:…", size}, at}`。`text/event-stream` 响应的每条消息一条，紧跟所属 `request` 写；解析规则、`at` 与读取见 §47。
+
+**`download`**（0.9-D，§48）：`{tab, id:"d-<seq>", nav, url, suggestedFilename, guid, state:"completed"|"canceled", reason, bytes, totalBytes, file:"downloads/<sha256>"|null, sha256, startedTs}`。录制中的每次下载在结束时一条，文件在包的 `downloads/`；规则见 §48。
+
 **`cmd`**：两条（§14 裁决）：开始 `{id:"c-<seq>", phase:"start", actor:"ai", argv:[...]|null, input:{...}}`，结束 `{phase:"end", ref:"c-<seq>", ok:bool, error, durationMs, outputSummary}`。每次 CLI / skill / MCP 调用一对，是「AI 操作窗口」的依据；窗口内事件的 `cmd` 字段引用开始那条的 id（`request` 看它开始时在哪个窗口里，§3）。`outputSummary` 是结果的小摘要（顶层标量）；命令有回执时带 `outputSummary.receipt`（短字符串对象，`09` §13.3 草案，不另立 kind）：0.4-J 起 `recon` 写 `{dossier:"exports/dossier.json"}`。0.6-A 起 `fetch` 的结束事件总带 `outputSummary.requests`：该命令发出的全部 `r-N`（按 `fetchId` 归属，含重定向跳与预检；命令失败、被停手规则拦下时也写），正文、`bodyBase64` 不进摘要；被停手的错误不带 `result`（响应在 `request` 事件里）。
 
 **`console`**（0.2 新增）：`{tab, level:"log"|"info"|"warn"|"error"|"debug", source:"console"|"exception"|"network"|"security"|"other", text, args:[...截断后的参数摘要], url, line, col, stack:string|null}`。来自 `Runtime.consoleAPICalled`、`Runtime.exceptionThrown`、`Log.entryAdded`；单条 `text` 超过 4 KB 截断并标 `truncated:true`。站点在签名校验失败、接口异常时常把线索吐在这里，`find` 也搜它。
@@ -172,6 +176,7 @@
     "fromCache": false, "fromServiceWorker": false, "fromPrefetch": false,
     "body": { "blob": "sha256:…", "size": 4096, "base64": false, "wireEncoding": "gzip", "truncated": false },   // 0.6-I：按 --bodies 跳过的正文是 {"skipped": "resource-type"}，此时 bodyMissing 为 null
     "bodyMissing": null                           // 或 {"reason": "...", "detail": "CDP 原文"}
+                                                  // 0.9-C：流式响应没正常结束时 body 多 "partial": true（已收到的部分，§47）
   },
   "redirect": null,                               // 或 {"from": "r-56"}
                                                   // request / response 两侧可带 "decoded"：解码插件的明文视图（0.6-B，§28）
@@ -194,10 +199,10 @@
 4. 单个正文超过上限（32 MB，已定 c）不取，`bodyMissing.reason = "too-large"`。
 5. 取不到按原因归类：`redirect`（3xx 无正文）、`not-modified`（304）、`no-content`（204 / HEAD）、`navigated`（跳转后 Chrome 已释放）、`evicted`（缓冲满被逐出）、`detached`（用户取消调试或标签关闭）、`stopped`（session 已停）、`failed`（`loadingFailed`）、`unsupported`（CDP 不支持的类型，如部分流式）。`detail` 放 CDP 原话。【实测 10-15 spike 2】被导航取消的请求**不会**收到 `loadingFailed`，只停在 `requestWillBeSent` 或 `responseReceived`；取不到时 CDP 只有一句 `No resource with given identifier found`，`navigated` 与 `evicted` 要靠时间线区分：取正文之前主框架已提交新导航就是 `navigated`，否则 `evicted`。
 6. `document` 类型也取正文（主文档 HTML），`find` 要搜它。
-7. 流式响应（SSE、chunked NDJSON）在 `loadingFinished` 时取完整正文；页面卸载时这些请求不会收到 `loadingFailed`（【实测】spike 2），按 §5.4 的「导航提交即收尾」规则写成 `incomplete` / `navigated`，已到达的部分在 Network 路径下取不到。
+7. 流式响应（SSE、chunked NDJSON）在 `loadingFinished` 时取完整正文；页面卸载时这些请求不会收到 `loadingFailed`（【实测】spike 2），按 §5.4 的「导航提交即收尾」规则写成 `incomplete` / `navigated`，已到达的部分在 Network 路径下取不到。**0.9-C 起（§47）**：`text/event-stream` 与 `application/x-ndjson` 用 `Network.streamResourceContent` 边收边存，结束时用拼好的字节写正文；没正常结束时已到达的部分照样写，`response.body.partial:true`。
 8. 跳转竞态【实测 10-15 spike 2，本机回环、4 KB 正文、Chrome 155】：
    - 急取对「导航触发前 ≥1 ms 就 `loadingFinished`」的请求 0 漏（50 轮 300/300，哈希全对）；在导航触发后约 2 ms 内才 finished 的，正文已释放（随机抖动批 medium 3/38 失败）；在导航开始后才收完响应的（点击处理器里发出再立刻跳转的 `before-leave`），**既没有 `loadingFinished` 也没有 `loadingFailed`**，Network 路径下 50/50 全丢。
-   - `Fetch.enable {requestStage:"Response"}` + `Fetch.getResponseBody` + `continueResponse` 能把以上两类全部救回（10 + 20 轮 `before-leave` 30/30），每请求多 1.5–2 ms（p50），暂停最长 34 ms；请求在暂停期间被取消时 `continueResponse` 报 `Invalid InterceptionId.`，正文此前已取到，要容忍。Fetch 会先缓冲完整正文再交给页面，所以不能拦 `eventsource` / `websocket` / `media`；大正文的代价未测。
+   - `Fetch.enable {requestStage:"Response"}` + `Fetch.getResponseBody` + `continueResponse` 能把以上两类全部救回（10 + 20 轮 `before-leave` 30/30），每请求多 1.5–2 ms（p50），暂停最长 34 ms；请求在暂停期间被取消时 `continueResponse` 报 `Invalid InterceptionId.`，正文此前已取到，要容忍。Fetch 会先缓冲完整正文再交给页面，所以不能拦 `eventsource` / `websocket` / `media`；大正文的代价未测。（10-23 实测：只按资源类型排除不够，`fetch()` 发起的 SSE 资源类型就是 `Fetch`，`EventSource` 在 Fetch 域里被报成 `XHR`，0.8.1 都被缓冲到流结束；0.9-C 起按响应 Content-Type 放行流式类型，§47。）
    - **已定（10-15 作者）**：默认开 Fetch 拦截，但只拦 `XHR`、`Fetch`、`Document` 三类资源，其余走急取；`session start --capture=light` 关掉拦截。理由是 `03` §7 验收 2 明确要求「跳转前的页面发出的请求」正文在，而这正是 Network 路径 100% 丢的那一类。
 9. 页面从不读取的响应体（作者定 10-15，0.3-E 实现）：页面拿到响应却不读正文时，Chrome 不发 `loadingFinished`，旧做法只能在 stop 时收尾成 `incomplete`，录制中 `net list` / `net wait` / guard 都看不到它【实测 0.3-C：s15 的 `/api/limited`】。现在：`responseReceived` 之后 **1 s** 仍没有 `loadingFinished` / `loadingFailed`，而 Fetch 拦截已取得完整正文的，立即写成 `outcome:"finished"`、`timing.end:null`（没有完成时刻）、`bodySource:"fetch"`、`unreadByPage:true`，正文照常进 blob；`net list` 的行带 `unreadByPage:true`，`net show` 同样显示。只查一次：1 s 时 Fetch 还没有正文（非 XHR / Fetch / Document 类型、正文没取到）的，仍按 §5.4 在导航提交或 stop 时收尾。已写出的请求之后再来的 `loadingFinished` 忽略，不重写。HAR 导出照既有规则处理 `finished`（`time` 因 `end` 为 null 记 -1），没有另改。
 
@@ -1139,3 +1144,86 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **已知键类型写错进 `warnings`**（作者 2026-10-22）：`readConfig` 读的六个键对 JSON 类型不对的值不报错、当作没写——`chrome`（要对象）、`proxy`、`webdriver`、`chrome.executablePath`、`chrome.version`、`chrome.platform`（要字符串）。照旧当作没写（生效的配置不变），但每个键一条警告 `config.json: <路径> is <实际类型>, not <应为类型>; ignored`：实际类型是 JSON 类型词（`a number`、`a boolean`、`an array`、`an object`、`a string`、`null`），应为类型来自键表 `CONFIG_KEYS` 里该键的 `kind`（只这六个键有，`references/config.md` 照它列出这六个键），例如 `config.json: webdriver is a number, not a string; ignored`。`null` 也当作没写：`proxy`、`webdriver`、`chrome.platform` 是 tabcap 自己会写 `null` 的键（`tabcap setup` 给文件里没有的 `proxy` / `webdriver` 写 `null`，`--executable-path` 时 `platform` 写 `null`），键表里标 `nullable`，`null` 不警告；`chrome`、`chrome.executablePath`、`chrome.version` tabcap 从不写 `null`，写了照样警告，例如 `config.json: chrome.version is null, not a string; ignored`。`chrome` 不是对象时只这一条、不往下查 `chrome.*`（`chrome.args` / `chrome.dropArgs` 随之当没有）；上一条「值不是对象的层不往下查」对 `chrome` 也成立，只是多了这条警告。这些警告排在未知键之后（各自按文件里的顺序），出现在与未知键相同的几处，`tabcap setup` 也一样：它的 `warnings` 是写完之后的文件，而它只重写 `chrome` 与其下三个键（这几处类型错的换成它写的值，写完就不再警告），`proxy` / `webdriver` 类型错时原样留在文件里、照样警告（以前被改写成 `null`，用户写的值丢掉、回答里也不提）；与未知键合计最多列 20 条，没列出的按种类计数写成一句：`config.json: <n> more unknown keys not listed`、`config.json: <m> more keys of the wrong type not listed`，两种都有时 `config.json: <n> more unknown keys and <m> more keys of the wrong type not listed`（只 1 条时用单数 `key`）。其余各键（`pool`、`fetch`、`sites` 及其下各项、`record`、`trace`、`handoff`、`protection`、`replay`、`chrome.args` / `chrome.dropArgs`）的读取函数本来就对写错的值回 `bad-input`，不在此列、不警告。单测 `test/unit/config-keys.test.ts`（有 `kind` 的正是这六个键；每个键的警告文字与仍当没写；`chrome` 不是对象；`null` 只在标 `nullable` 的三个键上不警告；报错的键不警告；`writeConfig` 留下类型错的 `proxy` / `webdriver`；排序；上限与尾句；`status` / `browser status` / `setup` 里的位置）、`test/unit/direct.test.ts`（`{"webdriver": 3}` 读作没写，并出现在警告里）。
 - **录制中改坏**：守护进程对每条录下的响应跑站点停手规则时文件读不出，照 0.6-I 原样只记日志、这条不查（§18 后的 0.6-I 段）；下一条读配置的命令照上面报错。
 - **验证**：`test/unit/config-strict.test.ts`（各条读取路径、行列、非对象、读不了、开头的 BOM 与行列的计法、`writeConfig` 与 `setup` 不改写、`browser start` 不启动、文件读不出时 `status` 与离线 `status` 仍回 `ok` 并把错误放进 `config.error`、`--text` 的两行）；`test/unit/config-keys.test.ts`（键表；含全部键的文件没有警告、各读取函数都收；拼错 / 大小写 / 放错层级的警告文字；类型写错的六个键与 `null` 的规则、与未知键共用上限的尾行；回放子树不警告；`browser start` / `browser status` / `status` / `setup` 里的位置，`setup` 保留类型写错的 `proxy` / `webdriver`；文件读不出时 `browser status` 报错、`status` 回 `config.error`、`daemon status` 照常）。
+
+## 45. 0.9-A 导航回答带主文档状态码 `status`（10-23 作者定需求；字段与下列细节按实现定案）
+
+来源：DrissionPage 5.0 的 `get()` 返回 `NavResult`（主文档的状态码、头、请求）。tabcap 的 `navigate` 回答只有 `url` / `title` / `readyState` / `nav`，没在录制时 AI 看不出这一页是 200 还是 403 / 404，要么开录制再 `net list`，要么去读页面文字猜。作者 10-23 定做（DrissionPage 对照的第 1 项）。
+
+- **字段**：`navigate`、`go`、`reload`、`tab new <url>` 的回答多一个 `status: number | null`：命令回答时标签上显示的那个主文档的 HTTP 状态码。重定向链取最后一跳（被重定向到的文档）。回答里原有字段不变。
+- **取法**：在 tabcap 的隔离世界 `tabcap-adapters`（`src/daemon/browser/worlds.ts` `inWorld`）里读 `performance.getEntriesByType("navigation")[0]?.responseStatus`，在现有的就绪确认（`confirmState`）之后读。不在页面主世界读：页面能改写主世界的 `performance.getEntriesByType`，也能看见这次调用。不开 `Network` 域，录不录制都一样。【实测 spike-dp5 E1：主世界与隔离世界读到的值逐条相同】
+- **值的检查**（页面里读出来的是不可信数据）：是整数且 100 ≤ 值 ≤ 599 才用，否则 `null`。`0`（about:blank、`chrome-error://` 错误页）、没有 navigation 记录、不是数字，都是 `null`。读的时候上下文没了（文档恰好又换了）按 `inWorld` 重试一次，仍失败就是 `null`：读不到状态码不让整条命令失败。
+- **语义**（【实测 spike-dp5 E1，CfT 155，与 `Network.responseReceived {type:"Document"}` 逐条对照】，`07` §1.1）：
+  - 200 / 404 / 500 / 203 照实；302 → 200、302 → 404，同源与跨源重定向都是最后一跳的状态码（跨源重定向时 `redirectCount` 被隐藏为 0，状态码不受影响）。
+  - 页面脚本 `location.replace` 到 404：是回答时已经在的那个文档的状态码（就绪等待照现有规则）。
+  - 同文档导航（hash、`history.pushState`）不换文档，`status` 是当前文档原来的；`go back` 回到的文档是它自己的；`reload` 是重新加载那次的；bfcache 关着（tabcap 默认 `--disable-back-forward-cache`）。
+  - `data:` URL 为 200（Chrome 这么报）；about:blank 为 `null`。
+  - 204 与「导航变成下载」不提交新文档，`Page.navigate` 回 `net::ERR_ABORTED`：`navigate` 照旧报 `page` 错误（变成下载的那种按 §48 改回答），不会读到旧文档的状态码。连接被拒等网络错误照旧报 `page` 错误。
+- **不做**：`click` / `press-key` 等引起的导航不加 `status`（它们的回答有 `wait.navigated`；要状态码开录制看 `net list`）；响应头不进回答（`net show` 有）。
+- 【待验】Service Worker 应答的导航、prerender 激活的导航的 `responseStatus`（靶场没有这两种页）。
+- **验证**：单测（值检查：整数范围边界、0、小数、字符串、缺失 → `null`）；e2e `test/e2e/v09a.e2e.test.ts`（靶场 s72，`05` §19）。
+
+## 46. 0.9-B 权限 `tabcap permission`（10-23 作者定需求：默认只作用于当前标签的源；字段与下列细节按实现定案）
+
+来源：DrissionPage 5.0 的权限设置（`Browser.setPermission`，浏览器或 context 级）。tabcap 的 `emulate --geolocation` 回答写着「页面仍需被授予 geolocation 权限」，却没有授权的入口；靶场与作者的项目里都有要先授权才能走下去的页面（定位、通知、剪贴板）。作者 10-23 定做（第 2 项），默认只作用于当前标签的源。
+
+- **命令**：`tabcap permission grant|deny|reset <name>... [--origin <url>] [--session s] [--tab t2]`。`grant` → `setting:"granted"`；`deny` → `"denied"`；`reset` → `"prompt"`（回到默认、页面再问时就是没决定过）。`reset` 不用 `Browser.resetPermissions`：它清掉整个 context 里所有源的所有权限【实测 spike-dp5 E2】，范围太大；对单个源设 `prompt` 就等于还原【实测】。
+- **名字**：CDP `Browser.PermissionDescriptor.name`，原样交给 Chrome，认不认以 Chrome 为准。`push` 由 tabcap 自动带 `userVisibleOnly:true`（Chrome 不带时拒绝：`Push Permission without userVisibleOnly:true isn't supported`【实测】）；其余名字不带额外字段。Chrome 回 `Invalid PermissionDescriptor name: <x>` 时回 `usage`，信息原样带 Chrome 的话，`next` 给出最接近的已知名（`src/daemon/tools/permission.ts` 里的一张已知名表，只用来提示，不用来拒绝：Chrome 新增的名字不用等 tabcap 更新）。一次多个名字时按给出的顺序逐个设，第一个失败就停，错误的 `result` 是 `{applied:[已设好的名字]}`（已设好的不回滚）。
+- **源**：缺省取当前标签的源（守护进程记的标签 URL 的 origin）。当前页不是 http(s) 源（about:blank、`data:`、`chrome-error://`、`file:`）时回 `usage`：「先 `tabcap navigate` 到那个站，或给 `--origin`」。`--origin` 收一个 URL，取它的 origin（路径、查询、片段丢掉；回答写实际用的 origin），不是 http(s) 的回 `usage`。**没有**「所有源」的写法：CDP 不带 `origin` 时作用于所有源【实测：不带 origin 授 camera 后 A、B 两个源都是 granted】，作者定默认只作用于当前源，也不开这个口子。
+- **context**：会话有自己的 browser context（`session start --site` 的池账号、带代理的会话）时带它的 `browserContextId`，只影响这个会话；否则作用于默认 context，同在默认 context 的其他会话打开这个源也会看到这个权限：回答 `shared:true`，`note` 写明。不同 context 互不影响【实测】。
+- **回答**：`{tab, origin, setting:"granted"|"denied"|"prompt", names:[…], context:"session"|"default", shared:bool, note?}`。名字里有 `geolocation` 时 `note` 写：后台标签是 `hidden`，页面自己发起的定位请求在标签不可见时一直挂着，授不授权都一样；只在开焦点仿真的命令期间（`click --trusted` 等）才会得到回答；位置用 `tabcap emulate --geolocation` 给。【实测 spike-dp5 E2：后台标签 `visibilityState:"hidden"` 时 `getCurrentPosition` 连 `denied` 都不回调、`timeout` 选项也不生效；开焦点仿真后 prompt 回「User denied」、granted 回仿真坐标、denied 回错误码 1】
+- **生效多久**：只在这次浏览器运行里有效，Chrome 不写进 profile【实测：同一 profile 重启后回到 prompt】。`browser stop` 后就没了；`session stop` 不清默认 context 里的设置（它本来就跨会话）；池账号的 context 随会话 dispose 一起没了。不进 `config.json`，不进 store。
+- **类别**：改页面看到的东西，与 `emulate` 同一类（`src/daemon/tools/registry.ts` 的动作表里照 `emulate` 那一行：录制时有 `cmd` 窗口、会话等人时拦）。录制中这条命令照常有 `cmd` 事件（argv、输出摘要），不另立事件 kind。
+- **模式**：只 `direct`；`ext` 模式回 `unsupported`（Browser 域不经扩展）。
+- **MCP**：`tabcap mcp --all-tools` 里有；不进 core（不是日常环里的命令，core 用 `tabcap_run` 可调）。
+- **验证**：单测（参数解析；源推导与各种拒绝；`--origin` 取 origin；`push` 的描述符；Chrome 错误映射与最接近名；多个名字部分失败的 `result`；pool context 时带 `browserContextId`）；e2e `test/e2e/v09b.e2e.test.ts`（靶场 s73，`05` §19）。
+
+## 47. 0.9-C 流式响应：录制不再缓冲，SSE 消息进包（10-23 作者定；字段与下列细节按实现定案）
+
+来源：作者的 GEO 回归测试（`~/ClaudeCode/GEO/geo-tool`）要采集 LLM 聊天站的回答，现在用 Ferrum 读 DOM、每 2 s 比一次文字、连续 3 轮不变才算答完。作者 10-23 定做（第 3 项）。实测（spike-dp5 E3，`07` §1.1）先发现录制器违背了 §5.2 第 8 条自己写的「不能拦 eventsource」：页面用 `fetch()` 发起的 SSE 资源类型就是 `Fetch`，`EventSource` 在 Fetch 域里被报成 `XHR`，两者都落进 Response 阶段拦截；拦截里的 `Fetch.getResponseBody` 要等整条流结束才返回，页面在此之前一个字节都收不到。0.8.1 实测：不录制时 1.6 s 的流分 9 段逐段到达；`net start` 之后同一条流在 1816 ms 一次到达，15 s 的流在 15.8 s 一次到达，EventSource 的 7 条消息同时到达（正文倒是都完整进了包）。录制改变了页面行为，前端如果有首字超时就会直接报错。
+
+**(1) 修复：流式响应直通（改 §5.2 第 7、8 条）**
+
+- **流式类型**：响应 Content-Type 的媒体类型（`;` 前，去空白，小写）是 `text/event-stream` 或 `application/x-ndjson`。只按 Content-Type 判，不按资源类型（EventSource 在 Fetch 域里是 `XHR`【实测 E3e：`XHR`、`Fetch`、`EventSource` 三种 pattern 都会暂停它，`requestPaused.resourceType` 都报 `XHR`】）。
+- **Response 阶段**：暂停到的响应头（`requestPaused.responseHeaders`）是流式类型时，不取正文，立刻 `Fetch.continueResponse`。其余类型照旧。
+- **边收边存**：`Network.responseReceived` 的 `response.mimeType` 是流式类型时，对同一会话发 `Network.streamResourceContent {requestId}`。回答的 `bufferedData`（base64）是此前已收到的部分；之后该请求的每条 `Network.dataReceived` 带 `data`（base64），按到达顺序拼起来就是正文。【实测 E3a / E3c：与服务器发出的字节逐字节相同（正常结束 409 B、15 s 长流 3696 B、ndjson 108 B）；页面照旧逐段收到（9 段、63 段，节奏与服务器一致）】这条命令失败时（Chrome 不支持、请求恰好已结束）记守护进程日志，退回原规则：`loadingFinished` 时 `Network.getResponseBody`。
+- **正常结束**：`loadingFinished` 时用拼好的字节写 blob，不再 `getResponseBody`（结果相同【实测】，少一次往返）。累积超过 §5.2 第 4 条的上限（32 MiB）时停止累积、丢掉已累积的，写 `bodyMissing.reason:"too-large"`。
+- **没正常结束**：`loadingFailed`、主框架导航提交时收尾（§5.4）、`net stop` / `session stop` 收尾、标签关闭，这几种情况下已经收到的字节照样写 blob，`response.body` 多一个 `partial:true`，`bodyMissing` 为 `null`；`outcome`、`error` 照原规则（`failed` / `incomplete`）。一个字节都没收到时照原规则写 `bodyMissing`。【实测 E3c：断流时存下 157 B（页面也只收到这 157 B）、导航打断时存下 207 B；原来的 Network 路径两种都是 `No data found` / `No resource with given identifier found`，全丢】
+- **页面不读正文**（§5.2 第 9 条，1 s 后用 Fetch 取到的全文写出）对流式类型不适用（Fetch 没取它）：流式响应只在结束或收尾时写。
+- **显示**：`net list` 的行带 `partial:true`；`net show` 显示它；`net body` 照常给文件，回答多 `partial:true`。HAR 导出照常导出正文，`response.content.comment` 为 `"partial: the stream ended before the response was complete"`；`bundle import har` 读到正好这句 comment 时还原 `partial:true`。
+- **插桩说明**：`net start` 回答里说明 Fetch 拦截的那句加上「streaming responses (text/event-stream, application/x-ndjson) are passed through at once and read as they arrive」。没有新增暂停，代价不变。
+
+**(2) `sse` 事件（新 kind，§4.1）**
+
+- **哪些请求**：`response.mimeType` 为 `text/event-stream` 的请求（`fetch`、`xhr`、`eventsource` 三种都算），且存了正文（含 `partial`）。`--bodies` 跳过了正文的不解析（没有字节）。
+- **何时写**：紧跟在这条请求的 `request` 事件之后，每条消息一条，按在流里的顺序。
+- **字段**：`{tab, sse:"r-<请求 seq>", index:<从 0 起>, event:<事件类型，缺省 "message">, id:<派发时的 last event ID，字符串>, retry:<此前最近一次合法的 retry 毫秒数或 null>, data:{inline:string}|{blob:"sha256:…", size}, at:<mono|null>}`。`data` 的 UTF-8 字节 ≤ 64 KB 时内联（与 `ws` 同一上限），否则存 blob。信封 `mono` 等于 `at`；`ts` 由 `at` 换算，`at` 为 null 时用所属 `request` 的 `ts`；`cmd`、`actor`、`nav` 与所属 `request` 相同。`id` 是 EventSource 语义的 lastEventId：没出现过 `id` 字段时是空串，出现过之后沿用到下一次 `id` 字段（与 `Network.eventSourceMessageReceived.eventId` 一致【实测 E3a】）。
+- **解析**（WHATWG HTML「Interpreting an event stream」）：UTF-8 解码，开头一个 BOM 去掉，非法字节按 U+FFFD；行以 CRLF、LF 或单独的 CR 结束；空行派发；以 `:` 开头的行是注释；`名:值` 冒号后若有一个空格去掉它；没有冒号的整行是字段名、值为空串；`data` 把值加 LF 追加进缓冲，`event` 设事件类型，`id` 值里没有 NUL 时设 last event ID，`retry` 值全是 ASCII 数字时设重连时间，其他字段忽略。派发时：data 缓冲为空就只清空事件类型、不出事件（`id` 照样已更新）；否则去掉末尾一个 LF，事件类型为空时是 `message`。流结束时还没派发的块按规范丢弃（原始字节仍在正文 blob 里）。纯函数 `src/shared/sse.ts`。
+- **`at`**：边收边存时记下每段字节到达的 CDP 时刻（`dataReceived.timestamp`，秒换成与 `mono` 相同的毫秒）；一条消息的 `at` 是让它完整的那段（读到结束它的空行的那段）的时刻。`bufferedData` 里的字节按此前各条 `dataReceived` 的 `dataLength` 与 `timestamp` 对应时刻；这些长度之和与 `bufferedData` 的长度对不上时，落在这一部分的消息 `at:null`。正文是退回 `getResponseBody` 得来的，所有消息 `at:null`。GEO 那类用途可以读出首字时间与生成速度。
+- **对照**（oracle）：`EventSource` 请求 Chrome 自己发 `Network.eventSourceMessageReceived {eventName, eventId, data}`【实测 E3a：fetch / xhr 的 SSE 不发】；e2e 用它对照解析结果（类型、id、data 逐条相等）。录制器不用这个事件来写 `sse`：一套解析覆盖三种请求。
+- **读取**：`net list --kind sse`：每行 `{id:"r-12:34", request:"r-12", index, event, lastEventId, bytes, ts}`（`r-12:34` 的 `34` 是这条 `sse` 事件的 seq，与 `--kind ws` 的帧 id 同一写法），`--filter`（请求 URL 子串）、`--tab`、分页照 `net list`；`net body r-12:34` 给这条消息的 data（文件路径 + 预览）；`net show r-12:34` 显示一条；`net show r-12`（SSE 请求）多 `sse:{messages:<条数>, hint}`，与 WebSocket 握手的 `frames` 同一做法。
+- **等回答完**：`net wait --url <流的 URL>` 在这条请求写入（流结束）时返回，就是「回答完了」的信号，不用再比 DOM 文字。`skills/tabcap/references/recording.md` 加一段「LLM 聊天站的流式回答」：`net start` → 发问 → `net wait --url … --timeout …` → `net list --kind sse --filter …`。
+- **不做**：录制中途的实时增量（`net list --kind sse` 只看到已经结束、已写入的流）；`application/x-ndjson` 的逐行视图（只做直通与部分正文）；WebSocket 不变。
+- 【待验】作者要采的那几个真实站点（DeepSeek、豆包、Kimi、通义、元宝、文心）的回答流是不是 `text/event-stream`：用 Connect / gRPC-web 二进制分帧的（`application/connect+json` 之类）不在这一格的流式类型里，录制时仍会被缓冲，要另加类型；由作者在自己的项目里录一次确认（AGENTS.md：本仓库的 AI 不用真实账号访问靶场外的站点）。
+- **验证**：单测 `test/unit/sse09c.test.ts`（解析器：规范里的例子、CRLF / CR / LF 混用、注释、无冒号行、`id` 含 NUL、`retry` 非数字、空 data、BOM、多行 data、末尾未派发的块、`at` 的对应与对不上时的 null；流式类型判定含参数与大小写）；录制器的假 CDP 单测（Response 阶段对流式类型不发 `Fetch.getResponseBody`、立刻 continue；`streamResourceContent` 失败时退回；部分正文的写法；32 MiB 上限）；e2e `test/e2e/v09c.e2e.test.ts`（靶场 s74，`05` §19）。
+
+## 48. 0.9-D 下载进证据包，录制外拒绝（10-23 作者定：没在录制时取消并提示先 `net start`；单个文件 200 MiB；字段与下列细节按实现定案）
+
+来源：DrissionPage 5.0 的下载管理（`Browser.setDownloadBehavior allowAndName` + `downloadWillBegin` / `downloadProgress`）。实测（spike-dp5 E4，`07` §1.1）发现 tabcap 0.8.1 根本没设下载行为：有头 Chrome for Testing 把下载存进用户真实的 `~/Downloads`，出了 tabcap 自己的目录，用户不知道；第 2、3 个由页面脚本触发的下载被 Chrome 的「自动下载多个文件」限制挡掉；`navigate` 到附件 URL 时回「navigation failed: net::ERR_ABORTED」，而下载其实已经开始。作者 10-23 定做（第 4 项）。
+
+- **接管下载行为**（`direct` 模式）：`browser start` 连上浏览器之后、开第一个标签之前，对默认 context 发 `Browser.setDownloadBehavior {behavior:"allowAndName", downloadPath:<暂存目录>, eventsEnabled:true}`；每个池账号 / 代理会话的 context 在 `Target.createBrowserContext` 之后、开标签之前同样发一次（带 `browserContextId`）：新 context 不继承默认 context 的设置【实测 E4：不设时这个 context 里的下载被取消】。设不上就让 `browser start` / `session start` 失败（`cdp`），不留下一个下载会落进 `~/Downloads` 的浏览器。暂存目录在 tabcap 的数据目录下，每次浏览器运行一个子目录（0700），`browser stop` 与守护进程停止时删掉。`allowAndName` 下 Chrome 用下载的 guid 当文件名（不用页面给的名字，没有路径穿越的问题），也不再受「自动下载多个文件」限制【实测 E4c：有头、JS 点击与可信点击各 3 次全部落盘】。
+- **归属**：`Browser.downloadWillBegin {frameId, guid, url, suggestedFilename}` 的 `frameId` 是某个标签的 targetId 就归这个标签【实测 E4：主框架触发的 `frameId` 等于标签 targetId】；否则在 tabcap 已知的各标签帧里找（同进程子帧、OOPIF 子目标）；找不到就是无主。标签所属的会话就是这次下载的会话。
+- **会话没在录制、或无主**：立刻 `Browser.cancelDownload {guid[, browserContextId]}`；取消前就已完成的（小文件转眼就完）删掉暂存文件。下载在某条命令执行期间（从命令开始到回答）于该标签上开始时，这条命令的回答多 `downloads:[{url, suggestedFilename, state:"canceled", reason:"not-recording"}]` 与 `next`：「`tabcap net start` 之后再触发一次，文件会进证据包」。命令之外（页面自己发起）的只写守护进程日志。
+- **会话在录制**：
+  - 上限 200 MiB（209715200 字节，常量，不做配置项）：第一条 `downloadProgress` 的 `totalBytes` 已超过上限时立刻取消；否则 `receivedBytes` 第一次超过上限时取消。都记 `reason:"too-large"`。进度事件粒度很粗，取消时实际收到的可能远超上限【实测 E4：阈值 2 MiB 时第一次超过已是 6.5 MB】，所以这是软上限；Chrome 取消时删掉半截文件【实测】。
+  - `completed`：把暂存文件移进包的 `downloads/<sha256 小写十六进制>`（0600，`downloads/` 0700；同一内容只存一份），写 `download` 事件。
+  - Chrome 报 `canceled` 而不是 tabcap 取消的：`reason:"canceled"`（页面或 Chrome 自己取消；网络中断的下载 CDP 也报 `canceled`【推断】）。
+  - `net stop` / `session stop` / 标签关闭时还在下的：取消，`reason:"stopped"`；浏览器没了：`reason:"browser-gone"`，录制收尾时能写就写。
+- **`download` 事件**（新 kind，§4.1），下载结束（completed 或 canceled）时写一条：`{tab, id:"d-<seq>", nav, url, suggestedFilename, guid, state:"completed"|"canceled", reason:null|"too-large"|"canceled"|"stopped"|"browser-gone", bytes:<收到的字节数>, totalBytes:<Chrome 报的，未知为 null>, file:"downloads/<sha256>"|null, sha256:<hex>|null, startedTs:<开始时的 epoch 毫秒>}`。`id` 固定是 `"d-" + seq`。`cmd` 取下载**开始**时打开的命令窗口（同 §3 对 `request` 的规则），`actor` 同理。`url` 与 `suggestedFilename` 过守护进程的已知秘密值替换；`data:` URL 超过 2 KB 截断并加 `urlTruncated:true`；`blob:` URL 原样。
+- **`navigate` 到附件**：`Page.navigate` 回 `net::ERR_ABORTED`，并且之后 1 s 内该标签主框架有 `downloadWillBegin` 时，不报 `page` 错误：回答是标签当前的页面（原页面没变），加 `download:{url, suggestedFilename, state:"in-progress"|"canceled", reason?}` 与 `note`「the URL is a file download; the page did not change」；没在录制时 `state:"canceled", reason:"not-recording"` 并加 `next`（同上）。1 s 内没有下载开始的，照旧报错。
+- **命令**：
+  - `tabcap download list [--session s]`：当前录制（没在录制时是这个会话最近一份包）的 `download` 事件，按开始先后：`{id, tab, url, suggestedFilename, state, reason, bytes, totalBytes, file:<绝对路径>|null, sha256}`，再加还在下的 `{guid, tab, url, suggestedFilename, state:"in-progress", receivedBytes, totalBytes}`。
+  - `tabcap download wait [--url <子串>] [--since c-12|start] [--fresh] [--timeout ms]`：回看规则与 `net wait` 相同（缺省从这个会话最近一条动作命令开始算），返回第一个已结束的匹配下载（`completed` 与 `canceled` 都返回，看 `state`）；超时回 `timeout`，`next` 写还有几个在下。没在录制时与 `net wait` 的回法相同。
+  - MCP：两条都在 `--all-tools` 里；不进 core。
+- **证据包其余部分**：`manifest` 的 `counts` 多 `downloads`。`bundle redact` 的副本**不带** `downloads/` 目录（文件内容没法逐字段打码），副本里的 `download` 事件 `file` 置 `null` 并加 `redacted:true`。`bundle export har` 不导出下载文件（HAR 里没有这个位置）。`bundle prune` 删包时一起删（在包目录里）。
+- **不做 / 边界**：`ext` 模式不接管（那是作者自己的 Chrome，下载照作者自己的设置）；不提供另存到指定路径（从 `download list` 的 `file` 复制）；上限不做配置项（要改再说）。
+- **验证**：单测（归属；录制外取消与已完成的删除；两种超限；事件字段与 `cmd`；`redact` 去掉 `downloads/`；`navigate` 附件的判定与 1 s 窗口）；e2e `test/e2e/v09d.e2e.test.ts`（靶场 s75，`05` §19）。
