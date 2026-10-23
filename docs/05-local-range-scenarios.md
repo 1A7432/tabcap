@@ -495,7 +495,7 @@
 | s71 | chrome-args | 已落地 | `startChromeArgsSite`：`/s71`、`/s71/report` | v081a | — |
 | s72 | nav-status | 已落地 | `startNavStatusSite`：`/s72/{ok,missing,boom,partial,moved,away,js,empty,forge}`（其余 `/s72/` 路径 404） | v09a | nav-status |
 | s73 | permissions | 已落地 | `startPermissionSite`：`/s73`、`/s73/geo` | v09b | permission |
-| s74 | sse-stream | 未落地 | — | — | — |
+| s74 | sse-stream | 已落地 | `startStreamSite`：`/s74`、`/s74/{sse,cut,ndjson,es,json,other}` | v09c | recorder09c、sse09c |
 | s75 | downloads | 未落地 | — | — | — |
 
 空号：
