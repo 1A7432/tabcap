@@ -26,7 +26,7 @@ const SETTINGS: readonly string[] = ["granted", "denied", "prompt"];
 
 /**
  * Permission names `Browser.setPermission` takes. Every one was accepted by Chrome for Testing 155.0.8059.84
- * (probed with `permission grant <name>`, 2026-10-23). Only used to suggest the closest name after Chrome
+ * (probed with `permission grant <name>`, 2026-10-23; `fullscreen` with the descriptor below). Only used to suggest the closest name after Chrome
  * refused one; a name missing here is still sent to Chrome.
  */
 export const KNOWN_PERMISSIONS: readonly string[] = [
@@ -39,6 +39,7 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   "clipboard-read",
   "clipboard-write",
   "display-capture",
+  "fullscreen",
   "geolocation",
   "gyroscope",
   "idle-detection",
@@ -115,9 +116,15 @@ export function permissionOrigin(tabUrl: string, originArg: string | null): stri
   return u.origin;
 }
 
-/** The descriptor Chrome wants: `push` needs `userVisibleOnly:true` (Chrome refuses it without, measured); the rest is the bare name. */
+/**
+ * The descriptor Chrome wants: `push` needs `userVisibleOnly:true` and `fullscreen` needs
+ * `allowWithoutGesture:true` (Chrome refuses either without; measured CfT 155, docs/07 §1.1 E2 / E2d);
+ * the rest is the bare name.
+ */
 export function descriptorOf(name: string): Record<string, unknown> {
-  return name === "push" ? { name, userVisibleOnly: true } : { name };
+  if (name === "push") return { name, userVisibleOnly: true };
+  if (name === "fullscreen") return { name, allowWithoutGesture: true };
+  return { name };
 }
 
 function distance(a: string, b: string): number {
