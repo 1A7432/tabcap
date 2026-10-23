@@ -2558,7 +2558,7 @@ window.s73State = async () => {
 </script>`;
 
 const S73_GEO = `<!doctype html><meta charset=utf-8><title>s73 geolocation</title><h1>s73 geo</h1>
-<button id=go>locate</button><pre id=out></pre><script>
+<button id=go>locate</button><p id=status></p><pre id=out></pre><script>
 window.s73Geo = () => new Promise((resolve) => {
   const timer = setTimeout(() => resolve({ hung: true }), 4000);
   navigator.geolocation.getCurrentPosition(
@@ -2566,7 +2566,15 @@ window.s73Geo = () => new Promise((resolve) => {
     (e) => { clearTimeout(timer); resolve({ error: e.code, message: e.message }); },
   );
 });
-document.getElementById("go").addEventListener("click", async () => { document.getElementById("out").textContent = JSON.stringify(await window.s73Geo()); });
+// While the position is asked for, #status ticks every 50 ms, as a page's spinner would: the post-action
+// wait of \`click --trusted\` (100 ms without DOM changes, 3 s at most) and with it the focus emulation then
+// last until the answer. Without it a slow machine answered after the click had ended and the hidden tab hung
+// (Windows CI, PR #40: {hung:true} after 9.9 s; the same step took 6.0 s on the runs that passed).
+document.getElementById("go").addEventListener("click", async () => {
+  let n = 0;
+  const tick = setInterval(() => { document.getElementById("status").textContent = "locating " + ++n; }, 50);
+  try { document.getElementById("out").textContent = JSON.stringify(await window.s73Geo()); } finally { clearInterval(tick); document.getElementById("status").textContent = "done"; }
+});
 </script>`;
 
 export function startPermissionSite(): PermissionSite {

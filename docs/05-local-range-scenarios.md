@@ -410,7 +410,7 @@
   3. `permission grant push`：成功（tabcap 带了 `userVisibleOnly`）。`permission grant geolocaton`：`usage`，信息含 Chrome 原话，`next` 提到 `geolocation`。`permission grant notifications geolocaton`：`usage`，`error.result.applied` 是 `["notifications"]`。
   4. 在 about:blank 上 `permission grant camera`：`usage`；`--origin <B>/any/path?q=1` 时回答 `origin` 是 B 的 origin。`--origin file:///tmp` 回 `usage`。
   5. 池账号会话（`session start --site`，有自己的 context）打开 A 的 `/s73`，`permission grant midi`：回答 `context:"session"`、`shared:false`；这个会话里 midi `granted`，会话 a 的 A 页面 midi 仍 `prompt`。
-  6. 定位：会话 a 新开一个标签（窗口里的第二个标签是后台标签，`visibilityState` 为 `hidden`；窗口里唯一的标签是 `visible`，不挂）在 A 的 `/s73/geo` 上 `emulate --geolocation 31.23,121.47`、`permission grant geolocation`，然后 `click --trusted` 一个按钮（它的处理函数调 `s73Geo()` 并把结果写进 `#out`；焦点仿真在这条命令期间开着）：`#out` 里是坐标 31.23；不开焦点仿真直接 `evaluate --await "s73Geo()"`：`{hung:true}`（与 `note` 说的一致）。
+  6. 定位：会话 a 新开一个标签（窗口里的第二个标签是后台标签，`visibilityState` 为 `hidden`；窗口里唯一的标签是 `visible`，不挂）在 A 的 `/s73/geo` 上 `emulate --geolocation 31.23,121.47`、`permission grant geolocation`，然后 `click --trusted` 一个按钮（它的处理函数调 `s73Geo()` 并把结果写进 `#out`，等待期间每 50 ms 更新一次 `#status`，像页面的转圈一样让点击后的等待持续到有回答，焦点仿真在这条命令期间开着；没有它时慢机器上回答晚于命令结束、标签回到 hidden 后挂住，Windows CI 实测过一次）：`#out` 里是坐标 31.23；不开焦点仿真直接 `evaluate --await "s73Geo()"`：`{hung:true}`（与 `note` 说的一致）。
   7. `browser stop` 后再 `browser start`，A 的 `/s73`：全是 `prompt`。
 
 ### s74 sse-stream（P1；0.9-C，`04` §47）
