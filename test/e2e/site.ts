@@ -2471,7 +2471,11 @@ Object.defineProperty(window, "ddjskey", { configurable: true, get: function () 
 // requests (/favicon.ico) are logged too: the test looks at /s72/ paths.
 //   /s72/ok 200, /s72/missing 404, /s72/boom 500, /s72/partial 203,
 //   /s72/moved 302 → /s72/missing, /s72/away 302 → B's /s72/ok,
-//   /s72/js 200 whose script location.replace()s to /s72/missing,
+//   /s72/js 200 whose script location.replace()s to /s72/missing; it also
+//   holds an image (/hold, answered after 2 s, outside /s72/ so it is not in
+//   the oracle) so this document is still loading when the replacement
+//   commits: the document the tab shows is then the 404 one, not a race
+//   between the first document reaching "complete" and the replacement,
 //   /s72/empty 204 (no new document), /s72/forge 200 whose script makes the
 //   MAIN world's performance.getEntriesByType("navigation") say 299,
 //   any other /s72/ path 404 (including the pushState URL /s72/pushed).
@@ -2487,8 +2491,12 @@ performance.getEntriesByType = (type) => (type === "navigation" ? [{ name: locat
 export function startNavStatusSite(): NavStatusSite {
   const log: S72Hit[] = [];
   let bOrigin = "";
-  const handler = (which: "a" | "b") => (req: Request): Response => {
+  const handler = (which: "a" | "b") => async (req: Request): Promise<Response> => {
     const p = new URL(req.url).pathname;
+    if (p === "/hold") {
+      await Bun.sleep(2000);
+      return new Response(null, { status: 204 });
+    }
     const reply = (status: number, body: string | null, headers: Record<string, string> = {}): Response => {
       log.push({ origin: which, path: p, status });
       return new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...headers } });
@@ -2507,7 +2515,7 @@ export function startNavStatusSite(): NavStatusSite {
       case "/s72/away":
         return reply(302, null, { location: `${bOrigin}/s72/ok` });
       case "/s72/js":
-        return reply(200, S72_PAGE("s72 js", `<script>location.replace("/s72/missing");</script>`));
+        return reply(200, S72_PAGE("s72 js", `<img src="/hold" alt=""><script>location.replace("/s72/missing");</script>`));
       case "/s72/empty":
         return reply(204, null);
       case "/s72/forge":
