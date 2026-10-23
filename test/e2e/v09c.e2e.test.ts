@@ -3,8 +3,11 @@
 // Oracle: the range's own log (when each chunk went out, its bytes, how the
 // stream ended, all bytes sent → sha256) and the messages its generator wrote
 // (s74Stream), the page's own records (Date.now() per chunk / progress /
-// message, the same clock as the range's), and for the EventSource request
+// message, the same clock as the range's), and for the EventSource requests
 // Chrome's Network.eventSourceMessageReceived in the bundle's raw/cdp.jsonl.
+// The two EventSource cases are deterministic: the range ends the stream and the
+// page closes after the error that follows (finished), or the range holds the
+// connection open and the page closes on `done` (its own cancel: failed, partial).
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -189,30 +192,47 @@ describe.skipIf(!enabled)("tabcap 0.9-C L2 (s74 streaming responses and SSE)", (
     expect(await messagesOf(s(rc["id"]))).toEqual(expectedMessages(N, true));
   }, 90_000);
 
-  test("1-3. EventSource: messages arrive spread out; its sse events equal what the page dispatched", async () => {
-    const q = `n=${N}&gap=${GAP}&tag=e1`;
-    const page = await evalAwait(`s74Es('/s74/es', '${q}')`);
-    const got = recs(page["got"]).filter((g) => g["type"] !== "error");
+  /** One EventSource run: the page's records, the recorded request and its stored event, the range's log. */
+  async function eventSource(q: string, closeOnDone: boolean) {
+    const page = await evalAwait(`s74Es('/s74/es', '${q}'${closeOnDone ? ", { closeOnDone: true }" : ""})`);
     expect(page["timeout"]).toBeUndefined();
+    expect(page["closedOn"]).toBe(closeOnDone ? "done" : "error");
+    const got = recs(page["got"]).filter((g) => g["type"] !== "error");
     const at = got.map((g) => num(g["at"]));
     expect(new Set(at).size).toBeGreaterThan(1);
     expect(median(at.slice(1).map((a, i) => a - (at[i] ?? a)))).toBeGreaterThan(GAP / 2);
-    const r = await requestOf("tag=e1");
+    const tag = q.slice(q.indexOf("tag="));
+    const r = await requestOf(tag);
     expect(r["type"]).toBe("eventsource");
     const id = s(r["id"]);
+    // its sse events are what the page dispatched, and what the range's generator wrote
     expect(await messagesOf(id)).toEqual(got.map((g) => ({ event: g["type"], id: g["lastEventId"], data: g["data"] })));
     expect(await messagesOf(id)).toEqual(expectedMessages(N, false));
-    // The page closes the EventSource on `done` (docs/05 s74) while the range ends the stream right after
-    // sending it. Which Chrome sees first is a race: close() first is loadingFailed net::ERR_ABORTED
-    // canceled (E3a), so the request is failed with every byte as a partial body; the end first is
-    // finished. Measured 10-23: 1 finished, 3 failed in 4 runs. Either way the body is all the range sent.
-    const sent = sendOf("/s74/es", q);
+    const ev = events().find((e) => e["kind"] === "request" && e["id"] === id) ?? {};
+    return { id, row: r, ev, sent: sendOf("/s74/es", q), body: await bodyFile(id) };
+  }
+
+  test("1-3. EventSource, the range ends the stream: the page closes after the error that follows; finished, the whole body", async () => {
+    const { row, ev, sent, body } = await eventSource(`n=${N}&gap=${GAP}&tag=e1`, false);
     expect(sent.ended).toBe("done");
-    expect(sha((await bodyFile(id)).bytes)).toBe(sha(sentBytes(sent)));
-    const ev = events().find((e) => e["kind"] === "request" && e["id"] === id);
-    const outcome = [ev?.["outcome"], rec(ev?.["error"])["canceled"] ?? null, rec(rec(ev?.["response"])["body"])["partial"] ?? null];
-    expect([JSON.stringify(["finished", null, null]), JSON.stringify(["failed", true, true])]).toContain(JSON.stringify(outcome));
-    console.log(`[v09c] EventSource closed on done: outcome ${s(r["outcome"])}, partial ${s(r["partial"] ?? false)}, range ended ${s(sent.ended)}`);
+    expect(row["outcome"]).toBe("finished");
+    expect(row["partial"]).toBeUndefined();
+    expect(ev["error"]).toBeNull();
+    expect(rec(rec(ev["response"])["body"])["partial"]).toBeUndefined();
+    expect(sha(body.bytes)).toBe(sha(sentBytes(sent)));
+  }, 90_000);
+
+  test("2-3. EventSource, hold=1 (the range never ends the stream): the page closes on done; failed, canceled, every byte as a partial body", async () => {
+    const { row, ev, sent, body } = await eventSource(`n=${N}&gap=${GAP}&hold=1&tag=e2`, true);
+    await until("range sees the client go", () => sent.ended, (e) => e !== null, 10_000);
+    expect(sent.ended).toBe("client-gone");
+    expect(sent.chunks.length).toBe(s74Stream(N, false).length);
+    expect(row).toMatchObject({ outcome: "failed", partial: true });
+    expect(rec(ev["error"])["canceled"]).toBe(true);
+    expect(rec(rec(ev["response"])["body"])["partial"]).toBe(true);
+    expect(rec(ev["response"])["bodyMissing"]).toBeNull();
+    expect(body.answer["partial"]).toBe(true);
+    expect(sha(body.bytes)).toBe(sha(sentBytes(sent)));
   }, 90_000);
 
   test("net wait --url returns when the stream ended; its sse events are listed right away", async () => {
@@ -294,15 +314,17 @@ describe.skipIf(!enabled)("tabcap 0.9-C L2 (s74 streaming responses and SSE)", (
       .filter(isRecord);
     const reqs = events().filter((e) => e["kind"] === "request");
     const byTag = (tag: string) => reqs.find((e) => s(e["url"]).includes(tag));
-    const es = byTag("tag=e1");
-    const cdpId = s(rec(es?.["cdp"])["requestId"]);
-    const chrome = raw.filter((l) => l["method"] === "Network.eventSourceMessageReceived" && rec(l["params"])["requestId"] === cdpId).map((l) => rec(l["params"]));
-    expect(chrome.length).toBe(N + 1);
-    expect(await messagesOf(s(es?.["id"]))).toEqual(chrome.map((p) => ({ event: p["eventName"], id: p["eventId"], data: p["data"] })));
+    for (const tag of ["tag=e1", "tag=e2"]) {
+      const es = byTag(tag);
+      const cdpId = s(rec(es?.["cdp"])["requestId"]);
+      const chrome = raw.filter((l) => l["method"] === "Network.eventSourceMessageReceived" && rec(l["params"])["requestId"] === cdpId).map((l) => rec(l["params"]));
+      expect({ tag, n: chrome.length }).toEqual({ tag, n: N + 1 });
+      expect(await messagesOf(s(es?.["id"]))).toEqual(chrome.map((p) => ({ event: p["eventName"], id: p["eventId"], data: p["data"] })));
+    }
     // fetch / xhr SSE get no eventSourceMessageReceived (E3a): one parser covers all three
     const f1 = s(rec(byTag("tag=f1")?.["cdp"])["requestId"]);
     expect(raw.some((l) => l["method"] === "Network.eventSourceMessageReceived" && rec(l["params"])["requestId"] === f1)).toBe(false);
     const paused = new Set(raw.filter((l) => l["method"] === "Fetch.requestPaused").map((l) => rec(l["params"])["networkId"]));
-    for (const tag of ["tag=f1", "tag=x1", "tag=e1", "tag=j1", "/s74/json"]) expect({ tag, paused: paused.has(rec(byTag(tag)?.["cdp"])["requestId"]) }).toEqual({ tag, paused: true });
+    for (const tag of ["tag=f1", "tag=x1", "tag=e1", "tag=e2", "tag=j1", "/s74/json"]) expect({ tag, paused: paused.has(rec(byTag(tag)?.["cdp"])["requestId"]) }).toEqual({ tag, paused: true });
   }, 60_000);
 });

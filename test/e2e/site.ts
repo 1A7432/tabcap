@@ -2595,7 +2595,12 @@ export function startPermissionSite(): PermissionSite {
 // request: the pieces planned, when each chunk went out and its bytes, how the
 // stream ended (done / cut / client-gone) and the bytes sent (sha256 oracle).
 // /s74/cut resets the connection after half the pieces (the ReadableStream
-// errors; Bun prints that error, it is expected).
+// errors; Bun prints that error, it is expected). `hold=1` sends every piece and
+// then keeps the connection open until the client goes away: with s74Es's
+// closeOnDone the page's close() is the only end, so the request is the
+// page's cancel (failed, canceled, partial) and never a race with the stream
+// ending (measured 10-23 when the range ended the stream and the page closed on
+// `done`: finished 1, failed 6 in 7 runs).
 
 /** One piece of an s74 event stream and the message the SSE rules make of it (null: comment / retry). */
 export type S74Piece = { text: string; message: { event: string; id: string; data: string } | null };
@@ -2648,11 +2653,16 @@ window.s74Xhr = (path, q) => new Promise((res) => {
   x.onloadend = () => res({ status: x.status, t0, prog, bytes: new TextEncoder().encode(x.responseText).length, end: Date.now() });
   x.send("{}");
 });
-window.s74Es = (path, q) => new Promise((res) => {
+// Default: \`done\` is recorded, the page closes on the error event that follows the range ending the
+// stream (EventSource would reconnect only after retry: 100000). { closeOnDone: true }: close on \`done\`.
+window.s74Es = (path, q, opts) => new Promise((res) => {
+  const closeOnDone = opts !== undefined && opts.closeOnDone === true;
   const t0 = Date.now(); const got = []; const es = new EventSource(path + "?" + q);
-  const rec = (e) => { got.push({ at: Date.now(), type: e.type, lastEventId: e.lastEventId, data: e.data }); if (e.type === "done") { es.close(); res({ t0, got }); } };
+  let done = false;
+  const end = (how) => { es.close(); res({ t0, got, closedOn: how }); };
+  const rec = (e) => { got.push({ at: Date.now(), type: e.type, lastEventId: e.lastEventId, data: e.data }); if (e.type === "done") { done = true; if (closeOnDone) end("done"); } };
   es.onmessage = rec; es.addEventListener("a", rec); es.addEventListener("done", rec);
-  es.onerror = () => { got.push({ at: Date.now(), type: "error" }); };
+  es.onerror = () => { got.push({ at: Date.now(), type: "error" }); if (done && !closeOnDone) end("error"); };
   setTimeout(() => { es.close(); res({ t0, got, timeout: true }); }, 30000);
 });
 </script>`;
@@ -2661,7 +2671,7 @@ export function startStreamSite(): StreamSite {
   const sends: S74Send[] = [];
   const json = JSON.stringify({ s74: "plain", items: [1, 2, 3] });
   const enc = new TextEncoder();
-  const stream = (req: Request, u: URL, pieces: string[], contentType: string, cut: boolean): Response => {
+  const stream = (req: Request, u: URL, pieces: string[], contentType: string, cut: boolean, hold = false): Response => {
     const gap = Number(u.searchParams.get("gap") ?? 200);
     const log: S74Send = { path: u.pathname, query: u.search.slice(1), method: req.method, pieces, chunks: [], ended: null, sent: [] };
     sends.push(log);
@@ -2687,6 +2697,8 @@ export function startStreamSite(): StreamSite {
             return;
           }
           if (i === pieces.length) {
+            // hold: everything is sent, the connection stays open until the client goes away (cancel below).
+            if (hold) return;
             log.ended = "done";
             c.close();
             return;
@@ -2720,7 +2732,7 @@ export function startStreamSite(): StreamSite {
         case "/s74/sse":
         case "/s74/es":
         case "/s74/cut":
-          return stream(req, u, s74Stream(n, crlf).map((p) => p.text), "text/event-stream; charset=utf-8", u.pathname === "/s74/cut");
+          return stream(req, u, s74Stream(n, crlf).map((p) => p.text), "text/event-stream; charset=utf-8", u.pathname === "/s74/cut", u.pathname === "/s74/es" && u.searchParams.get("hold") === "1");
         case "/s74/ndjson":
           return stream(req, u, Array.from({ length: n }, (_, k) => `${JSON.stringify({ i: k, t: "tok" })}\n`), "application/x-ndjson", false);
         default:
