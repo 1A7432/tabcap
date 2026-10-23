@@ -13,6 +13,7 @@ import { go, navigate, reload } from "./navigate.ts";
 import { netBody, netGrepTool, netList, netShow, netStart, netStop } from "./net.ts";
 import { html } from "./html.ts";
 import { dialog, evaluate, screenshot } from "./page.ts";
+import { downloadList, downloadWait } from "./download.ts";
 import { permission } from "./permission.ts";
 import { sessionList, sessionStart, sessionStop, tabClose, tabUse, tabsList } from "./session.ts";
 import { sessionExport } from "./sessionexport.ts";
@@ -70,6 +71,8 @@ const TABLE: Record<ToolAction, Tool> = {
   "console.show": consoleShow,
   wait,
   "net.wait": netWait,
+  "download.list": downloadList,
+  "download.wait": downloadWait,
   "handoff.status": handoffStatus,
   "handoff.continue": handoffContinue,
   "handoff.wait": handoffWait,

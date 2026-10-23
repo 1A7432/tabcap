@@ -738,6 +738,29 @@ export const COMMANDS: CommandSpec[] = [
     action: "net.wait",
   },
   {
+    path: ["download", "list"],
+    pos: [],
+    flags: [SESSION],
+    summary:
+      "the downloads of the session's recording (else its last one), in the order they began: id, tab, url, suggestedFilename, state (completed | canceled), reason, bytes, totalBytes, file (its copy in the bundle's downloads/), sha256; then those still in progress (guid, receivedBytes). tabcap keeps downloads only while the session records (net start) and cancels the others (the command's answer says so), one file at most 200 MiB",
+    example: "tabcap download list",
+    action: "download.list",
+  },
+  {
+    path: ["download", "wait"],
+    pos: [],
+    flags: [
+      SESSION,
+      WAIT_TIMEOUT,
+      { flag: "--url", key: "url", kind: "string", help: "URL substring of the download (any download without it)", metavar: "s" },
+      { flag: "--since", key: "since", kind: "string", help: "look back to this command's start (c-12), or `start` for the whole recording", metavar: "c-12|start" },
+      { flag: "--fresh", key: "fresh", kind: "bool", help: "only downloads ending after the wait begins" },
+    ],
+    summary: "wait until a matching download ended, completed or canceled (needs net start); counts downloads since the start of the last action command, like net wait → id, state, reason, file, sha256",
+    example: "tabcap download wait --url /export.csv --timeout 60000",
+    action: "download.wait",
+  },
+  {
     path: ["fetch"],
     pos: ["url"],
     optional: 1,
@@ -1345,7 +1368,7 @@ export const COMMAND_GROUPS: ReadonlyArray<{ id: string; title: string; test: (c
   { id: "page", title: "Navigation and page reading", test: (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "") },
   { id: "input", title: "Input", test: (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "") },
   { id: "tools", title: "Page tools", test: (c) => ["evaluate", "screenshot", "resize", "emulate", "permission", "console"].includes(c.path[0] ?? "") },
-  { id: "network", title: "Network recording", test: (c) => c.path[0] === "net" || c.path[0] === "where" || c.path[0] === "recon" || c.path[0] === "fetch" },
+  { id: "network", title: "Network recording", test: (c) => c.path[0] === "net" || c.path[0] === "download" || c.path[0] === "where" || c.path[0] === "recon" || c.path[0] === "fetch" },
   { id: "handoff", title: "Handoff and challenge handlers", test: (c) => ["handoff", "plugin", "guard"].includes(c.path[0] ?? "") },
   { id: "offline", title: "Offline: bundles, analysis, replay", test: (c) => ["bundle", "analyze", "replay", "schema"].includes(c.path[0] ?? "") },
   { id: "diagnostics", title: "Diagnostics (optional)", test: (c) => ["trace", "fingerprint", "wire"].includes(c.path[0] ?? ""), last: true },
