@@ -13,6 +13,7 @@ import { go, navigate, reload } from "./navigate.ts";
 import { netBody, netGrepTool, netList, netShow, netStart, netStop } from "./net.ts";
 import { html } from "./html.ts";
 import { dialog, evaluate, screenshot } from "./page.ts";
+import { permission } from "./permission.ts";
 import { sessionList, sessionStart, sessionStop, tabClose, tabUse, tabsList } from "./session.ts";
 import { sessionExport } from "./sessionexport.ts";
 import { find, snapshot } from "./snapshot.ts";
@@ -57,6 +58,7 @@ const TABLE: Record<ToolAction, Tool> = {
   screenshot,
   resize,
   emulate,
+  permission,
   dialog,
   "net.start": netStart,
   "net.stop": netStop,

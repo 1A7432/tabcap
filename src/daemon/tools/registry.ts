@@ -65,6 +65,8 @@ export const TOOL_ACTIONS = {
   // resize and emulate (0.4) change what the page sees (its size, device, network)
   resize: pageOnly(),
   emulate: pageOnly(),
+  // permission (0.9-B) changes what the page sees (its permission state), like emulate
+  permission: pageOnly(),
   dialog: pageOnly(),
   "net.start": row(),
   "net.stop": row(),

@@ -1175,6 +1175,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **类别**：改页面看到的东西，与 `emulate` 同一类（`src/daemon/tools/registry.ts` 的动作表里照 `emulate` 那一行：录制时有 `cmd` 窗口、会话等人时拦）。录制中这条命令照常有 `cmd` 事件（argv、输出摘要），不另立事件 kind。
 - **模式**：只 `direct`；`ext` 模式回 `unsupported`（Browser 域不经扩展）。
 - **MCP**：`tabcap mcp --all-tools` 里有；不进 core（不是日常环里的命令，core 用 `tabcap_run` 可调）。
+- **实现定案（0.9-B）**：名字的形状限制为 `^[A-Za-z][A-Za-z0-9_-]{0,63}$`，一次最多 32 个、重复的去掉（Chrome 的名字都是小写连字符；形状不对回 `usage`，不交给 Chrome）；`--origin` 不是 URL 或不是 http(s) 时的错误信息不回显它的值；除 Chrome 回 `Invalid PermissionDescriptor name` 外的拒绝（例如 `fullscreen` 要 `allowWithoutGesture:true`【实测：CfT 155 回 `Fullscreen Permission only supports allowWithoutGesture:true`】）回 `cdp`，信息是 Chrome 的原话，同样带 `result.applied`；超时与连接断开按守护进程平常的 `timeout` / `not-running`。已知名表里的 32 个名字在 CfT 155.0.8059.84 上逐个 `grant` 都被接受【实测，2026-10-23】；`automatic-fullscreen`、`capture-surface-control`、`sensors`、`audio-capture`、`video-capture`、`protected-media-identifier`、`camera-pan-tilt-zoom` 被拒（`Invalid PermissionDescriptor name`）。有头模式下窗口里的**唯一**标签 `visibilityState` 是 `visible`，页面自己的定位请求在 granted + 仿真坐标时立即得到答复；第二个起的后台标签才是 `hidden`【实测：有头 CfT 155，t1 `visible`、t2 `hidden`，同一页同一权限，t1 立即回仿真坐标，t2 的 `s73Geo()` 回 `{hung:true}`】，所以 `note` 写成「`hidden` 标签里挂着」而不是「后台标签一律挂着」，s73 第 6 步用第二个标签。
 - **验证**：单测（参数解析；源推导与各种拒绝；`--origin` 取 origin；`push` 的描述符；Chrome 错误映射与最接近名；多个名字部分失败的 `result`；pool context 时带 `browserContextId`）；e2e `test/e2e/v09b.e2e.test.ts`（靶场 s73，`05` §19）。
 
 ## 47. 0.9-C 流式响应：录制不再缓冲，SSE 消息进包（10-23 作者定；字段与下列细节按实现定案）

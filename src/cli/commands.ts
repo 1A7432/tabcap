@@ -552,6 +552,24 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap emulate --viewport 390x844x3,mobile,touch",
     action: "emulate",
   },
+  ...(
+    [
+      ["grant", "granted", "grant permissions (Chrome's names: geolocation, notifications, camera, clipboard-read, push ...)"],
+      ["deny", "denied", "deny permissions (the page's request fails at once, no prompt)"],
+      ["reset", "prompt", "set permissions back to undecided (prompt)"],
+    ] as const
+  ).map(
+    ([verb, setting, what]): CommandSpec => ({
+      path: ["permission", verb],
+      pos: ["names..."],
+      restList: true,
+      fixed: { setting },
+      flags: [...TT, { flag: "--origin", key: "origin", kind: "string", help: "set it for this URL's origin (path, query and fragment dropped) instead of the current tab's; http(s) only", metavar: "url" }],
+      summary: `${what} for the current tab's origin (or --origin) only, until browser stop. Sessions share the default browser context (the answer says shared); a session start --site session has its own. A hidden tab's geolocation request keeps waiting (the answer's note says how). direct mode only → tab, origin, setting, names, context, shared`,
+      example: `tabcap permission ${verb} geolocation notifications`,
+      action: "permission",
+    }),
+  ),
   {
     path: ["dialog"],
     pos: ["op"],
@@ -1250,7 +1268,7 @@ export const COMMANDS: CommandSpec[] = [
         flag: "--all-tools",
         key: "allTools",
         kind: "bool",
-        help: "one tool per command with its full help (about 96 tools, ~84 KB of definitions in the model's context) instead of the core set",
+        help: "one tool per command with its full help (about 99 tools, ~88 KB of definitions in the model's context) instead of the core set",
       },
     ],
     summary: "serve tabcap as MCP tools over stdin / stdout (JSON-RPC 2.0, one message per line, logs on stderr, exits when stdin closes): a core set of browser and net tools plus tabcap_run / tabcap_help for every other command; `waiting` comes back at once, tabcap_handoff_wait waits for the human",
@@ -1319,7 +1337,7 @@ export const COMMAND_GROUPS: ReadonlyArray<{ id: string; title: string; test: (c
   { id: "sessions", title: "Sites, sessions and tabs", test: (c) => ["site", "session", "tab"].includes(c.path[0] ?? "") },
   { id: "page", title: "Navigation and page reading", test: (c) => ["navigate", "go", "reload", "snapshot", "outline", "find", "wait"].includes(c.path[0] ?? "") },
   { id: "input", title: "Input", test: (c) => ["click", "hover", "fill", "type", "press-key", "upload", "dialog"].includes(c.path[0] ?? "") },
-  { id: "tools", title: "Page tools", test: (c) => ["evaluate", "screenshot", "resize", "emulate", "console"].includes(c.path[0] ?? "") },
+  { id: "tools", title: "Page tools", test: (c) => ["evaluate", "screenshot", "resize", "emulate", "permission", "console"].includes(c.path[0] ?? "") },
   { id: "network", title: "Network recording", test: (c) => c.path[0] === "net" || c.path[0] === "where" || c.path[0] === "recon" || c.path[0] === "fetch" },
   { id: "handoff", title: "Handoff and challenge handlers", test: (c) => ["handoff", "plugin", "guard"].includes(c.path[0] ?? "") },
   { id: "offline", title: "Offline: bundles, analysis, replay", test: (c) => ["bundle", "analyze", "replay", "schema"].includes(c.path[0] ?? "") },

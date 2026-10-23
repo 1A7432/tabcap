@@ -2,7 +2,7 @@
 // same source as `--help` and `tabcap schema --json`. Two sets (owner,
 // 2026-10-16: a host loads every tool definition into the model's context,
 // and one tool per command was ~58 KB of definitions then; 96 tools, ~84 KB
-// after the review of 10-21):
+// after the review of 10-21, 99 tools, ~88 KB with the 0.9-B permission commands):
 //   - core (default): the commands of the everyday loop (CORE below) with a
 //     one-line description and bare property schemas, tabcap_handoff_wait,
 //     and two generic tools: tabcap_run {argv} runs any other command,

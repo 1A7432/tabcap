@@ -84,7 +84,7 @@ tabcap daemon stop
 | 站点、会话、标签 | `site`、`account`、`proxy`（*实验*）、`session start/stop/list/export`、`tab list/select/new/close` |
 | 页面 | `navigate`、`go`、`reload`、`snapshot`、`outline`、`find`、`wait`、`html` |
 | 输入 | `click`、`hover`、`fill`、`type`、`press-key`、`upload`、`dialog` |
-| 页面工具 | `evaluate`、`screenshot`、`resize`、`emulate`、`console list/show` |
+| 页面工具 | `evaluate`、`screenshot`、`resize`、`emulate`、`permission grant/deny/reset`、`console list/show` |
 | 网络 | `net start/stop/list/show/body/grep/wait`、`fetch`、`where`、`recon`（*实验*） |
 | 交接 | `handoff status/continue`、`guard resume`、`plugin init/list/enable/disable` |
 | 离线 | `bundle export/import/redact/info/decode`、`analyze find/diff/deps/chain/shape/schema-diff/recon`、`replay serve/check/session/export-python`、`schema` |

@@ -5,7 +5,9 @@
 // `…:src/daemon/guard.ts` BLOCKED_WHILE_WAITING, `…:src/daemon/main.ts`
 // TEXT_ACTIONS), copied below; the only allowed difference is the owner's
 // 10-21 ruling that `wire.profile` / `wire.probe` wait like `fingerprint.probe`
-// (they open and navigate a tab of the session).
+// (they open and navigate a tab of the session) and the 10-23 spec (docs/04 §46)
+// that `permission` is refused while waiting like `emulate` (it changes what
+// the page sees); `permission` has no command window either, as `emulate`.
 
 import { describe, expect, test } from "bun:test";
 import { BLOCKED_WHILE_WAITING } from "../../src/daemon/guard.ts";
@@ -33,10 +35,10 @@ describe("action metadata table", () => {
     }
   });
 
-  test("derived sets equal the hand-kept ones of 1ec64b6, except wire.profile / wire.probe now wait (owner 10-21)", () => {
+  test("derived sets equal the hand-kept ones of 1ec64b6, except wire.profile / wire.probe now wait (owner 10-21) and permission waits like emulate (docs/04 §46)", () => {
     expect(sorted(ACTION_COMMANDS)).toEqual(sorted(OLD_ACTION_COMMANDS));
     expect(sorted(TEXT_ACTIONS)).toEqual(sorted(OLD_TEXT_ACTIONS));
-    expect(sorted(BLOCKED_WHILE_WAITING)).toEqual(sorted([...OLD_BLOCKED, "wire.profile", "wire.probe"]));
+    expect(sorted(BLOCKED_WHILE_WAITING)).toEqual(sorted([...OLD_BLOCKED, "wire.profile", "wire.probe", "permission"]));
     expect(sorted(actionsWhere("cmdWindow"))).toEqual(sorted(ACTION_COMMANDS));
   });
 
