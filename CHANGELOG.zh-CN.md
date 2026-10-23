@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### 对照 DrissionPage 5.0 之后（0.9-A、0.9-B）
+
+- **导航回答带 `status`（0.9-A，docs/04 §45）。** `navigate`、`tab new`、`go`、`reload` 的回答多一个 `status`：标签上显示的那个主文档的 HTTP 状态码（重定向取最后一跳；`about:blank`、`chrome-error://` 页和读不到记录的文档为 `null`）。404 / 403 的页面照样加载、照样算就绪，以前要读页面文字或开录制才知道。值在就绪确认之后、在 tabcap 自己的隔离世界里读 `performance.getEntriesByType("navigation")[0].responseStatus`，只认 100–599 的整数，所以页面改不了它、不开 `Network` 域、不用 `net start`；读失败不让命令失败。同文档导航（`#hash`、`pushState`）沿用该文档原来的状态码；`click` / `press-key` 引起的导航不带 `status`（录制后看 `net list`）；204 与下载仍是 `page` 错误 `net::ERR_ABORTED`。文档：docs/04 §45、docs/05 s72（`test/e2e/v09a.e2e.test.ts`）、docs/07 §1.1（E1）。
+
 ### 审查后续的作者决定项（2026-10-22）
 
 - **单横线词是选项。** `--` 之前，以一个 `-` 开头、又不是该命令声明的短写法的词，回 usage 错误（退出码 2，`unknown option -x`；`next` 说明这样的参数放到 `--` 之后）。只有单独的 `-` 和负数（`-1`、`-2.5`）仍是位置参数；`--` 之后一切照旧是位置参数。以前 `tabcap bundle info -x` 会去找名叫 `-x` 的目录，`tabcap analyze find <bundle> -x` 会搜文本 `-x`（现在写 `-- -x`）。quiet 命令（`site add` / `proxy add` / `account add`）回 `unknown option (value not shown)`，因为这个词可能是口令。解析规则写在 docs/04 §2.1；docs/05 s47 的走法把 `-t` 放到 `--` 之后。

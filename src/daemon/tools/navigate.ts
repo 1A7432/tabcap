@@ -1,10 +1,14 @@
 // tabcap navigate | tab new | go back|forward | reload — all wait for readiness
 // (docs/07 §1.1), then for the DOM to settle (post-action wait, docs/08 §5;
-// --no-wait skips that part).
+// --no-wait skips that part). Their answers carry `status` (0.9-A, docs/04
+// §45): the HTTP status of the main document the tab shows, read in tabcap's
+// isolated world from the navigation timing entry.
 
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
+import { callResult, docIdentity } from "../browser/doc.ts";
 import { DEFAULT_COMMAND_TIMEOUT_MS, type NavType, type Tab } from "../browser/targets.ts";
+import { inWorld, rootDoc } from "../browser/worlds.ts";
 import { protectionField } from "../protection/live.ts";
 import type { Daemon } from "../state.ts";
 import { confirmState, startReadyWait } from "../transport/direct/ready.ts";
@@ -13,12 +17,48 @@ import { checkSessionName, optBool, optNum, optStr, reqStr, type Args } from "./
 import { withPostWait } from "./settle.ts";
 
 /**
- * The readiness wait, then the DOM part of the post-action wait (unless --no-wait),
- * then the once-per-navigation protection probe (0.8-A, docs/04 §41.3): `protection`
- * lists the families identified at confidence ≥ 50, absent when there are none.
+ * `status` of a navigation answer (docs/04 §45): the value the page's navigation timing
+ * entry reports is untrusted, so only a whole number from 100 to 599 counts. 0 (about:blank,
+ * `chrome-error://` pages), a missing entry, a fraction, a string: null.
+ */
+export function navStatusOf(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v >= 100 && v <= 599 ? v : null;
+}
+
+/** In tabcap's isolated world, so the page can neither rewrite `performance` for it nor see the call. */
+const NAV_STATUS_EXPR = '(() => { const e = performance.getEntriesByType("navigation")[0]; return e === undefined ? null : e.responseStatus; })()';
+
+/**
+ * The HTTP status of the main document the tab shows now, read after the readiness
+ * confirmation. Never throws: a document that cannot be read (it changed under the
+ * read twice, the tab went away) is null, and the command still answers.
+ */
+export async function readNavStatus(t: Transport, tab: Tab): Promise<number | null> {
+  try {
+    const doc = rootDoc(tab, await docIdentity(t, tab));
+    return await inWorld(t, tab, doc, async (ctx) => navStatusOf(callResult(await t.send("Runtime.evaluate", { expression: NAV_STATUS_EXPR, contextId: ctx, returnByValue: true }, tab.sessionId, 5000))));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The readiness wait and the document's `status`, then the DOM part of the post-action
+ * wait (unless --no-wait), then the once-per-navigation protection probe (0.8-A, docs/04
+ * §41.3): `protection` lists the families identified at confidence ≥ 50, absent when
+ * there are none.
  */
 async function settled(d: Daemon, t: Transport, tab: Tab, a: Args, nav: () => Promise<NavResult>): Promise<unknown> {
-  const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), nav, { navigationDone: true });
+  const { result, wait } = await withPostWait(
+    t,
+    tab,
+    optBool(a, "noWait"),
+    async () => {
+      const r = await nav();
+      return { ...r, status: await readNavStatus(t, tab) };
+    },
+    { navigationDone: true },
+  );
   return { ...result, wait, ...(await protectionField(d, t, tab)) };
 }
 

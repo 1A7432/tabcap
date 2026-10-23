@@ -493,7 +493,7 @@
 | s69 | trace | 已落地 | `startProtectionSite`：`/s69` | v08a | — |
 | s70 | challenge | 已落地 | `startProtectionSite`：`/s70/cf`、`/s70/jsl` | v08a | — |
 | s71 | chrome-args | 已落地 | `startChromeArgsSite`：`/s71`、`/s71/report` | v081a | — |
-| s72 | nav-status | 未落地 | — | — | — |
+| s72 | nav-status | 已落地 | `startNavStatusSite`：`/s72/{ok,missing,boom,partial,moved,away,js,empty,forge}`（其余 `/s72/` 路径 404） | v09a | nav-status |
 | s73 | permissions | 未落地 | — | — | — |
 | s74 | sse-stream | 未落地 | — | — | — |
 | s75 | downloads | 未落地 | — | — | — |

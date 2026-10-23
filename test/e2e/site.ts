@@ -2464,3 +2464,68 @@ Object.defineProperty(window, "ddjskey", { configurable: true, get: function () 
   port = server.port ?? 0;
   return { port, at: (host, path) => `http://${host}:${port}${path}`, hits, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- 0.9-A: s72 navigation status (docs/05 s72)
+// Two origins A and B serve the same /s72/* routes. The server logs, in arrival
+// order, each request's path and the status it answered (oracle). Chrome's own
+// requests (/favicon.ico) are logged too: the test looks at /s72/ paths.
+//   /s72/ok 200, /s72/missing 404, /s72/boom 500, /s72/partial 203,
+//   /s72/moved 302 → /s72/missing, /s72/away 302 → B's /s72/ok,
+//   /s72/js 200 whose script location.replace()s to /s72/missing,
+//   /s72/empty 204 (no new document), /s72/forge 200 whose script makes the
+//   MAIN world's performance.getEntriesByType("navigation") say 299,
+//   any other /s72/ path 404 (including the pushState URL /s72/pushed).
+export type S72Hit = { origin: "a" | "b"; path: string; status: number };
+export type NavStatusSite = { a: string; b: string; log: S72Hit[]; stop: () => void };
+
+const S72_PAGE = (title: string, extra = "") => `<!doctype html><meta charset=utf-8><title>${title}</title><h1>${title}</h1>${extra}`;
+const S72_FORGE = `<script>
+const real = performance.getEntriesByType.bind(performance);
+performance.getEntriesByType = (type) => (type === "navigation" ? [{ name: location.href, entryType: "navigation", responseStatus: 299 }] : real(type));
+</script>`;
+
+export function startNavStatusSite(): NavStatusSite {
+  const log: S72Hit[] = [];
+  let bOrigin = "";
+  const handler = (which: "a" | "b") => (req: Request): Response => {
+    const p = new URL(req.url).pathname;
+    const reply = (status: number, body: string | null, headers: Record<string, string> = {}): Response => {
+      log.push({ origin: which, path: p, status });
+      return new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...headers } });
+    };
+    switch (p) {
+      case "/s72/ok":
+        return reply(200, S72_PAGE("s72 ok"));
+      case "/s72/missing":
+        return reply(404, S72_PAGE("s72 missing"));
+      case "/s72/boom":
+        return reply(500, S72_PAGE("s72 boom"));
+      case "/s72/partial":
+        return reply(203, S72_PAGE("s72 partial"));
+      case "/s72/moved":
+        return reply(302, null, { location: "/s72/missing" });
+      case "/s72/away":
+        return reply(302, null, { location: `${bOrigin}/s72/ok` });
+      case "/s72/js":
+        return reply(200, S72_PAGE("s72 js", `<script>location.replace("/s72/missing");</script>`));
+      case "/s72/empty":
+        return reply(204, null);
+      case "/s72/forge":
+        return reply(200, S72_PAGE("s72 forge", S72_FORGE));
+      default:
+        return reply(404, S72_PAGE("s72 nothing here"));
+    }
+  };
+  const b = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler("b") });
+  bOrigin = `http://127.0.0.1:${b.port}`;
+  const a = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler("a") });
+  return {
+    a: `http://127.0.0.1:${a.port}`,
+    b: bOrigin,
+    log,
+    stop: () => {
+      a.stop(true);
+      b.stop(true);
+    },
+  };
+}

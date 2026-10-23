@@ -4,6 +4,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## Unreleased
 
+### After reading DrissionPage 5.0 (0.9-A, 0.9-B)
+
+- **`status` on navigation answers (0.9-A, docs/04 §45).** `navigate`, `tab new`, `go` and `reload` answer `status`: the HTTP status of the main document the tab shows (the last hop of a redirect; `null` for `about:blank`, `chrome-error://` pages and a document whose entry cannot be read). A 404 or 403 page still loads and counts as ready; an agent had to read the page text or start a recording to learn that. The value is read after the readiness check, in tabcap's isolated world, from `performance.getEntriesByType("navigation")[0].responseStatus` and accepted only as a whole number from 100 to 599, so a page cannot rewrite it, the `Network` domain stays off and no `net start` is needed; a read that fails never fails the command. Same-document navigations (`#hash`, `pushState`) keep the document's status; `click` / `press-key` navigations carry none (record and `net list`); a 204 or a download is still the `page` error `net::ERR_ABORTED`. Docs: docs/04 §45, docs/05 s72 (`test/e2e/v09a.e2e.test.ts`), docs/07 §1.1 (E1).
+
 ### Owner decisions after the review follow-up (2026-10-22)
 
 - **One-dash words are options.** Before `--`, a word that starts with one dash and is not a short spelling the command declares is a usage error (exit 2, `unknown option -x`; `next` says such an argument goes after `--`). Only a bare `-` and negative numbers (`-1`, `-2.5`) stay positional; after `--` everything is positional as before. `tabcap bundle info -x` used to look for a directory named `-x`, and `tabcap analyze find <bundle> -x` searched for the text `-x` (write `-- -x` now). The quiet commands (`site add` / `proxy add` / `account add`) answer `unknown option (value not shown)` since the word may be a password. docs/04 §2.1 states the parse rules; the docs/05 s47 walk types `-t` after `--`.

@@ -960,7 +960,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav",
+      "summary": "load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav, status (the HTTP status of the main document the tab shows, the last hop of a redirect; null for about:blank and error pages)",
       "usage": "tabcap navigate <url> [--session name] [--timeout ms] [--tab t2] [--new-tab] [--no-wait]",
     },
     {
@@ -1096,7 +1096,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "open a new tab in the session, load a URL and make it the current tab (same as navigate --new-tab)",
+      "summary": "open a new tab in the session, load a URL and make it the current tab (same as navigate --new-tab; the answer has status too)",
       "usage": "tabcap tab new <url> [--session name] [--timeout ms] [--background] [--no-wait]",
     },
     {
@@ -1197,7 +1197,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": false,
         },
       ],
-      "summary": "history back / forward, waits until ready and the DOM is quiet",
+      "summary": "history back / forward, waits until ready and the DOM is quiet; the answer has status of the document it lands on",
       "usage": "tabcap go back|forward [--session name] [--timeout ms] [--tab t2] [--no-wait]",
     },
     {
@@ -1266,7 +1266,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         "reload",
       ],
       "positionals": [],
-      "summary": "reload the current tab, waits until ready and the DOM is quiet",
+      "summary": "reload the current tab, waits until ready and the DOM is quiet; the answer has status of the reloaded document",
       "usage": "tabcap reload [--session name] [--timeout ms] [--tab t2] [--ignore-cache] [--no-wait]",
     },
     {
