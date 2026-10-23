@@ -8,7 +8,7 @@
 
 - **现状**：靶场是 `test/e2e/site.ts`，一组 `startXxxSite()` 函数，各自用 `Bun.serve` 在 `127.0.0.1` 的随机端口起一个站点；跨源场景再起一个服务，用 `http://localhost:<端口>` 当 B 源（与 `127.0.0.1` 不同站点）。由各 e2e 文件（`test/e2e/*.e2e.test.ts`）在进程内启动、用完即停，`bun run test:e2e` 一条命令跑全部；默认的 `bun test` 不碰它。
 - **oracle**：每个站点记下自己发出的正文（`served`：路径 → 正文字节的 sha256）和收到的请求（`hits`，或站点自己的日志字段），测试拿证据包与它比对；期望值写成 `site.ts` 里的字面量（如 `S22_*`）和本文各场景的 expected，由写场景的人写，不由 AI 为了让测试通过去改。
-- 场景编号 → `site.ts` 的站点与路由 → e2e 文件的对照见 §19 场景索引。
+- 场景编号 → `site.ts` 的站点与路由 → e2e 文件的对照见 §20 场景索引。
 - 原计划（10-15）的 `range/` 目录与 `tabcap range serve`（固定端口 `127.0.0.1:4310` / `localhost:4311`）、种子生成的数据、`/__range/journal` 日志与 `reset`、每场景一个目录加 `expected.json`、`x-range-*` 响应头、`tabcap range selftest`（L1）都没有实现，不排期（`06` §1）。
 
 ## 2. 场景
@@ -389,7 +389,55 @@
   3. **拒绝**：各自 `browser start --proxy none` 加 `--chrome-arg --user-data-dir=<临时目录>`、`--chrome-arg --proxy-server=http://127.0.0.1:9`、`--chrome-arg about:blank`、`--drop-chrome-arg --remote-debugging-port` 之一：都回 `usage`，`browser status` 为 `running:false`。`config.json` `{"chrome":{"args":"--x"}}` 回 `bad-input`，消息含 `chrome.args`。
 - 不在靶场里的【待验】：作者真实使用里要加的那几个参数本身的效果（靶场只证明参数到了 Chrome 并按规则合并）。
 
-## 19. 场景索引
+## 19. 0.9 DrissionPage 5.0 对照后的四项（10-23，P1）
+
+四个场景的 oracle 都是靶场服务器自己记下的东西（发出的状态码、字节、分段时刻、文件哈希）与页面自己的记录，不来自 tabcap 的输出。
+
+### s72 nav-status（P1；0.9-A，`04` §45）
+- 页面（`test/e2e/site.ts` 的 `startNavStatusSite`，两个源 A、B）：`/s72/ok` 200、`/s72/missing` 404、`/s72/boom` 500、`/s72/partial` 203、`/s72/moved` 302 → `/s72/missing`、`/s72/away` 302 → B 的 `/s72/ok`（跨源）、`/s72/js` 200 但脚本 `location.replace('/s72/missing')`、`/s72/empty` 204，`/s72/` 下其余路径 404，`/s72/forge` 见第 5 步。服务器按到达顺序记下每个请求的路径与它回的状态码（oracle）。
+- 走法与 expected（`test/e2e/v09a.e2e.test.ts`），不开录制：
+  1. 依次 `navigate` 到 ok / missing / boom / partial / moved / away / js：回答 `status` 依次为 200、404、500、203、404、200、404，每个都等于服务器为该次导航最后一跳记下的状态码；`url` 是最后一跳的 URL。
+  2. 在 missing 上 `navigate …/s72/missing#x`（同文档）：`status` 404；`evaluate "history.pushState({}, '', '/s72/pushed')"` 后 `reload`：重新加载的是 `/s72/pushed`（靶场对未知路径回 404），`status` 404；`navigate /s72/ok` 再 `go back`：`status` 404。
+  3. `navigate /s72/empty`：照旧回 `page` 错误（`net::ERR_ABORTED`），不带 `status`；之后 `tab list` 显示标签仍在上一页。
+  4. `tab new <A>/s72/boom`：回答 `status` 500。`navigate about:blank`：`status` 为 `null`。
+  5. 页面改写主世界的 `performance.getEntriesByType`（`/s72/forge` 页面让它返回 `responseStatus: 299`，服务器实际回 200）：`status` 仍是 200（隔离世界里读）。
+
+### s73 permissions（P1；0.9-B，`04` §46）
+- 页面（`startPermissionSite`，两个源 A、B）：`/s73` 提供 `window.s73State()`，在页面自己的世界里对 geolocation、notifications、clipboard-read、camera、midi 调 `navigator.permissions.query`，返回状态表（oracle 是页面自己看到的状态）；`/s73/geo` 提供 `window.s73Geo()`：`getCurrentPosition` 的结果，外加 4 s 的外层超时（超时回 `{hung:true}`）。
+- 走法与 expected（`test/e2e/v09b.e2e.test.ts`）：
+  1. 会话 a 打开 A 的 `/s73`：初始全是 `prompt`。`permission grant geolocation notifications`：回答 `origin` 是 A、`names` 两个、`context:"default"`、`shared:true`、带 geolocation 的 `note`；页面状态 geolocation、notifications 为 `granted`，其余 `prompt`。同一默认 context 里另开 B 的 `/s73`：全是 `prompt`。
+  2. `permission deny geolocation`：A 上 `denied`；`permission reset geolocation`：A 上回到 `prompt`，notifications 仍 `granted`。
+  3. `permission grant push`：成功（tabcap 带了 `userVisibleOnly`）。`permission grant geolocaton`：`usage`，信息含 Chrome 原话，`next` 提到 `geolocation`。`permission grant notifications geolocaton`：`usage`，`error.result.applied` 是 `["notifications"]`。
+  4. 在 about:blank 上 `permission grant camera`：`usage`；`--origin <B>/any/path?q=1` 时回答 `origin` 是 B 的 origin。`--origin file:///tmp` 回 `usage`。
+  5. 池账号会话（`session start --site`，有自己的 context）打开 A 的 `/s73`，`permission grant midi`：回答 `context:"session"`、`shared:false`；这个会话里 midi `granted`，会话 a 的 A 页面 midi 仍 `prompt`。
+  6. 定位：会话 a 在 A 的 `/s73/geo` 上 `emulate --geolocation 31.23,121.47`、`permission grant geolocation`，然后 `click --trusted` 一个按钮（它的处理函数调 `s73Geo()` 并把结果写进 `#out`；焦点仿真在这条命令期间开着）：`#out` 里是坐标 31.23；不开焦点仿真直接 `evaluate --await "s73Geo()"`：`{hung:true}`（与 `note` 说的一致）。
+  7. `browser stop` 后再 `browser start`，A 的 `/s73`：全是 `prompt`。
+
+### s74 sse-stream（P1；0.9-C，`04` §47）
+- 页面（`startStreamSite`）：`/s74` 提供三个页面函数：`s74Fetch(path, q)` 用 `fetch()` POST、`ReadableStream` reader 逐段读，记下每段到达的页面时刻与长度；`s74Xhr(path, q)` 用 XHR 的 `onprogress` 记；`s74Es(path, q)` 用 `EventSource`，收到 `done` 事件后 `close()`，记下每条消息的类型、`lastEventId`、data 与时刻。服务器路由：`/s74/sse`（`text/event-stream`，参数 `n` 条、`gap` 毫秒、`crlf=1` 用 CRLF；内容依次是一条注释、一条 `retry: 100000`、n 条消息（每第 3 条是 `event: a`、`id`、两行 `data`，其余是 `id` 加一行 JSON delta 含中文），最后 `event: done` / `data: [DONE]`）、`/s74/cut`（同样的流，发到一半时重置连接）、`/s74/ndjson`（`application/x-ndjson`，n 行）、`/s74/es`（同 `/s74/sse`，给 EventSource 用的 GET）。服务器记下每次请求每段发出的时刻与字节、结束方式（`done` / `cut` / 客户端走了）与全部字节的 sha256（oracle）。
+- 走法与 expected（`test/e2e/v09c.e2e.test.ts`）：
+  1. **不缓冲**：`net start` 后 `evaluate --await "s74Fetch('/s74/sse','n=6&gap=200')"`：页面收到的段数 ≥ 服务器发出段数 − 1，第一段到达早于服务器发最后一段的时刻（录制不再把流攒到结束才交给页面）。`s74Xhr` 同样（`onprogress` 次数 ≥ 段数 − 1）。`s74Es('/s74/es', …)`：各条消息的到达时刻不全相同，间隔与 `gap` 同量级。
+  2. **正文**：`net list` 里三条请求 `outcome:"finished"`，`net body` 文件的 sha256 等于服务器记下的；CRLF 版同样。
+  3. **`sse` 事件**：`net list --kind sse` 对 fetch 那条请求列出 n + 1 条消息（含 `done`），每条的 `event`、`lastEventId`、data 与服务器发出的内容按规范解析的结果一致（类型 `message` / `a` / `done`，多行 data 用 LF 连接，注释与 `retry` 行不成消息，`done` 的 `lastEventId` 沿用前一个 id）；EventSource 那条的每条 `sse` 事件与页面 `s74Es` 记下的（类型、`lastEventId`、data）逐条相等，也与录制原始流里 Chrome 的 `Network.eventSourceMessageReceived` 逐条相等。`at` 单调不减，相邻两条之差与 `gap` 同量级（不是全部相同）。`net show r-N`（fetch 那条）带 `sse.messages` 等于 n + 1。
+  4. **断流**：`s74Fetch('/s74/cut','n=6&gap=200')`：页面报网络错误；`net list --failed` 里这条 `outcome:"failed"`、`partial:true`，正文字节是页面收到的那部分（长度等于页面收到的字节数，且是服务器所发字节的前缀）；`sse` 事件只有已完整的那几条。
+  5. **导航打断**：发起一条 `n=20&gap=200` 的流，900 ms 后 `navigate` 到别的页：这条请求 `outcome:"incomplete"`、`partial:true`，正文是服务器所发字节的前缀且非空。
+  6. **ndjson**：`s74Fetch('/s74/ndjson','n=6&gap=200')` 逐段到达（同第 1 条判据），正文 sha256 对，没有 `sse` 事件。
+  7. **普通请求不受影响**：同一录制里一个普通 JSON `fetch` 的正文照常由 Fetch 拦截路径取到（`bodySource` 不变）。
+- 不在靶场里的【待验】：真实 LLM 站的流式类型（`04` §47）。
+
+### s75 downloads（P1；0.9-D，`04` §48）
+- 页面（`startDownloadSite`）：`/s75` 有四个触发：附件链接（`/s75/file`，`Content-Disposition: attachment; filename="s75-<tag>.txt"`）、`a[download]`（同源纯文本 `/s75/plain`）、blob URL、`data:` URL；`/s75/big?mb=<n>` 是带 `Content-Length` 的慢速大附件；`/s75/nav` 是导航即下载的附件；`/s75/plain` 本身是普通文本。服务器记下每个附件发出的字节与 sha256（blob / data 的内容由页面脚本写死，sha256 写在测试里）。
+- 走法与 expected（`test/e2e/v09d.e2e.test.ts`）：
+  1. **不录制时**：`navigate /s75`，`click` 附件链接：回答 `downloads[0]` 为 `state:"canceled", reason:"not-recording"`，带 `next`；暂存目录与包里都没有文件；本机 `~/Downloads` 里没有名字含本次 `<tag>` 的文件（只读检查）。
+  2. **录制中**：`net start`，依次 `click` 四个触发（默认 DOM 点击，不带用户手势），`download wait` 四次：四个都是 `completed`，`file` 存在、sha256 等于服务器 / 测试记下的，`download list` 四条、`tab` 是这个标签；`download` 事件 `cmd` 是触发它的那条 `click` 的窗口。
+  3. **导航即下载**：`navigate /s75/nav`：回答 `ok`，`download.state:"in-progress"`（或已完成），带 `note`；标签仍在 `/s75`；随后 `download wait` 得到它，sha256 对。不录制时同一步回 `download.state:"canceled", reason:"not-recording"` 与 `next`。
+  4. **超限**：测试把上限换小——这一步靠单测（200 MiB 太大，e2e 不下这么大的文件）：e2e 只验 `/s75/big?mb=8` 在录制中正常 `completed`、sha256 对。
+  5. **池账号 context**：`session start --site` 的会话录制中点附件：`completed`（证明新 context 也设了行为）。
+  6. **`net stop` 时还在下**：`/s75/big?mb=64`（慢速）开始后立刻 `net stop`：包里这条 `download` 为 `canceled`、`reason:"stopped"`，没有文件。
+  7. **`bundle redact`**：副本里没有 `downloads/`，`download` 事件 `file:null`、`redacted:true`。
+- 不在靶场里的【待验】：网络中断的下载 CDP 是否报 `canceled`（`04` §48 的推断）。
+
+## 20. 场景索引
 
 10-21 建。场景编号 → 实现它的 `test/e2e/site.ts` 站点函数与主要路由 → 跑它的 e2e 文件。e2e 与单测两列是 grep 出来的：在 `test/e2e/*.e2e.test.ts`、`test/unit/*.ts` 里搜编号（前后不接字母数字，如 `s07`、`/s22/`、`S40_`），列出提到它的文件（省略目录与 `.e2e.test.ts` / `.test.ts` 后缀）；没有文件写编号的三个场景按路由搜（标「按路由」）。单测 `test/unit/scenario-index.test.ts` 读这张表：每个 `### sNN` 都要有一行，状态不是「未落地」「仅对照靶场」的，编号必须能在 `site.ts` 或某个测试文件里搜到；「未落地」的在 `site.ts` 里搜不到（落地了就要回来改表）；「仅对照靶场」的在 `docs/compare/range.ts` 里搜得到。
 
@@ -445,9 +493,13 @@
 | s69 | trace | 已落地 | `startProtectionSite`：`/s69` | v08a | — |
 | s70 | challenge | 已落地 | `startProtectionSite`：`/s70/cf`、`/s70/jsl` | v08a | — |
 | s71 | chrome-args | 已落地 | `startChromeArgsSite`：`/s71`、`/s71/report` | v081a | — |
+| s72 | nav-status | 未落地 | — | — | — |
+| s73 | permissions | 未落地 | — | — | — |
+| s74 | sse-stream | 未落地 | — | — | — |
+| s75 | downloads | 未落地 | — | — | — |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。
 - s57、s58：`09` §12 的规划编号（10-21 由 `09` 原来的 s41 chart-instance、s42 report-viewer 改号而来，那两个号与本文已落地的 s41、s42 撞了）。
 - s61：没有用过（docs、NOTES、代码里都搜不到）。
-- s72 起：未分配。
+- s76 起：未分配。

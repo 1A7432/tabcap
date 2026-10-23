@@ -13,12 +13,12 @@
 | 状态 | docs 标记 | NOTES 线程 | 合计 |
 |---|---|---|---|
 | 已关闭 | 18 | 28 | 46 |
-| 仍开 | 25 | 12 | 37 |
+| 仍开 | 27 | 12 | 39 |
 | 不再追 | 32 | 10 | 42 |
 | 需作者本机 | 8 | 3 | 11 |
-| 需真实站点 | 7 | 2 | 9 |
+| 需真实站点 | 8 | 2 | 10 |
 | 已排期 | 0 | 0 | 0 |
-| 合计 | 90 | 55 | 145 |
+| 合计 | 93 | 55 | 148 |
 
 ## 3. docs 里的标记
 
@@ -31,7 +31,7 @@
 | 5 | `docs/03-product-thesis-and-roadmap.md:161` | 推断，待验 | 识别人接管：靠守护进程记自己发输入的时间窗来区分 | 已关闭 | 0.7.1-A 按此实现，e2e v071a 证明了机制（`04` §37）；真人输入那一半见 03:37 |
 | 6 | `docs/03-product-thesis-and-roadmap.md:169` | 待验 | Chrome for Testing 与正式版的指纹是否完全一致 | 仍开 | 要正式版 Chrome 的画像对照；浏览器参照语料在私有仓库（`08` §3） |
 | 7 | `docs/04-evidence-bundle-spec-v0.md:67` | 推断，待验 | `actor` 的 P1 规则（命令窗口内算 ai），更精确的识别是 P2 | 仍开 | 0.7.1-A 让等人期间的输入记成 `actor:"human"`（`04` §37）；命令窗口之外的请求仍按 P1 规则归属 |
-| 8 | `docs/04-evidence-bundle-spec-v0.md:188` | 待验 | `maxPostDataSize` 等缓冲参数在 `ext` 路径下是否生效，具体取值靠 s12 量 | 仍开 | `ext` 半句随 ext 未实现不再追；取值要 s12 量，s12 未落地（`05` §19） |
+| 8 | `docs/04-evidence-bundle-spec-v0.md:188` | 待验 | `maxPostDataSize` 等缓冲参数在 `ext` 路径下是否生效，具体取值靠 s12 量 | 仍开 | `ext` 半句随 ext 未实现不再追；取值要 s12 量，s12 未落地（`05` §20） |
 | 9 | `docs/04-evidence-bundle-spec-v0.md:464` | 推断 | recon 的 `stack` 判断全部是推断 | 不再追 | 设计如此：适配器与头 / cookie 标记只给推断级结论 |
 | 10 | `docs/04-evidence-bundle-spec-v0.md:505` | 待验 | `<a target=_blank>`（默认 noopener）的新标签是否带 `openerId`、因而是否进会话 | 仍开 | 靶场可加一个 s17 变体验 |
 | 11 | `docs/04-evidence-bundle-spec-v0.md:506` | 推断 | 真实站点的根因是「请求返回后才开弹窗」 | 需真实站点 | 复测时没有原始日志，只能在那个站点上再看 |
@@ -114,6 +114,9 @@
 | 88 | `docs/13-interop-proxies.md:55` | 待验 | mitmproxy / Burp 做 https 中间人时 Chrome 信任代理 CA | 需作者本机 | 要在作者机器上装代理 CA |
 | 89 | `docs/13-interop-proxies.md:113` | 待验 | Burp Logger++ 导出 HAR 再导入 | 需作者本机 | Burp 在作者手里；作者 10-16 定 Burp 后做 |
 | 90 | `docs/14-protection-families.md:7` | 推断 | 家族表里的信号都是推断（来自公开来源） | 需真实站点 | 同 04:1067 |
+| 91 | `docs/04-evidence-bundle-spec-v0.md:1162` | 待验 | Service Worker 应答、prerender 激活的导航的 `responseStatus`（0.9-A，10-23 加） | 仍开 | 靶场没有这两种页 |
+| 92 | `docs/04-evidence-bundle-spec-v0.md:1206` | 待验 | 作者要采的 LLM 聊天站的回答流是不是 `text/event-stream`（0.9-C，10-23 加） | 需真实站点 | 作者在 GEO 项目里录一次确认；二进制分帧的类型要另加 |
+| 93 | `docs/04-evidence-bundle-spec-v0.md:1219` | 推断 | 网络中断的下载 CDP 也报 `canceled`（0.9-D，10-23 加） | 仍开 | 靶场可造（下载中途重置连接），0.9-D 的 e2e 没覆盖 |
 
 ## 4. NOTES 最近 25 格的「卡在哪」
 
@@ -173,4 +176,4 @@
 | 52 | L635 遗留修正 | Scoop hash 跟不上版本；release.yml 不要求同一提交 CI 全绿；NOTES 悬空线程（brew upgrade、Windows npm.cmd、Linux 沙箱行、`~/.claude/skills`、v04w） | 已关闭（第一波发布包，PR #31） | brew 两条按上表已关闭 |
 | 53 | L635 遗留修正 | types.ts 事件类型已非契约；CLI 三条解析路径；store 只增不减与占位表；HAR `--embed-events` 往返；测试替身重复 | 已关闭（第二/三波，PR #32 / #33） | 本波另外四个包 |
 | 54 | L635 遗留修正 | `bundle info --usage` 按 actor 计数要加 `human` | 仍开 | 本波没有包领 |
-| 55 | L635 遗留修正 | docs/04 24 节「待作者审」；docs/03 §5 描述不存在的扩展；`test:range` / `verify` 占位；docs/05 与 docs/09 的 s41 / s42 撞号 | 已关闭 | 本包（文档与流程）：作者 10-21 批量签收、`03` 标状态、删占位脚本、改号并建 `05` §19 场景索引 |
+| 55 | L635 遗留修正 | docs/04 24 节「待作者审」；docs/03 §5 描述不存在的扩展；`test:range` / `verify` 占位；docs/05 与 docs/09 的 s41 / s42 撞号 | 已关闭 | 本包（文档与流程）：作者 10-21 批量签收、`03` 标状态、删占位脚本、改号并建 `05` 场景索引（今 §20） |

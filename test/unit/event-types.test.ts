@@ -28,6 +28,8 @@ const KINDS: Record<EventKind, true> = {
   nav: true,
   request: true,
   ws: true,
+  sse: true,
+  download: true,
   cmd: true,
   console: true,
   action: true,
