@@ -90,7 +90,7 @@
 
 **`ws`**：`{tab, ws:"r-<握手请求 seq>", phase:"frame"|"close"|"error", direction:"send"|"recv", opcode:1|2, payload:{inline:string}|{blob:"sha256:…", size}|null, reason}`。握手本身是一条 `type:"websocket"` 的 `request`。帧正文超过 blob 上限时 `payload:null`，`reason` 写明（`payload too large: <n> bytes > <上限>`）；其余帧 `reason:null`。
 
-**`sse`**（0.9-C，§47）：`{tab, sse:"r-<请求 seq>", index, event, id, retry, data:{inline:string}|{blob:"sha256:…", size}, at}`。`text/event-stream` 响应的每条消息一条，紧跟所属 `request` 写；解析规则、`at` 与读取见 §47。
+**`sse`**（0.9-C，§47）：`{tab, sse:"r-<请求 seq>", nav, index, event, id, retry, data:{inline:string}|{blob:"sha256:…", size}, at}`。`text/event-stream` 响应的每条消息一条，紧跟所属 `request` 写；解析规则、`at` 与读取见 §47。
 
 **`download`**（0.9-D，§48）：`{tab, id:"d-<seq>", nav, url, suggestedFilename, guid, state:"completed"|"canceled", reason, bytes, totalBytes, file:"downloads/<sha256>"|null, sha256, startedTs}`。录制中的每次下载在结束时一条，文件在包的 `downloads/`；规则见 §48。
 
@@ -263,7 +263,7 @@
   - query、表单、JSON 字段：名字含 `(token|secret|passw|session|sid|auth|api[-_]?key)`，或有一段正好是 `pass` / `pwd`（按非字母数字、驼峰、字母数字交界切段：`user_pass`、`userPass`、`login-pwd`、`Pwd2` 算，`bypass`、`passport`、`compass`、`passenger` 不算；`pass` / `pwd` 为 `default@2`，0.4 作者定。`ticket` 曾在 0.7-E 加入一天，作者 10-17 定去掉：CAS 回跳 URL 里的票据对回放是录制时的常量，而这张名单同时决定 export-python 把哪些输入当 secret）。
   - 值模式：18 位身份证、11 位手机号、邮箱、JWT（`xxx.yyy.zzz` 且 base64url）。
   - `state` 事件（cookies / storage）整体打码。
-  - **每种事件递归遍历**（`default@3`）：`request` 的头与正文（含 `decoded` 视图）、`ws` 正文、`state` blob、`action.value`、`note.text`、`finding.claim` 按上面各自的规则；事件里其余每个字符串（任意深度，数组逐项）：字段名是 `url` / `from` / `…Url`，或整串像 URL（`scheme://…`，或以 `/`、`?` 开头，且不含空白）的，走 URL 规则（query 按名字打码，其余部分走值模式；`scheme://user:pass@host` 里的 userinfo 整段去掉，只留 `scheme://host`，10-21 审查后作者定）；`--开关=值` 形式的只处理值部分（值像 URL 走 URL 规则，否则走值模式）；其余走值模式。由此覆盖 guard 事件的 `detail.url`（URL 规则）与 `detail.detail`、handoff 的 `question` 与 `condition.value`、protection 的 `detections[].matched[].where`、cmd 的 `argv`（其中的 URL 走 URL 规则）/ `input` / `outputSummary` / `error`、console 的 `text` / `args`，以及以后新加的字段。不改：信封字段（`seq` `ts` `mono` `kind` `actor` `tab` `cmd`）、id 形状的引用（`r-12`、`c-3`、`n-5`、`r-12:34`）、blob 引用、`request.cdp` 里浏览器的 id、库里的名字（事件顶层的 `site` / `account`，`session` 事件的 `name`：证据包与库靠名字关联，§8.1）。
+  - **每种事件递归遍历**（`default@3`）：`request` 的头与正文（含 `decoded` 视图）、`ws` 正文、`sse` 的 `data`（0.9-C，按文本 `ws` 正文的规则）、`state` blob、`action.value`、`note.text`、`finding.claim` 按上面各自的规则；事件里其余每个字符串（任意深度，数组逐项）：字段名是 `url` / `from` / `…Url`，或整串像 URL（`scheme://…`，或以 `/`、`?` 开头，且不含空白）的，走 URL 规则（query 按名字打码，其余部分走值模式；`scheme://user:pass@host` 里的 userinfo 整段去掉，只留 `scheme://host`，10-21 审查后作者定）；`--开关=值` 形式的只处理值部分（值像 URL 走 URL 规则，否则走值模式）；其余走值模式。由此覆盖 guard 事件的 `detail.url`（URL 规则）与 `detail.detail`、handoff 的 `question` 与 `condition.value`、protection 的 `detections[].matched[].where`、cmd 的 `argv`（其中的 URL 走 URL 规则）/ `input` / `outputSummary` / `error`、console 的 `text` / `args`，以及以后新加的字段。不改：信封字段（`seq` `ts` `mono` `kind` `actor` `tab` `cmd`）、id 形状的引用（`r-12`、`c-3`、`n-5`、`r-12:34`）、blob 引用、`request.cdp` 里浏览器的 id、库里的名字（事件顶层的 `site` / `account`，`session` 事件的 `name`：证据包与库靠名字关联，§8.1）。
   - manifest：`producer.browser.args` / `extraArgs` / `dropArgs` 逐项按上条的 `--开关=值` 规则，`session.tabs[].firstUrl` 走 URL 规则，`notes` 走值模式；名字与 id 不改。
 - 两遍：第一遍对整个视图（manifest 与全部事件）收集按名字规则或值模式打了码的值；第二遍在上面遍历到的**每个**字符串里把这些值（≥ 6 字符）换成同一个占位符。所以 request URL 里按名字打了码的 token，出现在 cmd 的 `argv`、guard 的 `detail.url`（哪怕参数名不敏感）或任何自由文本里，也是同一个占位符。
 - 占位符：`«r:<类别>:<sha256(salt+值) 前 8 位>»`。同一个值在整包里映射到同一个占位符，所以 `diff` 的「会话值 / 常量」分类在脱敏副本上不变。salt 只存在本地原包的 `exports/<name>.salt`，不进副本。
@@ -323,7 +323,7 @@
 | `entry.startedDateTime` | `ts` → ISO 8601 |
 | `entry.time` | `timing.end - timing.start` |
 | `entry.request.headers/queryString/cookies/postData` | 从 `request.headers`、URL、`postData` 展开；`cookies` 从 `cookie` 头拆 |
-| `entry.response.content` | `{size, mimeType, text, encoding:"base64"(二进制时), compression}`；`text` 是解压后的正文，和 DevTools 一致 |
+| `entry.response.content` | `{size, mimeType, text, encoding:"base64"(二进制时), compression}`；`text` 是解压后的正文，和 DevTools 一致；部分正文（`body.partial`，0.9-C）多 `comment:"partial: the stream ended before the response was complete"`，导入时正好是这句才还原 `partial`（§47） |
 | `entry.response.redirectURL` | 从 `location` 头 |
 | `entry.cache` | `{}`；`fromCache` 写到 `_fromCache` |
 | `entry.timings` | 从 `timing.cdp` 映射 `blocked/dns/connect/ssl/send/wait/receive`，缺的填 `-1` |
@@ -332,7 +332,7 @@
 | `log._events`（仅 `--embed-events`） | 整条 `events.jsonl` 原样数组，使「我们的包 → HAR → 我们的包」无损 |
 | `log._manifest`（仅 `--embed-events`，10-21 审查后作者定） | 整个 manifest（导出打码时是打码后的那份：`redaction` 记规则版本，`firstUrl`、启动参数、`notes` 按 §8 处理），导入时与 `_events` 一起恢复 |
 
-默认丢弃并在命令输出里列出：`action`、`screenshot`、`state`、`finding`、`note`、`cmd`（除非 `--embed-events`）。
+默认丢弃并在命令输出里列出：`action`、`screenshot`、`state`、`finding`、`note`、`cmd`、`sse`（0.9-C；消息都在所属请求的正文里）（除非 `--embed-events`）。
 
 `--rules <file>`（0.6-C，§31）只把回放键规则的 `ignoreQuery` 参数从 `request.url` 与 `queryString` 去掉，别的不变。另见 §31 的 `bundle export fixtures`（按同一份规则出夹具）。
 
@@ -1197,7 +1197,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - **哪些请求**：`response.mimeType` 为 `text/event-stream` 的请求（`fetch`、`xhr`、`eventsource` 三种都算），且存了正文（含 `partial`）。`--bodies` 跳过了正文的不解析（没有字节）。
 - **何时写**：紧跟在这条请求的 `request` 事件之后，每条消息一条，按在流里的顺序。
-- **字段**：`{tab, sse:"r-<请求 seq>", index:<从 0 起>, event:<事件类型，缺省 "message">, id:<派发时的 last event ID，字符串>, retry:<此前最近一次合法的 retry 毫秒数或 null>, data:{inline:string}|{blob:"sha256:…", size}, at:<mono|null>}`。`data` 的 UTF-8 字节 ≤ 64 KB 时内联（与 `ws` 同一上限），否则存 blob。信封 `mono` 等于 `at`；`ts` 由 `at` 换算，`at` 为 null 时用所属 `request` 的 `ts`；`cmd`、`actor`、`nav` 与所属 `request` 相同。`id` 是 EventSource 语义的 lastEventId：没出现过 `id` 字段时是空串，出现过之后沿用到下一次 `id` 字段（与 `Network.eventSourceMessageReceived.eventId` 一致【实测 E3a】）。
+- **字段**：`{tab, sse:"r-<请求 seq>", nav:<所属 request 的 nav>, index:<从 0 起>, event:<事件类型，缺省 "message">, id:<派发时的 last event ID，字符串>, retry:<此前最近一次合法的 retry 毫秒数或 null>, data:{inline:string}|{blob:"sha256:…", size}, at:<mono|null>}`。`data` 的 UTF-8 字节 ≤ 64 KB 时内联（与 `ws` 同一上限），否则存 blob。信封 `mono` 等于 `at`；`ts` 由 `at` 换算，`at` 为 null 时用所属 `request` 的 `ts`；`cmd`、`actor`、`nav` 与所属 `request` 相同。`id` 是 EventSource 语义的 lastEventId：没出现过 `id` 字段时是空串，出现过之后沿用到下一次 `id` 字段（与 `Network.eventSourceMessageReceived.eventId` 一致【实测 E3a】）。
 - **解析**（WHATWG HTML「Interpreting an event stream」）：UTF-8 解码，开头一个 BOM 去掉，非法字节按 U+FFFD；行以 CRLF、LF 或单独的 CR 结束；空行派发；以 `:` 开头的行是注释；`名:值` 冒号后若有一个空格去掉它；没有冒号的整行是字段名、值为空串；`data` 把值加 LF 追加进缓冲，`event` 设事件类型，`id` 值里没有 NUL 时设 last event ID，`retry` 值全是 ASCII 数字时设重连时间，其他字段忽略。派发时：data 缓冲为空就只清空事件类型、不出事件（`id` 照样已更新）；否则去掉末尾一个 LF，事件类型为空时是 `message`。流结束时还没派发的块按规范丢弃（原始字节仍在正文 blob 里）。纯函数 `src/shared/sse.ts`。
 - **`at`**：边收边存时记下每段字节到达的 CDP 时刻（`dataReceived.timestamp`，秒换成与 `mono` 相同的毫秒）；一条消息的 `at` 是让它完整的那段（读到结束它的空行的那段）的时刻。`bufferedData` 里的字节按此前各条 `dataReceived` 的 `dataLength` 与 `timestamp` 对应时刻；这些长度之和与 `bufferedData` 的长度对不上时，落在这一部分的消息 `at:null`。正文是退回 `getResponseBody` 得来的，所有消息 `at:null`。GEO 那类用途可以读出首字时间与生成速度。
 - **对照**（oracle）：`EventSource` 请求 Chrome 自己发 `Network.eventSourceMessageReceived {eventName, eventId, data}`【实测 E3a：fetch / xhr 的 SSE 不发】；e2e 用它对照解析结果（类型、id、data 逐条相等）。录制器不用这个事件来写 `sse`：一套解析覆盖三种请求。
@@ -1205,7 +1205,14 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **等回答完**：`net wait --url <流的 URL>` 在这条请求写入（流结束）时返回，就是「回答完了」的信号，不用再比 DOM 文字。`skills/tabcap/references/recording.md` 加一段「LLM 聊天站的流式回答」：`net start` → 发问 → `net wait --url … --timeout …` → `net list --kind sse --filter …`。
 - **不做**：录制中途的实时增量（`net list --kind sse` 只看到已经结束、已写入的流）；`application/x-ndjson` 的逐行视图（只做直通与部分正文）；WebSocket 不变。
 - 【待验】作者要采的那几个真实站点（DeepSeek、豆包、Kimi、通义、元宝、文心）的回答流是不是 `text/event-stream`：用 Connect / gRPC-web 二进制分帧的（`application/connect+json` 之类）不在这一格的流式类型里，录制时仍会被缓冲，要另加类型；由作者在自己的项目里录一次确认（AGENTS.md：本仓库的 AI 不用真实账号访问靶场外的站点）。
-- **验证**：单测 `test/unit/sse09c.test.ts`（解析器：规范里的例子、CRLF / CR / LF 混用、注释、无冒号行、`id` 含 NUL、`retry` 非数字、空 data、BOM、多行 data、末尾未派发的块、`at` 的对应与对不上时的 null；流式类型判定含参数与大小写）；录制器的假 CDP 单测（Response 阶段对流式类型不发 `Fetch.getResponseBody`、立刻 continue；`streamResourceContent` 失败时退回；部分正文的写法；32 MiB 上限）；e2e `test/e2e/v09c.e2e.test.ts`（靶场 s74，`05` §19）。
+- **验证**：单测 `test/unit/sse09c.test.ts`（解析器：规范里的例子、CRLF / CR / LF 混用、注释、无冒号行、`id` 含 NUL、`retry` 非数字、空 data、BOM、多行 data、末尾未派发的块、`at` 的对应与对不上时的 null；流式类型判定含参数与大小写）；录制器的假 CDP 单测 `test/unit/recorder09c.test.ts`（Response 阶段对流式类型不发 `Fetch.getResponseBody`、立刻 continue；`streamResourceContent` 失败时退回；部分正文的写法；32 MiB 上限）；e2e `test/e2e/v09c.e2e.test.ts`（靶场 s74，`05` §19）。
+- **实现定案（10-23，0.9-C 实现时）**：
+  - 写法：解析器 `src/shared/sse.ts`（`isStreamingType` / `isEventStream` / `parseEventStream`），边收边存的拼接 `src/daemon/capture/stream.ts`（`StreamBody`），录制器只在 `responseReceived`、`dataReceived`、`loadingFinished` / `loadingFailed` 与收尾处接它。`sse` 事件与所属 `request` 在同一步同步写出（大 data 先进 blob），所以 `net wait` 返回、`onIndexed` 听到这条请求时它的消息已经在包里，紧接着的 `net list --kind sse` 就看得到。
+  - `sse` 事件多一个 `nav`（所属请求的，上文「nav 与所属 request 相同」）；`retry` 的数字串超过 2^53 时不认（存不准；Chrome 对超过 2^64 的同样不认）。
+  - 流超过 32 MiB 后，没正常结束的也写 `too-large`（不写 `partial`：什么都没留）。`streamResourceContent` 成功之后又来一条不带 `data`、`dataLength` > 0 的 `dataReceived`（字节缺了）时不用拼出的正文：正常结束退回 `getResponseBody`，没正常结束照原规则写 `bodyMissing`。
+  - 读取：`net list --kind sse` 的回答键是 `messages`，其余同 `--kind ws`（`total` / `matched` / `shown` / 分页）；`net body r-12:34` 的回答多 `{sse, index, event, lastEventId}`，内联 data 落成 `exports/sse/<id>.txt`；`net show r-12:34` 是 `{id, kind:"sse", sse, seq, tab, url, index, event, lastEventId, retry, bytes, ts, at, data:{path, blob, bytes, textHead, truncated}}`；`net wait` 的回答在部分正文时也带 `partial:true`；包读取器 `parseSse` / `BundleReader.sseMessages()` 按不可信输入检查字段。
+  - 打码（§8）：`sse` 的 `data` 按文本 `ws` 正文处理（JSON 按名字规则，其余按值模式）；所属请求的正文是 `text/event-stream`，照旧只按值模式。HAR 导出丢弃 `sse`（`dropped.sse`），`--embed-events` 原样带上。
+  - 【实测 10-23，CfT 155 有头，`v09c` 7 轮】`EventSource` 那条：靶场发完 `done` 立刻结束流、页面收到 `done` 即 `close()`，两者谁先到 Chrome 是竞态：1 轮 `finished`，6 轮 `failed`（`net::ERR_ABORTED`、`canceled:true`）带 `partial:true`，两种情况正文都是靶场所发的全部字节、`sse` 事件都与页面记录和 `eventSourceMessageReceived` 逐条相等。`05` s74 第 2 条写的「三条请求 finished」对这一条不成立；e2e 按这两种结果之一断言，`05` 的 expected 未改，等作者定（NOTES 10-23）。
 
 ## 48. 0.9-D 下载进证据包，录制外拒绝（10-23 作者定：没在录制时取消并提示先 `net start`；单个文件 200 MiB；字段与下列细节按实现定案）
 

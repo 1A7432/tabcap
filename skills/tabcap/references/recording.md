@@ -72,12 +72,28 @@ On timeout the error is `timeout` and `next` says what was still outstanding. Lo
 - `tabcap net list` shows the recording oldest first, 30 rows per page (`--page-size 50 --page-idx 1`; `--page-size 0` returns every match). Every answer has `total`, `matched`, `shown`, `hidden: {failed, data}`, `pagination` ("Showing 1-30 of 230 (Page 1 of 8).") and `nextPageIdx` (the next page, null on the last one). URLs over 255 chars are cut (`urlTruncated: true`); `net show` has them whole.
 - Narrow it with `--host api.example`, `--status 4xx` (or `404`), `--method POST`, `--resource-types xhr,fetch`, `--tab t2`, `--filter <url substring>` — or with the output flags: `tabcap net list --grep /api/ --fields id,method,url`.
 - While recording, action commands return a `cmd` id (`"cmd":"c-41"`) and every request row carries the window it fell in: `tabcap net list --since c-41` shows what that click caused (the window includes the wait after the action).
-- `tabcap net show r-12` is one request in full: headers, `postData` (over 2 KB: a file `path` plus the first 2 KB), the body `path`, timing, initiator `url:line:col`, nav epoch, outcome. `tabcap net body r-12` gives the body as a file plus up to 10000 chars of text preview; `--grep <token> --context 2` keeps only the matching lines of that preview, with line numbers. `r-12:34` is a WebSocket frame (`net list --kind ws`).
+- `tabcap net show r-12` is one request in full: headers, `postData` (over 2 KB: a file `path` plus the first 2 KB), the body `path`, timing, initiator `url:line:col`, nav epoch, outcome. `tabcap net body r-12` gives the body as a file plus up to 10000 chars of text preview; `--grep <token> --context 2` keeps only the matching lines of that preview, with line numbers. `r-12:34` is a WebSocket frame (`net list --kind ws`) or a Server-Sent Events message (`net list --kind sse`).
 - What `net show`, `net list`, `net body`, `fetch`, `recon` and `trace list` print is redacted by the `bundle redact` name rule: `Authorization`, `x-api-key`, `*token*` / `*auth*` / `*session*` headers, every cookie value (names stay), and query / body fields named like token, sid, password … read `<redacted:name>`; `x-csrf` stays as is. A stored secret still reads `<secret:example.password>`. `--reveal` prints the recorded values; use it only when the human asks. The bundle itself keeps everything as sent.
 - **Encrypted API responses** (a `{"code":0,"data":"<base64>"}` envelope, a bare base64 body): run `tabcap trace start --decode` beside `net start` and reproduce the action; the plaintext the page itself parses becomes the body's decoded view, which `net body` shows by default (`view:"decoded"`, `decoded.by:"page"`; `--raw` for the original) — see [trace-and-probes.md](trace-and-probes.md). An enabled decode plugin wins over it: the answer lists them in `decodePlugins`; `tabcap plugin disable <name>` to observe the page instead.
 - A response the page never reads is written 1 s after it arrived, from the intercepted body: `"unreadByPage":true`.
 - A POST answered with a redirect keeps its `postData`; the request it was redirected to has `redirect.from` pointing at it.
 - Which bodies are stored: `net start --bodies all|api|api+script|none` (default `config.json` `record.bodies`, else `all`). `api` keeps documents, XHR / fetch, WebSocket, EventSource and other non-static responses; `api+script` adds scripts (needed for `net body --at` and trace); images, fonts, stylesheets and media are metadata only under both. **For scraping sessions use `--bodies api+script`**: one real site's bundle was 41 MB, mostly JavaScript. A skipped body shows as `bodySkipped: "resource-type"` in `net list` (`response.body: {skipped: "resource-type"}` in the bundle, `record.bodies` in its manifest); `net body` on it says which mode skipped it.
+
+## Streamed answers (LLM chat sites)
+
+Chat sites stream their answer as `text/event-stream` (or `application/x-ndjson`). While recording, such responses reach the page as they arrive (tabcap reads them alongside, nothing is held back), and the request is written when the stream ends: that is the "answer is complete" signal, no need to compare the page text again and again.
+
+```sh
+tabcap net start
+tabcap fill e7 "your question" && tabcap press-key Enter
+tabcap net wait --url /api/chat/completion --timeout 120000   # returns when the stream ended
+tabcap net list --kind sse --filter /api/chat/completion       # one row per message: id r-12:34, event, lastEventId, bytes, ts
+tabcap net body r-12:34                                        # one message's data; net body r-12 is the whole stream
+```
+
+- Each message of a `text/event-stream` body is an `sse` event in the bundle with `at`, the CDP time (ms) its bytes arrived: the first message's `at` minus the request's `timing.start` is the time to the first token. `net list --kind sse` lists only streams that already ended.
+- A stream cut short (network error, navigation, `net stop`, tab closed) keeps the bytes that arrived: `partial: true` in `net list`, `net show`, `net body` and `net wait`; its `sse` events are the messages that were complete.
+- A site whose answer uses another type (binary Connect / gRPC-web framing such as `application/connect+json`) is still buffered until it ends while recording: tell the user, it needs that type added.
 
 ## Sending a scraper's requests from the tab (`fetch`)
 
