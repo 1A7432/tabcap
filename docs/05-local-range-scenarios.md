@@ -394,7 +394,7 @@
 四个场景的 oracle 都是靶场服务器自己记下的东西（发出的状态码、字节、分段时刻、文件哈希）与页面自己的记录，不来自 tabcap 的输出。
 
 ### s72 nav-status（P1；0.9-A，`04` §45）
-- 页面（`test/e2e/site.ts` 的 `startNavStatusSite`，两个源 A、B）：`/s72/ok` 200、`/s72/missing` 404、`/s72/boom` 500、`/s72/partial` 203、`/s72/moved` 302 → `/s72/missing`、`/s72/away` 302 → B 的 `/s72/ok`（跨源）、`/s72/js` 200 但脚本 `location.replace('/s72/missing')`、`/s72/empty` 204，`/s72/` 下其余路径 404，`/s72/forge` 见第 5 步。服务器按到达顺序记下每个请求的路径与它回的状态码（oracle）。
+- 页面（`test/e2e/site.ts` 的 `startNavStatusSite`，两个源 A、B）：`/s72/ok` 200、`/s72/missing` 404、`/s72/boom` 500、`/s72/partial` 203、`/s72/moved` 302 → `/s72/missing`、`/s72/away` 302 → B 的 `/s72/ok`（跨源）、`/s72/js` 200 但脚本 `location.replace('/s72/missing')`（页面还挂着一张 2 s 才回的图 `/hold`，旧文档在替换提交前不会 `complete`，答复的就一定是 404 那份文档而不是靠时序；`/hold` 不在 `/s72/` 下，不进 oracle）、`/s72/empty` 204，`/s72/` 下其余路径 404，`/s72/forge` 见第 5 步。服务器按到达顺序记下每个请求的路径与它回的状态码（oracle）。
 - 走法与 expected（`test/e2e/v09a.e2e.test.ts`），不开录制：
   1. 依次 `navigate` 到 ok / missing / boom / partial / moved / away / js：回答 `status` 依次为 200、404、500、203、404、200、404，每个都等于服务器为该次导航最后一跳记下的状态码；`url` 是最后一跳的 URL。
   2. 在 missing 上 `navigate …/s72/missing#x`（同文档）：`status` 404；`evaluate "history.pushState({}, '', '/s72/pushed')"` 后 `reload`：重新加载的是 `/s72/pushed`（靶场对未知路径回 404），`status` 404；`navigate /s72/ok` 再 `go back`：`status` 404。
