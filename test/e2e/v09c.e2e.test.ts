@@ -252,7 +252,14 @@ describe.skipIf(!enabled)("tabcap 0.9-C L2 (s74 streaming responses and SSE)", (
     expect(page["ok"]).toBe(false);
     expect(s(page["error"])).toContain("network error");
     expect(sent.ended).toBe("cut");
-    const failed = recs((await ok("net", "list", "--failed", "--filter", "tag=k1", ...S))["requests"]);
+    // The page sees the network error before the recorder has written the request (body blob, messages):
+    // wait for the row (Linux CI of PR #40 listed none right away).
+    const failed = await until(
+      "the failed request tag=k1",
+      async () => recs((await ok("net", "list", "--failed", "--filter", "tag=k1", ...S))["requests"]),
+      (r) => r.length > 0,
+      20_000,
+    );
     expect(failed).toHaveLength(1);
     expect(failed[0]).toMatchObject({ outcome: "failed", partial: true });
     const id = s(failed[0]?.["id"]);
