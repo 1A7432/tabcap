@@ -27,6 +27,7 @@
   blobs/sha256/<xx>/<64 位十六进制>  正文、截图、cookie 快照等所有大块内容；无扩展名；xx = 哈希前两位
   raw/cdp.jsonl                   可选：原始 CDP 事件（Network / Page 域原样）；用于复核录制器本身
   decoded.jsonl                   可选：`bundle decode` 追加的解码视图旁路文件（只追加，§28）；读者叠加到请求事件上
+  downloads/<64 位十六进制>          0.9-D：录制中完成的下载文件（文件内容的 sha256，无扩展名；同内容一份；目录 0700、文件 0600，§48）
   exports/                        导出产物（HAR、脱敏副本、侦查档案 dossier.json / dossier.md、响应形状 shape.json（§32）、超出输出预算的回答 <command>-<seq>.json，§24）；不参与分析
 ```
 
@@ -246,7 +247,7 @@
   // 0.4-F：开过追踪模式的包 "trace" 为 {"mechanism": ["fn-breakpoint", "instrumentation"], "apis": "sha256:<of the active signals.json>", "stack": 8, "firstN": 20, "maxHits": 500}（最后一次 trace start 的设置）
   // "traceWindows": [ { "fromSeq": 120, "toSeq": 388 } ],  // 每个开 / 关窗口一条，两端是开、关时写的 note 事件的 seq；开着时 toSeq 为 null；没开过追踪则无此字段
   "counts": { "events": 412, "requests": 97, "bodies": 91, "blobBytes": 18234567,
-              "bodyMissing": { "redirect": 3, "not-modified": 2, "navigated": 1 } },
+              "bodyMissing": { "redirect": 3, "not-modified": 2, "navigated": 1 }, "downloads": 2 },   // downloads：0.9-D，download 事件数（completed 与 canceled，§48）；旧包没有 = 0
   "redaction": null,                               // 导出副本里是 {"rules": "default@3", "applied": 1760500950000}（salt 只在原包的 exports/<name>.salt，§8）
   "imported": null,                                // 或 {"from": "har", "creator": {"name": "WebInspector", "version": "537.36"}, "lossy": ["initiator", "timing.cdp"]}
   "notes": ""
@@ -332,7 +333,7 @@
 | `log._events`（仅 `--embed-events`） | 整条 `events.jsonl` 原样数组，使「我们的包 → HAR → 我们的包」无损 |
 | `log._manifest`（仅 `--embed-events`，10-21 审查后作者定） | 整个 manifest（导出打码时是打码后的那份：`redaction` 记规则版本，`firstUrl`、启动参数、`notes` 按 §8 处理），导入时与 `_events` 一起恢复 |
 
-默认丢弃并在命令输出里列出：`action`、`screenshot`、`state`、`finding`、`note`、`cmd`、`sse`（0.9-C；消息都在所属请求的正文里）（除非 `--embed-events`）。
+默认丢弃并在命令输出里列出：`action`、`screenshot`、`state`、`finding`、`note`、`cmd`、`sse`（0.9-C；消息都在所属请求的正文里）、`download`（0.9-D；HAR 里没有下载文件的位置，`downloads/` 不导出）（除非 `--embed-events`）。
 
 `--rules <file>`（0.6-C，§31）只把回放键规则的 `ignoreQuery` 参数从 `request.url` 与 `queryString` 去掉，别的不变。另见 §31 的 `bundle export fixtures`（按同一份规则出夹具）。
 
@@ -1235,3 +1236,18 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **证据包其余部分**：`manifest` 的 `counts` 多 `downloads`。`bundle redact` 的副本**不带** `downloads/` 目录（文件内容没法逐字段打码），副本里的 `download` 事件 `file` 置 `null` 并加 `redacted:true`。`bundle export har` 不导出下载文件（HAR 里没有这个位置）。`bundle prune` 删包时一起删（在包目录里）。
 - **不做 / 边界**：`ext` 模式不接管（那是作者自己的 Chrome，下载照作者自己的设置）；不提供另存到指定路径（从 `download list` 的 `file` 复制）；上限不做配置项（要改再说）。
 - **验证**：单测（归属；录制外取消与已完成的删除；两种超限；事件字段与 `cmd`；`redact` 去掉 `downloads/`；`navigate` 附件的判定与 1 s 窗口）；e2e `test/e2e/v09d.e2e.test.ts`（靶场 s75，`05` §19）。
+- **实现定案（0.9-D）**：
+  - 写法：下载的决定与事件在 `src/daemon/capture/downloads.ts`（`Downloads`，每次浏览器运行一个，挂在 `Running.downloads`）；包里的文件由 `src/bundle/downloads.ts` `storeDownload` 移入（先流式算 sha256，再 rename，跨文件系统时复制后删；暂存文件不是普通文件（如符号链接）时拒绝）；录制器只多两个入口：`downloadStart(tab)`（开始时的 `cmd` / `actor` / `nav`）与 `download(tab, fields, start)`（写事件），以及 `onDownload` 给 `download wait`。
+  - 暂存目录：`<data>/downloads/run-<随机>`（根目录与它都 0700）；`browser start` 时先删掉根目录下以前的 `run-*`（一个 TABCAP_HOME 只有一个守护进程，没在跑的浏览器没有在下的东西，留下的是守护进程异常退出的残余），`browser stop`、守护进程停止、浏览器没了（`Daemon.browserGone`）时删掉这次的。`browser start` 设不上下载行为时关掉浏览器、删暂存目录、回 `cdp`；池账号的 context 设不上时 dispose 这个 context、回 `cdp`（`session start` 失败，0.6-R 的全有或全无照旧）。
+  - **录制器对附件不取正文**（规格没写，实现时实测发现必须做）：Response 阶段暂停到的响应带 `Content-Disposition: attachment`（类型这一段，不分大小写）时不发 `Fetch.getResponseBody`、立刻 `continueResponse`，与 §47 的流式类型同一处。原因【实测 E4d，`07` §1.1】：`getResponseBody` 要等整个文件到齐才回，下载在此之前不开始，文件还经 CDP 整个读一遍（8 MiB 慢速附件被扣 726 ms、11 MB base64）；不做这一条时 e2e s75 第 6 步失败（64 MiB 附件 10 s 内一直没有开始下载）。这些请求本来就以 `loadingFailed net::ERR_ABORTED` 结束、`request` 事件不带正文，包里的内容不变。`a[download]` 的响应没有 `networkId`，原来就不取正文；不带 `Content-Disposition` 的 `application/octet-stream` 导航也会变成下载，它的正文仍照旧被取（大文件仍会被扣住）【待验：真实站点有没有这种下载】。`net start` 回答的 `instrumentation` 加了一句「attachments (Content-Disposition: attachment) are passed through at once too」。
+  - 归属：`frameId` 等于某个标签的 targetId → 该标签；等于某个 `iframe` 目标（OOPIF）的 targetId → 它的宿主标签；否则逐个查打开的标签（和它的 OOPIF 会话）的 `Page.getFrameTree`（每个 2 s 超时），同进程子帧在这里找到【实测 E4d：同进程 iframe 里的附件 `frameId` 是子帧 id】。前两种当场决定，`cmd` / `actor` / `nav` 就是开始那一刻的；第三种要等帧树回答（几毫秒），取查到那一刻的。
+  - 取消：`Browser.cancelDownload` 依次带标签所属会话的 `browserContextId`、不带（默认 context）、再带其他各账号 context，直到有一个成功【实测 E4d：非默认 context 里的下载不带它的 `browserContextId` 时回 `No download item found for the given GUID`】；都不成功（多半是已经完成）只记日志，完成的文件在 Chrome 报 `completed` 时删掉。无主的下载同样取消，只记日志。
+  - 「命令执行期间于该标签上开始」：下载开始时这个标签上有命令正在 `Tabs.run` 里执行（`Tabs.busy`）。这时的录制外下载记成这个会话的待报项，守护进程在该会话那条命令回答前（`handleCommand`，取开始时刻不早于这条命令开始的）把它们放进 `downloads` 并加 `next`（命令自己有 `next` 时接在后面）；`wait` / `net wait` / `download wait` 不占标签队列，它们等待期间页面自己开始的下载算命令之外，只记日志。`navigate` 自己的 `download` 已经说了的那个下载不再出现在 `downloads` 里。
+  - 上限：每条 `downloadProgress` 都看，`totalBytes` 超过上限或 `receivedBytes` 超过上限就取消（规格的「第一条看 totalBytes」包含在内；开着录制的 Fetch 拦截时前几条进度报 `totalBytes:0`【实测 E4d】，0 当未知）。Chrome 报 `completed` 时已收字节超过上限的（取消还没生效就下完了）也记 `canceled` / `too-large`、不留文件。
+  - 事件何时写：Chrome 报 `completed`（文件移入之后）；Chrome 自己报 `canceled`（`reason:"canceled"`）；tabcap 取消的（`too-large` / `stopped` / `browser-gone`）在取消时就写，之后 Chrome 的 `canceled 0/0` 只用来清文件。录制停止（`net stop`、`session stop`、`browser stop`）时先等这个录制里每个下载正在做的事（例如正在移入的完成文件）做完，还在下的写 `stopped`（`browser stop` 也是 `stopped`；浏览器连接断了才是 `browser-gone`），然后才关包。`bytes`：`completed` 是存下的文件的大小，`canceled` 是见过的最大 `receivedBytes`（Chrome 的取消事件报 0/0）；`totalBytes` 是见过的最大正数，没有就 `null`，`completed` 时仍未知则取 `receivedBytes`。信封 `ts` 是写入时刻，`mono` 为 `null`。移入失败（极少）时照样写 `completed`，`file` / `sha256` 为 `null` 并记日志。
+  - `manifest.counts.downloads` 是 `download` 事件数（`completed` 与 `canceled` 都算）；旧包读成 0。
+  - `data:` URL 的 2 KB 按字符数（2048）截：Chrome 给的 `data:` URL 是百分号编码的 ASCII。答复里的 `downloads[]` / `download` 用同样的 URL（秘密值替换、截断）。
+  - 命令：`download list` / `download wait` 在动作表里都是普通只读行（`row()`，与 `net wait` 同类：不开 `cmd` 窗口、等人时不拦、不移动回看点）。`download list` 的 `tab` 是守护进程的标签 id（与 `net list` 一样），`file` 是绝对路径，还在下的只在录制中列出；回答 `{session, bundle, recording, total, downloads}`。`download wait` 返回回看点之后写入的匹配下载里最早的一个（`net wait` 是取最近的；规格写「第一个」），回答是 `download list` 的一行加 `alreadyFinished`、`lookBack`、`waitedMs`、`timeoutMs`；超时的 `next` 写还在下的匹配数，回看点之前有匹配时提示 `--since start`。两条命令归在帮助的「Network recording」组。
+  - `navigate`：只有 `errorText` 正好是 `net::ERR_ABORTED` 时才等下载（`Page.navigate` 之前就开始听，1 s 从回答算起，此前已开始的也算）；有下载时按同文档导航处理：读标签当前文档的就绪状态与 `status`，照常做 DOM 稳定等待与防护探测，再加 `download` 与 `note`。`download.state` 在回答时可能已是 `completed`（小文件），被 tabcap 取消的带 `reason`（`not-recording`，或事件的 `reason`）。`go` / `reload` 不做这一条。
+  - 打码（§8）：`download` 事件的 `guid`、`sha256` 不当值处理；`url` 按 URL 规则，`suggestedFilename` 按值模式。
+  - 【实测 10-23，CfT 155 有头】e2e `v09d` 7 条（见 `05` s75 与 NOTES）；跑完后本机 `~/Downloads` 里没有名字含本次标记的文件。

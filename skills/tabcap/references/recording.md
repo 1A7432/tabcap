@@ -95,6 +95,10 @@ tabcap net body r-12:34                                        # one message's d
 - A stream cut short (network error, navigation, `net stop`, tab closed) keeps the bytes that arrived: `partial: true` in `net list`, `net show`, `net body` and `net wait`; its `sse` events are the messages that were complete.
 - A site whose answer uses another type (binary Connect / gRPC-web framing such as `application/connect+json`) is still buffered until it ends while recording: tell the user, it needs that type added.
 
+## Downloads
+
+tabcap keeps a download only while the session records: start `tabcap net start` before the click (or `navigate`) that downloads. The file goes into the bundle's `downloads/` (named by its sha256); `tabcap download wait [--url <substring>]` returns when it ended (`state` completed or canceled, `file`, `sha256`), `tabcap download list` lists the recording's downloads. Outside a recording tabcap cancels every download (nothing lands in the user's Downloads folder): the command's answer lists it under `downloads` (`reason: "not-recording"`) with a `next`. `navigate` to a file answers the page the tab still shows plus `download` and a `note`, not an error. One file is capped at 200 MiB (`reason: "too-large"`); one still downloading at `net stop` is canceled (`stopped`). Copy the file from `file` if the user wants it elsewhere.
+
 ## Sending a scraper's requests from the tab (`fetch`)
 
 Recording a person's browsing covers only the requests the page made while they browsed. When a scraper needs more (other pages, other parameters), let the logged-in tab send them, so they are recorded too and can be exported (`bundle export har`, `replay export-python`) and replayed offline.

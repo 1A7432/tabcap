@@ -436,6 +436,7 @@
   6. **`net stop` 时还在下**：`/s75/big?mb=64`（慢速）开始后立刻 `net stop`：包里这条 `download` 为 `canceled`、`reason:"stopped"`，没有文件。
   7. **`bundle redact`**：副本里没有 `downloads/`，`download` 事件 `file:null`、`redacted:true`。
 - 不在靶场里的【待验】：网络中断的下载 CDP 是否报 `canceled`（`04` §48 的推断）。
+- 落地（0.9-D，10-23）：`startDownloadSite(tag)`，靶场记下的是每个附件请求的 `{path, query, bytes, sha256, complete}`（`/s75/big` 在流发完时才有 sha256，客户端走开时 `complete:false`）；`/s75` 上的链接名是 `attachment`、`a download`、`blob`、`data`、`big 8`、`big 64`；blob / data 的内容是 `S75_BLOB` / `S75_DATA`，测试里写死 sha256 并先核对常量。第 1 步与第 3 步的「不录制」放在同一条测试里；第 7 步用第 6 步那份包；第 5 步（池账号）放在第 6 / 7 步之后，用 `session start p --site example --account alice`；最后一条查 `browser stop` 删掉暂存目录。每次运行的标记是 `v09d<pid>x<时刻>`，测试对 `~/Downloads` 只读。【实测 10-23，CfT 155 有头】`v09d` 7/7（见 NOTES 的次数）；去掉录制器「附件不取正文」那一条时第 6 步失败（64 MiB 附件 10 s 内一直没有开始下载，`04` §48 实现定案）。
 
 ## 20. 场景索引
 
@@ -496,7 +497,7 @@
 | s72 | nav-status | 已落地 | `startNavStatusSite`：`/s72/{ok,missing,boom,partial,moved,away,js,empty,forge}`（其余 `/s72/` 路径 404） | v09a | nav-status |
 | s73 | permissions | 已落地 | `startPermissionSite`：`/s73`、`/s73/geo` | v09b | permission |
 | s74 | sse-stream | 已落地 | `startStreamSite`：`/s74`、`/s74/{sse,cut,ndjson,es,json,other}` | v09c | recorder09c、sse09c |
-| s75 | downloads | 未落地 | — | — | — |
+| s75 | downloads | 已落地 | `startDownloadSite`：`/s75`、`/s75/{file,plain,big,nav}` | v09d | browser-downloads09d、downloads09d |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。

@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+### 下载进证据包，不再进你的「下载」文件夹（0.9-D）
+
+- **修复：tabcap 的浏览器把下载存进了用户真实的 `~/Downloads`。** 0.8.1 没设下载行为，有头的 Chrome for Testing 把页面给的附件（以及 `navigate` 到的文件 URL）存进用户自己的「下载」文件夹，出了 tabcap 自己的目录，也不告诉用户；页面脚本触发的第 2、3 个下载被 Chrome 的「自动下载多个文件」限制挡掉；`navigate` 到文件回 `navigation … failed: net::ERR_ABORTED`，其实下载已经开始。现在 `browser start`（以及每个 `session start --site` / 带代理的会话自己的 browser context）用 `Browser.setDownloadBehavior allowAndName` 把下载导进这次浏览器运行在 tabcap 数据目录下的暂存目录（0700，`browser stop` / 守护进程停止时删掉）；浏览器不接受时不留下这个浏览器（`browser start` / `session start` 回 `cdp`）。Chrome 用下载的 guid 当文件名，页面给的文件名不会变成路径，「多个文件」限制也不再起作用。
+- **只在录制时保留。** 不在录制时每个下载都被取消（在标签自己的 browser context 里 `Browser.cancelDownload`），Chrome 已经下完的文件删掉；触发它的那条命令的回答写明：`downloads: [{url, suggestedFilename, state: "canceled", reason: "not-recording"}]` 加 `next`（先 `tabcap net start` 再触发一次）；页面自己发起的只记守护进程日志。会话在录制时，下完的文件移进包的 `downloads/<sha256>`（0600，同一内容一份），写一条新的 `download` 事件（`{id: "d-<seq>", nav, url, suggestedFilename, guid, state, reason, bytes, totalBytes, file, sha256, startedTs}`，`cmd` 与 `actor` 取开始时的）。单个文件上限 200 MiB（`too-large`；Chrome 的进度事件粒度粗，是软上限）；Chrome 或页面取消的是 `canceled`；`net stop` / `session stop` / 标签关闭时还在下的取消为 `stopped`（浏览器没了是 `browser-gone`）。manifest 的 `counts` 多 `downloads`。`bundle redact` 的副本不带 `downloads/`（`file: null`、`redacted: true`）；HAR 导出丢弃这个 kind。
+- **新命令 `tabcap download list` 与 `tabcap download wait [--url s] [--since c-12|start] [--fresh] [--timeout ms]`。** `list`：录制里的下载按开始先后列出（`net stop` 之后是这个会话最近一份包的），`file` 是绝对路径，再列还在下的；`wait`：从会话最近一条动作命令开始算、第一个已结束的匹配下载，回看规则同 `net wait`；超时时写还有几个在下。在 `tabcap mcp --all-tools` 里，不进 core。
+- **`navigate` 到文件不再报错。** `Page.navigate` 回 `net::ERR_ABORTED` 且 1 s 内该标签主框架开始一个下载时，回答是标签仍在显示的页面（`url`、`status` 等）加 `download: {url, suggestedFilename, state: "in-progress" | "completed" | "canceled", reason?}` 与 `note: "the URL is a file download; the page did not change"`（不在录制时为 `canceled` / `not-recording` 加 `next`）。没有这样的下载时照旧是 `page` 错误。
+- **录制时附件直接放行。** 录制器在 Response 阶段的拦截不再读带 `Content-Disposition: attachment` 的响应的正文（`Fetch.getResponseBody` 要等整个文件到齐，下载在此之前开始不了，文件还要经 CDP 整个传一遍）；这些请求以 `net::ERR_ABORTED` 结束，包里本来就没有它们的正文。`net start` 回答的 `instrumentation` 写明了这一点。文档：docs/04 §48（以及 §2、§7、§9.1），docs/05 s75（`test/e2e/v09d.e2e.test.ts`），docs/07 §1.1（E4、E4b / E4c、E4d），skills/tabcap/references/recording.md。
+
 ### 录制中的流式响应、部分正文、SSE 消息（0.9-C）
 
 - **修复：录制不再扣住流式响应。** 0.8.1 的录制器用 Fetch 拦截先复制每个 XHR / fetch / document 的正文再放行响应，而 `text/event-stream`、`application/x-ndjson` 的复制要等整条流结束才返回：`net start` 录制期间，页面在流结束前一个字节都收不到（1.6 s 的流在 1.8 s 一次到达，15 s 的在 15.8 s，EventSource 的消息同时到达；`EventSource` 请求在 Fetch 域里是 XHR，也被拦了）。现在这两种响应立刻放行，边到达边读（`Network.streamResourceContent`，Chrome 拒绝时退回原来的结束后读取）；正常结束的流存下的字节与以前相同。`net start` 回答的 `instrumentation` 写明了这一点。docs/04 §47、§5.2 第 7 / 8 条。
