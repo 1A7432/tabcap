@@ -3,6 +3,11 @@
 // --no-wait skips that part). Their answers carry `status` (0.9-A, docs/04
 // §45): the HTTP status of the main document the tab shows, read in tabcap's
 // isolated world from the navigation timing entry.
+// 0.9-D (docs/04 §48): a URL that is a file download makes Page.navigate answer
+// net::ERR_ABORTED, and the download begins right after (measured: the
+// answer comes first). When a download of the tab's main frame begins within
+// 1 s of that answer, `navigate` answers with the page the tab still shows and
+// a `download` instead of the `page` error.
 
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
@@ -15,6 +20,13 @@ import { confirmState, startReadyWait, type PageState } from "../transport/direc
 import type { Transport } from "../transport/types.ts";
 import { checkSessionName, optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { withPostWait } from "./settle.ts";
+import { NAV_DOWNLOAD_MS, NOT_RECORDING_NEXT, type NavDownload } from "../capture/downloads.ts";
+
+/** The `navigate` answer when the URL was a file download (docs/04 §48). */
+export function withNavDownload(answer: unknown, dl: NavDownload): unknown {
+  const base = isRecord(answer) ? answer : {};
+  return { ...base, download: dl, note: "the URL is a file download; the page did not change", ...(dl.state === "canceled" && dl.reason === "not-recording" ? { next: NOT_RECORDING_NEXT } : {}) };
+}
 
 /**
  * `status` of a navigation answer (docs/04 §45): the value the page's navigation timing
@@ -152,7 +164,7 @@ export async function waitNavigation(
 export async function navigate(d: Daemon, a: Args, session: string): Promise<unknown> {
   const usage = "tabcap navigate <url> [--session s] [--new-tab | --tab t2] | tabcap tab new <url> [--background]";
   const url = checkUrl(reqStr(a, "url", usage));
-  const { t, tabs } = d.need();
+  const { t, tabs, downloads } = d.need();
   checkSessionName(session);
   const budget = timeoutOf(a);
   const s = tabs.ensureSession(session).session;
@@ -160,19 +172,30 @@ export async function navigate(d: Daemon, a: Args, session: string): Promise<unk
   if (want !== null && optBool(a, "newTab")) throw new TabcapError("usage", "--tab and --new-tab exclude each other", `Usage: ${usage}`);
   const cur = s.current === null ? undefined : tabs.tabs.get(s.current);
   const tab = want !== null ? tabs.pick(session, want) : optBool(a, "newTab") || cur === undefined || cur.closed ? await tabs.createTab(session, { background: optBool(a, "background") }) : cur;
+  let download: NavDownload | null = null;
   return tabs.run(
     tab,
-    () =>
-      settled(d, t, tab, a, () => waitNavigation(t, tab, url, budget, async () => {
+    async () => {
+      const answer = await settled(d, t, tab, a, () => waitNavigation(t, tab, url, budget, async () => {
         tab.pendingNavType = null;
-        const r = await t.send("Page.navigate", { url }, tab.sessionId);
-        const err = str(r, "errorText");
-        if (err !== null && err !== "") {
-          throw new TabcapError("page", `navigation to ${url} failed: ${err}`, "Check the URL and that the server is up; with --proxy none only 127.0.0.1 / localhost are reachable.");
+        const watch = downloads.watchMain(tab);
+        try {
+          const r = await t.send("Page.navigate", { url }, tab.sessionId);
+          const err = str(r, "errorText");
+          if (err !== null && err !== "") {
+            // 0.9-D: no document came, a download began: the tab shows the page it showed (read as after a same-document navigation).
+            download = err === "net::ERR_ABORTED" ? await watch.wait(NAV_DOWNLOAD_MS) : null;
+            if (download !== null) return { loaderId: null, sameDocument: true };
+            throw new TabcapError("page", `navigation to ${url} failed: ${err}`, "Check the URL and that the server is up; with --proxy none only 127.0.0.1 / localhost are reachable.");
+          }
+          const loaderId = str(r, "loaderId");
+          return { loaderId, sameDocument: loaderId === null };
+        } finally {
+          watch.stop();
         }
-        const loaderId = str(r, "loaderId");
-        return { loaderId, sameDocument: loaderId === null };
-      }, () => d.navOf(tab))),
+      }, () => d.navOf(tab)));
+      return download === null ? answer : withNavDownload(answer, download);
+    },
     { timeoutMs: budget, navigation: true },
   );
 }
