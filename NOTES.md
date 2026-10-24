@@ -700,3 +700,8 @@
 - 卡在哪：截图补帧能否救回那种「整机慢、一帧不出」的情况【待验】，要等 CI 再遇上，看 sampler.log 和 `frames` / `nudged`；Windows 卡顿的真正原因【推断】，同样等 sampler。动作命令多等的这一步只在有未写完的文档时发生，正常路径耗时没测出差别【推断：本地 v07b 21.7 s、v071a 14.0 s、v08a 6.4 s，与之前相近】。
 - 下一格从哪开始：PR 连续跑全套 CI；绿了再合 PR #29（Scoop 0.8.1 hash）；删 hunt-v071a / hunt-win08a / hunt-win076a 分支。
 - PR #34 第一轮 CI：Bugbot 一条（我在作者问起前没读，只看了检查状态）：`stopWithin` 超时后丢下还在跑的 `browserStop`，它会和后面的 `store.close()` 等收尾抢跑。说「之后的 CDP 失败成未处理拒绝」不成立（`Promise.race` 已挂了处理器），「两条路径拆同一个 transport」属实但 `cdp.close` 幂等。修：kill 之后给原来的 stop 最多 1 s（`STOP_SETTLE_MS`）收尾再往下走，迟到的失败记 warn；预算 10 + 2 + 1 s 仍在 15 s 内。Windows unit 两条 5 s 超时（`bundle prune --yes`、`saveSiteCookies`），main 上同两条 220 ms / 108 ms，整轮 142.8 s 对 main 的 52–68 s，与本 PR 改动无关【推断：runner 慢，这两条都开 SQLite store】；本地全量 e2e 239 pass / 1 fail，fail 是 v02d 前台交还（本机前台应用，main 同样，见上条）。
+
+## 2026-10-24 · PR #34 变基到已含 0.9 的 main（主循环，分支 ci-stab-081）
+- 做了什么：`ci-stab-081` rebase 到 `9269ec4`（0.9-A..D 已合）。冲突：`recorder.ts` 的 `loadingFailed` 保留 0.9-C 流式截断路径，两条 `track()` 都带 `[q]`；CHANGELOG 两份在 Unreleased 里 0.9 与作者决定项之后插入 CI 稳定性小节；NOTES 追加原 0.8.2 条目、不改写 0.9 历史。docs/04 §18、docs/07 Linux 帧段、`main.ts` / `browser.ts` / `ci.yml` 自动合并。作者定：先变基，不修 Bugbot 仍开着的 medium（`stopWithin` 超时后仍可能丢下未 settle 的 stop）。【实测】`tsc --noEmit` 干净；`guardjudge082` / `shutdown082` / `input-fidelity` / `recorder09c` / `downloads09d` 83 pass / 0 fail。
+- 卡在哪：Bugbot 那条按作者决定先不动。
+- 下一格从哪开始：推 `ci-stab-081`，等 #34 CI；全绿再 rebase 合入，然后处理 #29。
