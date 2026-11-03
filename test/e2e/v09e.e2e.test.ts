@@ -116,7 +116,7 @@ describe.skipIf(!enabled)("s76 client-order", () => {
       expect(resp["protocol"]).toBe("http/1.1");
       expect(e["mono"]).not.toBeNull();
     }
-    expect(r.manifest["capture"]).toMatchObject({ via: "record", ca: "ephemeral", client: "uv" });
+    expect(r.manifest["capture"]).toMatchObject({ via: "record", ca: "ephemeral", client: expect.stringMatching(/^uv(\.exe)?$/) }); // basename of the command (§50.2): uv.exe on Windows
     expect(new Bun.Glob("**/*.har").scanSync(bundle).next().done).toBe(true);
     b1 = bundle;
     b1Hits = hits;
