@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.9.0 (2026-11-03)
 
 ### Record any script's requests; replay checks the order (0.9-E, 0.9-F)
 
