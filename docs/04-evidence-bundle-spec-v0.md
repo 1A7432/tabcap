@@ -687,7 +687,8 @@
         "ignorePaths": ["$.serverTime"],       // 比较前从两边的 JSON 里去掉
         "decodeWith": "xor-decode"             // 只配 status+decoded-body
       },
-      "prefer": "2xx"                          // 0.6-S：recorded（默认）| 2xx | latest，见下「回放优先级」
+      "prefer": "2xx",                         // 0.6-S：recorded（默认）| 2xx | latest，见下「回放优先级」
+      "order": "skip"                          // 0.9-E：check（默认）| skip，只用于 `replay serve --order strict`，见 §49
     }
   ]
 }
@@ -1254,3 +1255,93 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   - `navigate`：只有 `errorText` 正好是 `net::ERR_ABORTED` 时才等下载（`Page.navigate` 之前就开始听，1 s 从回答算起，此前已开始的也算）；有下载时按同文档导航处理：读标签当前文档的就绪状态与 `status`，照常做 DOM 稳定等待与防护探测，再加 `download` 与 `note`。`download.state` 在回答时可能已是 `completed`（小文件），被 tabcap 取消的带 `reason`（`not-recording`，或事件的 `reason`）。`go` / `reload` 不做这一条。
   - 打码（§8）：`download` 事件的 `guid`、`sha256` 不当值处理；`url` 按 URL 规则，`suggestedFilename` 按值模式。
   - 【实测 10-23，CfT 155 有头】e2e `v09d` 7 条（见 `05` s75 与 NOTES）；跑完后本机 `~/Downloads` 里没有名字含本次标记的文件。
+
+## 49. 0.9-E 按顺序回放 `replay serve --order strict`（11-03 作者定：做；出错记下来、最后给报告；允许用规则或过滤条件只挑一部分请求按顺序检查。字段与下列细节待作者审）
+
+来源：隔壁项目 11-03 的反馈。离线回放的验收是「用仓库里的真代码（Python `requests` 爬虫）回放」：第 N 个请求的方法、地址、参数必须和录包第 N 条一致，多一条、少一条都算错。`replay serve` 按键匹配（§31），同一个键的多条录音按录制顺序轮换，多发、少发、发乱了它都照样回答，所以对方每接一家站点都要自己再写一遍「录成 `raw/NNNN.json` + 按序比对」的脚本（`budaiyun_offline_replay.py`、`jdy_offline`）。这一条让 `replay serve` 自己记下收到的顺序，结束时和录包的顺序对一遍、出报告。
+
+- **开关**：`replay serve <包> --order key|strict`，默认 `key`（今天的行为，一个字节都不变）。`strict` **不改变回答**：每个请求照旧按键（§31 的规则、`--prefer`、`--strict`、`--match-cookies`）挑录音回答、没有匹配照旧 404；它只额外记下收到的顺序，在停止时出报告。不在请求中途拒绝或改答，因为那样客户端在第一处差异就会走上另一条路，后面的差异全看不到（作者 11-03 定：记下来、最后报告）。
+- **期望序列**：包里可回放的请求（与 `serve` 同一集合，§31：有响应、状态 200–599、不是 WebSocket）按 `seq` 排，去掉不检查的（见下）。`prefer` 不影响期望序列：被 `prefer` 挡掉、不拿来回答的录音照样在序列里（客户端当时确实发了那一条）；报告里这种条目带 `notServed:true`，`warnings` 提醒「`--prefer` 不是 `recorded` 时，客户端拿到的回答与录制时不同，后面的顺序可能因此不同」。
+- **收到的序列**：每个被检查的请求按到达顺序编号（从 1 起），记下 `{method, url（路径 + query）, host, bodySha256, matched:r-N|null}`。至多记 10000 条，超过的只计数，报告 `truncated:true` 且 `ok:false`。
+- **只挑一部分检查**（作者 11-03 定可以；两种写法可同时用，同时满足才检查）：
+  - 规则文件（§31）每条规则多一个可选字段 `order: "check" | "skip"`，默认 `check`。录到的请求按 §31 的选规则办法取它的规则；收到的请求有匹配时取它匹配到的那条录音的规则，没有匹配（404）时按收到的 Host、路径、方法选规则（Host 不是录到的主机时按路径与方法，同 §31 收到的请求的读法）。`order` 不进键、不影响匹配与 `replay check`；`bundle export fixtures` 忽略它。
+  - `--order-include <glob,glob>` / `--order-exclude <glob,glob>`：路径 glob，写法与 `replay export-python --include` / `replay check --filter` 相同（`*` 不跨 `/`，`**` 跨，`?` 一个字符，逗号分隔）；只看路径，不看 query。给了 include 的只检查命中的，exclude 命中的不检查，两者都命中按 exclude。
+  - 不检查的请求照常回答，不进期望序列、也不进收到的序列；报告里只计数 `skipped:{expected:n, received:n}`。
+- **怎么比**（对齐，不是逐位比）：两个序列的每一项各取一个比较键 = method + path + 规范 query + 规范正文（按该项的规则，§31 的规范化表；没有规则时是排序 query 与正文 sha256），即 `serve` 的匹配键去掉轮换序号、去掉 `--strict` 头与 cookie。用最长公共子序列（Myers diff）对齐，得到：
+  - `matched`：对上的项数；
+  - `missing[]`：期望序列里没对上的 `{position, id:r-N, method, url}`（`position` 是期望序列里的序号，从 1 起）；
+  - `extra[]`：收到序列里没对上的 `{index, method, url, matched:r-N|null}`（`index` 是收到的序号）；
+  - `changed[]`：同一处差异里（diff 的同一块）方法与路径相同的一条 missing 和一条 extra 配成一对，从两个列表里拿出来，写 `{position, id, index, differs:{query?, body?}}`，`differs` 的写法与 404 候选的相同（§31：规范化后不同的 query 名、表单名 / JSON 路径，`as`、`fallback`）；
+  - `moved[]`：比较键相同的一条 missing 和一条 extra（不在同一块）配成一对，写 `{id, position, index}`，从两个列表里拿出来——这就是「发乱了」。
+  - 最长解不唯一时（例如交换两条：哪一条算「挪了」都对），取**期望序列里靠前的项优先对上**的那个解，结果确定、与实现无关；测试与文档里的例子只用对齐唯一的情形。
+  - `firstDivergence`：不对齐、逐位比时第一处不同，`{position, expected:r-N|null, index, received:<路径+query>|null}`（一边先结束时另一边为 `null`）；全部相同为 `null`。这是「第 N 条对第 N 条」的视角，方便对照客户端自己的日志。
+  - `ok` = 四个列表都空且没有 `truncated`（此时 `firstDivergence` 必为 `null`）。
+  - 报告里的 URL 是路径 + query，过已知秘密值替换（§8.1）；正文只给 sha256，不给内容。
+- **报告什么时候出**：服务停止时——Ctrl-C / SIGTERM、`--once` 到时、或（§50）带的命令退出。`--order-report <file>`：把报告写成 JSON 文件（0600），任何停止方式都写。文本模式在 stderr 打摘要（`order: ok, 12/12 matched` 或每类差异前 20 条，各一行，`moved r-3 expected #3, received #5` 之类）；`--json` 模式在停止时多打一行信封 `{ok, data:{stopped:true, served, order:<报告>}}`（今天 `--json` 只在启动时打一行，`--order key` 时仍然只打一行）。
+- **报告**：`{mode:"strict", ok, expected:<期望序列长度>, received:<收到序列长度>, matched, missing, extra, changed, moved, firstDivergence, skipped:{expected, received}, truncated, rules:<同启动输出>, include, exclude, warnings}`。
+- **退出码**：`--order strict` 且 `ok:false` 时进程退出码 1（与 `replay check` 有差异时一样）；`ok:true` 为 0。`--json` 那一行信封仍是 `ok:true`（服务本身没出错），差异看 `data.order.ok`。
+- **日志行**：文本模式每个请求的那一行多 ` #<index>`（被检查的才有），不在中途判对错。
+- **不做**：中途拒绝（作者定了只报告）；跨多次服务运行累计；按时间间隔比较（只比顺序）；`replay check` 的顺序模式（它是 tabcap 自己按录制顺序发，本来就有序）。
+- **验证**：单测（期望 / 收到序列的筛选，`order` 规则与 include / exclude，对齐的四类结果与配对规则，`truncated`，`prefer` 的 `notServed`，报告文件 0600、退出码，`--order key` 输出不变）；e2e `test/e2e/v09e.e2e.test.ts`（靶场 s76，`05` §20）。
+
+## 50. 0.9-F 录外部客户端 `tabcap record -- <命令>`，回放带命令 `replay serve … -- <命令>`（11-03 作者定：加 `record` 命令；tabcap 自己实现代理与 TLS 中间人、不依赖 mitmproxy；CA 每次运行临时生成；第一期只做 HTTP/1.1、WebSocket 只透传；`replay serve -- <命令>` 做；`--upstream` 默认 `env`；`record` 的退出码恒为 0。字段与下列细节待作者审）
+
+来源同 §49：真代码是 Python 爬虫，tabcap 只录浏览器里的流量。今天能走的路是 `13` §2：自己起 `mitmdump --set hardump=…`、给脚本设代理和 CA、退出后 `tabcap bundle import har`。11-03 的 spike（`13` §2.4）在本机靶场上把这条路跑通了 Python `requests` 与 `httpx` 的 https，也发现了手工做时最容易踩的坑：作者环境里有小写 `https_proxy` / `no_proxy`（系统代理），Python 里小写优先，只设大写 `HTTPS_PROXY` 时请求绕过代理、什么都录不到。同一天的第二个 spike（`13` §2.5）证明代理与 TLS 中间人在 Bun 里自己做得出来：WebCrypto 签的证书过 `openssl verify -x509_strict`，进程内中间人对 Python 3.13 严格校验下的 requests / httpx、curl、3 MB 请求体都通。所以 `record` 不依赖 mitmproxy，代理、证书、HTTP/1.1 解析都在 tabcap 自己的进程里。
+
+为什么不打包 mitmproxy（作者 11-03 定）：每个平台多带一个 Python 运行时，npm 五个包、Homebrew、Scoop 都要变；多管一套持久的 CA 和一个外部进程；HAR 导入的字段丢失（`13` §2.2）还在。自己做的另得：CA 每次运行临时生成、只有被录的子进程信任；直接写事件、不绕 HAR；回放重定向（§50.3）是同一个代理换一个上游；TLS 终结在 Bun 侧，符合 AGENTS.md 对原生组件的要求，不加原生组件。`13` 里手工走 mitmproxy 的写法照样留着。
+
+### 50.1 代理引擎（`record` 与 §50.3 共用）
+
+- **在哪里跑**：tabcap 命令自己的进程里（与 `replay serve` 一样是前台进程），不经守护进程、不经浏览器。只听 `127.0.0.1`，端口默认空闲端口，进程结束即关。不做代理认证（客户端对代理 URL 里用户名密码的支持参差【推断】）；运行期间本机其他进程也能用这个端口，但它们不信任本次的 CA，https 过不了。
+- **CA**（作者 11-03 定：每次临时生成）：每次运行在内存里生成一张 ECDSA P-256 CA（`basicConstraints` critical `CA:TRUE, pathlen:0`；`keyUsage` `keyCertSign | cRLSign`；`subjectKeyIdentifier`；主题 `CN=tabcap record <运行 id>`；有效期 运行开始前 1 h 到之后 7 d）。CA 私钥是**不可导出**的 WebCrypto 密钥：不落盘、不进包、不进输出、进程结束即没。只有 CA 证书写成文件（本次运行的临时目录，目录 0700、文件 0600），给子进程用；正常结束、Ctrl-C、SIGTERM 时删除整个临时目录；tabcap 被强杀时证书文件会留下，但没有私钥，它签不出新证书。
+- **leaf**：每个主机第一次用到时签一张、同一次运行里按主机缓存；同一次运行的 leaf 共用一把 ECDSA P-256 密钥（PEM 只在内存里）：主机名写 SAN `dNSName`，IP 字面量写 SAN `iPAddress`；带 `authorityKeyIdentifier`（Python 3.13 的 `VERIFY_X509_STRICT` 要它，`src/wire/certs.ts`【实测】）、`subjectKeyIdentifier`、`basicConstraints` critical 空、`keyUsage` `digitalSignature`、`extKeyUsage` `serverAuth`；有效期同 CA。签给 `CONNECT` 的主机（客户端的 SNI 与它不同的情形第一期不处理）。证书用 Node 的 `X509Certificate` 与 openssl 当 oracle 测（§50.4）。
+- **客户端一侧**：
+  - `CONNECT host:port`：回 `200 Connection Established`，看隧道里第一个字节。`0x16`（TLS 握手）：用这台主机的 leaf 终结 TLS（TLS 1.2 / 1.3，ALPN 只给 `http/1.1`），里面按 HTTP/1.1 走。不是 `0x16`：整条隧道原样透传到上游、不录，回答 `tunnels` 计数并在 `warnings` 写主机。客户端一侧 TLS 握手失败（客户端不信任本次的 CA：自带证书库、钉证书；或 ALPN 里没有 `http/1.1`，例如只给 `h2` 的 gRPC）：回答 `tlsRefused` 计数，`warnings` 写主机与第一条错误。
+  - 普通代理请求（`GET http://host/path HTTP/1.1`，绝对形式）：按请求里的主机转发，请求行改成源站形式（`GET /path`）、删掉 `Proxy-Connection` 与 `Proxy-Authorization`，其余字节不动。同一条客户端连接上发往不同主机的请求逐个转发（等上一个响应完再发下一个）；请求或响应带 `Connection: close`（或 HTTP/1.0 没有 keep-alive）时，响应转发完就关掉客户端连接。
+- **HTTP/1.1 解析**：只用来分清每条消息的边界并记录；**转发的字节原样不动**（头的顺序、大小写、正文的分块都不变；普通代理请求的请求行与两个 `Proxy-*` 头除外，见上）。支持：`Content-Length`、`Transfer-Encoding: chunked`（含 trailer）、读到关闭为止的响应、`HEAD` / 204 / 304 无正文、1xx（`100 Continue` 转发、不记成响应）、keep-alive 与流水线（隧道里按先进先出配对）。畸形消息（头超过 64 KiB、`Content-Length` 冲突或非法、分块长度非法）：断开这条连接，已收到的写成 `outcome:"failed"`、`error.text` 写原因，不崩。
+- **WebSocket**（作者 11-03 定：只透传）：`Upgrade` 请求与 `101` 响应照常记成一条 `request`（`type:"websocket"`），之后两边原样透传、不录帧；回答 `websockets` 计数，`warnings` 写「帧没有录」。
+- **不做**（第一期）：HTTP/2（ALPN 只给 `http/1.1`，客户端自己退回）、SOCKS 与 `https://` 上游代理、上游客户端证书、录 WebSocket 帧、记客户端原本的 ClientHello（将来可接 wireprint）。
+- **站点看到的 TLS 指纹**：经过中间人后，上游看到的是 tabcap（Bun）的 ClientHello，不是客户端自己的；用 mitmproxy 也一样（看到的是它的 OpenSSL）。对有防护的站点，录到的流量与脚本直连时不完全等价；回答 `notes` 写一句。
+- **【待验】**：Windows（CI 的单测与 e2e 会跑到）；慢而长的流的背压（普通代理请求在排队超过 256 个解析事件时暂停读客户端，隧道里没有限流）；高并发。**【实测 11-03，macOS arm64】**：`bun build --compile` 出来的二进制里 `new tls.TLSSocket(socket, {isServer:true})` 正常，`dist/tabcap record -- curl …` 与 `replay serve … -- curl …` 都通。
+
+### 50.2 `tabcap record -o <包> [选项] -- <命令> [参数…]`
+
+- **做什么**：起 §50.1 的代理，按下面的环境变量起 `<命令>`，等它退出；把录到的请求写成 `-o` 的包，收尾。`-o` 必须不存在或为空（`conflict`）。tabcap 自己不发任何请求，只转发子进程发的。
+- **给子进程的环境**（其余环境原样继承）：
+  - 代理：`HTTP_PROXY`、`http_proxy`、`HTTPS_PROXY`、`https_proxy` 都设成 `http://127.0.0.1:<端口>`；`ALL_PROXY`、`all_proxy` 删掉；`NO_PROXY`、`no_proxy` 设成空串（所以回环地址的请求也过代理，作者环境里的 `no_proxy=127.0.0.1,…` 不再让它们漏掉【实测 spike】）。
+  - CA：`SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`、`NODE_EXTRA_CA_CERTS` 设成本次 CA 的证书文件。`SSL_CERT_FILE` 会替换 OpenSSL 系客户端的整个信任库：只信本次的 CA。客户端绕过代理直连真实站点时会因此校验失败——是响亮的失败，好过悄悄漏录。
+  - 给需要显式配置的客户端：`TABCAP_RECORD_PROXY`（代理 URL）、`TABCAP_CA_FILE`（证书路径）。
+  - 已知不吃环境变量的【待验，写进回答的 `notes` 与 `skill`】：`aiohttp`（`trust_env` 默认 `False`）、代码里写死 `proxies=` 的、自带证书的（`verify=<自己的文件>`）。
+- **上游**（代理往外连的方式）：`--upstream env|none|<URL>`，默认 `env`（作者 11-03 定）：用 tabcap 改写之前子进程本来会用的代理，即「录之前怎么出去、录的时候还怎么出去」。取法：https 目标先小写 `https_proxy` 再 `HTTPS_PROXY`，http 目标先 `http_proxy` 再 `HTTP_PROXY`，都没有再 `all_proxy` / `ALL_PROXY`；原来的 `no_proxy` / `NO_PROXY` 命中目标主机的直连（逗号分隔；`*` 全部；精确主机或域名后缀，前导 `.` 可有可无；IP 精确匹配；CIDR 不支持，当普通字符串比【推断：Python 也不支持】）；都没有就直连。`none`：直连。`<URL>`：`http://host:port` 上游代理。
+  - 上游代理只支持 `http://`；`https://`、`socks*` 在启动时报 `unsupported`（`env` 模式下只在环境里确实有这样的值时），`next` 写改用 `--upstream none` 或一个 http 代理；不起子进程。
+  - https 目标经上游代理时先向它发 `CONNECT`，TLS 仍是到目标站点端到端，证书照样按下条校验；http 目标经上游代理时转发绝对形式的请求。
+  - 凭据：`env` 里的代理 URL 带用户名密码时，用它向上游代理发 `Proxy-Authorization: Basic`；`--upstream <URL>` 带用户名密码时报 `usage`（凭据不进命令行参数，AGENTS.md），`next` 写放进环境变量用 `env`。回答、日志里的上游只写 `http://host:port`。
+  - **上游证书校验**：按 Bun 自带的根证书校验【待验：是否也读 macOS 钥匙串 / Windows 证书库】，再加 `--upstream-ca <file>`（PEM，可多张，可重复给；给自签名的内网站点与靶场）；SNI 用 `CONNECT` 的主机（IP 字面量不发 SNI）。不提供关闭上游校验的开关。校验失败、连不上、DNS 失败时：给客户端回 `502`，头 `x-tabcap-record-error: upstream-tls|upstream-connect|upstream-dns`，正文一行原因；这条请求照样进包，`outcome:"failed"`、`error.text` 写原因；回答 `warnings` 按主机计数。
+- **其余选项**：`--name <名>`（包的会话名，默认 `record`）；`--site <站点>`（写进 manifest `session.site`，让 `replay serve` / `check` 读这个站点的规则，§31）；`--port <n>`（代理端口，默认 0 = 空闲端口）；`--timeout <秒>`（到时先给子进程 SIGINT，5 s 后 SIGKILL，默认不限）；`--text`（默认输出 JSON 信封，与其他离线命令一致）。
+- **信号**：Ctrl-C / SIGTERM 转给子进程，等它退出后照常收尾。子进程退出码不为 0 时照常收尾，回答带 `exitCode`（被信号结束的为 128 + 信号号）。子进程起不来（命令不存在）：`not-found`，`-o` 是这次新建的就删掉。子进程的 stdin / stdout / stderr 直接接终端，所以 `record` 不进 MCP（会写进 MCP 的通道，`src/mcp/tools.ts` EXCLUDED）。
+- **包**：
+  - 事件：每条请求写一条 §5.1 的 `request` 事件，按代理收齐请求头的先后编 `seq`（并发请求按到达代理的先后），§49 的期望序列用它。`actor` 一律 `"human"`、`tab` 一律 `t1`、`cmd` 与 `nav` 为 `null`、`cdp` 为 `null`（与 HAR 导入同一口径，§9.2）；`type` 按 §9.2 的表推、带 `typeInferred`；`url` 是绝对 URL（隧道里的请求用 `https://<SNI 或 CONNECT 主机>[:端口]` 加请求目标）。
+  - 头：`request.headers` / `response.headers` 按 §5.1（键小写、同名多值数组），`headersSource:"wire"`——就是线上的字节。`response.protocol` 为 `http/1.1`，`remote` 是代理实际连上的对端（经上游代理时是上游代理的地址）。
+  - 正文：请求体按 §5.3（≤ 64 KB 内联，否则 blob）；响应体去掉分块、按 `content-encoding` 解码后存 blob（gzip / deflate / br，与 HAR 导入同一个解码函数，§9.2；解不了的存原样字节并照 §9.2 标记），`wireEncoding` 记线上的值。单个正文超过 32 MB 不存（转发照常），`bodyMissing.reason:"too-large"`；3xx、204、304、HEAD 照 §5.2 规则 5 写原因。子进程退出时还没收完的响应写 `outcome:"incomplete"`、已收到的部分存下并带 `partial:true`（同 §47）。
+  - 时间：有单调时钟，`mono`、`timing.start`（收齐请求头）、`timing.responseStart`（收齐响应头）、`timing.end`（响应正文结束）都是 tabcap 进程的 `performance.now()` 毫秒，`timing.cdp` 为 `null`。
+  - manifest：`mode` 同 HAR 导入（`capture:"passive"`、`raw:false`）、`producer.browser:null`；多 `capture:{via:"record", client:<命令的 basename>, ca:"ephemeral", upstream:<同回答>}`（不记完整命令行，参数里可能有不该进包的东西）；`imported` 为 `null`（不是导入）。`lossy` 不用写：没有的东西按 §5.1 本来就是 `null`。
+- **回答**：`{bundle, requests, events, exitCode, proxy:"127.0.0.1:<端口>", upstream:"direct"|"env http://h:p"|"env direct"|"http://h:p", failed, tunnels, websockets, tlsRefused, typeInferred, durationMs, notes, warnings}`；tabcap 进程退出码 0（作者 11-03 定；子进程的退出码在 `exitCode` 里）。一条请求都没录到时 `warnings` 写可能的原因（客户端不吃代理环境变量、写死了 `proxies`、只用了 HTTP/1.1 以外的协议）。`--text`：一行摘要 + warnings。回答不给 CA 文件路径（进程结束它就删了）。
+- **秘密**：包里是原样的流量，与浏览器录的包同一口径（请求头、cookie、登录体原样在包里；输出过已知秘密值替换，§8.1；要给别人看先 `bundle redact`）。
+- **边界**：`record` 只转发子进程自己发的请求，不经守护进程、不用账号，guard、限速、站点停手都不作用（与 §31 `replay check --live` 不同：那是 tabcap 自己发请求）。子进程往哪发由子进程决定，和作者直接跑它一样。本仓库的测试只对本地靶场。
+
+### 50.3 `replay serve <包> [选项] -- <命令> [参数…]`（作者 11-03 定：做）
+
+- **为什么**：§49 的顺序检查要让「仓库里的真代码」打到 `replay serve`，而真代码里写死的是 `https://真实主机`。`replay serve` 自己只能当 http 服务器：普通 http 请求经代理发来时它能按 Host 匹配，https 的 `CONNECT` 它接不了（`13` §2.4【实测】）。
+- **做什么**：先起 `replay serve`（选项全照旧，`--port` 缺省时用空闲端口），再起 §50.1 的代理，上游换成「只连 serve 端口」：任何 `CONNECT` 都直接回 200、按 SNI / 主机签 leaf 终结 TLS，隧道里的请求原样（`Host` 头是原来的，多主机包按它分，§31）经回环 TCP 发给 serve；普通代理请求改成源站形式后同样发给 serve。代理**从不连别的地址、不做 DNS 解析**；隧道里不是 TLS 的连接直接断开（回放时没有可透传的上游）。子进程环境同 §50.2（代理、CA、`TABCAP_*`；没有上游，`--upstream` 不适用）。子进程退出时停服务，照 §49 出报告。
+- **退出码**（作者 11-03 定）：子进程退出码不为 0 → 用它的退出码；否则 `--order strict` 且 `ok:false` → 1；否则 0。带命令时 `--port` 缺省为 0（空闲端口），`--once` 不能与命令同用（`usage`）。`--json` 停止时那行信封多 `exitCode`、`proxy` 与 `warnings`（代理的计数，同 §50.2 的 warnings）；带命令但没有 `--order strict` 时也打这一行。
+- 不带 `-- <命令>` 时 `replay serve` 和今天一样，不起代理。
+
+### 50.4 验证
+
+- 单测：
+  - 证书：签出的 CA 与 leaf 用 Node 的 `X509Certificate` 读回（主题、SAN、有效期、`checkIssued`、`verify(caPublicKey)`），机器上有 `openssl` 时再跑 `openssl verify -x509_strict`（没有就跳过并写明）；DNS 名与 IP 两种 SAN。
+  - 代理：在单测里起本地 https 目标（`src/wire/certs/leaf.pem`），客户端是手写的 `CONNECT` + `node:tls`（Bun 的 `fetch` 带 `proxy` 时不用 `tls.ca` 校验隧道里的证书【实测 11-03】，单测里不能用它），以及 `bun -e` 子进程（读 `NODE_EXTRA_CA_CERTS`，可以）：正文、头、`seq` 顺序、chunked、读到关闭为止、`HEAD` / 204 / 304、`100 Continue`、keep-alive 两条、流水线、畸形消息断开不崩、32 MB 上限、非 TLS 隧道透传、WebSocket 握手记一条。三个平台的单测 CI 都跑，回答 Windows 那条【待验】。
+  - 子进程环境的改写（大小写、`NO_PROXY` 清空、CA 四个变量）、`env` 上游的取法与 `no_proxy` 命中、`--upstream` 带凭据报 `usage`、`socks` 报 `unsupported`、经测试自己的转发代理时发 `CONNECT` 与 `Proxy-Authorization`、上游证书校验失败回 502 并记 `failed`、临时目录与 CA 文件在正常结束与 SIGTERM 后都不在了、回答字段、退出码。
+  - 回放模式：代理只连 serve 端口（测试统计 `net.connect` 的目标）。
+- e2e `test/e2e/v09e.e2e.test.ts`（靶场 s76，`05` §20）：要 Python（`uv`，离线从缓存取；没有就跳过并写明原因）；不需要 Chrome。
+- 编译后的二进制：`release.yml` 在 `--version` 冒烟之后跑 `scripts/record-smoke.ts <二进制>`：本地 https 目标（wire 测试证书）+ 一个 `bun -e` 子进程经代理请求它（bun 在各平台都认 `HTTPS_PROXY` 与 `NODE_EXTRA_CA_CERTS`；Windows 的 curl 走 Schannel，不一定认 `CURL_CA_BUNDLE`【推断】，所以不用 curl），回答必须是 1 条请求。
