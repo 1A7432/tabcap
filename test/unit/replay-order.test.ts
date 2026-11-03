@@ -238,7 +238,7 @@ describe("tabcap replay serve --order strict (CLI)", () => {
     expect(stop.ok).toBe(true);
     expect(stop.data.order.ok).toBe(false);
     expect(stop.data.order.missing.map((m) => m.id)).toEqual([id(0), id(2), id(3), id(4)]);
-    expect((statSync(report).mode & 0o777).toString(8)).toBe("600");
+    if (process.platform !== "win32") expect((statSync(report).mode & 0o777).toString(8)).toBe("600");
     expect(JSON.parse(readFileSync(report, "utf8"))).toMatchObject({ mode: "strict", ok: false });
 
     const plain = Bun.spawn([process.execPath, MAIN, "replay", "serve", bundle, "--port", "0", "--json", "--once", "0.5"], { stdout: "pipe", stderr: "pipe" });
