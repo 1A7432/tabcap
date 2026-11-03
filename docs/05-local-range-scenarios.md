@@ -8,7 +8,7 @@
 
 - **现状**：靶场是 `test/e2e/site.ts`，一组 `startXxxSite()` 函数，各自用 `Bun.serve` 在 `127.0.0.1` 的随机端口起一个站点；跨源场景再起一个服务，用 `http://localhost:<端口>` 当 B 源（与 `127.0.0.1` 不同站点）。由各 e2e 文件（`test/e2e/*.e2e.test.ts`）在进程内启动、用完即停，`bun run test:e2e` 一条命令跑全部；默认的 `bun test` 不碰它。
 - **oracle**：每个站点记下自己发出的正文（`served`：路径 → 正文字节的 sha256）和收到的请求（`hits`，或站点自己的日志字段），测试拿证据包与它比对；期望值写成 `site.ts` 里的字面量（如 `S22_*`）和本文各场景的 expected，由写场景的人写，不由 AI 为了让测试通过去改。
-- 场景编号 → `site.ts` 的站点与路由 → e2e 文件的对照见 §20 场景索引。
+- 场景编号 → `site.ts` 的站点与路由 → e2e 文件的对照见 §21 场景索引。
 - 原计划（10-15）的 `range/` 目录与 `tabcap range serve`（固定端口 `127.0.0.1:4310` / `localhost:4311`）、种子生成的数据、`/__range/journal` 日志与 `reset`、每场景一个目录加 `expected.json`、`x-range-*` 响应头、`tabcap range selftest`（L1）都没有实现，不排期（`06` §1）。
 
 ## 2. 场景
@@ -438,7 +438,38 @@
 - 不在靶场里的【待验】：网络中断的下载 CDP 是否报 `canceled`（`04` §48 的推断）。
 - 落地（0.9-D，10-23）：`startDownloadSite(tag)`，靶场记下的是每个附件请求的 `{path, query, bytes, sha256, complete}`（`/s75/big` 在流发完时才有 sha256，客户端走开时 `complete:false`）；`/s75` 上的链接名是 `attachment`、`a download`、`blob`、`data`、`big 8`、`big 64`；blob / data 的内容是 `S75_BLOB` / `S75_DATA`，测试里写死 sha256 并先核对常量。第 1 步与第 3 步的「不录制」放在同一条测试里；第 7 步用第 6 步那份包；第 5 步（池账号）放在第 6 / 7 步之后，用 `session start p --site example --account alice`；最后一条查 `browser stop` 删掉暂存目录。每次运行的标记是 `v09d<pid>x<时刻>`，测试对 `~/Downloads` 只读。【实测 10-23，CfT 155 有头】`v09d` 7/7（见 NOTES 的次数）；去掉录制器「附件不取正文」那一条时第 6 步失败（64 MiB 附件 10 s 内一直没有开始下载，`04` §48 实现定案）。
 
-## 20. 场景索引
+## 20. 0.9-E / 0.9-F 外部客户端的录制与按顺序回放（11-03，P1）
+
+来源：隔壁项目 11-03 的反馈（`04` §49 / §50）。oracle 是靶场服务器按到达顺序记下的请求日志与它发出的正文，以及测试里写死的「客户端脚本每种模式应发的请求序列」；不来自 tabcap 的输出。不需要 Chrome，也不需要 mitmproxy（代理与 TLS 中间人是 tabcap 自己的，`04` §50.1）；需要 Python（`uv`，离线从缓存取，没有就跳过并写明原因）。
+
+### s76 client-order（P1；0.9-E §49、0.9-F §50）
+- 靶场（`test/e2e/site.ts` 的 `startClientSite`）：一个 https 源（`127.0.0.1` 随机端口，证书用 `src/wire/certs/leaf.pem`，SAN 含 `localhost` / `127.0.0.1`）与一个 http 源。路由：`POST /s76/login`（表单 `user` / `password`，回 `Set-Cookie: s76sid=…` 与 JSON `{token}`）、`GET /s76/list?page=<n>`（要 `Authorization: Bearer <token>`，回 JSON，内容由 `page` 决定）、`POST /s76/item`（JSON `{id}`，回 JSON）、`GET /s76/static.js`（固定文本，当「噪声」）；http 源只有 `GET /s76/plain`。服务器按到达顺序记下 `{method, path, query, bodySha256}`，并记下每个响应正文的 sha256（oracle）。
+- 客户端（`test/fixtures/clients/s76_client.py`，`requests.Session`；基址从命令行参数读，模拟「代码里写死的主机」，不读任何 tabcap 变量；每条响应的状态码与正文 sha256 打到 stdout，非 2xx 照常往下发；收到带 `x-tabcap-record-error` 头的响应时把状态码与这个头打到 stderr、立即以退出码 3 结束；带 `--print-ca-path` 时先把 `SSL_CERT_FILE` 的值打到 stderr）：按模式发一串请求，模式与期望序列写在测试里：
+  - `normal`：login → list?page=1 → item {id:1} → list?page=2 → item {id:2}（5 条）；
+  - `reorder`：把 normal 的第 2 条（list?page=1）挪到最后（login → item {id:1} → list?page=2 → item {id:2} → list?page=1；最长公共子序列唯一）；
+  - `extra`：normal 末尾多一条 list?page=3；
+  - `missing`：去掉 normal 的第 3 条（item {id:1}）；
+  - `changed`：normal 的第 4 条改成 list?page=9；
+  - `noise`：normal 的相邻两条之间各插一条 static.js（共 9 条）；
+  - `httpx`：normal 的前两条用 `httpx` 发（验证 httpx 也吃代理与 CA 环境变量）；
+  - `plain`：只发 http 源的 `GET /s76/plain`。
+- 走法与 expected（`test/e2e/v09e.e2e.test.ts`）。测试进程的环境里先放 `https_proxy=http://127.0.0.1:1`、`no_proxy=127.0.0.1,localhost`（模拟作者环境里的系统代理；端口 1 上没人听，客户端若绕过 tabcap 的代理就会失败）：
+  1. **录**：`tabcap record -o <b> --upstream none --upstream-ca src/wire/certs/ca.pem -- uv run --offline … s76_client.py https://localhost:<p> normal`：回答 `requests` 5、`exitCode` 0、`upstream:"direct"`；包里请求按 `seq` 的方法、路径、query 与靶场日志这一次运行的 5 条逐条相等，各响应正文的 sha256 等于靶场记下的；每条 `request` 事件 `headersSource` 为 `wire`、`response.protocol` 为 `http/1.1`、`mono` 不为 `null`；manifest `capture.via` 为 `record`、`capture.ca` 为 `ephemeral`、`capture.client` 为 `uv`；tabcap 退出后本次运行的临时目录（含 CA 证书文件）不在了（测试在运行中从子进程环境的 `SSL_CERT_FILE` 记下路径，见客户端的 `--print-ca-path`）。
+  2. **上游 env**：测试自己起一个转发代理（支持 `CONNECT`，记下每个 `CONNECT` 的目标）。这一步把子进程的原环境改成 `https_proxy=<转发代理>`、`no_proxy=example.invalid`，不带 `--upstream`（默认 `env`）录 normal：回答 `upstream` 以 `env` 开头且不含转发代理以外的地址，转发代理记下了到靶场的 `CONNECT`，靶场日志 5 条。再把 `no_proxy` 改成 `localhost`（命中靶场主机）重录：转发代理没有新的 `CONNECT`（tabcap 的代理直连靶场），靶场日志又是 5 条。
+  3. **httpx 与 http**：`httpx` 模式与 `plain` 模式各录一份：请求数与靶场日志相等。
+  4. **按顺序回放，顺序对**：关掉靶场。`tabcap replay serve <b> --order strict --order-report <r> -- uv run --offline … s76_client.py https://localhost:<p> normal`：退出码 0；报告 `ok:true`、`expected` 5、`received` 5、`matched` 5，四个列表都空；客户端每条都拿到录到的正文（客户端把收到的正文 sha256 打到 stdout，与第 1 步靶场记下的相等）。靶场已关，回放期间没有任何连接到达它的端口（测试在原端口上起一个只计数的监听，计数为 0）。
+  5. **顺序错的四种**（同一份包，各跑一次，退出码都是 1，客户端自己的退出码 0）：
+     - `reorder`：`moved` 一条（`id:"r-2"`、`position` 2、`index` 5），`matched` 4，其余列表空；`firstDivergence` 为 `{position:2, expected:"r-2", index:2, received:"/s76/item"}`；
+     - `extra`：`extra` 一条（`index` 6，`url` `/s76/list?page=3`，`matched:null`——包里没有 page=3，`serve` 回 404）；
+     - `missing`：`missing` 一条（`id:"r-3"`、`position` 3）；
+     - `changed`：`changed` 一条（`id:"r-4"`、`position` 4、`index` 4、`differs.query` 含 `page`）。
+  6. **只挑一部分**：用 `noise` 模式录一份包 b2（9 条）。normal 客户端对 b2 回放：不加过滤时 `missing` 是 4 条 static.js（`position` 2、4、6、8）；加 `--order-exclude "/s76/static.js"` 时 `ok:true`、`skipped.expected` 4；改用规则文件（`{"schema":"tabcap-replay-rules/0","rules":[{"match":{"path":"/s76/static.js"},"order":"skip"}]}`，`--rules`）结果相同；`--order-include "/s76/list"` 时只检查两条 list，`ok:true`、`expected` 2。
+  7. **不带命令**：`tabcap replay serve <b> --order strict --port 0 --json --once 3`，测试自己按 normal 顺序直接向服务端口发 5 条（http；单主机包不按 Host 分，§31）：停止时第二行信封的 `data.order.ok` 为 `true`；再跑一次少发最后一条：退出码 1，`missing` 是 `r-5`。
+  8. **上游证书校验失败**：不给 `--upstream-ca` 录 normal：客户端第一条就收到 `502`、`x-tabcap-record-error: upstream-tls`（客户端 stderr），退出码 3；回答 `exitCode` 3、`requests` 1、`failed` 1，tabcap 自己退出码 0；包里那一条 `outcome:"failed"`、`error.text` 含 `upstream`；靶场日志里没有请求（握手就失败了）。
+- `prefer` 与顺序的组合（`notServed`）只在单测里（合成包：一个键先 403 后 200），不加靶场步骤。
+- 不在靶场里的【待验】：`aiohttp`（`trust_env` 默认关）、写死 `proxies=` 的客户端、WebSocket 客户端（`04` §50.1 / §50.2）。
+
+## 21. 场景索引
 
 10-21 建。场景编号 → 实现它的 `test/e2e/site.ts` 站点函数与主要路由 → 跑它的 e2e 文件。e2e 与单测两列是 grep 出来的：在 `test/e2e/*.e2e.test.ts`、`test/unit/*.ts` 里搜编号（前后不接字母数字，如 `s07`、`/s22/`、`S40_`），列出提到它的文件（省略目录与 `.e2e.test.ts` / `.test.ts` 后缀）；没有文件写编号的三个场景按路由搜（标「按路由」）。单测 `test/unit/scenario-index.test.ts` 读这张表：每个 `### sNN` 都要有一行，状态不是「未落地」「仅对照靶场」的，编号必须能在 `site.ts` 或某个测试文件里搜到；「未落地」的在 `site.ts` 里搜不到（落地了就要回来改表）；「仅对照靶场」的在 `docs/compare/range.ts` 里搜得到。
 
@@ -498,9 +529,10 @@
 | s73 | permissions | 已落地 | `startPermissionSite`：`/s73`、`/s73/geo` | v09b | permission |
 | s74 | sse-stream | 已落地 | `startStreamSite`：`/s74`、`/s74/{sse,cut,ndjson,es,json,other}` | v09c | recorder09c、sse09c |
 | s75 | downloads | 已落地 | `startDownloadSite`：`/s75`、`/s75/{file,plain,big,nav}` | v09d | browser-downloads09d、downloads09d |
+| s76 | client-order | 已落地 | `startClientSite`：https 源 `/s76/{login,list,item,static.js}`，http 源 `/s76/plain` | v09e | replay-order |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。
 - s57、s58：`09` §12 的规划编号（10-21 由 `09` 原来的 s41 chart-instance、s42 report-viewer 改号而来，那两个号与本文已落地的 s41、s42 撞了）。
 - s61：没有用过（docs、NOTES、代码里都搜不到）。
-- s76 起：未分配。
+- s77 起：未分配。

@@ -112,6 +112,24 @@ tabcap analyze recon ./mitm-bundle --text
 
 【待验】没跑，只写路线：Burp 的 Logger++ 扩展可以导出 HAR（若其版本支持），Burp 自己的「Save items」是自家 XML，不是 HAR；若走 XML，要先转成 HAR 再 `bundle import har`。哪条路对，要拿到真实导出再看，不拿推测当结论。
 
+### 2.4 外部客户端：Python 脚本经 mitmproxy 录、经 mitmproxy 回放（spike 2026-11-03）【实测】
+
+`04` §49 / §50 的设计依据。主循环在 scratchpad 里跑，不进仓库；mitmproxy 12.2.3（`uvx --offline`）、Python 3.13.9、requests 2.34.2、httpx 0.28.1、macOS arm64。目标是本机 `Bun.serve` 的 https 服务（证书用 `src/wire/certs/leaf.pem`，SAN 含 `localhost` / `127.0.0.1`），它按到达顺序打印收到的请求（oracle）。mitmproxy 的 `confdir` 用 spike 自己的新目录（新生成的 CA），上游用 `ssl_verify_upstream_trusted_ca=src/wire/certs/ca.pem` 信任靶场证书。
+
+1. **录**：`mitmdump -p 18080 --set confdir=<新目录> --set hardump=rec.har …`；Python 脚本（`requests.Session` 依次 `GET /api/list?n=1`、`POST /api/item` JSON、`httpx.get /api/list?n=2`）的环境设了大小写两套 `HTTP(S)_PROXY`、`NO_PROXY=` / `no_proxy=` 空、`REQUESTS_CA_BUNDLE` 与 `SSL_CERT_FILE` 指向 mitmproxy 的 CA 证书：三条都 200，目标日志三条按序；SIGINT 后 `rec.har` 落盘，`tabcap bundle import har` 得到 3 requests，`r-1..r-3` 的方法、URL 顺序与目标日志一致。requests 与 httpx 都认这两个 CA 变量。
+2. **坑：小写代理变量**。第一次只设了大写 `HTTPS_PROXY`：Python 报 `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`，mitmproxy 日志里没有一个连接。原因：作者环境里有小写 `https_proxy` / `http_proxy`（系统代理 `127.0.0.1:6152`）与 `no_proxy`，`requests.utils.get_environ_proxies` 取到的是小写那个，请求走了系统代理，看到的是靶场自签名证书。大小写都设、`no_proxy` 清空后正常。
+3. **回放**：靶场关掉；`tabcap replay serve rec-bundle --port 18500`；`mitmdump -p 18081 --set confdir=<同上> --set upstream_cert=false --set connection_strategy=lazy -s redirect.py`，addon 在 `request()` 里把 `flow.request` 的 scheme / host / port 改成 `http` / `127.0.0.1` / `18500`，再把 `host_header` 设回原值。同样的 Python 请求：三条都 200，`x-tabcap-replay` 依次 `r-1;n=1`、`r-2;n=1`、`r-3;n=1`，正文是录到的；第四条发给 `https://api.tabcap-spike.invalid/api/list?n=1`（解析不了的主机）也拿到 `r-1`（单主机包不按 host 分，§31）。mitmproxy 日志里的 `server connect` 只有 `127.0.0.1:18500`——没有连真实主机。
+4. **`replay serve` 本身当代理**：http 目标经代理发来时，`Bun.serve` 的 `req.url` 是完整 URL、Host 头是原主机，`serve` 的匹配用得上；https 目标的 `CONNECT`，`Bun.serve` 回了 200 然后 TLS 握手失败（curl `tlsv1 alert protocol version`）。所以 https 必须有人终结 TLS（mitmproxy，或 tabcap 自己，见 §2.5）。这一条用的是一个只回显的 `Bun.serve`，不是 `replay serve`。
+5. `urllib` 显式 `ProxyHandler({'https': <mitmproxy>})` + `ssl.create_default_context(cafile=<mitmproxy CA>)`：环境里留着作者的 `no_proxy` 时失败（同样的 `unable to get local issuer certificate`），清空 `NO_PROXY` / `no_proxy` 后成功。显式给了代理，`urllib` 仍先按 `no_proxy` 判断要不要绕过，`localhost` 被绕过、直连了靶场【推断：读 `urllib.request.proxy_bypass` 的行为，两次运行只差 `no_proxy`】。httpx 用 `ssl.create_default_context`（3.13 默认带 `VERIFY_X509_STRICT`）在第 1 条里通过，所以 mitmproxy 生成的证书过得了 strict 校验【推断】。
+
+### 2.5 tabcap 自己做代理与 TLS 中间人（spike 2026-11-03）【实测】
+
+`04` §50 不依赖 mitmproxy 的依据。同一台机器、同样只打本机目标（同 §2.4 的 https 目标）；Bun 1.4.4。
+
+1. **签证书**：Bun 只能解析 X.509、不能生成。用 WebCrypto `ECDSA P-256` 生成密钥、手写 DER 拼 `TBSCertificate` 再签（约 60 行）：CA 带 `basicConstraints` critical `CA:TRUE, pathlen:0`、`keyUsage` `keyCertSign | cRLSign`、SKI；leaf 带 SAN、AKI、SKI、`extKeyUsage serverAuth`、`keyUsage digitalSignature`。`openssl verify -x509_strict -CAfile ca.pem leaf.pem` 通过。
+2. **进程内中间人**：`node:net` 服务器读到 `CONNECT host:port` 后回 200，在同一个 socket 上 `new tls.TLSSocket(socket, {isServer:true, secureContext, ALPNProtocols:["http/1.1"]})` 用这台主机的 leaf 终结 TLS，再 `tls.connect` 到上游（`servername` 为原主机、`ca` 为靶场 CA），两头字节原样转发。Python 3.13 的 requests 与 httpx（默认 `VERIFY_X509_STRICT`）经它请求都 200；curl 也通（协商只给 `http/1.1`，curl 退回 h1）；3 MB 的 POST 正文正常；目标日志的顺序与代理旁路记下的一致。
+3. 没测的【待验】：Windows；`bun build --compile` 后的二进制；慢而长的流的背压；高并发；WebSocket；HTTP/2。
+
 ## 3. decode 钩子与 mitmproxy addon 对应
 
 tabcap 的 Python decode 插件（`templates/plugins/decode-python/`，docs/04 §26，0.6-B）有意保持 mitmproxy `flow` 的形状，所以把 addon 的 `response(flow)` 里解码 body 的部分搬过来通常只改签名和返回方式。靶场 s42（`x-enc: xor`，body 是 base64 的异或密文）：
