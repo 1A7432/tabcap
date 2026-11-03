@@ -54,7 +54,7 @@ async function tabcap(args: string[], env: Record<string, string> = shellEnv()):
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
   const exit = await p.exited;
   // the client's own stdout lines come first; tabcap's envelopes are the JSON lines
-  const json = out.split("\n").filter((l) => l.startsWith('{"ok":'));
+  const json = out.split(/\r?\n/).filter((l) => l.startsWith('{"ok":'));
   let last: unknown = {};
   try {
     last = JSON.parse(json[json.length - 1] ?? "{}");
@@ -69,7 +69,7 @@ const order = (r: Run): Record<string, unknown> => {
   return isRecord(o) ? o : {};
 };
 /** The client's "<status> <sha256>" lines. */
-const clientLines = (r: Run) => r.out.split("\n").filter((l) => /^\d{3} [0-9a-f]{64}$/.test(l));
+const clientLines = (r: Run) => r.out.split(/\r?\n/).filter((l) => /^\d{3} [0-9a-f]{64}$/.test(l));
 const hitKey = (h: S76Hit) => `${h.method} ${h.path}${h.query === "" ? "" : `?${h.query}`}`;
 
 async function record(name: string, mode: string, extra: string[] = [], env?: Record<string, string>): Promise<{ run: Run; bundle: string; hits: S76Hit[] }> {
