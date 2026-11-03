@@ -734,3 +734,8 @@
 - 做了什么：作者同意后推分支开 PR #41，CI 跑三轮全绿，rebase 合入 main（5ca3485），合入后 main 的 CI 12 项全过；未发版。Windows 上 CI 发现三处测试写法问题，只改测试、产品代码未动：报告文件的 `0600` 权限检查在 Windows 上跳过（同仓库其他权限检查）；v09e 的 `capture.client` 在 Windows 上是 `uv.exe`（§50.2 记命令的 basename，测试改为接受 `uv` 或 `uv.exe`）；Windows 上 Python `print` 输出 `\r\n`，v09e 拆客户端输出改按 `\r?\n`。之后 Windows e2e 的 v09e 8 步全过：Windows 上的录制与回放（代理、临时 CA、子进程环境、上游、顺序报告）由 CI 验证【实测，GitHub Actions windows-latest】。
 - 卡在哪：仍【待验】：慢长流的背压、高并发、aiohttp 等不吃代理变量的客户端（目前只在回答的 notes 里提示）。编译后的二进制只在 macOS arm64 本机录过，其他平台靠 release.yml 的 `scripts/record-smoke.ts`，发版时才会跑到。
 - 下一格从哪开始：由作者选：发版（含 0.9-A..F，跑 record 冒烟）；或补背压 / 并发测试；或给不吃代理变量的客户端（aiohttp `trust_env`）想办法。
+
+## 2026-11-03 · 0.9.0 发布（主循环）
+- 做了什么：作者定版本号 0.9.0。发布提交 PR #43（与 0.8.1 的 #28 同形，少了 Scoop 清单：homebrew.yml 在 Release 发布后自动渲染）CI 全绿，rebase 合入 f485735，`v0.9.0` tag 打在 f485735。release run 41599775940 第二次尝试：四个平台编译与冒烟（含 `scripts/record-smoke.ts`）全过，五个 npm 包都发出（带 provenance），草稿 Release 9 个资产；作者让直接发布 Release（非 prerelease、latest），homebrew run 41607819258 把 tap formula 推到 0.9.0、Scoop 清单以 c550c9a 提交进 main。registry 核对五个包 latest 都是 0.9.0，`tabcap-linux-arm64` 的 shasum 与 CI 日志一致【实测，09:10 UTC】。
+- 卡在哪：(1) 第一次尝试停在 gate：#43 合入后马上推了 tag，main 上 f485735 的 ci.yml 还在 queued；等 main CI 全绿后 `gh run rerun`，tag 不动。以后合入发布 PR 后先看 main 的 CI 绿了再推 tag。(2) `tabcap-linux-arm64@0.9.0` 08:09:19 npm 回了 `+ …@0.9.0`，registry 上 09:04:45 才出现（约 55 分钟，npm 状态页无事故，原因不明）；release.yml 的 npm job（`timeout-minutes: 15`）在等它时超时，整次 run 显示 cancelled，但发布本身完整。
+- 下一格从哪开始：要不要把 npm job 等 registry 的时间放长（或超时只告警不判失败）由作者定；之后在作者选的方向里挑：背压 / 并发测试，或不吃代理变量的客户端（aiohttp `trust_env`）。
