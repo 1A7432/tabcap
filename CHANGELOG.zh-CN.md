@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### 录任何脚本发的请求；回放检查顺序（0.9-E、0.9-F）
+
+- **新命令 `tabcap record -o <包> -- <命令>`（0.9-F，docs/04 §50）。** 录任何命令（Python requests / httpx 爬虫、curl、node …）发出的 HTTP(S) 请求。以前只有浏览器里的流量能进包，录脚本得自己起 mitmproxy、手设代理和 CA、再导入 HAR。现在 tabcap 在自己的进程里有一个 127.0.0.1 上的代理和 TLS 中间人：每次运行生成一张 CA（ECDSA P-256，用 WebCrypto 签；私钥不可导出、不落盘；只把证书写进一个 0700 的临时目录，运行结束即删），只有被录的命令信任它。命令拿到的环境：`HTTP_PROXY` / `HTTPS_PROXY` 大小写两套（Python 里小写优先，shell 里的小写系统代理不会再让它绕过录制）、删掉 `ALL_PROXY`、`NO_PROXY` 置空（回环地址也过代理）、`SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` / `CURL_CA_BUNDLE` / `NODE_EXTRA_CA_CERTS`，以及给需要显式配置的客户端的 `TABCAP_RECORD_PROXY` / `TABCAP_CA_FILE`。字节原样转发；请求按命令发出的顺序写成 `request` 事件（`headersSource: "wire"`、单调时钟、正文去分块并解码、单个正文 32 MiB）。`--upstream env`（默认）按命令本来的方式出去（它自己的 `https_proxy` …，减去它的 `no_proxy`；只支持 http:// 代理，凭据只从环境变量来），`none` 直连，或给 `http://host:port`；上游证书一律校验（自签名站点用 `--upstream-ca`），校验或连接失败给客户端回 502 和 `x-tabcap-record-error`，并记成 `failed`。只做 HTTP/1.1（客户端会从 h2 退回）；WebSocket 记握手不记帧；不是 TLS 的隧道透传不录。tabcap 自己退出码 0，命令的退出码在 `exitCode`。不进 MCP（命令要用终端）。站点看到的是 tabcap 的 TLS 握手，不是脚本自己的。编译后的二进制在发布流程里冒烟（`scripts/record-smoke.ts`）。
+- **`replay serve --order strict`（0.9-E，docs/04 §49）。** 回答不变；服务记下请求到达的顺序，停止时和录制顺序对齐（最长公共子序列；并列时录得早的先对上）：`missing`、`extra`（带回答它的录音，404 为 null）、`changed`（同一处差异里方法和路径相同、query 或正文不同，写明哪里不同）、`moved`，以及 `firstDivergence`（「第 N 条对第 N 条」）。有差异时退出码 1。只检查一部分：`--order-include` / `--order-exclude` 路径 glob，或规则新字段 `"order": "skip"`；`--order-report <file>` 写报告（0600）；`--json` 停止时多打一行信封；文本模式每行日志多 ` #<n>`，结束打摘要。
+- **`replay serve <包> -- <命令>`（docs/04 §50.3）。** 命令经同一个代理跑，代理唯一的上游是回放服务：任何主机的 https 都落到录音上，别处一概不解析、不连接；命令退出即停服务。退出码：命令不为 0 用它的，否则 `--order strict` 有差异为 1，否则 0。靶场场景 s76（`test/e2e/v09e.e2e.test.ts`，Python requests / httpx 客户端），docs/13 §2.4 / §2.5（spike），skills/tabcap/references/replay.md。
+
 ### 下载进证据包，不再进你的「下载」文件夹（0.9-D）
 
 - **修复：tabcap 的浏览器把下载存进了用户真实的 `~/Downloads`。** 0.8.1 没设下载行为，有头的 Chrome for Testing 把页面给的附件（以及 `navigate` 到的文件 URL）存进用户自己的「下载」文件夹，出了 tabcap 自己的目录，也不告诉用户；页面脚本触发的第 2、3 个下载被 Chrome 的「自动下载多个文件」限制挡掉；`navigate` 到文件回 `navigation … failed: net::ERR_ABORTED`，其实下载已经开始。现在 `browser start`（以及每个 `session start --site` / 带代理的会话自己的 browser context）用 `Browser.setDownloadBehavior allowAndName` 把下载导进这次浏览器运行在 tabcap 数据目录下的暂存目录（0700，`browser stop` / 守护进程停止时删掉）；浏览器不接受时不留下这个浏览器（`browser start` / `session start` 回 `cdp`）。Chrome 用下载的 guid 当文件名，页面给的文件名不会变成路径，「多个文件」限制也不再起作用。

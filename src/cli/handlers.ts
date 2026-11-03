@@ -38,7 +38,7 @@ import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintR
 import { guideList, guideOf, renderGuideListText, renderGuideText } from "./guides.ts";
 import { pluginInit } from "./plugin-init.ts";
 import { accountAdd, accountBind, accountList, accountRemove, accountSetState, proxyAdd, proxyCheck, proxyList, proxyRemove, proxySetState } from "./pool.ts";
-import { checkCode, replayCheck, replayExportPython, replayServe, replaySession } from "./replay.ts";
+import { checkCode, recordCommand, recordText, replayCheck, replayExportPython, replayServe, replaySession } from "./replay.ts";
 import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts";
 import { cmdUpdate } from "./update.ts";
 import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
@@ -216,6 +216,7 @@ export function handlerTable(host: Host): Readonly<Record<string, Handler>> {
     // Exit 1 when an endpoint drifted (the envelope is still ok: the comparison itself worked).
     "analyze schema-diff": local({ run: ({ args }) => analyzeSchemaDiff(args), code: (r) => (r.drift ? 1 : 0), render: renderSchemaDiffText }),
     "replay serve": custom(({ spec, args }) => replayServe(spec, args)),
+    record: local({ run: ({ spec, args }) => recordCommand(spec, args), render: recordText }),
     "replay session": local({ run: ({ spec, args }) => replaySession(spec, args) }),
     "replay export-python": local({ run: ({ spec, args }) => replayExportPython(spec, args) }),
     "replay check": local({ run: ({ args }) => replayCheck(args), code: checkCode, render: renderCheckText }),

@@ -124,6 +124,12 @@ jobs:
           bin=dist/tabcap-${{ matrix.target }}
           [ "${{ runner.os }}" = "Windows" ] && bin="$bin.exe"
           "$bin" --version
+      - name: smoke (record)
+        if: matrix.native
+        run: |
+          bin=dist/tabcap-${{ matrix.target }}
+          [ "${{ runner.os }}" = "Windows" ] && bin="$bin.exe"
+          bun scripts/record-smoke.ts "$bin"
       # The npm job assembles the platform packages from the raw binaries.
       - uses: actions/upload-artifact@v4
         with:

@@ -13,6 +13,9 @@
 // CORS preflights (OPTIONS) are recordings like any other: a recorded
 // preflight answers an OPTIONS with the same path and query; an unrecorded one
 // gets the 404 below (docs/04 §31).
+// Order (0.9-E, `--order strict`, ./order.ts): answers do not change; each
+// checked request gets an arrival index (` #k` in the log line) and the
+// report aligns the arrivals with the recorded order at stop (docs/04 §49).
 // Oracle: the bundle's recorded status / headers / blobs. Reproduce:
 //   bun test test/unit/replay-server.test.ts
 
@@ -22,6 +25,7 @@ import { MAX_REQUEST_BODY, checkLoopbackListen, headerJoined, replayableRequests
 import { ReplayIndex, buildResponse, queryText, recordedViewPlain, type Incoming, type Plain } from "./match.ts";
 import { NO_RULES, pickRule, rulesInfo, type PreferMode, type RuleSet } from "./rules.ts";
 import { Plaintexts } from "./plaintext.ts";
+import { OrderTracker, type OrderReport } from "./order.ts";
 
 export type ServeOptions = {
   bundle: string;
@@ -37,6 +41,8 @@ export type ServeOptions = {
   configDir?: string;
   /** `--prefer` (0.6-S): overrides every rule's prefer. */
   prefer?: PreferMode;
+  /** `--order strict` (0.9-E): note the arrival order and report it at stop; absent: `--order key`. */
+  order?: { include?: string | undefined; exclude?: string | undefined; scrub?: (s: string) => string };
 };
 
 /**
@@ -67,7 +73,8 @@ export type ServeInfo = {
   warnings: string[];
 };
 
-export type ReplayServer = { info: ServeInfo; stop: () => void; readonly served: number };
+/** `orderReport()`: the `--order strict` report so far (null without it). */
+export type ReplayServer = { info: ServeInfo; stop: () => void; readonly served: number; orderReport: () => OrderReport | null };
 
 function incomingHeaders(h: globalThis.Headers): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};
@@ -117,6 +124,7 @@ export async function startReplayServer(opts: ServeOptions): Promise<ReplayServe
   }
   const index = new ReplayIndex(requests, reader, { strict: opts.strict, matchCookies: opts.matchCookies, rules, ...(opts.prefer === undefined ? {} : { prefer: opts.prefer }) }, plain);
   const log = opts.log ?? null;
+  const tracker = opts.order === undefined ? null : new OrderTracker(index, { ...opts.order, rules });
   let served = 0;
 
   /** Decode an incoming body with every plugin its body "decoded" rules may use. */
@@ -147,9 +155,11 @@ export async function startReplayServer(opts: ServeOptions): Promise<ReplayServe
       const incoming = await decodeIncoming({ method: req.method, url: `${url.pathname}${url.search}`, headers: incomingHeaders(req.headers), body, host: url.host });
       const m = index.match(incoming);
       served++;
+      const at = tracker?.note(incoming, m?.recording ?? null) ?? null;
+      const tag = at === null ? "" : ` #${at}`;
       if (m === null) {
         const candidates = index.nearest(incoming);
-        log?.(`${req.method} ${url.pathname}${url.search} -> 404 no match (${candidates.length} candidate(s))`);
+        log?.(`${req.method} ${url.pathname}${url.search} -> 404 no match (${candidates.length} candidate(s))${tag}`);
         const payload = {
           error: "no-match",
           message: `no recording for ${req.method} ${url.pathname}`,
@@ -161,7 +171,7 @@ export async function startReplayServer(opts: ServeOptions): Promise<ReplayServe
       }
       const r = buildResponse(m.recording, reader, m.n);
       const pref = m.prefer === "recorded" ? "" : `;prefer=${m.prefer}`;
-      log?.(`${req.method} ${url.pathname}${url.search} -> ${m.recording.id} n=${m.n}/${m.of} ${r.status}${withRules ? ` rule ${m.rule.id}` : ""}${pref === "" ? "" : ` prefer ${m.prefer}`}${r.missing === null ? "" : ` (body missing: ${r.missing})`}`);
+      log?.(`${req.method} ${url.pathname}${url.search} -> ${m.recording.id} n=${m.n}/${m.of} ${r.status}${withRules ? ` rule ${m.rule.id}` : ""}${pref === "" ? "" : ` prefer ${m.prefer}`}${r.missing === null ? "" : ` (body missing: ${r.missing})`}${tag}`);
       const headers = new Headers();
       for (const [k, v] of r.headers) headers.append(k, k === "x-tabcap-replay" ? `${v}${withRules ? `;rule=${m.rule.id}` : ""}${pref}` : v);
       const ign = [...(m.ignored.query.length > 0 ? [`query=${nameList(m.ignored.query)}`] : []), ...(m.ignored.body.length > 0 ? [`body=${nameList(m.ignored.body)}`] : [])];
@@ -218,5 +228,6 @@ export async function startReplayServer(opts: ServeOptions): Promise<ReplayServe
     get served() {
       return served;
     },
+    orderReport: () => tracker?.report() ?? null,
   };
 }

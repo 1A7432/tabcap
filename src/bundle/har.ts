@@ -590,7 +590,11 @@ export type DecodedBody = { bytes: Uint8Array; base64: boolean; wireEncoding: st
  * wireEncoding records the header value in every case.
  */
 function decodeHarBody(text: string, base64: boolean, contentEncoding: string | null): DecodedBody {
-  const raw = base64 ? new Uint8Array(Buffer.from(text, "base64")) : toBytes(text);
+  return decodeWireBody(base64 ? new Uint8Array(Buffer.from(text, "base64")) : toBytes(text), contentEncoding, base64);
+}
+
+/** The same decoding over bytes (0.9-F `tabcap record` stores wire bodies with it, docs/04 §50.2). */
+export function decodeWireBody(raw: Uint8Array, contentEncoding: string | null, base64 = false): DecodedBody {
   const ce = contentEncoding?.trim().toLowerCase() ?? "";
   if (ce === "" || ce === "identity") return { bytes: raw, base64, wireEncoding: null, decodeFailed: false };
   const rawText = utf8OrNull(raw);
@@ -850,7 +854,7 @@ function typeFromContentType(contentType: string | null): ResourceType {
 }
 
 /** The imported event's type and, when `_resourceType` is absent, how it was inferred. */
-function importedType(raw: Record<string, unknown>, req: Headers, resp: Headers | null, mimeType: string | null): { type: ResourceType; typeInferred?: "sec-fetch" | "content-type" } {
+export function importedType(raw: Record<string, unknown>, req: Headers, resp: Headers | null, mimeType: string | null): { type: ResourceType; typeInferred?: "sec-fetch" | "content-type" } {
   if (raw["_resourceType"] !== undefined) return { type: toResourceType(raw["_resourceType"]) };
   const bySecFetch = typeFromSecFetch(req);
   if (bySecFetch !== null) return { type: bySecFetch, typeInferred: "sec-fetch" };

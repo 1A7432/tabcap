@@ -123,7 +123,7 @@ export function analyzeChain(a: Record<string, unknown>): ChainResult {
 }
 
 /** The store's known secrets replaced as `<secret:site.field>` (docs/04 §8.1), as the daemon does in every output; identity without a store. */
-function storeScrub(configDir: string): (s: string) => string {
+export function storeScrub(configDir: string): (s: string) => string {
   if (!existsSync(storePath(configDir))) return (s) => s;
   const secrets = new Secrets();
   const st = Store.open(configDir);

@@ -102,6 +102,18 @@ export type Matched = { recording: Recording; n: number; of: number; rule: Compi
 
 export type QueryDiff = { missing: string[]; extra: string[]; changed: string[] };
 
+/**
+ * The comparison key of `replay serve --order strict` (0.9-E): method, path,
+ * canonical query and the rule's body reading. `bodyKey` null: the recorded
+ * body is missing, so any body compares equal.
+ */
+export type OrderKey = { method: string; path: string; query: string; pairs: [string, string][]; bodyKey: string | null; body: CanonBody | null; bodySha256: string | null };
+
+/** Two comparison keys are equal (a missing recorded body equals any body). */
+export function orderKeyEqual(a: OrderKey, b: OrderKey): boolean {
+  return a.method === b.method && a.path === b.path && a.query === b.query && (a.bodyKey === null || b.bodyKey === null || a.bodyKey === b.bodyKey);
+}
+
 export type Candidate = {
   id: string;
   method: string;
@@ -412,6 +424,40 @@ export class ReplayIndex {
     if (!this.withRules) return DEFAULT_RULE;
     const h = this.candidateHosts(req)[0];
     return pickRule(this.rules, { url: h === undefined ? new URL(req.url, "http://replay.invalid").href : this.urlFor(req, h), method: req.method });
+  }
+
+  /** A recording's comparison key for `--order strict` (0.9-E, docs/04 §49): the match key without host, cycling, strict headers and cookies. */
+  recordingOrderKey(rec: Recording): OrderKey {
+    return { method: rec.method, path: rec.path, query: queryText(rec.query), pairs: rec.query, bodyKey: rec.body === null ? null : this.bodyKey(rec.body), body: rec.body, bodySha256: rec.bodySha256 };
+  }
+
+  /**
+   * An incoming request's comparison key (0.9-E): read under the rule of the
+   * recording that answered it, else the rule its host / path / method pick;
+   * of several body readings the one the recording keyed on, else the first.
+   */
+  incomingOrderKey(req: Incoming, matched: Recording | null): OrderKey {
+    const rule = matched?.rule ?? this.ruleOf(req);
+    const all = this.incomingParts(req, rule, this.keyHost(req));
+    const want = matched === null || matched.body === null ? null : this.bodyKey(matched.body);
+    const p = all.find((x) => x.bodyKey === want) ?? all[0];
+    if (p === undefined) return { method: req.method.toUpperCase(), path: req.url, query: "", pairs: [], bodyKey: sha256Hex(req.body), body: null, bodySha256: sha256Hex(req.body) };
+    return { method: p.method, path: p.path, query: queryText(p.query), pairs: p.query, bodyKey: p.bodyKey, body: p.body, bodySha256: p.bodySha256 };
+  }
+
+  /** The key parts two comparison keys differ in (the 404 candidate's `differs` spelling, query and body only). */
+  orderDiffers(recorded: OrderKey, got: OrderKey): Pick<Candidate["differs"], "query" | "body"> {
+    const out: Pick<Candidate["differs"], "query" | "body"> = {};
+    const q = compareMaps(pairMap(recorded.pairs), pairMap(got.pairs));
+    if (q !== null) out.query = q;
+    if (recorded.bodyKey !== null && got.bodyKey !== null && recorded.bodyKey !== got.bodyKey) {
+      const rb = recorded.body;
+      const gb = got.body;
+      const fields = rb !== null && gb !== null && rb.fields !== null && gb.fields !== null && rb.as === gb.as ? compareMaps(rb.fields, gb.fields) : null;
+      const fallback = gb?.fallback ?? rb?.fallback ?? null;
+      out.body = { recordedSha256: recorded.bodySha256 ?? "", gotSha256: got.bodySha256 ?? "", fields, ...(rb === null ? {} : { as: rb.as }), ...(fallback === null ? {} : { fallback }) };
+    }
+    return out;
   }
 
   /** Up to `max` nearest recordings: same method + path first, then same path; fewest differing parts first. */

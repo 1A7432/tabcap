@@ -719,3 +719,13 @@
 - 卡在哪：无。
 - 下一格从哪开始：推 `scoop-0.8.1`，等 #29 CI；全绿再 rebase 合入。
 
+
+## 2026-11-03 · 0.9-E / 0.9-F 设计：按顺序回放与录外部客户端（主循环，分支 0.9-e-client-record）
+- 做了什么：隔壁项目 11-03 的反馈（Python 爬虫发的请求录不了、回放不按顺序校验）。作者定：做 `replay serve --order strict`（出错记下、最后报告；规则 `order` 字段与 include / exclude 只挑一部分）与 `tabcap record -- <命令>`。写了 docs/04 §49（顺序报告：比较键 + 最长公共子序列对齐，`missing` / `extra` / `changed` / `moved` / `firstDivergence`，并列时期望序列靠前的优先）、§50（`record` 经 mitmproxy；子进程代理变量大小写两套、`NO_PROXY` 清空、四个 CA 变量；上游默认 `env`；tabcap 自己的 CA 目录；`replay serve -- <命令>` 经 mitmproxy 重定向到 serve、从不连真实主机），§31 规则多 `order`；docs/05 §20 新场景 s76（索引改到 §21，docs/09、docs/15 的引用跟着改）；docs/13 §2.4 spike 实测：mitmproxy 12.2.3 + requests / httpx 的 https 录制与离线回放都通【实测，scratchpad，本地靶场】。
+- 卡在哪：作者随后问能否不依赖 mitmproxy；第二个 spike（docs/13 §2.5）证明 Bun 里能自己签证书、自己做中间人【实测】。作者 11-03 定：自己实现、完全替换 mitmproxy；CA 每次运行临时生成；第一期只做 HTTP/1.1、WebSocket 只透传；`replay serve -- <命令>` 做；`--upstream` 默认 `env`；`record` 退出码恒为 0。§50 按此重写（50.1 代理引擎 / 50.2 record / 50.3 回放带命令 / 50.4 验证），s76 去掉 mitmproxy，第 8 步改成上游证书校验失败。手工走 mitmproxy 的坑仍记在 docs/13 §2.4 第 2 条。作者让写完直接实现。
+- 下一格从哪开始：实现：先 §49（`src/replay/order.ts`，接 `server.ts`），再 §50（`src/record/`：x509、HTTP/1.1 解析、代理、写包、CLI），最后 `startClientSite` 与 `v09e`。
+
+## 2026-11-03 · 0.9-E / 0.9-F 实现：`replay serve --order strict`、`tabcap record`、`replay serve -- <命令>`（主循环，分支 0.9-e-client-record）
+- 做了什么：作者让 spec 写完直接实现。§49：`src/replay/order.ts`（最长公共子序列对齐，并列时期望序列靠前的先对上；表格超过 2000 万格退成贪心并在 warnings 写明），规则多 `order: check|skip`，`ReplayIndex` 多比较键三个方法，serve 每行日志带 ` #k`，CLI `--order` / `--order-include` / `--order-exclude` / `--order-report`。§50：`src/record/`——`x509.ts`（WebCrypto P-256 + 手写 DER，CA 私钥不可导出）、`http1.ts`（只找边界，原始字节一个不少地还给调用方）、`upstream.ts`（env / none / URL，no_proxy，CONNECT 经上游代理，上游证书按 Bun 根证书 + `--upstream-ca`）、`proxy.ts`（CONNECT 窥首字节、隧道里先进先出、普通代理逐个转发、101 之后透传）、`bundle.ts`（按到达顺序写 `request` 事件）、`run.ts`（子进程环境、信号、收尾、回放连接器）。`record` 不进 MCP。单测 52 条（`record-*`、`replay-order`），e2e v09e（s76，Python requests / httpx，8 步）本机两遍全过；全量单测 2002 过 0 败。`bun build --compile` 的二进制在本机录与回放 curl 都通【实测，macOS arm64】，release.yml 加 `scripts/record-smoke.ts` 冒烟；ci.yml e2e 的 uv 预热加 requests + httpx。
+- 卡在哪：实现中改了 spec 的几处细节（已回写 §50）：leaf 共用一把密钥、证书签给 CONNECT 主机而不是 SNI；`alpnRefused` 改 `tlsRefused`；`record` 默认 JSON、`--text` 出摘要（原写 `--json`）；普通代理遇 `Connection: close` 转完就关客户端（单测里发现的问题）。Bun 的 `fetch` 带 `proxy` 时不用 `tls.ca` 校验隧道里的证书【实测】，单测改用手写 CONNECT + `node:tls` 和 `bun -e` 子进程。仍【待验】：Windows（等 CI）、慢长流的背压、高并发、aiohttp 等不吃代理变量的客户端。没有提交到远端。
+- 下一格从哪开始：作者审 diff；同意后推分支开 PR，看 CI（特别是 Windows 的 record 单测与 v09e），全绿再合入。

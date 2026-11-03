@@ -17,6 +17,11 @@ import { headerNames } from "../replay/common.ts";
 import { accountProxy, writeProxyEnv, type AccountProxy } from "../replay/proxyenv.ts";
 import { BundleReader } from "../bundle/reader.ts";
 import { loadRules, parsePrefer, type PreferMode, type RuleSet } from "../replay/rules.ts";
+import { orderText, type OrderReport } from "../replay/order.ts";
+import { record, runAgainstReplay, statsReport, type RecordAnswer } from "../record/run.ts";
+import type { UpstreamSpec } from "../record/upstream.ts";
+import { storeScrub } from "./analyze.ts";
+import { writeFileSync } from "node:fs";
 
 /** `--rules <file>`, else config.json `sites.<bundle site>.replay` then `replay` (0.6-C). */
 export function bundleRules(bundle: string, file: string | undefined): RuleSet {
@@ -76,14 +81,33 @@ function serveText(info: ServeInfo): string {
   return lines.join("\n");
 }
 
-/** `tabcap replay serve <bundle>`: prints one envelope (or a text line) at start, then serves until Ctrl-C. */
+/** The command after `--` (a list), or []. */
+const commandArg = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : typeof v === "string" && v !== "" ? [v] : []);
+
+/**
+ * `tabcap replay serve <bundle> [-- <cmd>]`: prints one envelope (or a text line) at start, then serves until
+ * Ctrl-C, `--once`, or the command exits. With `--order strict` or a command a second envelope is printed at
+ * stop (`--json`; the order report goes to stderr as text otherwise). Exit code: the command's when it is not
+ * 0, else 1 when the order differs, else 0 (docs/04 §49, §50.3).
+ */
 export async function replayServe(spec: CommandSpec, args: Record<string, unknown>): Promise<Outcome> {
   const bundle = str(args["bundle"]) ?? "";
   const json = args["json"] === true;
   const once = args["once"];
+  const command = commandArg(args["command"]);
   if (once !== undefined && (typeof once !== "number" || !(once > 0))) throw new TabcapError("usage", "--once needs a positive number of seconds", `Usage: ${usageOf(spec)}`);
-  const port = numOr(args["port"], 4500);
+  if (once !== undefined && command.length > 0) throw new TabcapError("usage", "--once does not go with a command: the server stops when the command exits", `Usage: ${usageOf(spec)}`);
+  const order = str(args["order"]) ?? "key";
+  if (order !== "key" && order !== "strict") throw new TabcapError("usage", `bad --order ${JSON.stringify(order.slice(0, 20))}`, "Use --order key (default) or --order strict (docs/04 §49).");
+  const orderInclude = str(args["orderInclude"]);
+  const orderExclude = str(args["orderExclude"]);
+  const orderReport = str(args["orderReport"]);
+  if (order !== "strict" && (orderInclude !== undefined || orderExclude !== undefined || orderReport !== undefined)) {
+    throw new TabcapError("usage", "--order-include / --order-exclude / --order-report need --order strict", `Usage: ${usageOf(spec)}`);
+  }
+  const port = numOr(args["port"], command.length > 0 ? 0 : 4500);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TabcapError("usage", `bad --port ${port}`, "Pass 0-65535 (0 = any free port).");
+  const configDir = paths().config;
   const server = await startReplayServer({
     bundle,
     host: str(args["host"]) ?? "127.0.0.1",
@@ -92,25 +116,84 @@ export async function replayServe(spec: CommandSpec, args: Record<string, unknow
     matchCookies: args["matchCookies"] === true,
     log: json ? null : (line) => process.stderr.write(line + "\n"),
     rules: bundleRules(bundle, str(args["rules"])),
-    configDir: paths().config,
+    configDir,
     ...preferArg(args["prefer"]),
+    ...(order === "strict" ? { order: { include: orderInclude, exclude: orderExclude, scrub: storeScrub(configDir) } } : {}),
   });
   process.stdout.write((json ? JSON.stringify(ok(server.info)) : serveText(server.info)) + "\n");
-  await new Promise<void>((resolve) => {
-    const done = () => {
-      process.off("SIGINT", done);
-      process.off("SIGTERM", done);
-      if (timer !== null) clearTimeout(timer);
-      resolve();
-    };
-    const timer = typeof once === "number" ? setTimeout(done, once * 1000) : null;
-    process.on("SIGINT", done);
-    process.on("SIGTERM", done);
+  let exitCode: number | null = null;
+  let proxyInfo: { proxy: string; warnings: string[] } | null = null;
+  try {
+    if (command.length > 0) {
+      const run = await runAgainstReplay({ servePort: server.info.port, command });
+      exitCode = run.exitCode;
+      proxyInfo = { proxy: run.proxy, warnings: statsReport(run.stats).warnings };
+    } else {
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          process.off("SIGINT", done);
+          process.off("SIGTERM", done);
+          if (timer !== null) clearTimeout(timer);
+          resolve();
+        };
+        const timer = typeof once === "number" ? setTimeout(done, once * 1000) : null;
+        process.on("SIGINT", done);
+        process.on("SIGTERM", done);
+      });
+    }
+  } finally {
+    server.stop();
+  }
+  const report: OrderReport | null = server.orderReport();
+  if (report !== null && orderReport !== undefined) writeFileSync(orderReport, JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+  const data = { stopped: true, served: server.served, ...(report === null ? {} : { order: report }), ...(exitCode === null ? {} : { exitCode }), ...(proxyInfo === null ? {} : proxyInfo) };
+  if (json) {
+    if (report !== null || command.length > 0) process.stdout.write(JSON.stringify(ok(data)) + "\n");
+  } else {
+    process.stderr.write(`stopped after ${server.served} request(s)${exitCode === null ? "" : `; the command exited with ${exitCode}`}\n`);
+    for (const w of proxyInfo?.warnings ?? []) process.stderr.write(`warning: ${w}\n`);
+    if (report !== null) process.stderr.write(orderText(report) + "\n");
+  }
+  process.exitCode = exitCode !== null && exitCode !== 0 ? exitCode : report !== null && !report.ok ? 1 : 0;
+  // The envelopes were printed already; nothing more on stdout.
+  return { code: -1, envelope: ok(data) };
+}
+
+/** `--upstream env|none|<URL>`. */
+function upstreamArg(v: string | undefined): UpstreamSpec {
+  if (v === undefined || v === "env") return { kind: "env" };
+  if (v === "none") return { kind: "none" };
+  return { kind: "url", url: v };
+}
+
+/** `tabcap record -o <bundle> -- <cmd>` (docs/04 §50.2). */
+export async function recordCommand(spec: CommandSpec, a: Record<string, unknown>): Promise<RecordAnswer> {
+  const out = str(a["out"]);
+  if (out === undefined) throw new TabcapError("usage", "missing -o <bundle>", `Usage: ${usageOf(spec)}`);
+  const command = commandArg(a["command"]);
+  if (command.length === 0) throw new TabcapError("usage", "missing the command to record after `--`", `Usage: ${usageOf(spec)}`);
+  const port = numOr(a["port"], 0);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TabcapError("usage", `bad --port ${port}`, "Pass 0-65535 (0 = any free port).");
+  const timeout = a["timeoutSec"];
+  if (timeout !== undefined && (typeof timeout !== "number" || !(timeout > 0))) throw new TabcapError("usage", "--timeout needs a positive number of seconds", `Usage: ${usageOf(spec)}`);
+  const ca = a["upstreamCa"];
+  return await record({
+    out,
+    command,
+    upstream: upstreamArg(str(a["upstream"])),
+    upstreamCa: Array.isArray(ca) ? ca.filter((x): x is string => typeof x === "string") : [],
+    name: str(a["name"]),
+    site: str(a["site"]),
+    port,
+    timeoutSec: typeof timeout === "number" ? timeout : undefined,
   });
-  server.stop();
-  if (!json) process.stderr.write(`stopped after ${server.served} request(s)\n`);
-  // The envelope was printed at start; nothing more on stdout.
-  return { code: -1, envelope: ok({ stopped: true, served: server.served }) };
+}
+
+export function recordText(r: RecordAnswer): string {
+  const extra = [r.failed > 0 ? `${r.failed} failed` : "", r.websockets > 0 ? `${r.websockets} websocket(s)` : "", r.tunnels > 0 ? `${r.tunnels} tunnel(s) not recorded` : ""].filter((x) => x !== "");
+  const lines = [`recorded ${r.requests} request(s) into ${r.bundle}${extra.length > 0 ? ` (${extra.join(", ")})` : ""}; the command exited with ${r.exitCode}; upstream ${r.upstream}`];
+  for (const w of r.warnings) lines.push(`warning: ${w}`);
+  return lines.join("\n");
 }
 
 /** `tabcap replay session [<bundle>] -o <file> [--site s]`: a Playwright storageState file. */
