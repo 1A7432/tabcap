@@ -39,6 +39,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   "fingerprint serve": "a foreground server until Ctrl-C that prints to stdout",
   "wire serve": "a foreground server until Ctrl-C that prints to stdout",
   "replay serve": "a foreground server until Ctrl-C that prints to stdout",
+  record: "runs a command with the terminal's stdin / stdout, which is the MCP channel",
   "handoff wait": "use tabcap_handoff_wait",
   "bundle prune": "for the human: it deletes recordings, the evidence, from disk",
 };

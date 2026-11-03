@@ -195,6 +195,8 @@ jobs:
           sed 's/{{[A-Za-z]*}}/uv-warm/g' templates/python/pyproject.toml > .uv-warm/pyproject.toml
           uv sync --project .uv-warm --group test
           rm -rf .uv-warm
+          # s76 (test/e2e/v09e.e2e.test.ts) runs a requests + httpx client offline.
+          uv run --no-project --with requests --with httpx python -c "import requests, httpx"
       - name: Linux display and sandbox
         if: runner.os == 'Linux'
         run: |

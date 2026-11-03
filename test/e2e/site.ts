@@ -2833,3 +2833,76 @@ export function startDownloadSite(tag: string): DownloadSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, tag, served, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- s76 client-order (0.9-E / 0.9-F, docs/05 §20)
+
+/** One request the s76 range received, in arrival order (the oracle of `tabcap record` and of the replay order). */
+export type S76Hit = { origin: "https" | "http"; method: string; path: string; query: string; bodySha256: string; respSha256: string; status: number };
+export type ClientSite = { https: string; http: string; httpsPort: number; hits: S76Hit[]; stop: () => void };
+
+/** The fixed credential of the local range's s76 login (not a secret: the range accepts nothing else). */
+export const S76_USER = "s76";
+export const S76_PASSWORD = "s76-range-password";
+const S76_TOKEN = "s76-token-0001";
+export const S76_STATIC = "// s76 static asset\nconsole.log('s76');\n";
+
+/**
+ * s76: an https source on 127.0.0.1 (the wire test certificate, SAN localhost /
+ * 127.0.0.1) and an http source. POST /s76/login (form user / password) sets a
+ * cookie and answers {token}; GET /s76/list?page=n needs `Authorization: Bearer
+ * <token>`; POST /s76/item takes JSON {id}; GET /s76/static.js is fixed text;
+ * the http source has GET /s76/plain. Every request is logged with the sha256
+ * of the body it carried and of the body it got.
+ */
+export function startClientSite(): ClientSite {
+  const hits: S76Hit[] = [];
+  const sha = (b: string | Uint8Array) => createHash("sha256").update(b).digest("hex");
+  const handler = (origin: "https" | "http") => async (req: Request): Promise<Response> => {
+    const u = new URL(req.url);
+    const body = new Uint8Array(await req.arrayBuffer());
+    const reply = (status: number, text: string, type: string, extra: Record<string, string> = {}): Response => {
+      hits.push({ origin, method: req.method, path: u.pathname, query: u.search.slice(1), bodySha256: sha(body), respSha256: sha(text), status });
+      return new Response(text, { status, headers: { "content-type": type, "cache-control": "no-store", ...extra } });
+    };
+    const json = (status: number, v: unknown, extra: Record<string, string> = {}) => reply(status, JSON.stringify(v), "application/json", extra);
+    if (origin === "http") return u.pathname === "/s76/plain" ? reply(200, "s76 plain over http\n", "text/plain") : json(404, { error: "not found" });
+    switch (`${req.method} ${u.pathname}`) {
+      case "POST /s76/login": {
+        const form = new URLSearchParams(new TextDecoder().decode(body));
+        if (form.get("user") !== S76_USER || form.get("password") !== S76_PASSWORD) return json(401, { error: "bad login" });
+        return json(200, { token: S76_TOKEN }, { "set-cookie": "s76sid=s76-session; Path=/; HttpOnly" });
+      }
+      case "GET /s76/list": {
+        if (req.headers.get("authorization") !== `Bearer ${S76_TOKEN}`) return json(401, { error: "no token" });
+        const page = Number(u.searchParams.get("page") ?? "1");
+        return json(200, { page, items: [page * 10 + 1, page * 10 + 2] });
+      }
+      case "POST /s76/item": {
+        let id: unknown = null;
+        try {
+          id = (JSON.parse(new TextDecoder().decode(body)) as { id?: unknown }).id ?? null;
+        } catch {
+          return json(400, { error: "bad json" });
+        }
+        return json(200, { id, name: `item ${String(id)}` });
+      }
+      case "GET /s76/static.js":
+        return reply(200, S76_STATIC, "text/javascript");
+      default:
+        return json(404, { error: "not found" });
+    }
+  };
+  const certs = join(import.meta.dir, "../../src/wire/certs");
+  const secure = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: readFileSync(join(certs, "leaf.pem"), "utf8"), key: readFileSync(join(certs, "leaf-key.pem"), "utf8") }, fetch: handler("https") });
+  const plain = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler("http") });
+  return {
+    https: `https://localhost:${secure.port}`,
+    http: `http://127.0.0.1:${plain.port}`,
+    httpsPort: secure.port ?? 0,
+    hits,
+    stop: () => {
+      void secure.stop(true);
+      void plain.stop(true);
+    },
+  };
+}

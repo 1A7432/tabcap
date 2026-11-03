@@ -1139,8 +1139,29 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap analyze schema-diff ./yesterday ./today --text",
   },
   {
+    path: ["record"],
+    pos: ["command..."],
+    restList: true,
+    flags: [
+      { flag: "--out", alias: "-o", key: "out", kind: "string", help: "new bundle directory (must not exist or be empty)", required: true, metavar: "bundle" },
+      { flag: "--upstream", key: "upstream", kind: "string", help: "how the proxy goes out: env (the proxy the command would have used: https_proxy / HTTPS_PROXY …, minus no_proxy), none (direct), or an http:// proxy URL without credentials", default: "env", metavar: "env|none|http://host:port" },
+      { flag: "--upstream-ca", key: "upstreamCa", kind: "string", repeat: true, help: "also trust this CA (PEM) for the real hosts (self-signed intranet sites, the local range); upstream verification is never off", metavar: "file" },
+      { flag: "--name", key: "name", kind: "string", help: "the bundle's session name", default: "record", metavar: "name" },
+      { flag: "--site", key: "site", kind: "string", help: "site name for manifest session.site (replay serve / check read this site's replay rules)", metavar: "site" },
+      { flag: "--port", key: "port", kind: "number", help: "proxy port on 127.0.0.1 (0: any free port)", default: 0, metavar: "port" },
+      { flag: "--timeout", key: "timeoutSec", kind: "number", help: "stop the command after this many seconds (SIGINT, SIGKILL 5 s later)", metavar: "seconds" },
+      { flag: "--text", key: "text", kind: "bool", help: "print a one-line summary and the warnings instead of JSON" },
+    ],
+    summary:
+      "record the HTTP(S) requests of any command (a Python requests / httpx script, curl, node …) into a bundle: tabcap runs it behind its own proxy on 127.0.0.1 with a CA made for this run (both cases of HTTP(S)_PROXY set, NO_PROXY emptied, SSL_CERT_FILE / REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE / NODE_EXTRA_CA_CERTS pointed at it); HTTP/1.1 only, WebSocket frames not recorded; requests in the order the command sent them; exit 0, the command's exit code in exitCode",
+    example: "tabcap record -o ./spider-run -- uv run spider.py",
+    localPaths: ["out", "upstreamCa"],
+  },
+  {
     path: ["replay", "serve"],
-    pos: ["bundle"],
+    pos: ["bundle", "command..."],
+    optional: 1,
+    restList: true,
     flags: [
       { flag: "--port", key: "port", kind: "number", help: "port to listen on (0: any free port)", default: 4500, metavar: "port" },
       { flag: "--host", key: "host", kind: "string", help: "loopback address only: 127.0.0.1, ::1 or localhost", default: "127.0.0.1", metavar: "host" },
@@ -1150,10 +1171,15 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--prefer", key: "prefer", kind: "string", help: "which recordings of one key answer, for every key (overrides the rules' prefer): recorded (all, cycling in recorded order), 2xx (only the 2xx ones; all when there are none), latest (the last one)", metavar: "recorded|2xx|latest" },
       { flag: "--json", key: "json", kind: "bool", help: "print {port, bundle, routes} as one JSON envelope (else text, one log line per request on stderr)" },
       { flag: "--once", key: "once", kind: "number", help: "stop after this many seconds (tests)", metavar: "seconds" },
+      { flag: "--order", key: "order", kind: "string", help: "strict: also note the order requests arrive in and, at stop, report it against the recorded order (missing / extra / changed / moved, first divergence); answers do not change; exit 1 when it differs", default: "key", metavar: "key|strict" },
+      { flag: "--order-include", key: "orderInclude", kind: "string", help: "with --order strict: only check paths matching these globs (* within a segment, ** across)", metavar: "glob,glob" },
+      { flag: "--order-exclude", key: "orderExclude", kind: "string", help: "with --order strict: do not check paths matching these globs (wins over --order-include); rules can also say order: skip", metavar: "glob,glob" },
+      { flag: "--order-report", key: "orderReport", kind: "string", help: "with --order strict: also write the report to this JSON file (0600)", metavar: "file" },
     ],
     summary:
-      "serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order, or only over the 2xx / the latest one with --prefer (header x-tabcap-replay: r-N;n=k[;rule=id][;prefer=p]); no match → 404 with the nearest recordings and what differs",
-    example: "tabcap replay serve ./b --port 4500",
+      "serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order, or only over the 2xx / the latest one with --prefer (header x-tabcap-replay: r-N;n=k[;rule=id][;prefer=p]); no match → 404 with the nearest recordings and what differs; `-- <command>` runs a command against it through tabcap's proxy (https to any host lands on the server, nothing else is contacted) and stops when it exits; --order strict checks the request order",
+    example: "tabcap replay serve ./b --order strict -- uv run spider.py",
+    localPaths: ["orderReport"],
   },
   {
     path: ["replay", "session"],

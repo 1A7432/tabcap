@@ -5,7 +5,8 @@
 //   {schema, rules:[{match:{host?, path?, method?},
 //                    key:{ignoreQuery?, ignoreBodyFields?, body?, decodeWith?, caseInsensitiveQuery?},
 //                    response:{compare?, ignorePaths?, decodeWith?},
-//                    prefer?: "recorded" | "2xx" | "latest"}]}
+//                    prefer?: "recorded" | "2xx" | "latest",
+//                    order?: "check" | "skip"}]}
 // The first rule whose `match` fits a request applies; a request no rule fits
 // gets the default rule, which is the 0.3-B behaviour (method + path + sorted
 // query + sha256 of the body bytes; status + body compared as before).
@@ -17,6 +18,9 @@
 // checked (replay check) and become fixtures (bundle export fixtures):
 // "recorded" (default) all in recorded order, cycling; "2xx" only the 2xx
 // ones (all when the key has none); "latest" only the last one.
+// `order` (0.9-E, docs/04 §49): whether `replay serve --order strict` checks the
+// position of the requests the rule fits ("check", default) or leaves them out
+// ("skip"). It is not part of any key and only replay serve reads it.
 // Oracle: the canonicalisation table in docs/04 §31 (test/unit/replay-rules.test.ts).
 // Reproduce: bun test test/unit/replay-rules.test.ts
 
@@ -44,6 +48,8 @@ export const COMPARE_MODES = ["status", "status+body", "status+decoded-body"] as
 export type CompareMode = (typeof COMPARE_MODES)[number];
 export const PREFER_MODES = ["recorded", "2xx", "latest"] as const;
 export type PreferMode = (typeof PREFER_MODES)[number];
+export const ORDER_MODES = ["check", "skip"] as const;
+export type OrderMode = (typeof ORDER_MODES)[number];
 
 /** A `--prefer` value, or a usage error. */
 export function parsePrefer(v: string): PreferMode {
@@ -77,6 +83,8 @@ export type Rule = {
   response: { compare: CompareMode; ignorePaths: string[]; decodeWith: string | null };
   /** Which recordings of a key answer (0.6-S); "recorded" by default. */
   prefer: PreferMode;
+  /** Whether `replay serve --order strict` checks these requests (0.9-E); "check" by default. */
+  order: OrderMode;
 };
 
 export type CompiledRule = Rule & {
@@ -97,6 +105,7 @@ export const DEFAULT_RULE: CompiledRule = compileRule({
   key: { ignoreQuery: [], ignoreBodyFields: [], body: "raw", decodeWith: null, caseInsensitiveQuery: false },
   response: { compare: "status+body", ignorePaths: [], decodeWith: null },
   prefer: "recorded",
+  order: "check",
 });
 
 export const NO_RULES: RuleSet = { rules: [], source: { kind: "none" } };
@@ -108,7 +117,7 @@ const METHOD = /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,32}$/;
 const HOST_GLOB = /^[A-Za-z0-9.*_:[\]-]{1,260}$/;
 
 const bad = (where: string, msg: string) =>
-  new TabcapError("bad-input", `replay rules ${where}: ${msg}`, `Fix the rules (schema ${RULES_SCHEMA}: {rules:[{match:{host, path, method}, key:{ignoreQuery, ignoreBodyFields, body, decodeWith, caseInsensitiveQuery}, response:{compare, ignorePaths, decodeWith}, prefer}]}; docs/04 §31).`);
+  new TabcapError("bad-input", `replay rules ${where}: ${msg}`, `Fix the rules (schema ${RULES_SCHEMA}: {rules:[{match:{host, path, method}, key:{ignoreQuery, ignoreBodyFields, body, decodeWith, caseInsensitiveQuery}, response:{compare, ignorePaths, decodeWith}, prefer, order}]}; docs/04 §31).`);
 
 function onlyKeys(o: Record<string, unknown>, allowed: readonly string[], where: string): void {
   for (const k of Object.keys(o)) if (!allowed.includes(k)) throw bad(where, `unknown key ${JSON.stringify(k)} (known: ${allowed.join(", ")})`);
@@ -178,8 +187,8 @@ function compileRule(r: Rule): CompiledRule {
 }
 
 function parseRule(raw: unknown, id: string): CompiledRule {
-  if (!isRecord(raw)) throw bad(id, "must be an object {match, key, response, prefer}");
-  onlyKeys(raw, ["match", "key", "response", "prefer"], id);
+  if (!isRecord(raw)) throw bad(id, "must be an object {match, key, response, prefer, order}");
+  onlyKeys(raw, ["match", "key", "response", "prefer", "order"], id);
   const m = raw["match"] ?? {};
   const k = raw["key"] ?? {};
   const s = raw["response"] ?? {};
@@ -216,12 +225,16 @@ function parseRule(raw: unknown, id: string): CompiledRule {
   const pr = raw["prefer"] ?? "recorded";
   const prefer = PREFER_MODES.find((x) => x === pr);
   if (prefer === undefined) throw bad(`${id}.prefer`, `must be one of ${PREFER_MODES.map((x) => JSON.stringify(x)).join(", ")}`);
+  const or = raw["order"] ?? "check";
+  const order = ORDER_MODES.find((x) => x === or);
+  if (order === undefined) throw bad(`${id}.order`, `must be one of ${ORDER_MODES.map((x) => JSON.stringify(x)).join(", ")}`);
   return compileRule({
     id,
     match: { host, path, method: method === null ? null : method.toUpperCase() },
     key: { ignoreQuery, ignoreBodyFields, body: bodyMode, decodeWith: keyDecode, caseInsensitiveQuery: ci === true },
     response: { compare: compareMode, ignorePaths, decodeWith: respDecode },
     prefer,
+    order,
   });
 }
 

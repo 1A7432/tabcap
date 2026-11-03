@@ -1245,13 +1245,13 @@ Example: `tabcap analyze schema-diff ./yesterday ./today --text`
 
 ### `tabcap replay serve`
 
-serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order, or only over the 2xx / the latest one with --prefer (header x-tabcap-replay: r-N;n=k[;rule=id][;prefer=p]); no match → 404 with the nearest recordings and what differs
+serve a bundle's recorded responses on a loopback port until Ctrl-C: match = method + path + sorted query + body sha256, or as the replay rules say (ignored query names / body fields, form / JSON / decoded bodies); repeated matches cycle in recorded order, or only over the 2xx / the latest one with --prefer (header x-tabcap-replay: r-N;n=k[;rule=id][;prefer=p]); no match → 404 with the nearest recordings and what differs; `-- <command>` runs a command against it through tabcap's proxy (https to any host lands on the server, nothing else is contacted) and stops when it exits; --order strict checks the request order
 
 ```
-tabcap replay serve <bundle> [--port port] [--host host] [--strict h1,h2] [--match-cookies] [--rules file] [--prefer recorded|2xx|latest] [--json] [--once seconds]
+tabcap replay serve <bundle> [<command>...] [--port port] [--host host] [--strict h1,h2] [--match-cookies] [--rules file] [--prefer recorded|2xx|latest] [--json] [--once seconds] [--order key|strict] [--order-include glob,glob] [--order-exclude glob,glob] [--order-report file]
 ```
 
-Example: `tabcap replay serve ./b --port 4500`
+Example: `tabcap replay serve ./b --order strict -- uv run spider.py`
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -1263,6 +1263,10 @@ Example: `tabcap replay serve ./b --port 4500`
 | `--prefer <recorded\|2xx\|latest>` |  | which recordings of one key answer, for every key (overrides the rules' prefer): recorded (all, cycling in recorded order), 2xx (only the 2xx ones; all when there are none), latest (the last one) |
 | `--json` |  | print {port, bundle, routes} as one JSON envelope (else text, one log line per request on stderr) |
 | `--once <seconds>` |  | stop after this many seconds (tests) |
+| `--order <key\|strict>` | `key` | strict: also note the order requests arrive in and, at stop, report it against the recorded order (missing / extra / changed / moved, first divergence); answers do not change; exit 1 when it differs |
+| `--order-include <glob,glob>` |  | with --order strict: only check paths matching these globs (* within a segment, ** across) |
+| `--order-exclude <glob,glob>` |  | with --order strict: do not check paths matching these globs (wins over --order-include); rules can also say order: skip |
+| `--order-report <file>` |  | with --order strict: also write the report to this JSON file (0600) |
 
 ### `tabcap replay session`
 
@@ -1496,6 +1500,27 @@ Example: `tabcap html e12 --inner`
 | `--text` |  | textContent instead of markup |
 | `--attrs` |  | only the element's attributes, as an object |
 | `--max-chars <n>` | `4000` | cut the markup / text (each attribute value with --attrs); `truncated` and `chars` (the whole length) say so |
+
+### `tabcap record`
+
+record the HTTP(S) requests of any command (a Python requests / httpx script, curl, node …) into a bundle: tabcap runs it behind its own proxy on 127.0.0.1 with a CA made for this run (both cases of HTTP(S)_PROXY set, NO_PROXY emptied, SSL_CERT_FILE / REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE / NODE_EXTRA_CA_CERTS pointed at it); HTTP/1.1 only, WebSocket frames not recorded; requests in the order the command sent them; exit 0, the command's exit code in exitCode
+
+```
+tabcap record <command>... --out <bundle> [--upstream env|none|http://host:port] [--upstream-ca file]... [--name name] [--site site] [--port port] [--timeout seconds] [--text]
+```
+
+Example: `tabcap record -o ./spider-run -- uv run spider.py`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--out <bundle>`, `-o <bundle>` |  | new bundle directory (must not exist or be empty) (required) |
+| `--upstream <env\|none\|http://host:port>` | `env` | how the proxy goes out: env (the proxy the command would have used: https_proxy / HTTPS_PROXY …, minus no_proxy), none (direct), or an http:// proxy URL without credentials |
+| `--upstream-ca <file>` |  | also trust this CA (PEM) for the real hosts (self-signed intranet sites, the local range); upstream verification is never off (repeatable) |
+| `--name <name>` | `record` | the bundle's session name |
+| `--site <site>` |  | site name for manifest session.site (replay serve / check read this site's replay rules) |
+| `--port <port>` | `0` | proxy port on 127.0.0.1 (0: any free port) |
+| `--timeout <seconds>` |  | stop the command after this many seconds (SIGINT, SIGKILL 5 s later) |
+| `--text` |  | print a one-line summary and the warnings instead of JSON |
 
 ## Diagnostics (optional)
 
