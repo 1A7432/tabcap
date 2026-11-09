@@ -2,6 +2,8 @@
 // - a session is a name → its tabs + the current tab; tabs the session opened
 //   are `owned`, and so are popups whose opener is an owned tab (docs/04 §16):
 //   session stop closes owned tabs only, borrowed ones stay;
+// - a tab the human opened belongs to no session until `tab adopt` borrows it
+//   (docs/04 §51: explicit, owned: false, never by itself);
 // - no fallback: a session without a usable tab is an error, never "some other tab";
 // - new tabs are background tabs (`Target.createTarget {background:true}`) unless
 //   the browser was started with --foreground;
@@ -26,7 +28,7 @@ export type Tab = {
   sessionId: string;
   session: string;
   owned: boolean;
-  reason: "ai-opened" | "popup";
+  reason: "ai-opened" | "popup" | "borrowed";
   /** Tab id of the opener (popups), else null. */
   opener: string | null;
   url: string;
@@ -59,6 +61,22 @@ export type Session = {
 };
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
+
+/** A page target as `Target.getTargets` reports it; `browserContextId` null when Chrome names none. */
+type PageTarget = { targetId: string; url: string; title: string; browserContextId: string | null };
+
+/** Least length of a `tab adopt` prefix (docs/04 §51). */
+export const ADOPT_MIN_PREFIX = 8;
+
+/**
+ * docs/04 §51: may a session take a tab of this browser context? A session with its own context
+ * takes only that context's tabs; any other session takes none of another session's own context,
+ * or `fill --secret` would type one account's password into a page with another's cookies.
+ */
+export function adoptContextOk(sessionContext: string | undefined, tabContext: string | null, ownContexts: ReadonlySet<string>): boolean {
+  if (sessionContext !== undefined) return tabContext === sessionContext;
+  return tabContext === null || !ownContexts.has(tabContext);
+}
 
 export class Tabs {
   readonly sessions = new Map<string, Session>();
@@ -201,7 +219,55 @@ export class Tabs {
     return tab;
   }
 
-  private register(sessionName: string, x: AttachedTarget, owned: boolean, opener: string | null = null): Tab {
+  /** The browser's page targets; DevTools and extension pages are not tabs anyone adopts (docs/04 §51). */
+  private async pageTargets(): Promise<PageTarget[]> {
+    const r = await this.t.send("Target.getTargets", {}, null, 5000);
+    const infos = Array.isArray(r["targetInfos"]) ? r["targetInfos"].filter(isRecord) : [];
+    return infos.flatMap((i) => {
+      const targetId = str(i, "targetId");
+      const url = str(i, "url") ?? "";
+      if (targetId === null || str(i, "type") !== "page" || url.startsWith("devtools://") || url.startsWith("chrome-extension://")) return [];
+      return [{ targetId, url, title: str(i, "title") ?? "", browserContextId: str(i, "browserContextId") }];
+    });
+  }
+
+  /** `tab list --all`: page targets of no session, for `tab adopt`. */
+  async others(): Promise<{ target: string; url: string; title: string }[]> {
+    return (await this.pageTargets()).filter((x) => this.byTarget(x.targetId) === undefined).map((x) => ({ target: x.targetId.toLowerCase(), url: x.url, title: x.title }));
+  }
+
+  /**
+   * `tab adopt`: borrow the page target `ref` (a target id or a prefix of at least ADOPT_MIN_PREFIX
+   * characters) into the session as its current tab. Nothing moves on screen; every refusal comes
+   * before the session is created, so a failed adopt leaves nothing behind.
+   */
+  async adopt(sessionName: string, ref: string): Promise<{ tab: Tab; already: boolean }> {
+    const prefix = ref.toLowerCase();
+    if (prefix.length < ADOPT_MIN_PREFIX) throw new TabcapError("usage", `tab adopt needs at least ${ADOPT_MIN_PREFIX} characters of the target, got "${ref}"`, "Copy `target` from `tabcap tab list --all`.");
+    const pages = await this.pageTargets();
+    const hits = pages.filter((x) => x.targetId.toLowerCase().startsWith(prefix));
+    const hit = hits[0];
+    if (hit === undefined) throw new TabcapError("not-found", `no tab with target ${ref}`, "Run `tabcap tab list --all` to see the tabs of no session.");
+    if (hits.length > 1) throw new TabcapError("usage", `target ${ref} matches ${hits.length} tabs: ${hits.map((x) => x.targetId.toLowerCase()).join(", ")}`, "Give more characters of the target.");
+    const held = this.byTarget(hit.targetId);
+    if (held !== undefined) {
+      if (held.session !== sessionName) throw new TabcapError("conflict", `that tab is ${held.id} of session "${held.session}"`, `Use it there, or \`tabcap session stop ${held.session}\` first.`);
+      const s = this.sessions.get(sessionName);
+      if (s !== undefined) this.setCurrent(s, held.id);
+      return { tab: held, already: true };
+    }
+    if (!adoptContextOk(this.contexts.get(sessionName), hit.browserContextId, new Set(this.contexts.values()))) {
+      throw new TabcapError("conflict", `that tab is in another browser context than session "${sessionName}"`, "A session with its own context (a stored site's account) only takes tabs opened in its own windows; adopt it in a session that has none.");
+    }
+    const attached = await this.t.waitAttached(hit.targetId, 5000);
+    const { session } = this.ensureSession(sessionName);
+    const tab = this.register(session.name, attached, false, null, "borrowed");
+    await this.fireAdded(tab);
+    this.setCurrent(session, tab.id);
+    return { tab, already: false };
+  }
+
+  private register(sessionName: string, x: AttachedTarget, owned: boolean, opener: string | null = null, reason: Tab["reason"] = opener === null ? "ai-opened" : "popup"): Tab {
     const existing = this.byTarget(x.targetId);
     if (existing !== undefined) return existing;
     const { session } = this.ensureSession(sessionName);
@@ -211,7 +277,7 @@ export class Tabs {
       sessionId: x.sessionId,
       session: session.name,
       owned,
-      reason: opener === null ? "ai-opened" : "popup",
+      reason,
       opener,
       url: x.url,
       title: x.title,

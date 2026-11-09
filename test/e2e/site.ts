@@ -2906,3 +2906,26 @@ export function startClientSite(): ClientSite {
     },
   };
 }
+
+// s77 (docs/05, docs/04 §51): a page a human opened, adopted with `tab adopt`. `hits` (request paths in
+// order) is the oracle for what reached the server.
+export type AdoptSite = { origin: string; hits: string[]; stop: () => void };
+
+export function startAdoptSite(): AdoptSite {
+  const hits: string[] = [];
+  const html = (body: string) => new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (req) => {
+      const p = new URL(req.url).pathname;
+      if (p === "/favicon.ico") return new Response("", { status: 204 });
+      hits.push(p);
+      if (p === "/s77") return html(`<!doctype html><title>s77</title><h1>S77_MARK</h1><button id=go onclick="fetch('/s77/api')">send</button>`);
+      if (p === "/s77/before") return html(`<!doctype html><title>s77 before</title><p>before</p>`);
+      if (p === "/s77/api") return Response.json({ ok: true });
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, hits, stop: () => server.stop(true) };
+}

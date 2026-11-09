@@ -965,7 +965,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "example": "tabcap tab list",
+      "example": "tabcap tab adopt 3f2a91c4",
       "flags": [
         {
           "alias": null,
@@ -980,14 +980,58 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
         },
       ],
       "internal": false,
+      "name": "tab adopt",
+      "path": [
+        "tab",
+        "adopt",
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "name": "target",
+          "required": true,
+          "variadic": false,
+        },
+      ],
+      "summary": "take a tab the user opened into the session as its current tab, borrowed (session stop releases it, tab close refuses); target or 8+ characters of it from \`tab list --all\`; recorded from now on; nothing moves on screen",
+      "usage": "tabcap tab adopt <target> [--session name]",
+    },
+    {
+      "daemon": true,
+      "example": "tabcap tab list",
+      "flags": [
+        {
+          "alias": null,
+          "default": "default",
+          "flag": "--session",
+          "help": "session name; else $TABCAP_SESSION",
+          "key": "session",
+          "repeatable": false,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
+        {
+          "alias": null,
+          "default": false,
+          "flag": "--all",
+          "help": "also list \`others\`: the browser's tabs of no session (tabs the user opened), for \`tab adopt\`",
+          "key": "all",
+          "repeatable": false,
+          "required": false,
+          "type": "boolean",
+          "valueOptional": false,
+        },
+      ],
+      "internal": false,
       "name": "tab list",
       "path": [
         "tab",
         "list",
       ],
       "positionals": [],
-      "summary": "list the session's tabs (never other tabs): tab id, url, title, owned, popup opener, current",
-      "usage": "tabcap tab list [--session name]",
+      "summary": "list the session's tabs (with --all also the tabs of no session): tab id, url, title, owned, popup opener, current",
+      "usage": "tabcap tab list [--session name] [--all]",
     },
     {
       "daemon": true,

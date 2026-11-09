@@ -240,15 +240,29 @@ Example: `tabcap session export --for httpx --out ./example_session.py`
 | `--out <file>` |  | file to write, mode 0600 (new directories 0700); --for httpx adds .py when missing (required) |
 | `--origin <url\|host>` |  | export this origin instead of the tab's page, e.g. the API origin a single-page app calls (a URL, or a host: the scheme its recorded requests used, else https): the headers of the latest recorded request to it from any tab, its cookies next to the page's. Without it, when the page's origin got no auth-looking header, the recorded host with the most of them gives the headers (source.headers.auto) |
 
-### `tabcap tab list`
+### `tabcap tab adopt`
 
-list the session's tabs (never other tabs): tab id, url, title, owned, popup opener, current
+take a tab the user opened into the session as its current tab, borrowed (session stop releases it, tab close refuses); target or 8+ characters of it from `tab list --all`; recorded from now on; nothing moves on screen
 
 ```
-tabcap tab list [--session name]
+tabcap tab adopt <target> [--session name]
+```
+
+Example: `tabcap tab adopt 3f2a91c4`
+
+### `tabcap tab list`
+
+list the session's tabs (with --all also the tabs of no session): tab id, url, title, owned, popup opener, current
+
+```
+tabcap tab list [--session name] [--all]
 ```
 
 Example: `tabcap tab list`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--all` |  | also list `others`: the browser's tabs of no session (tabs the user opened), for `tab adopt` |
 
 ### `tabcap tab select`
 

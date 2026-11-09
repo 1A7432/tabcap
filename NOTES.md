@@ -744,3 +744,13 @@
 - 做了什么：作者报「点进 tabcap 标签打字，焦点回退三四次」。0.9.0 daemon `popupFocus` 28 窗口全判被抢、`skipped: 0`【实测】：交还目标只在命令结束后读，人自己切到 Chrome 不更新；任何非 tabcap 建的 page target 都触发交还（最多 4 次）。作者批方案：只交还动页面命令（`BLOCKED_WHILE_WAITING`）执行中或结束后 1.5 s 内的窗口，命令开始时重读最前应用；opener 会话在 `waiting` 时算人开的；新计数 `popupFocus.human`；新键 `chrome.restoreFront`（默认 true）。单测 +7。
 - 卡在哪：第一版放在 /tmp 的 worktree 没提交，被系统清掉，11-09 照原方案重做。`humanOpener`（opener→会话→waiting）只有类型检查、没有单测；s17 e2e（v02d）没在本机跑，它会抢作者前台。
 - 下一格从哪开始：作者审后开 PR；s17 等作者不打字时跑。UA 不做（作者 11-09，现有 `emulate --user-agent` 与 `chrome.args` 够用）；`net show` 打码提示不做（作者 11-09）。
+
+## 2026-11-09 · tab adopt（主循环）
+- 做了什么：作者报自己在 tabcap 浏览器开的标签读不到（`Tabs` 只登记 tabcap 开的和已登记标签的弹窗）。作者先定自动进会话，再改定显式收编。`tab list --all` 的 `others`、`tab adopt <target>`（借用、成当前标签、不动屏幕），`tab close` 拒绝 `owned:false`，上下文不一致拒绝。docs/04 §51、docs/05 s77 先写，作者审过后写代码。单测 `tab-adopt` 10 条，`bun test test/unit` 2012 pass；e2e `v10a` 9 条，本机连跑 3 次全过【实测】。CLI 与 MCP 快照因新增命令更新。
+- 卡在哪：e2e 用调试端口 `/json/new` 模拟人开的标签；真 Cmd+T，以及独立上下文窗口里的 Cmd+T，没验【待验】，要作者手动。
+- 下一格从哪开始：作者手动验 Cmd+T；决定开 PR。
+
+## 2026-11-09 · CI 换 macos-26（主循环）
+- 做了什么：PR #45 的 `unit (macos-14)` / `native (macos-14)` 一启动就被取消（`The configuration 'macos-14-arm64-us-default' is not supported`），main 的 CI 因此不可能全绿。作者定换最新系统：`ci.yml` 两处、`release.yml` 一处换成 `macos-26`（arm64），PR #46 合入 deffdab，main CI 绿【实测】。wireprint 的 Zig target 写死 `aarch64-macos`，不受 runner 系统版本影响。
+- 卡在哪：e2e 矩阵只有 Linux 和 Windows，弹窗前台交还只在 macOS 上发生，s17 的交还 CI 验不到，只能本机跑。
+- 下一格从哪开始：release.yml 的 `macos-26` 要到下次发版才真正跑到。

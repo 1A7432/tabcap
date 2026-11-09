@@ -469,6 +469,24 @@
 - `prefer` 与顺序的组合（`notServed`）只在单测里（合成包：一个键先 403 后 200），不加靶场步骤。
 - 不在靶场里的【待验】：`aiohttp`（`trust_env` 默认关）、写死 `proxies=` 的客户端、WebSocket 客户端（`04` §50.1 / §50.2）。
 
+## 20.1 人自己开的标签（11-09，P1）
+
+### s77 tab-adopt（P1；`04` §51）
+- 靶场（`test/e2e/site.ts` 的 `startAdoptSite`）：`/s77` 是一个页面，正文含 `S77_MARK`，有一个按钮，点击后 `fetch('/s77/api')`；`/s77/before` 是收编之前访问的页面；靶场记下每个请求的路径与顺序，这份日志是 oracle。
+- 怎么模拟「人开的标签」：e2e 不能按 Cmd+T。浏览器带 `--chrome-arg=--remote-debugging-port=<空闲端口>` 启动，测试直接 `PUT http://127.0.0.1:<端口>/json/new?<url>` 开标签。这样开的标签没有 opener，也不经过 tabcap，和 Cmd+T 同类【推断，真 Cmd+T 由作者手动验一次】。
+- 走法与 expected（`test/e2e/v10a.e2e.test.ts`）：
+  1. **收编前看不到**：测试开「人的标签」到 `/s77/before`。`tab list`：`tabs` 里没有它、回答没有 `others`。`tab list --all`：`others` 里有且只有它，`target` 是小写十六进制，`url` 对得上。此时没有 tabcap 自己的标签混进 `others`：先 `tab new /s77`，`tab list --all` 的 `others` 里仍没有这个新标签（自己开的不算人开的）。
+  2. **错误**：`tab adopt deadbeef` → `not-found`；`tab adopt ab`（不足 8 位）→ `usage`。
+  3. **录制中收编**：`net start`，人的标签由测试经端口导航到 `/s77`，然后 `tab adopt <前 8 位>`：回答 `owned:false`、`reason:"borrowed"`、`recording:true`，`current` 等于 `tab`。
+  4. **能读能操作**：`snapshot` 含 `S77_MARK`；`click` 按钮后靶场日志出现 `/s77/api`；`net list` 有这条请求，`tab` 是收编的标签；`/s77/before` 不在包里。
+  5. **事件**：`events.jsonl` 有 `tab` 事件 `phase:"attach"`、`reason:"borrowed"`、`owned:false`；manifest `session.tabs[]` 里它是 `owned:false`。
+  6. **幂等与冲突**：同一会话再 `tab adopt` → 成功、`alreadyAdopted:true`、`tab` 不变；`tab adopt --session other` → `conflict`，消息里有原会话名。
+  7. **`tab close` 拒绝**：`tab close <它>` → `conflict`；`/json/list` 里标签还在。
+  8. **释放**：`session stop`：`released` 含它；`/json/list` 里标签还在；测试经端口重新导航它到 `/s77`，靶场日志收到这次请求（录制插桩没把页面卡住）；`tab list --all` 又列出它；再次 `tab adopt` 得到新的标签 id。
+  9. **独立上下文**：`session start --site <靶场站点>` 的会话 `tab adopt <默认上下文里的人的标签>` → `conflict`，标签不进该会话。
+  10. **不动前台**（macOS）：`tab adopt` 前后 `osascript` 读到的最前应用不变。
+- 不在靶场里的【待验】：真 Cmd+T 开的标签（作者手动）；Cmd+T 在独立上下文窗口里是否留在同一上下文。
+
 ## 21. 场景索引
 
 10-21 建。场景编号 → 实现它的 `test/e2e/site.ts` 站点函数与主要路由 → 跑它的 e2e 文件。e2e 与单测两列是 grep 出来的：在 `test/e2e/*.e2e.test.ts`、`test/unit/*.ts` 里搜编号（前后不接字母数字，如 `s07`、`/s22/`、`S40_`），列出提到它的文件（省略目录与 `.e2e.test.ts` / `.test.ts` 后缀）；没有文件写编号的三个场景按路由搜（标「按路由」）。单测 `test/unit/scenario-index.test.ts` 读这张表：每个 `### sNN` 都要有一行，状态不是「未落地」「仅对照靶场」的，编号必须能在 `site.ts` 或某个测试文件里搜到；「未落地」的在 `site.ts` 里搜不到（落地了就要回来改表）；「仅对照靶场」的在 `docs/compare/range.ts` 里搜得到。
@@ -530,9 +548,10 @@
 | s74 | sse-stream | 已落地 | `startStreamSite`：`/s74`、`/s74/{sse,cut,ndjson,es,json,other}` | v09c | recorder09c、sse09c |
 | s75 | downloads | 已落地 | `startDownloadSite`：`/s75`、`/s75/{file,plain,big,nav}` | v09d | browser-downloads09d、downloads09d |
 | s76 | client-order | 已落地 | `startClientSite`：https 源 `/s76/{login,list,item,static.js}`，http 源 `/s76/plain` | v09e | replay-order |
+| s77 | tab-adopt | 已落地 | `startAdoptSite`：`/s77`、`/s77/before`、`/s77/api` | v10a | — |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。
 - s57、s58：`09` §12 的规划编号（10-21 由 `09` 原来的 s41 chart-instance、s42 report-viewer 改号而来，那两个号与本文已落地的 s41、s42 撞了）。
 - s61：没有用过（docs、NOTES、代码里都搜不到）。
-- s77 起：未分配。
+- s78 起：未分配。

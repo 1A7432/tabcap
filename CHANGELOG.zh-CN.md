@@ -5,6 +5,7 @@
 ## 未发布
 
 - **修复：macOS 上你在 tabcap 浏览器里打字时，焦点被拉回终端。** 页面开新窗口或新标签时（`target=_blank` 链接、弹窗、Cmd+T），弹窗前台守卫会把前台交给上一条 tabcap 命令后记下的应用，最多四次，哪怕是你自己切到 tabcap 浏览器的，按键于是打进终端。现在只有在动页面的命令（click、press、evaluate、navigate …）执行中或结束后 1.5 s 内出现的窗口才交还，这类命令开始时重读一次最前应用；别的窗口、以及从等人会话的标签开出的窗口一概不碰，计入 `browser status` 的 `popupFocus.human`。`config.json` 新键 `chrome.restoreFront`（默认 `true`；`false` 关掉启动和弹窗两处交还，`browser start` 时读）。docs/07 §1.1。
+- **新命令 `tabcap tab adopt <target>`：把你自己开的标签收进会话。** 在 tabcap 浏览器里手动开的标签（Cmd+T）不属于任何会话，什么命令都读不到。现在 `tab list --all` 多列出 `others`（不属于任何会话的标签），`tab adopt`（target 或它至少 8 位的前缀）把其中一个收成会话的当前标签，屏幕上什么都不动。它是借用的（`owned: false`、`reason: "borrowed"`）：`session stop` 只释放不关（会话的独立浏览器上下文随会话销毁时除外），`tab close` 拒绝，你在里面操作不会触发人接管。录制中收编的，从收编那一刻开始录。与会话不同浏览器上下文的标签拒绝收编。进 `tabcap mcp --all-tools`，不进核心工具集。docs/04 §51，docs/05 s77。
 
 ## 0.9.0（2026-11-03）
 

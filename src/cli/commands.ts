@@ -329,7 +329,15 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap navigate http://127.0.0.1:8080/ --session example",
     action: "navigate",
   },
-  { path: ["tab", "list"], pos: [], flags: [SESSION], summary: "list the session's tabs (never other tabs): tab id, url, title, owned, popup opener, current", example: "tabcap tab list", action: "tabs" },
+  {
+    path: ["tab", "adopt"],
+    pos: ["target"],
+    flags: [SESSION],
+    summary: "take a tab the user opened into the session as its current tab, borrowed (session stop releases it, tab close refuses); target or 8+ characters of it from `tab list --all`; recorded from now on; nothing moves on screen",
+    example: "tabcap tab adopt 3f2a91c4",
+    action: "tab.adopt",
+  },
+  { path: ["tab", "list"], pos: [], flags: [SESSION, { flag: "--all", key: "all", kind: "bool", help: "also list `others`: the browser's tabs of no session (tabs the user opened), for `tab adopt`" }], summary: "list the session's tabs (with --all also the tabs of no session): tab id, url, title, owned, popup opener, current", example: "tabcap tab list", action: "tabs" },
   {
     path: ["tab", "select"],
     pos: ["tab"],

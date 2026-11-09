@@ -46,6 +46,7 @@ export const TOOL_ACTIONS = {
   tabs: row(),
   "tab.close": row(),
   "tab.use": row(),
+  "tab.adopt": row(),
   go: action(),
   reload: action(),
   snapshot: row(),

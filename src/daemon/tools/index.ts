@@ -15,7 +15,7 @@ import { html } from "./html.ts";
 import { dialog, evaluate, screenshot } from "./page.ts";
 import { downloadList, downloadWait } from "./download.ts";
 import { permission } from "./permission.ts";
-import { sessionList, sessionStart, sessionStop, tabClose, tabUse, tabsList } from "./session.ts";
+import { sessionList, sessionStart, sessionStop, tabAdopt, tabClose, tabUse, tabsList } from "./session.ts";
 import { sessionExport } from "./sessionexport.ts";
 import { find, snapshot } from "./snapshot.ts";
 import { outline } from "./outline.ts";
@@ -41,6 +41,7 @@ const TABLE: Record<ToolAction, Tool> = {
   "session.export": sessionExport,
   navigate,
   tabs: tabsList,
+  "tab.adopt": tabAdopt,
   "tab.close": tabClose,
   "tab.use": tabUse,
   go,
