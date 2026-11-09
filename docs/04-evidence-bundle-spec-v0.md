@@ -1345,3 +1345,25 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   - 回放模式：代理只连 serve 端口（测试统计 `net.connect` 的目标）。
 - e2e `test/e2e/v09e.e2e.test.ts`（靶场 s76，`05` §20）：要 Python（`uv`，离线从缓存取；没有就跳过并写明原因）；不需要 Chrome。
 - 编译后的二进制：`release.yml` 在 `--version` 冒烟之后跑 `scripts/record-smoke.ts <二进制>`：本地 https 目标（wire 测试证书）+ 一个 `bun -e` 子进程经代理请求它（bun 在各平台都认 `HTTPS_PROXY` 与 `NODE_EXTRA_CA_CERTS`；Windows 的 curl 走 Schannel，不一定认 `CURL_CA_BUNDLE`【推断】，所以不用 curl），回答必须是 1 条请求。
+
+## 51. 收编人自己开的标签 `tab adopt`（11-09 作者定：显式收编，不自动进会话；字段与下列细节待作者审）
+
+来源：作者在 tabcap 启动的浏览器里按 Cmd+T 开标签，AI 读不到：`Tabs` 只登记 tabcap 自己开的标签和已登记标签开出的弹窗（§16），`openerId` 为空的标签不属于任何会话，也没有命令能把它收进来。§4.1 的 `reason` 早有 `"borrowed"`，direct 模式一直没有实现。
+
+- **`tabcap tab list --all`**：回答多一个 `others: [{target, url, title}]`，是浏览器里不属于任何会话的 page target，每次用 `Target.getTargets` 现查。`target` 是完整 targetId 转小写。不列 `devtools://` 与 `chrome-extension://` 页面。`tabs` 与不带 `--all` 时相同（只有本会话的标签）；不带 `--all` 时没有 `others`。不会动任何页面，也不改当前标签。
+- **`tabcap tab adopt <target>`**：`<target>` 是 `others` 里的 `target`，或它至少 8 位的前缀（不分大小写）。把这个标签收进 `--session` 指定的会话（默认 `default`，没有就新建），成为该会话的**当前标签**。不激活标签、不动窗口、不碰 macOS 前台。
+  - 回答：`{session, tab, current, url, title, owned:false, reason:"borrowed", recording, note}`。`recording` 是布尔值，`note` 说明录制从收编这一刻开始。
+  - 找不到：`not-found`，`next` 指 `tab list --all`。前缀对上多个：`usage`，列出它们的 `target`。
+  - 已在本会话：幂等，照常回答，多 `alreadyAdopted:true`，同样设为当前标签。已在别的会话：`conflict`，说出会话名。
+  - **浏览器上下文必须一致**：绑了站点、有独立上下文的会话只能收该上下文里的标签；没有独立上下文的会话不能收别的会话独立上下文里的标签。不一致回 `conflict`。否则 `fill --secret` 会把一个账号的密码填进另一套 cookie 的页面。
+  - 不算动页面的命令：会话 `waiting` 时也能收编（不进 `BLOCKED_WHILE_WAITING`）。
+- **收编之后**：
+  - 动作命令照常可用（`snapshot`、`click`、`--tab`、`tab select`）。
+  - 不装「人接管」监听（§37 只装 owned 标签）：人在收编的标签里操作不会让会话进 `waiting`。
+  - 它开出的弹窗按 §16 进同一会话，`owned:false`。
+  - 当前标签关闭后的回退不选它（§16 0.7.3 规则不变）。
+  - `tab close <它>` 回 `conflict`：标签是人的，AI 不关；`next` 说 `session stop` 只释放、不关。这是 `tab close` 对 `owned:false` 标签的新行为。
+  - `session stop`：释放不关（例外：会话有独立上下文时，上下文随会话销毁，里面的标签 Chrome 一起关掉），出现在回答的 `released` 里；录制插桩（`Network` / `Fetch`）关掉，页面继续正常工作。释放后再 `tab list --all` 能看到，可再次收编，拿到新的标签 id。
+- **录制**：会话正在录制时，收编这一刻开始录。写 `tab` 事件 `phase:"attach"`、`reason:"borrowed"`、`owned:false`，manifest `session.tabs[]` 记 `owned:false`。收编之前的请求拿不到，这是事实，不补。没在录制时收编、之后 `net start`，与其它标签一样从 `net start` 起录。人在这个标签里后面的操作（包括提交的密码）原样进包，§8 的导出打码照旧。
+- **其它面**：`tab adopt` 进 `tabcap mcp --all-tools`，不进核心工具集。`tab list` 的 help 改为说明 `--all`。
+- 验证：`05` s77（`test/e2e/v10a.e2e.test.ts`）；单测覆盖前缀匹配、上下文判定、`tab close` 拒绝、释放后可再收编。

@@ -234,7 +234,7 @@ export async function refreshTabInfo(d: Daemon, session: string): Promise<void> 
   }
 }
 
-export async function tabsList(d: Daemon, _a: Args, session: string): Promise<unknown> {
+export async function tabsList(d: Daemon, a: Args, session: string): Promise<unknown> {
   const { tabs } = d.need();
   const s = tabs.session(session);
   await refreshTabInfo(d, session);
@@ -252,6 +252,27 @@ export async function tabsList(d: Daemon, _a: Args, session: string): Promise<un
       nav: d.navOf(x),
       dialog: x.dialog === null ? null : x.dialog.type,
     })),
+    ...(optBool(a, "all") ? { others: await tabs.others() } : {}),
+  };
+}
+
+/** `tab adopt <target>` (docs/04 §51): a tab the human opened joins the session, borrowed, as its current tab. */
+export async function tabAdopt(d: Daemon, a: Args, session: string): Promise<unknown> {
+  const ref = reqStr(a, "target", "tabcap tab adopt <target>");
+  const { tabs } = d.need();
+  const { tab, already } = await tabs.adopt(session, ref);
+  const recording = d.recorders.has(session);
+  return {
+    session,
+    tab: tab.id,
+    current: tabs.session(session)?.current ?? null,
+    url: tab.url,
+    title: tab.title,
+    owned: tab.owned,
+    reason: tab.reason,
+    recording,
+    ...(already ? { alreadyAdopted: true } : {}),
+    note: recording ? "recorded from now on: requests before the adoption are not in the bundle" : "not recording; `tabcap net start` records this tab too",
   };
 }
 
@@ -280,6 +301,8 @@ export async function tabClose(d: Daemon, a: Args, session: string): Promise<unk
   const { tabs } = d.need();
   const tab = tabs.sessionTabs(session).find((x) => x.id === id);
   if (tab === undefined) throw new TabcapError("not-found", `tab ${id} is not in session "${session}"`, "Run `tabcap tab list` to list this session's tabs.");
+  // docs/04 §51: a borrowed tab is the human's.
+  if (!tab.owned) throw new TabcapError("conflict", `tab ${id} is borrowed: it is the user's, tabcap does not close it`, `\`tabcap session stop ${session}\` releases it and leaves it open.`);
   await tabs.closeTab(tab);
   return { closed: id, current: tabs.session(session)?.current ?? null };
 }

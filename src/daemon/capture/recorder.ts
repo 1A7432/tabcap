@@ -391,7 +391,7 @@ export class Recorder {
       o.t.onEvent((e) => r.onEvent(e)),
       o.t.onAttach((x) => r.onChildAttach(x)),
       o.t.onDetach((x) => r.onDetach(x)),
-      o.tabs.onTabAdded((tab) => (tab.session === o.session ? r.addTab(tab, "open") : Promise.resolve())),
+      o.tabs.onTabAdded((tab) => (tab.session === o.session ? r.addTab(tab, tab.reason === "borrowed" ? "attach" : "open") : Promise.resolve())),
       o.tabs.onNav((tab, e) => r.onNav(tab, e)),
     );
     if (o.console !== undefined && o.console !== null) r.offs.push(o.console.onEntry((tabId, en) => r.onConsole(tabId, en)));
