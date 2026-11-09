@@ -91,7 +91,7 @@ describe("CONFIG_KEYS: the one key table", () => {
       }
     }
     expect(Object.keys(CONFIG_KEYS)).toHaveLength(16);
-    expect(keys).toBe(46);
+    expect(keys).toBe(47);
   });
 
   test("a config.json with every key: no warnings, and every reader takes it", () => {

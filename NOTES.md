@@ -739,3 +739,8 @@
 - 做了什么：作者定版本号 0.9.0。发布提交 PR #43（与 0.8.1 的 #28 同形，少了 Scoop 清单：homebrew.yml 在 Release 发布后自动渲染）CI 全绿，rebase 合入 f485735，`v0.9.0` tag 打在 f485735。release run 41599775940 第二次尝试：四个平台编译与冒烟（含 `scripts/record-smoke.ts`）全过，五个 npm 包都发出（带 provenance），草稿 Release 9 个资产；作者让直接发布 Release（非 prerelease、latest），homebrew run 41607819258 把 tap formula 推到 0.9.0、Scoop 清单以 c550c9a 提交进 main。registry 核对五个包 latest 都是 0.9.0，`tabcap-linux-arm64` 的 shasum 与 CI 日志一致【实测，09:10 UTC】。
 - 卡在哪：(1) 第一次尝试停在 gate：#43 合入后马上推了 tag，main 上 f485735 的 ci.yml 还在 queued；等 main CI 全绿后 `gh run rerun`，tag 不动。以后合入发布 PR 后先看 main 的 CI 绿了再推 tag。(2) `tabcap-linux-arm64@0.9.0` 08:09:19 npm 回了 `+ …@0.9.0`，registry 上 09:04:45 才出现（约 55 分钟，npm 状态页无事故，原因不明）；release.yml 的 npm job（`timeout-minutes: 15`）在等它时超时，整次 run 显示 cancelled，但发布本身完整。
 - 下一格从哪开始：要不要把 npm job 等 registry 的时间放长（或超时只告警不判失败）由作者定；之后在作者选的方向里挑：背压 / 并发测试，或不吃代理变量的客户端（aiohttp `trust_env`）。
+
+## 2026-11-09 · 弹窗前台交还误伤人（主循环）
+- 做了什么：作者报「点进 tabcap 标签打字，焦点回退三四次」。0.9.0 daemon `popupFocus` 28 窗口全判被抢、`skipped: 0`【实测】：交还目标只在命令结束后读，人自己切到 Chrome 不更新；任何非 tabcap 建的 page target 都触发交还（最多 4 次）。作者批方案：只交还动页面命令（`BLOCKED_WHILE_WAITING`）执行中或结束后 1.5 s 内的窗口，命令开始时重读最前应用；opener 会话在 `waiting` 时算人开的；新计数 `popupFocus.human`；新键 `chrome.restoreFront`（默认 true）。单测 +7。
+- 卡在哪：第一版放在 /tmp 的 worktree 没提交，被系统清掉，11-09 照原方案重做。`humanOpener`（opener→会话→waiting）只有类型检查、没有单测；s17 e2e（v02d）没在本机跑，它会抢作者前台。
+- 下一格从哪开始：作者审后开 PR；s17 等作者不打字时跑。UA 不做（作者 11-09，现有 `emulate --user-agent` 与 `chrome.args` 够用）；`net show` 打码提示不做（作者 11-09）。

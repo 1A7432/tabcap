@@ -2,7 +2,7 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { readChromeArgsConfig, readConfig, readConfigWarnings, readHandoffConfig, readProtectionConfig } from "../../shared/config.ts";
+import { readChromeArgsConfig, readConfig, readConfigWarnings, readHandoffConfig, readProtectionConfig, readRestoreFrontConfig } from "../../shared/config.ts";
 import { TakeoverWatch, onHumanInput } from "../browser/takeover.ts";
 import { envVar } from "../../shared/env.ts";
 import { log } from "../../shared/log.ts";
@@ -103,6 +103,8 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
   const handoff = readHandoffConfig(d.paths.configFile);
   // Review 10-21: so does a bad `protection.live` (docs/04 §41.3).
   const protection = readProtectionConfig(d.paths.configFile);
+  // Owner 2026-11-06: so does a bad `chrome.restoreFront`.
+  const restoreFront = readRestoreFrontConfig(d.paths.configFile);
   // Review wave 3: read before the launch, so the answer cannot fail once the browser runs.
   const configWarnings = readConfigWarnings(d.paths.configFile);
   const exe = resolveExecutable({
@@ -136,7 +138,7 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     // Measured 10-15: with --no-startup-window Chrome never took the macOS
     // foreground, even when the first createTarget opened a window.
     noStartupWindow: true,
-    restoreFront: true,
+    restoreFront,
     ...(cdpEnv === "pipe" || cdpEnv === "port" ? { cdp: cdpEnv } : {}),
   }).catch((e: unknown) => {
     throw failedSandbox() ? sandboxError() : e;
@@ -199,6 +201,11 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     },
   };
   const running = d.browser;
+  // Owner 2026-11-06: a window opened from a tab whose session waits for the human is the human's (front.ts).
+  t.humanOpener = (targetId) => {
+    const tab = tabs.byTarget(targetId);
+    return tab !== undefined && d.guard.get(tab.session)?.state === "waiting";
+  };
   if (liveFamilies !== null) keepLiveFamilies(running, liveFamilies);
   void t.closed.then(async (reason) => {
     if (d.browser !== running) return;

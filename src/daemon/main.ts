@@ -121,6 +121,9 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   const recAtStart = d.recorders.get(session);
   const startId = recAtStart?.cmdStart({ tab: currentTab(), ...startArgs() }) ?? null;
   d.noteAction(session, { action, at: started, cmd: startId });
+  // Owner 2026-11-06: a window a page opens is handed back to the human's app only around such a command (front.ts).
+  const pageCommand = BLOCKED_WHILE_WAITING.has(action) && blockedBy === null && overBudget === null;
+  if (pageCommand) d.browser?.t.pageCommandStart();
   let env: Envelope<unknown>;
   try {
     const data = withDownloadNotices(d, session, started, await tool(d, args, session, { cmd: startId }));
@@ -147,6 +150,7 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   env = markFetchAuth(d, env);
   env = withTraceField(d, session, env);
   const durationMs = Date.now() - started;
+  if (pageCommand) d.browser?.t.pageCommandEnd();
   // Which app the human is in, for handing the foreground back when a page opens a window.
   d.browser?.t.noteFront();
   log.info("command", { action, session, ok: env.ok, durationMs, ...(env.ok ? {} : { code: env.error.code }) });

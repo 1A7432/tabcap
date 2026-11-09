@@ -2,6 +2,10 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+- **修复：macOS 上你在 tabcap 浏览器里打字时，焦点被拉回终端。** 页面开新窗口或新标签时（`target=_blank` 链接、弹窗、Cmd+T），弹窗前台守卫会把前台交给上一条 tabcap 命令后记下的应用，最多四次，哪怕是你自己切到 tabcap 浏览器的，按键于是打进终端。现在只有在动页面的命令（click、press、evaluate、navigate …）执行中或结束后 1.5 s 内出现的窗口才交还，这类命令开始时重读一次最前应用；别的窗口、以及从等人会话的标签开出的窗口一概不碰，计入 `browser status` 的 `popupFocus.human`。`config.json` 新键 `chrome.restoreFront`（默认 `true`；`false` 关掉启动和弹窗两处交还，`browser start` 时读）。docs/07 §1.1。
+
 ## 0.9.0（2026-11-03）
 
 ### 录任何脚本发的请求；回放检查顺序（0.9-E、0.9-F）

@@ -11,6 +11,14 @@
 // if Chrome has not taken over yet, else the last reading taken after a command
 // (or at launch). When that reading was Chrome itself the human is working in
 // the tabcap browser, and nothing is restored.
+//
+// Whose window it is (owner 2026-11-06, field report: focus yanked back to the
+// terminal four times while the human typed in a tabcap tab): only a window
+// that appears while a page-acting command (click, press, evaluate …) runs, or
+// within `commandGraceMs` after one ended, is tabcap's and handed back. Any
+// other window was opened by the human working in the browser (a link, a
+// popup, Cmd+T), and so is one whose opener tab belongs to a session waiting
+// for the human (`human`); neither is touched.
 
 import { isChromeApp, type FrontApp } from "./launcher.ts";
 
@@ -28,9 +36,11 @@ export type RestoreOptions = {
   settleMs: number;
   pollMs: number;
   maxAttempts: number;
+  /** A window this long after a page-acting command ended is still that command's. */
+  commandGraceMs: number;
 };
 
-export const RESTORE_DEFAULTS: RestoreOptions = { watchMs: 2500, settleMs: 1200, pollMs: 100, maxAttempts: 4 };
+export const RESTORE_DEFAULTS: RestoreOptions = { watchMs: 2500, settleMs: 1200, pollMs: 100, maxAttempts: 4, commandGraceMs: 1500 };
 
 export type RestoreReport = {
   before: string;
@@ -64,13 +74,16 @@ export async function restoreFront(before: FrontApp, ops: FrontOps, o: RestoreOp
   return { before: before.name, beforeBundleId: before.bundleId, stolen, restored: stolen ? !isChromeApp(after) : null, attempts, after: after?.name ?? null };
 }
 
-export type FrontStats = { windows: number; stolen: number; restored: number; failed: number; skipped: number; last: RestoreReport | null };
+/** `human`: windows the human opened (no page-acting command around, or the opener's session waits for the human): never handed back. */
+export type FrontStats = { windows: number; human: number; stolen: number; restored: number; failed: number; skipped: number; last: RestoreReport | null };
 
 export class FrontGuard {
-  readonly stats: FrontStats = { windows: 0, stolen: 0, restored: 0, failed: 0, skipped: 0, last: null };
+  readonly stats: FrontStats = { windows: 0, human: 0, stolen: 0, restored: 0, failed: 0, skipped: 0, last: null };
   private baseline: FrontApp | null;
   private running: Promise<void> | null = null;
   private again = false;
+  private pageCommands = 0;
+  private lastCommandEnd = -Infinity;
 
   constructor(
     launchBefore: FrontApp | null,
@@ -96,10 +109,33 @@ export class FrontGuard {
     this.baseline = app;
   }
 
-  /** A page target we did not create appeared (popup, new window, foreground tab). */
-  onNewWindow(): Promise<void> {
+  /** A page-acting command begins: windows from now until `commandGraceMs` after its end are tabcap's. */
+  commandStart(): Promise<void> {
+    this.pageCommands++;
+    // The human may have switched apps since the last command: the hand-back target is read afresh.
+    return this.note().catch(() => undefined);
+  }
+
+  commandEnd(): void {
+    this.pageCommands = Math.max(0, this.pageCommands - 1);
+    this.lastCommandEnd = this.ops.now();
+  }
+
+  private tabcapCaused(): boolean {
+    return this.pageCommands > 0 || this.ops.now() - this.lastCommandEnd <= this.opts.commandGraceMs;
+  }
+
+  /**
+   * A page target we did not create appeared (popup, new window, foreground tab). `human`: its opener
+   * tab belongs to a session waiting for the human.
+   */
+  onNewWindow(o: { human?: boolean } = {}): Promise<void> {
     this.stats.windows++;
     if (!this.enabled) return Promise.resolve();
+    if (o.human === true || !this.tabcapCaused()) {
+      this.stats.human++;
+      return this.running ?? Promise.resolve();
+    }
     if (this.running !== null) {
       this.again = true;
       return this.running;
