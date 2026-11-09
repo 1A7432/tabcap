@@ -2,6 +2,10 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+- **Fix: on macOS tabcap pulled the focus back to the terminal while you typed in its browser.** When a page opened a window or tab (a link with `target=_blank`, a popup, Cmd+T), the popup foreground guard handed the foreground to the app noted after the last tabcap command, up to four times, even when you had switched to the tabcap browser yourself; keystrokes landed in the terminal. Now only a window that appears while a page-acting command runs (click, press, evaluate, navigate …) or within 1.5 s after it is handed back, and the frontmost app is read again when such a command starts; any other window, and one opened from a tab whose session waits for you, is left alone and counted in `browser status` `popupFocus.human`. New `config.json` key `chrome.restoreFront` (default `true`; `false` turns off the launch and popup hand-back, read at `browser start`). docs/07 §1.1.
+
 ## 0.9.0 (2026-11-03)
 
 ### Record any script's requests; replay checks the order (0.9-E, 0.9-F)

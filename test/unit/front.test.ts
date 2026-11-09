@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { readRestoreFrontConfig } from "../../src/shared/config.ts";
 import { FrontGuard, restoreFront, type FrontOps } from "../../src/daemon/transport/direct/front.ts";
 import { activateScript, parseFrontApp, type FrontApp } from "../../src/daemon/transport/direct/launcher.ts";
 
@@ -40,7 +44,7 @@ function fake(o: { start: FrontApp; stealAt?: number[]; activateWorks?: boolean 
 
 const GHOSTTY = app("ghostty");
 const TERMINAL = app("Terminal", "com.apple.Terminal");
-const OPTS = { watchMs: 2500, settleMs: 1200, pollMs: 100, maxAttempts: 4 };
+const OPTS = { watchMs: 2500, settleMs: 1200, pollMs: 100, maxAttempts: 4, commandGraceMs: 1500 };
 
 describe("restoreFront (docs/05 s17)", () => {
   test("Chrome takes the front 800 ms later: handed back once", async () => {
@@ -74,15 +78,16 @@ describe("FrontGuard", () => {
   test("hands back to the app read when the window appears", async () => {
     const f = fake({ start: TERMINAL, stealAt: [300] });
     const g = new FrontGuard(GHOSTTY, f.ops, true, OPTS);
+    await g.commandStart();
     await g.onNewWindow();
     expect(f.activations).toEqual([TERMINAL]);
-    expect(g.stats).toMatchObject({ windows: 1, stolen: 1, restored: 1, failed: 0, skipped: 0 });
+    expect(g.stats).toMatchObject({ windows: 1, human: 0, stolen: 1, restored: 1, failed: 0, skipped: 0 });
   });
 
   test("Chrome already in front at the window: falls back to the last noted app", async () => {
     const f = fake({ start: GHOSTTY });
     const g = new FrontGuard(null, f.ops, true, OPTS);
-    await g.note();
+    await g.commandStart();
     expect(g.lastSeen).toEqual(GHOSTTY);
     f.set(CHROME);
     await g.onNewWindow();
@@ -93,7 +98,7 @@ describe("FrontGuard", () => {
   test("the human was working in the tabcap browser: nothing is restored", async () => {
     const f = fake({ start: CHROME });
     const g = new FrontGuard(GHOSTTY, f.ops, true, OPTS);
-    await g.note();
+    await g.commandStart();
     expect(g.lastSeen).toEqual(CHROME);
     await g.onNewWindow();
     expect(f.activations).toEqual([]);
@@ -111,6 +116,7 @@ describe("FrontGuard", () => {
   test("a second window during a hand-back is coalesced into another pass", async () => {
     const f = fake({ start: GHOSTTY, stealAt: [200, 2000] });
     const g = new FrontGuard(GHOSTTY, f.ops, true, OPTS);
+    await g.commandStart();
     const a = g.onNewWindow();
     const b = g.onNewWindow();
     await Promise.all([a, b]);
@@ -119,16 +125,107 @@ describe("FrontGuard", () => {
   });
 });
 
+describe("FrontGuard: whose window (owner 2026-11-06)", () => {
+  test("field report: the human works in a tabcap tab and a click opens a window: focus stays in Chrome", async () => {
+    // The last command left ghostty noted; the human then switched to Chrome themselves (no command).
+    const f = fake({ start: GHOSTTY });
+    const g = new FrontGuard(null, f.ops, true, OPTS);
+    await g.commandStart();
+    g.commandEnd();
+    await f.ops.sleep(5000);
+    f.set(CHROME);
+    await g.onNewWindow();
+    expect(f.activations).toEqual([]);
+    expect(f.front()).toEqual(CHROME);
+    expect(g.stats).toMatchObject({ windows: 1, human: 1, stolen: 0, restored: 0, skipped: 0 });
+  });
+
+  test("no command ever ran: a window is the human's", async () => {
+    const f = fake({ start: GHOSTTY, stealAt: [100] });
+    const g = new FrontGuard(GHOSTTY, f.ops, true, OPTS);
+    await g.onNewWindow();
+    expect(f.activations).toEqual([]);
+    expect(g.stats.human).toBe(1);
+  });
+
+  test("within the grace after a page command: tabcap's, handed back; past it: the human's", async () => {
+    const f = fake({ start: GHOSTTY, stealAt: [1300] });
+    const g = new FrontGuard(null, f.ops, true, OPTS);
+    await g.commandStart();
+    g.commandEnd();
+    await f.ops.sleep(1000);
+    await g.onNewWindow();
+    expect(f.activations).toEqual([GHOSTTY]);
+    expect(g.stats).toMatchObject({ windows: 1, human: 0, restored: 1 });
+    await f.ops.sleep(1600);
+    f.set(CHROME);
+    await g.onNewWindow();
+    expect(f.activations).toEqual([GHOSTTY]);
+    expect(g.stats).toMatchObject({ windows: 2, human: 1 });
+  });
+
+  test("the opener's session waits for the human: not handed back even during a command", async () => {
+    const f = fake({ start: GHOSTTY, stealAt: [100] });
+    const g = new FrontGuard(GHOSTTY, f.ops, true, OPTS);
+    await g.commandStart();
+    await g.onNewWindow({ human: true });
+    expect(f.activations).toEqual([]);
+    expect(g.stats.human).toBe(1);
+  });
+
+  test("the human switched to Chrome before the AI's click: the read at command start says so, nothing restored", async () => {
+    const f = fake({ start: GHOSTTY });
+    const g = new FrontGuard(null, f.ops, true, OPTS);
+    await g.note();
+    f.set(CHROME);
+    await g.commandStart();
+    await g.onNewWindow();
+    expect(f.activations).toEqual([]);
+    expect(g.stats).toMatchObject({ human: 0, skipped: 1 });
+  });
+
+  test("overlapping commands: the window stays tabcap's until the last one ends", async () => {
+    const f = fake({ start: GHOSTTY, stealAt: [5000] });
+    const g = new FrontGuard(null, f.ops, true, OPTS);
+    await g.commandStart();
+    await g.commandStart();
+    g.commandEnd();
+    await f.ops.sleep(4000);
+    await g.onNewWindow();
+    expect(f.activations).toEqual([GHOSTTY]);
+    g.commandEnd();
+    g.commandEnd(); // an extra end never goes below zero
+    await f.ops.sleep(10_000);
+    await g.onNewWindow();
+    expect(g.stats.human).toBe(1);
+  });
+});
+
+describe("config.json chrome.restoreFront", () => {
+  test("absent → true; a boolean is read; anything else is bad-input naming the key", () => {
+    const f = join(mkdtempSync(join(tmpdir(), "tabcap-front-")), "config.json");
+    expect(readRestoreFrontConfig(f)).toBe(true);
+    writeFileSync(f, JSON.stringify({ chrome: { restoreFront: false, args: [] } }));
+    expect(readRestoreFrontConfig(f)).toBe(false);
+    writeFileSync(f, JSON.stringify({ chrome: { restoreFront: "no" } }));
+    expect(() => readRestoreFrontConfig(f)).toThrow("chrome.restoreFront");
+  });
+});
+
 describe("hand-back command (process name can differ from the app name)", () => {
   const FIREFOX_DEV = app("firefox", "org.mozilla.firefoxdeveloperedition");
 
   test("an app with a bundle id is activated by id, one without falls back to its name", async () => {
     const withId = fake({ start: FIREFOX_DEV, stealAt: [300] });
-    await new FrontGuard(null, withId.ops, true, OPTS).onNewWindow();
+    const gId = new FrontGuard(null, withId.ops, true, OPTS);
+    await gId.commandStart();
+    await gId.onNewWindow();
     expect(withId.activations.map(activateScript)).toEqual(['tell application id "org.mozilla.firefoxdeveloperedition" to activate']);
 
     const noId = fake({ start: GHOSTTY, stealAt: [300] });
-    await new FrontGuard(null, noId.ops, true, OPTS).onNewWindow();
+    const gNo = new FrontGuard(null, noId.ops, true, OPTS);
+    await gNo.commandStart();
+    await gNo.onNewWindow();
     expect(noId.activations.map(activateScript)).toEqual(['tell application "ghostty" to activate']);
   });
 

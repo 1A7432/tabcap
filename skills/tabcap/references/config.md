@@ -26,6 +26,7 @@ One UTF-8 byte order mark at the very start of the file is skipped (Windows edit
 | `chrome.platform` | `string \| null` | — | the build `tabcap setup` downloaded (mac-arm64, mac-x64, linux64, win64); null for `--executable-path` | — |
 | `chrome.args` | `string[]` | `[]` | Chrome switches added at every `browser start`, before `--chrome-arg` | §42 |
 | `chrome.dropArgs` | `string[]` | `[]` | tabcap's own switches removed at every `browser start`, before `--drop-chrome-arg` | §42 |
+| `chrome.restoreFront` | `boolean` | `true` | macOS: hand the foreground back to your app when Chrome takes it at launch or when a page-acting command opens a window; read at `browser start` | — |
 | `pool.strategy` | `"fixed" \| "round-robin" \| "lru"` | `"fixed"` | how `session start --account auto` picks one of the site's accounts | — |
 | `pool.egress` | `object` | — | when an account's proxy is rotated | — |
 | `pool.health` | `object` | — | proxy health checks | — |

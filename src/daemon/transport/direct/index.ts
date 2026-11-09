@@ -63,6 +63,11 @@ export class DirectTransport implements Transport {
   private ownCreates = 0;
   /** 0.7.1-A: one window per `Input.*` command sent through `send` (docs/04 §37). */
   readonly inputWindows = new InputWindows();
+  /**
+   * Set by the daemon (owner 2026-11-06): does the page target with this id belong to a session that
+   * waits for the human? A window it opens is the human's and is not handed back (front.ts).
+   */
+  humanOpener: (targetId: string) => boolean = () => false;
 
   private constructor(
     readonly cdp: CdpClient,
@@ -83,8 +88,9 @@ export class DirectTransport implements Transport {
       if (e.method !== "Target.targetCreated") return;
       const info = isRecord(e.params["targetInfo"]) ? e.params["targetInfo"] : null;
       if (info === null || str(info, "type") !== "page") return;
-      if (str(info, "openerId") === null && this.ownCreates > 0) return;
-      void this.frontGuard.onNewWindow();
+      const opener = str(info, "openerId");
+      if (opener === null && this.ownCreates > 0) return;
+      void this.frontGuard.onNewWindow({ human: opener !== null && this.humanOpener(opener) });
     });
   }
 
@@ -194,6 +200,15 @@ export class DirectTransport implements Transport {
   /** Record which macOS app is frontmost now (after each command), for handing the foreground back. */
   noteFront(): void {
     void this.frontGuard.note().catch(() => undefined);
+  }
+
+  /** A page-acting command (click, press, evaluate …) begins / ends: windows meanwhile are tabcap's (front.ts). */
+  pageCommandStart(): void {
+    void this.frontGuard.commandStart();
+  }
+
+  pageCommandEnd(): void {
+    this.frontGuard.commandEnd();
   }
 
   get frontStats(): FrontStats & { lastSeen: string | null; lastSeenBundleId: string | null } {

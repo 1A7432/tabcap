@@ -116,6 +116,20 @@ export function readChromeArgsConfig(file: string): { add: string[]; drop: strin
   return { add: list(cfgKey("chrome", "args")), drop: list(cfgKey("chrome", "dropArgs")) };
 }
 
+/**
+ * Owner 2026-11-06: `chrome.restoreFront` (default true). On macOS tabcap hands the foreground back to
+ * the app the human was in when Chrome takes it at launch or when a page-acting command makes a page
+ * open a window (docs/07 §1.1); false turns both off. Read at `browser start`; anything but a boolean
+ * is an error.
+ */
+export function readRestoreFrontConfig(file: string): boolean {
+  const c = readConfigRaw(file)[cfgKey("", "chrome")];
+  const v = isRecord(c) ? c[cfgKey("chrome", "restoreFront")] : undefined;
+  if (v === undefined || v === null) return true;
+  if (typeof v !== "boolean") throw new TabcapError("bad-input", "config.json chrome.restoreFront is invalid", "Set chrome.restoreFront to true or false, or remove it.");
+  return v;
+}
+
 // ------------------------------------------------------------ pool (0.4-D)
 
 export type PoolStrategy = "fixed" | "round-robin" | "lru";
@@ -462,6 +476,7 @@ export const CONFIG_KEYS = {
     platform: { type: "string | null", default: "—", about: "the build `tabcap setup` downloaded (mac-arm64, mac-x64, linux64, win64); null for `--executable-path`", doc: null, kind: "string", nullable: true },
     args: { type: "string[]", default: "[]", about: "Chrome switches added at every `browser start`, before `--chrome-arg`", doc: "§42" },
     dropArgs: { type: "string[]", default: "[]", about: "tabcap's own switches removed at every `browser start`, before `--drop-chrome-arg`", doc: "§42" },
+    restoreFront: { type: "boolean", default: "true", about: "macOS: hand the foreground back to your app when Chrome takes it at launch or when a page-acting command opens a window; read at `browser start`", doc: null },
   },
   pool: {
     strategy: { type: '"fixed" | "round-robin" | "lru"', default: shown(POOL_DEFAULTS.strategy), about: "how `session start --account auto` picks one of the site's accounts", doc: null },
