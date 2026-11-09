@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 0.9.1 (2026-11-09)
 
 - **Fix: on macOS tabcap pulled the focus back to the terminal while you typed in its browser.** When a page opened a window or tab (a link with `target=_blank`, a popup, Cmd+T), the popup foreground guard handed the foreground to the app noted after the last tabcap command, up to four times, even when you had switched to the tabcap browser yourself; keystrokes landed in the terminal. Now only a window that appears while a page-acting command runs (click, press, evaluate, navigate …) or within 1.5 s after it is handed back, and the frontmost app is read again when such a command starts; any other window, and one opened from a tab whose session waits for you, is left alone and counted in `browser status` `popupFocus.human`. New `config.json` key `chrome.restoreFront` (default `true`; `false` turns off the launch and popup hand-back, read at `browser start`). docs/07 §1.1.
 - **New `tabcap tab adopt <target>`: take a tab you opened yourself into a session.** A tab opened by hand in the tabcap browser (Cmd+T) belonged to no session, so nothing could read it. `tab list --all` now also lists `others`, the tabs of no session, and `tab adopt` (the target or 8+ characters of it) makes one the session's current tab without moving anything on screen. It is borrowed (`owned: false`, `reason: "borrowed"`): `session stop` releases it and leaves it open, unless the session's own browser context goes with it; `tab close` refuses; your input in it does not start a human take-over. While recording, it is recorded from that moment on. A tab in another browser context than the session's is refused. In `tabcap mcp --all-tools`, not in the core set. docs/04 §51, docs/05 s77.
