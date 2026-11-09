@@ -24,6 +24,7 @@ import { Echo, type EchoReport } from "../../wire/echo.ts";
 import { Wireprint } from "../../wire/native.ts";
 import { cftVersion, flagsSha256, profileArch, profileArgs, profileFile, profileOs, reusable, type TabcapSection } from "../../wire/profile.ts";
 import { hostLaunchContext, normalizedLaunchArgs } from "../../shared/launchargs.ts";
+import { log } from "../../shared/log.ts";
 import { WIRE_NOTE, WIRE_SCHEMA, checksOf, claimOf, clientOf, labelsOf, layersOf, runClientReport, type WireResult } from "../../wire/probe.ts";
 import type { Daemon } from "../state.ts";
 import { checkSessionName, optNum, optStr, type Args } from "./args.ts";
@@ -74,6 +75,7 @@ async function captureSamples(d: Daemon, session: string, echo: Echo, samples: n
           waitNavigation(t, tab, url, budgetMs, async () => {
             const r = await t.send("Page.navigate", { url }, tab.sessionId);
             const err = typeof r["errorText"] === "string" ? r["errorText"] : "";
+            if (err !== "") log.warn("wire echo: navigation failed", { tab: tab.id, sample: i, error: err, stats: echo.stats });
             if (err !== "") throw new TabcapError("page", `navigation to the wire echo failed: ${err}`, "Check that nothing blocks https://localhost (loopback) in this session's proxy settings.");
             return { loaderId: typeof r["loaderId"] === "string" ? r["loaderId"] : null, sameDocument: false };
           }, () => d.navOf(tab)),

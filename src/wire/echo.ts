@@ -19,6 +19,7 @@ import { join } from "node:path";
 import type { Socket, TCPSocketListener } from "bun";
 import { TabcapError } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
+import { log } from "../shared/log.ts";
 import { LEAF_CERT, LEAF_KEY } from "./certs.ts";
 import { h1Response, h1Target, h2Response, roleOf, scanClientHello, scanFirstRequest } from "./bytes.ts";
 import type { Wireprint } from "./native.ts";
@@ -60,7 +61,7 @@ type Pending = { buf: Uint8Array[] };
  * touching a Bun socket after its close crashed Bun 1.4.2 on Windows (CI, a
  * segfault in the unit tests), so both sides track their own closed state.
  */
-type Relay = { fc: Front; back: Socket<unknown> | null; toBack: Pending; toFront: Pending; frontClosed: boolean; backClosed: boolean };
+type Relay = { fc: Front; back: Socket<unknown> | null; toBack: Pending; toFront: Pending; frontClosed: boolean; backClosed: boolean; sentToFront: number };
 
 function concat(parts: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
@@ -176,8 +177,10 @@ export class Echo {
     const innerPort = typeof addr === "object" && addr !== null ? addr.port : 0;
     const echo = new Echo(o, inner, null, work);
     inner.on("secureConnection", (s: tls.TLSSocket) => echo.onSecure(s));
-    inner.on("tlsClientError", () => {
+    inner.on("tlsClientError", (err: Error, s: tls.TLSSocket) => {
       echo.stats.tlsErrors++;
+      // Diagnosis of the v04w flake (2026-11-09): which connection the TLS side dropped, and why.
+      log.warn("wire echo: TLS error", { conn: echo.byRelayPort.get(s.remotePort ?? -1)?.id ?? null, relayPort: s.remotePort ?? null, code: "code" in err ? String(err.code) : null, error: err.message });
     });
     try {
       echo.front = echo.listenFront(innerPort, o.port ?? 0);
@@ -202,7 +205,8 @@ export class Echo {
         open(s) {
           const fc: Front = { id: ++echo.seq, clientPort: s.remotePort, chunks: [], bytes: 0, hello: null, notTls: null };
           echo.stats.connections++;
-          s.data = { fc, back: null, toBack: { buf: [] }, toFront: { buf: [] }, frontClosed: false, backClosed: false };
+          log.info("wire echo: front open", { conn: fc.id, clientPort: fc.clientPort });
+          s.data = { fc, back: null, toBack: { buf: [] }, toFront: { buf: [] }, frontClosed: false, backClosed: false, sentToFront: 0 };
           echo.open.add(s);
           const relay = s.data;
           const endFront = () => {
@@ -213,17 +217,21 @@ export class Echo {
             port: innerPort,
             socket: {
               data(_b, d) {
+                relay.sentToFront += d.byteLength;
                 if (!relay.frontClosed) writeAll(s, relay.toFront, new Uint8Array(d));
               },
               drain(b) {
                 if (!relay.backClosed) flush(b, relay.toBack);
               },
               close(b) {
+                // frontClosed false: the TLS side hung up first, and the client sees the connection closed.
+                log.info("wire echo: back closed", { conn: fc.id, frontClosed: relay.frontClosed, frontBytes: fc.bytes, hello: fc.hello !== null, sentToClient: relay.sentToFront });
                 relay.backClosed = true;
                 echo.open.delete(b);
                 endFront();
               },
-              error() {
+              error(_b, e) {
+                log.warn("wire echo: back error", { conn: fc.id, error: e.message });
                 endFront();
               },
             },
@@ -241,7 +249,10 @@ export class Echo {
               relay.toBack = { buf: [] };
               for (const q of queued) writeAll(b, relay.toBack, q);
             },
-            () => endFront(),
+            (e: unknown) => {
+              log.warn("wire echo: relay to the TLS side failed", { conn: fc.id, error: e instanceof Error ? e.message : String(e) });
+              endFront();
+            },
           );
         },
         data(s, d) {
@@ -267,6 +278,7 @@ export class Echo {
           if (!s.data.frontClosed) flush(s, s.data.toFront);
         },
         close(s) {
+          log.info("wire echo: front closed", { conn: s.data.fc.id, backClosed: s.data.backClosed, backConnected: s.data.back !== null, frontBytes: s.data.fc.bytes, hello: s.data.fc.hello !== null, notTls: s.data.fc.notTls, sentToClient: s.data.sentToFront });
           s.data.frontClosed = true;
           echo.open.delete(s);
           const back = s.data.back;
@@ -278,7 +290,8 @@ export class Echo {
             t.unref();
           }
         },
-        error(s) {
+        error(s, e) {
+          log.warn("wire echo: front error", { conn: s.data.fc.id, error: e.message });
           if (!s.data.frontClosed) s.end();
         },
       },
