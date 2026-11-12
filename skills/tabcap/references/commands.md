@@ -359,7 +359,7 @@ Example: `tabcap reload --ignore-cache`
 accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected / frames, counts toward --max-chars); child frames are header lines until --frames / --frame
 
 ```
-tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--target target] [--interactive] [--verbose] [--max-chars n] [--file-path path] [--frames] [--frame f2/f1] [--grep regex] [--css selector] [--xpath expr] [--ref e12] [--depth n] [--context n] [--max-matches n]
+tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--target target] [--interactive] [--verbose] [--behind] [--max-chars n] [--file-path path] [--frames] [--frame f2/f1] [--grep regex] [--css selector] [--xpath expr] [--ref e12] [--depth n] [--context n] [--max-matches n]
 ```
 
 Example: `tabcap snapshot --interactive`
@@ -369,8 +369,9 @@ Example: `tabcap snapshot --interactive`
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--target <target>` |  | read this tab of the browser instead (another session's, the user's, another tool's): `target` from `tab list --all`, or 8+ characters of it; not taken, not recorded, refs only for commands with the same --target |
 | `--interactive` |  | only controls (buttons, links, inputs …) and their ancestors |
-| `--verbose` |  | the full tree: keep unnamed wrappers and text that repeats its parent's name, add descriptions and capability flags (focusable, expandable …) |
-| `--max-chars <n>` | `12000` | truncate the tree text (the note says so and how to get more) |
+| `--verbose` |  | the full tree: keep unnamed wrappers and text that repeats its parent's name, add descriptions and capability flags (focusable, expandable …); invisible elements print with `invisible` and no ref |
+| `--behind` |  | with a modal overlay open, also show the page behind it (by default it is folded to one line after the overlay's lines) |
+| `--max-chars <n>` | `12000` | truncate the tree text (the note says so and how to get more); the top overlay's lines are cut last |
 | `--file-path <path>` |  | write the tree text to this file and return its path instead of the tree |
 | `--frames` |  | also expand every child frame (iframes, frameset frames, cross-origin too); their refs carry the frame path, e.g. f2/f1/e7; --max-chars applies per frame |
 | `--frame <f2/f1>` |  | expand only this frame and the frames inside it (the root document is listed in the header only) |

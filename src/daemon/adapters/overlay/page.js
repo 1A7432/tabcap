@@ -95,9 +95,18 @@
     };
     const cands = [];
     const candOf = new Map();
-    const all = document.querySelectorAll("body *");
-    for (let i = 0; i < all.length && i < 8000; i++) {
-      const el = all[i];
+    // docs/04 §53.2 (11-12, measured): the first 8000 elements of a large page (a
+    // table with fixed columns) never reach a dialog appended at the end of <body>.
+    // Dialog markup and <body>'s own children are looked at wherever they are.
+    const all = Array.from(document.querySelectorAll("body *"));
+    const scan = all.slice(0, 8000);
+    if (all.length > 8000) {
+      const inScan = new Set(scan);
+      const late = [...document.querySelectorAll("[role=dialog], [role=alertdialog], [aria-modal=true], dialog"), ...(document.body ? Array.from(document.body.children) : [])];
+      for (const el of late) if (!inScan.has(el) && scan.length < 8400) { inScan.add(el); scan.push(el); }
+    }
+    for (let i = 0; i < scan.length; i++) {
+      const el = scan[i];
       const t = el.localName;
       if (t === "script" || t === "style" || t === "template" || t === "noscript" || t === "link" || t === "meta" || t === "br") continue;
       const role = el.getAttribute("role") || "";
@@ -252,7 +261,7 @@
       if (o.kind === "consent") choices = buttons.filter((b) => b.text || b.label);
       else if (o.kind === "timeout-prompt") { close = buttons.filter(strictClose); choices = buttons.filter((b) => !strictClose(b) && (b.text || b.label)); }
       else { close = buttons.filter(isClose); choices = buttons.filter((b) => !isClose(b) && (b.text || b.label)); }
-      const name = c.name || o.inner.map((j) => C[j].name).find((x) => x) || c.innerName || c.text.slice(0, 30);
+      const name = c.name || o.inner.map((j) => C[j].name).find((x) => x) || c.innerName || c.text.slice(0, 30) || "(unnamed)";
       const iframe = [c, ...o.inner.map((j) => C[j])].flatMap((x) => x.iframes)[0];
       out.push({
         n: c.n,

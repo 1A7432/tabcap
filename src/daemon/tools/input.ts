@@ -46,7 +46,7 @@ const LIVE = "if (!el || !el.isConnected) return { stale: true };";
 export const CLICK_FN = `function () { ${ELEMENT} ${LIVE}
   el.scrollIntoView({ block: "center", inline: "center" });
   el.click();
-  return { ok: true, tag: el.tagName.toLowerCase() };
+  return { ok: true, tag: el.tagName.toLowerCase(), text: String(el.innerText || el.value || "").replace(/\\s+/g, " ").trim().slice(0, 60) };
 }`;
 
 // DOM double click: two clicks and a dblclick event (all isTrusted:false).
@@ -55,7 +55,7 @@ export const DBLCLICK_FN = `function () { ${ELEMENT} ${LIVE}
   el.click();
   el.click();
   el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, composed: true, detail: 2, view: window }));
-  return { ok: true, tag: el.tagName.toLowerCase() };
+  return { ok: true, tag: el.tagName.toLowerCase(), text: String(el.innerText || el.value || "").replace(/\\s+/g, " ").trim().slice(0, 60) };
 }`;
 
 export const SCROLL_FN = `function () { ${ELEMENT} ${LIVE} el.scrollIntoView({ block: "center", inline: "center" }); return { ok: true }; }`;
@@ -95,6 +95,99 @@ const HIT_FN = `function (px, py) { ${ELEMENT} ${LIVE}
   }
   return { ok, hit: d(hit), x: Math.round(x), y: Math.round(y) };
 }`;
+
+// docs/04 §53.1: what a press at (x, y) lands on, and whether that is a different
+// clickable element inside a target that is not clickable itself (a whole option
+// list whose centre is another option). Same clickable test as HIT_FN, plus the
+// roles of options and menu items.
+const LANDED_FN = `function (x, y) { ${ELEMENT} ${LIVE}
+  const clickable = (n) => {
+    if (!n || n.nodeType !== 1) return false;
+    if (n.matches("a[href], button, label, summary, input, select, textarea, option, [onclick], [role=button], [role=link], [role=option], [role=menuitem], [role=menuitemcheckbox], [role=menuitemradio], [role=tab], [role=treeitem], [role=checkbox], [role=radio], [role=switch]")) return true;
+    return getComputedStyle(n).cursor === "pointer";
+  };
+  const hit = document.elementFromPoint(x, y);
+  const of = (n) => ({ tag: n.tagName.toLowerCase(), text: String(n.innerText || n.value || "").replace(/\\s+/g, " ").trim().slice(0, 60) });
+  if (!hit || hit === el || !el.contains(hit)) return { ambiguous: false, landed: hit ? of(hit) : null };
+  let inner = null;
+  for (let n = hit; n && n !== el; n = n.parentElement) if (clickable(n)) inner = n;
+  return { ambiguous: inner !== null && !clickable(el), landed: of(inner || hit), target: el.tagName.toLowerCase() };
+}`;
+
+/** docs/04 §53.1: where a press landed (answer field `landedOn`). */
+export type LandedOn = { tag: string; text: string };
+
+const landedOf = (v: unknown): LandedOn | null => (isRecord(v) && typeof v["tag"] === "string" ? { tag: v["tag"], text: str(v, "text") ?? "" } : null);
+
+/** docs/04 §53.1: the refusal; nothing was clicked. */
+export function ambiguousError(ref: string, target: string, landed: LandedOn): TabcapError {
+  const what = landed.text === "" ? `<${landed.tag}>` : `<${landed.tag}> ${JSON.stringify(landed.text)}`;
+  return new TabcapError(
+    "ambiguous-target",
+    `ref ${ref} is a container (<${target}>, not clickable itself); a press at its centre would land on another clickable element, ${what}; nothing was clicked`,
+    landed.text === "" ? "Run `tabcap snapshot` and pick the item's own ref, or use the `clickable` ref of a `tabcap find` hit." : `Use \`tabcap find ${JSON.stringify(landed.text)}\` to get that item's ref, or the \`clickable\` ref of a \`tabcap find\` hit.`,
+    { landedOn: landed },
+  );
+}
+
+/** Run LANDED_FN at (x, y) in the node's document: `ambiguous-target` when the press would land on another clickable element inside a non-clickable target. */
+async function landedGate(t: Transport, sessionId: string, objectId: string, ref: string, x: number, y: number): Promise<LandedOn | null> {
+  const v = liveOrStale(rec(callResult(await call(t, sessionId, objectId, LANDED_FN, [x, y]))), ref);
+  const landed = landedOf(v["landed"]);
+  if (v["ambiguous"] === true && landed !== null) throw ambiguousError(ref, str(v, "target") ?? "?", landed);
+  return landed;
+}
+
+// docs/04 §53.3: is the target visible now (after scrolling it into view)? The
+// snapshot's rules (browser/layout.ts) in the page: computed visibility, opacity 0
+// on it or an ancestor, no box of its own and none below it, entirely outside an
+// ancestor that clips (overflow hidden / clip; not past a positioned element).
+// A checkbox / radio with a label is drawn by its label and counts as visible.
+export const VISIBLE_FN = `function () { ${ELEMENT} ${LIVE}
+  const view = el.ownerDocument.defaultView || window;
+  if (el.tagName === "INPUT" && /^(checkbox|radio)$/i.test(el.type) && el.labels && el.labels.length > 0) return { visible: true };
+  const boxed = (n) => { const r = n.getBoundingClientRect(); return n.getClientRects().length > 0 && r.width >= 1 && r.height >= 1; };
+  const cs = view.getComputedStyle(el);
+  if (cs.visibility !== "visible") return { visible: false, why: "visibility: " + cs.visibility };
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    if (Number(view.getComputedStyle(n).opacity) === 0) return { visible: false, why: n === el ? "opacity 0" : "opacity 0 on an ancestor" };
+  }
+  if (!boxed(el)) {
+    const kids = el.querySelectorAll("*");
+    let any = false;
+    for (let i = 0; i < kids.length && i < 500 && !any; i++) any = boxed(kids[i]) && view.getComputedStyle(kids[i]).visibility === "visible";
+    if (!any) return { visible: false, why: "no box (zero size or not rendered)" };
+    return { visible: true };
+  }
+  const r = el.getBoundingClientRect();
+  for (let n = el, p = el.parentElement; p && p.nodeType === 1; n = p, p = p.parentElement) {
+    const pos = view.getComputedStyle(n).position;
+    if (pos === "fixed" || pos === "absolute") break;
+    const pcs = view.getComputedStyle(p);
+    const ox = pcs.overflowX === "hidden" || pcs.overflowX === "clip";
+    const oy = pcs.overflowY === "hidden" || pcs.overflowY === "clip";
+    if (!ox && !oy) continue;
+    const pr = p.getBoundingClientRect();
+    if ((ox && (r.right <= pr.left || r.left >= pr.right)) || (oy && (r.bottom <= pr.top || r.top >= pr.bottom))) return { visible: false, why: "clipped away by an ancestor with overflow: hidden" };
+  }
+  return { visible: true };
+}`;
+
+/** docs/04 §53.3: the refusal; nothing was done. */
+export function notVisibleError(ref: string, why: string): TabcapError {
+  return new TabcapError(
+    "not-visible",
+    `ref ${ref} is not visible (${why}); nothing was done`,
+    "Run `tabcap snapshot` to see what is visible now (an element hidden after the snapshot keeps its ref but cannot be acted on); a visible element with the same text may be elsewhere: `tabcap find <text>`.",
+    { why },
+  );
+}
+
+/** docs/04 §53.3: `not-visible` unless the node is visible now. */
+export async function visibleGate(t: Transport, sessionId: string, objectId: string, ref: string): Promise<void> {
+  const v = liveOrStale(rec(callResult(await call(t, sessionId, objectId, VISIBLE_FN))), ref);
+  if (v["visible"] !== true) throw notVisibleError(ref, str(v, "why") ?? "hidden");
+}
 
 // Capture-phase probe: did pointerdown / mousedown reach this element?
 const PROBE_FN = `function () { ${ELEMENT}
@@ -275,6 +368,7 @@ export function liveOrStale(v: Record<string, unknown>, ref: string): Record<str
  */
 async function overlayGate(t: Transport, tab: Tab, node: InputNode, ref: string, deep = false): Promise<"clear" | "skipped"> {
   liveOrStale(rec(callResult(await call(t, sessionOf(tab, node), node.objectId, SCROLL_FN))), ref);
+  await visibleGate(t, sessionOf(tab, node), node.objectId, ref);
   let cover;
   try {
     const f = frameOf(node);
@@ -321,6 +415,7 @@ async function hitGate(t: Transport, tab: Tab, node: InputNode, ref: string): Pr
   const x = num(v, "x") ?? 0;
   const y = num(v, "y") ?? 0;
   if (v["ok"] !== true) throw hitError(ref, str(v, "hit"), Math.round(x), Math.round(y));
+  await landedGate(t, sid, node.objectId, ref, x, y);
   const f = frameOf(node);
   if (f === null) return;
   const place = await placeOf(t, tab, node, ref);
@@ -655,7 +750,7 @@ function notDelivered(ref: string, probeError: unknown): TabcapError {
  * the occlusion check at that point (in the target's document and, for a frame
  * ref, in every ancestor document at the frame's owner element).
  */
-async function targetPoint(t: Transport, tab: Tab, node: InputNode, ref: string): Promise<Point> {
+async function targetPoint(t: Transport, tab: Tab, node: InputNode, ref: string, landing: { landed: LandedOn | null } | null = null): Promise<Point> {
   const sid = sessionOf(tab, node);
   const c = await centre(t, sid, node.backendNodeId, ref);
   if (frameOf(node) === null) {
@@ -663,17 +758,19 @@ async function targetPoint(t: Transport, tab: Tab, node: InputNode, ref: string)
     if (occ["ok"] !== true) {
       throw new TabcapError("page", `ref ${ref} is covered at (${Math.round(c.x)}, ${Math.round(c.y)}) by ${str(occ, "hit") ?? "nothing"}`, "Close the overlay first (snapshot to find it), or use plain `tabcap click <ref>` (DOM click).");
     }
+    if (landing !== null) landing.landed = await landedGate(t, sid, node.objectId, ref, c.x, c.y);
     return c;
   }
   const place = await placeOf(t, tab, node, ref);
   const to = { x: c.x + place.space.x, y: c.y + place.space.y };
   await occlusionChain(t, tab, node, ref, to, place);
+  if (landing !== null) landing.landed = await landedGate(t, sid, node.objectId, ref, to.x - place.origin.x, to.y - place.origin.y);
   return to;
 }
 
 export type TrustedClick =
-  | { kind: "degraded"; paint: Paint; tag: string | null }
-  | { kind: "clicked"; from: Point; to: Point; result: PointerResult; held: FramesHeld | null };
+  | { kind: "degraded"; paint: Paint; tag: string | null; landed: LandedOn | null }
+  | { kind: "clicked"; from: Point; to: Point; result: PointerResult; held: FramesHeld | null; landed: LandedOn | null };
 
 /**
  * Level 2 of the ladder for one click (docs/07 §1.1, docs/10 §3.4): focus
@@ -692,9 +789,10 @@ export async function trustedClickOn(t: Transport, tab: Tab, node: InputNode, re
       if (!paint.painted) {
         log.info("click --trusted: tab not confirmed painted, DOM click instead", { tab: tab.id, ref, raf: paint.raf, visibility: paint.visibility, error: paint.error });
         const v = liveOrStale(rec(callResult(await call(t, sid, node.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
-        return { kind: "degraded", paint, tag: str(v, "tag") };
+        return { kind: "degraded", paint, tag: str(v, "tag"), landed: landedOf(v) };
       }
-      const to = await targetPoint(t, tab, node, ref);
+      const landing: { landed: LandedOn | null } = { landed: null };
+      const to = await targetPoint(t, tab, node, ref, landing);
       const from = tab.pointer ?? { x: 0, y: 0 };
       const result = await pointerClick(
         t,
@@ -711,7 +809,7 @@ export async function trustedClickOn(t: Transport, tab: Tab, node: InputNode, re
         sid,
         tabNavigationProbe(tab),
       );
-      return { kind: "clicked", from, to, result, held };
+      return { kind: "clicked", from, to, result, held, landed: landing.landed };
     } finally {
       await release();
     }
@@ -750,7 +848,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
         if (!trusted) {
           if (!noWait) watched.w = await watchEffect(d, t, tabs, tab, node);
           const v = liveOrStale(rec(callResult(await call(t, node.sessionId, aim.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
-          return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), ...dbl, overlayCheck, ...landed, ...challenge };
+          return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), landedOn: landedOf(v), ...dbl, overlayCheck, ...landed, ...challenge };
         }
         const r = await trustedClickOn(t, tab, aim, ref, DEFAULT_DEPS, clicks);
         if (r.kind === "degraded") {
@@ -767,6 +865,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
             warning: `${DOM_CLICK_WARNING} (--trusted degraded: the tab was not confirmed to paint, so no mouse move was sent)`,
             paint: { raf: r.paint.raf, visibility: r.paint.visibility },
             tag: r.tag,
+            landedOn: r.landed,
             ...dbl,
             overlayCheck,
           };
@@ -783,6 +882,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
           trajectory: { from: xy(r.from), to: xy(r.to), points: r.result.plan.points.length, plannedMs: r.result.plan.durationMs, actualMs: r.result.actualMs },
           pressGapMs: r.result.plan.pressGapMs,
           delivered: r.result.delivered,
+          landedOn: r.landed,
           ...(r.held === null ? {} : { paint: r.held }),
           ...dbl,
           overlayCheck,

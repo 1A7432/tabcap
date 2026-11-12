@@ -391,8 +391,9 @@ export const COMMANDS: CommandSpec[] = [
     flags: [
       ...TTR,
       { flag: "--interactive", key: "interactive", kind: "bool", help: "only controls (buttons, links, inputs …) and their ancestors" },
-      { flag: "--verbose", key: "verbose", kind: "bool", help: "the full tree: keep unnamed wrappers and text that repeats its parent's name, add descriptions and capability flags (focusable, expandable …)" },
-      { flag: "--max-chars", key: "maxChars", kind: "number", help: "truncate the tree text (the note says so and how to get more)", default: 12000, metavar: "n" },
+      { flag: "--verbose", key: "verbose", kind: "bool", help: "the full tree: keep unnamed wrappers and text that repeats its parent's name, add descriptions and capability flags (focusable, expandable …); invisible elements print with `invisible` and no ref" },
+      { flag: "--behind", key: "behind", kind: "bool", help: "with a modal overlay open, also show the page behind it (by default it is folded to one line after the overlay's lines)" },
+      { flag: "--max-chars", key: "maxChars", kind: "number", help: "truncate the tree text (the note says so and how to get more); the top overlay's lines are cut last", default: 12000, metavar: "n" },
       { flag: "--file-path", key: "filePath", kind: "string", help: "write the tree text to this file and return its path instead of the tree", metavar: "path" },
       { flag: "--frames", key: "frames", kind: "bool", help: "also expand every child frame (iframes, frameset frames, cross-origin too); their refs carry the frame path, e.g. f2/f1/e7; --max-chars applies per frame" },
       { flag: "--frame", key: "frame", kind: "string", help: "expand only this frame and the frames inside it (the root document is listed in the header only)", metavar: "f2/f1" },

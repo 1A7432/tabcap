@@ -14,10 +14,12 @@ import { dirname, resolve } from "node:path";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
 import { markLanding } from "./landing.ts";
-import { buildAxTree, findCandidates, hitOf, interactiveOnly, rankClickable, renderAxTree, textInputsWithValue, type AxNode, type FindCandidate, type RefFor, type Rendered } from "../browser/ax.ts";
+import { LAYOUT_STYLES, parseLayout, type PageLayout } from "../browser/layout.ts";
+import { log } from "../../shared/log.ts";
+import { applyLayout, countLines, splitLayer, buildAxTree, findCandidates, hitOf, interactiveOnly, rankClickable, renderAxTree, textInputsWithValue, type AxNode, type FindCandidate, type RefFor, type Rendered } from "../browser/ax.ts";
 import { flattenAx, grepAx, nodesAx, pickLines, subtreeLines } from "../browser/axfilter.ts";
 import { inspectPage } from "../adapters/runtime.ts";
-import { cutText, headerLines } from "../adapters/view.ts";
+import { cutText, headerLines, type Overlay } from "../adapters/view.ts";
 import { bindingOf, descendants, frameAt, frameHeaderLines, frameLine, frameList, frameTree, type FrameNode } from "../browser/frames.ts";
 import { parseFramePath, sameDoc, type DocIdentity, type FrameBinding } from "../browser/refs.ts";
 import { callResult, docIdentity, refError, settle } from "../browser/doc.ts";
@@ -48,7 +50,18 @@ export async function nodeAttributes(t: Transport, sessionId: string, backendNod
   return out;
 }
 
-type Tree = { root: AxNode; doc: DocIdentity };
+type Tree = { root: AxNode; doc: DocIdentity; layout: PageLayout };
+
+/** docs/04 §53.3: one DOMSnapshot of the session's documents (browser/layout.ts); empty (nothing filtered) when it fails. */
+export async function pageLayout(t: Transport, sessionId: string): Promise<PageLayout> {
+  try {
+    const raw = await t.send("DOMSnapshot.captureSnapshot", { computedStyles: [...LAYOUT_STYLES], includeDOMRects: false, includePaintOrder: false }, sessionId, 30_000);
+    return parseLayout(raw);
+  } catch (e) {
+    log.info("snapshot: DOMSnapshot failed, visibility not checked", { error: e instanceof Error ? e.message : String(e) });
+    return new Map();
+  }
+}
 
 /** Text inputs of a raw AX tree that hold a password-like value (their values are never rendered). */
 async function passwordIds(t: Transport, sessionId: string, raw: unknown): Promise<Set<number>> {
@@ -65,13 +78,15 @@ export async function axTree(t: Transport, tab: Tab, verbose = false): Promise<T
   for (let attempt = 0; attempt < 2; attempt++) {
     const before = await docIdentity(t, tab);
     const raw = await t.send("Accessibility.getFullAXTree", {}, tab.sessionId, 30_000);
+    const layout = await pageLayout(t, tab.sessionId);
     const after = await docIdentity(t, tab);
     if (!sameDoc(before, after)) continue; // navigated mid-snapshot: an old tree must never meet a new document
     const pw = await passwordIds(t, tab.sessionId, raw);
-    const root = buildAxTree(raw, pw, { verbose });
+    const built = buildAxTree(raw, pw, { verbose });
+    const root = built === null ? null : applyLayout(built, layout, verbose);
     if (root === null) throw new TabcapError("page", "the accessibility tree is empty", "Wait for the page to render (`tabcap screenshot`), then snapshot again.");
     tab.refs.setDocument(after);
-    return { root, doc: after };
+    return { root, doc: after, layout };
   }
   throw new TabcapError("page", "the page kept navigating during the snapshot", "Wait a moment and run `tabcap snapshot` again.");
 }
@@ -87,6 +102,8 @@ export type SnapshotOptions = {
   frame: string | null;
   /** 0.5-F: --grep / --css / --xpath / --ref; null or absent: the whole tree. */
   search?: SnapSearch | null;
+  /** docs/04 §53.3: with a modal overlay, also show what is behind it (default: folded to one line). */
+  behind?: boolean;
 };
 
 /** 0.5-F snapshot filters (browser/axfilter.ts). */
@@ -137,6 +154,7 @@ export function snapshotOptions(a: Args): SnapshotOptions {
     frames,
     frame,
     search: snapSearchOf(a),
+    behind: optBool(a, "behind"),
   };
 }
 
@@ -144,7 +162,8 @@ export function snapshotOptions(a: Args): SnapshotOptions {
 async function frameView(t: Transport, tab: Tab, f: FrameNode, o: SnapshotOptions): Promise<{ view: AxNode; refFor: RefFor } | string> {
   try {
     const raw = await t.send("Accessibility.getFullAXTree", { frameId: f.frameId }, f.sessionId, 30_000);
-    const root = buildAxTree(raw, await passwordIds(t, f.sessionId, raw), { verbose: o.verbose });
+    const built = buildAxTree(raw, await passwordIds(t, f.sessionId, raw), { verbose: o.verbose });
+    const root = built === null ? null : applyLayout(built, await pageLayout(t, f.sessionId), o.verbose);
     if (root === null) return "(empty)";
     const view = o.interactive ? (interactiveOnly(root) ?? root) : root;
     // 0.6-J: controls whose click lands on a descendant get `landing="child"`.
@@ -390,21 +409,41 @@ async function renderFiltered(d: Daemon, t: Transport, tab: Tab, o: SnapshotOpti
  * interactive commands. Call it inside the tab's job (Tabs.run), never around it.
  */
 export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: SnapshotOptions): Promise<Record<string, unknown>> {
-  const { root, doc } = await axTree(t, tab, o.verbose);
+  const { root, doc, layout } = await axTree(t, tab, o.verbose);
   const view = o.interactive ? (interactiveOnly(root) ?? root) : root;
   // 0.6-J: controls whose click lands on a descendant get `landing="child"` (the root document's, when it is shown).
   if (o.interactive && o.frame === null) await markLanding(t, tab, rootDoc(tab, doc), view);
   const tree = await frameTree(t, tab).catch(() => null);
   if (o.search !== undefined && o.search !== null) return renderFiltered(d, t, tab, o, o.search, { root, doc, view, tree });
   const expand = framesToExpand(tab, o, tree);
-  // Refs are minted in document order: the root tree, the expanded frames, then the header's close-button refs.
-  const full = o.frame === null ? renderAxTree(view, (id) => tab.refs.refFor(id), Number.MAX_SAFE_INTEGER) : null;
+  // docs/04 §53.2: the overlays are known before the tree is drawn (the top one goes first),
+  // so refs are minted header first (overlay elements, close buttons), then the tree, then the frames.
+  const page = await inspectPage(t, tab, rootDoc(tab, doc), undefined, tree === null ? null : tree.root);
+  const top = o.frame === null ? topLayer(tab, doc, page.overlays, view, layout) : null;
+  const refFor: RefFor = (id) => tab.refs.refFor(id);
+  let full: Rendered | null = null;
+  let layerText: string | null = null;
+  const order: string[] = [];
+  let folded: { overlay: string; lines: number } | null = null;
+  if (o.frame === null && top === null) full = renderAxTree(view, refFor, Number.MAX_SAFE_INTEGER);
+  else if (top !== null) {
+    const parts = top.layer.map((n) => renderAxTree(n, refFor, Number.MAX_SAFE_INTEGER));
+    layerText = parts.map((p) => p.text).join("\n");
+    order.push(`order     ${top.overlay.id} first`);
+    const fold = top.overlay.modal && o.behind !== true;
+    if (fold) {
+      const n = countLines(top.rest);
+      const line = `… ${n} lines behind ${top.overlay.id} (--behind to show)`;
+      folded = { overlay: top.overlay.id, lines: n };
+      full = { text: line, truncated: false, chars: line.length, refs: 0 };
+    } else full = renderAxTree(top.rest, refFor, Number.MAX_SAFE_INTEGER);
+    full = { ...full, refs: full.refs + parts.reduce((n, p) => n + p.refs, 0) };
+  }
   const blocks: Array<{ head: string; body: Rendered | string }> = [];
   for (const f of expand) blocks.push({ head: `frame ${frameLine(f)}`, body: await frameRendered(t, tab, f, o) });
-  const page = await inspectPage(t, tab, rootDoc(tab, doc), undefined, tree === null ? null : tree.root);
   // docs/09 §2.3: overlays first, then the frame tree. The header counts toward --max-chars (at most half of it).
   const frameLines = tree === null ? ["frames    ? (the frame tree could not be read)"] : frameHeaderLines(tree.root, tree.omitted);
-  const header = cutText([...headerLines(page), ...frameLines].join("\n"), Math.floor(o.maxChars / 2)).text;
+  const header = cutText([...headerLines(page), ...order, ...frameLines].join("\n"), Math.floor(o.maxChars / 2)).text;
   const refs = (full?.refs ?? 0) + blocks.reduce((n, b) => n + (typeof b.body === "string" ? 0 : b.body.refs), 0);
   const frames = tree === null ? [] : frameList(tree.root);
   const head = {
@@ -424,6 +463,9 @@ export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: Snaps
     ...(o.frame === null ? {} : { frame: o.frame }),
     // 0.8-A: identified protection families (≥ 50), probed once per navigation (docs/04 §41.3).
     ...(await protectionField(d, t, tab)),
+    // docs/04 §53.2 / §53.3: the top overlay's lines come first; behind a modal one the rest is folded.
+    ...(top === null ? {} : { first: top.overlay.id }),
+    ...(folded === null ? {} : { behind: folded }),
   };
   await adviseChallenge(d, t, tab, page.challenge);
   const blockText = (b: { head: string; body: Rendered | string }, max: number): { text: string; truncated: boolean; chars: number } => {
@@ -433,16 +475,21 @@ export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: Snaps
   };
   if (o.filePath !== null) {
     // --file-path: the whole tree goes to the file (no --max-chars cut), the answer carries the path.
-    const parts = [header, ...(full === null ? [] : [full.text]), ...blocks.map((b) => blockText(b, Number.MAX_SAFE_INTEGER).text)];
+    const parts = [header, ...(layerText === null ? [] : [layerText]), ...(full === null ? [] : [full.text]), ...blocks.map((b) => blockText(b, Number.MAX_SAFE_INTEGER).text)];
     const text = `${parts.join("\n")}\n`;
     mkdirSync(dirname(o.filePath), { recursive: true });
     writeFileSync(o.filePath, text, { mode: 0o600 });
     return { ...head, chars: text.length, truncated: false, path: o.filePath };
   }
-  const body = full === null ? null : cutText(full.text, o.maxChars - header.length - 1);
+  // docs/04 §53.2: the top overlay's lines are cut last; the rest of the tree gives way first.
+  const budget = o.maxChars - header.length - 1;
+  const layerCut = layerText === null ? null : cutText(layerText, budget);
+  const restBudget = layerCut === null ? budget : budget - layerCut.text.length - 1;
+  const restCut = full === null ? null : cutText(full.text, Math.max(0, restBudget));
+  const body = layerCut === null && restCut === null ? null : { text: [...(layerCut === null ? [] : [layerCut.text]), ...(restCut === null || restCut.text === "" ? [] : [restCut.text])].join("\n"), truncated: (layerCut?.truncated ?? false) || (restCut?.truncated ?? false) };
   // The size limit applies per frame: each expanded frame may use --max-chars on its own.
   const frameTexts = blocks.map((b) => blockText(b, o.maxChars));
-  const chars = header.length + (full === null ? 0 : 1 + full.chars) + frameTexts.reduce((n, x) => n + 1 + x.chars, 0);
+  const chars = header.length + (layerText === null ? 0 : 1 + layerText.length) + (full === null ? 0 : 1 + full.chars) + frameTexts.reduce((n, x) => n + 1 + x.chars, 0);
   const truncated = (body?.truncated ?? false) || frameTexts.some((x) => x.truncated);
   return {
     ...head,
@@ -451,6 +498,22 @@ export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: Snaps
     ...(truncated ? { note: `truncated at ${o.maxChars} chars per document (${chars} in all); for more: --max-chars <n>, --interactive (controls only), --frame <path> (one frame), --file-path <f> (whole tree to a file) or tabcap find <text>` } : {}),
     tree: [header, ...(body === null ? [] : [body.text]), ...frameTexts.map((x) => x.text)].join("\n"),
   };
+}
+
+/**
+ * docs/04 §53.2: the overlay whose subtree a snapshot shows first: the first
+ * root-document overlay (modal ones come first) whose element has accessible
+ * nodes inside it; null when there is none.
+ */
+function topLayer(tab: Tab, doc: DocIdentity, overlays: Overlay[] | null, view: AxNode, layout: PageLayout): { overlay: Overlay; layer: AxNode[]; rest: AxNode } | null {
+  for (const ov of overlays ?? []) {
+    if (ov.frame !== undefined || ov.ref === null) continue;
+    const look = tab.refs.lookup(ov.ref, doc);
+    if (!look.ok || look.frame !== null) continue;
+    const { layer, rest } = splitLayer(view, layout, look.backendNodeId);
+    if (layer.length > 0) return { overlay: ov, layer, rest };
+  }
+  return null;
 }
 
 export async function snapshot(d: Daemon, a: Args, session: string): Promise<unknown> {
@@ -530,6 +593,21 @@ async function domClickable(t: Transport, sessionId: string, backendNodeId: numb
   return null;
 }
 
+/**
+ * docs/04 §53.1: the element a text hit's words are in (the text node's parent),
+ * as a backend node id; null when it cannot be resolved or is <body> / <html>.
+ * The nearest ancestor with an accessible line can be a whole list (Element's
+ * dropdown `ul`), whose centre is another option.
+ */
+async function textElement(t: Transport, sessionId: string, backendNodeId: number): Promise<number | null> {
+  const r = await t.send("DOM.resolveNode", { backendNodeId }, sessionId, 5000).catch(() => null);
+  const obj = r !== null && isRecord(r["object"]) ? r["object"] : null;
+  const objectId = obj === null ? null : str(obj, "objectId");
+  if (objectId === null) return null;
+  const el = await ancestorId(t, sessionId, objectId, 0).catch(() => null);
+  return el === null ? null : el.backendNodeId;
+}
+
 /** One document `find` searches: the root (frame null) or a child frame, with its ref minting and session. */
 type FindDoc = { frame: FrameNode | null; root: AxNode; refFor: RefFor; sessionId: string };
 
@@ -576,7 +654,16 @@ export async function find(d: Daemon, a: Args, session: string): Promise<unknown
         if (hit !== null) dom.set(x, hit);
       }
       const ranked = rankClickable(cands, (x) => x.c.clickId !== null || dom.has(x));
-      const hits = ranked.slice(0, FIND_LIMIT).map((x) => ({ ...hitOf(x.c, x.doc.refFor, dom.get(x) ?? null), ...(x.doc.frame === null ? {} : { frame: x.doc.frame.path }) }));
+      const hits: Array<Record<string, unknown>> = [];
+      for (const x of ranked.slice(0, FIND_LIMIT)) {
+        const h = hitOf(x.c, x.doc.refFor, dom.get(x) ?? null);
+        // docs/04 §53.1: a text hit's ref is the element holding the text, never a far ancestor.
+        if (x.c.node.role === "text" && x.c.node.backendId !== null) {
+          const el = await textElement(t, x.doc.sessionId, x.c.node.backendId);
+          h.ref = el === null ? null : x.doc.refFor(el);
+        }
+        hits.push({ ...h, ...(x.doc.frame === null ? {} : { frame: x.doc.frame.path }) });
+      }
       const frames = docs.length - 1;
       return {
         tab: tab.id,
