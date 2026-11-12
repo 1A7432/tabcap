@@ -6,6 +6,7 @@
 // cut never leaves half a secret. Nothing is written to the bundle besides
 // the daemon's usual `cmd` events.
 
+import { readTab } from "./readtab.ts";
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, num, str } from "../../shared/json.ts";
 import { inWorld, rootDoc } from "../browser/worlds.ts";
@@ -117,7 +118,7 @@ export async function html(d: Daemon, a: Args, session: string): Promise<unknown
   const max = Math.max(1, Math.min(Math.floor(optNum(a, "maxChars") ?? HTML_MAX_CHARS), 1_000_000));
   const scrub = (s: string) => d.secrets.scrub(s);
   const { t, tabs } = d.need();
-  const tab = tabs.pick(session, optStr(a, "tab"));
+  const tab = await readTab(tabs, a, session);
   return tabs.run(
     tab,
     async () => {

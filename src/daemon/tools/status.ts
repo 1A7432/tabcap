@@ -48,6 +48,8 @@ export type StatusGuardStop = { site: string; rule: string; since: number; reaso
 
 export type StatusSession = {
   session: string;
+  /** docs/04 §52.5: `session start --purpose`, else null. */
+  purpose: string | null;
   site: string | null;
   account: string | null;
   /** Unbound sessions: the store site the current tab's URL belongs to, else null. */
@@ -277,6 +279,7 @@ export function statusOf(d: Daemon, daemon: StatusDaemon): StatusAnswer {
     const hostSite = site ?? tabSiteOf(d, currentUrl);
     return {
       session: name,
+      purpose: b?.tabs.session(name)?.purpose ?? null,
       site,
       account: bound?.account ?? null,
       tabSite: site === null ? tabSiteOf(d, currentUrl) : null,
@@ -405,7 +408,7 @@ export function renderStatusText(data: unknown): string {
       ...(stops.length === 0 ? [] : [`fetch stopped: ${stops.join(", ")}`]),
       ...(strs(x["protection"]).length === 0 ? [] : [`protection ${strs(x["protection"]).join(", ")}`]),
     ];
-    lines.push(`${txt(x["session"])}: ${parts.join(" · ")}`);
+    lines.push(`${txt(x["session"])}${typeof x["purpose"] === "string" ? ` (${x["purpose"]})` : ""}: ${parts.join(" · ")}`);
   }
   const conflicts = recs(s["conflicts"]);
   lines.push(conflicts.length === 0 ? "conflicts: none" : `conflicts (${conflicts.length}):`);

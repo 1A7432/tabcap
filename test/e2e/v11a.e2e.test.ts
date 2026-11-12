@@ -132,7 +132,43 @@ describe.skipIf(!enabled)("tabcap browser-wide tabs L2 (s78)", () => {
     await until("t1 at /s78/c", async () => s((await ok("snapshot", "--tab", "t1", ...A))["tree"]), (t) => t.includes("S78_C"), 5000);
     const r = await ok("click", await refOf("s78 send", "--tab", "t1", ...A), "--tab", "t1", ...A);
     expect("changed" in r).toBe(false);
+  });
+
+  let humanTarget = "";
+
+  test("6. everything visible: another session lists a's tabs with their holder, the human's tab with none; --target reads without taking", async () => {
+    expect((await ok("session", "start", "b", "--purpose", "s78 reader"))["purpose"]).toBe("s78 reader");
+    const made = await fetch(`http://127.0.0.1:${port}/json/new?${site.origin}/s78/b`, { method: "PUT" });
+    humanTarget = s(rec(await made.json())["id"]);
+    const others = recs((await ok("tab", "list", "--all", "--session", "b"))["others"]);
+    const t1Row = others.find((x) => x["target"] === t1Target.toLowerCase());
+    expect(rec(t1Row?.["holder"])).toMatchObject({ session: "a", tab: "t1", owned: true, purpose: null, isolated: false });
+    expect(rec(rec(t1Row?.["holder"])["lastAction"])["action"]).toBe("click");
+    expect(others.find((x) => x["target"] === humanTarget.toLowerCase())?.["holder"]).toBeNull();
+    const aOthers = recs((await ok("tab", "list", "--all", ...A))["others"]);
+    expect(aOthers.some((x) => rec(x["holder"])["session"] === "a")).toBe(false);
+    expect(aOthers.some((x) => x["target"] === humanTarget.toLowerCase())).toBe(true);
+    // a's refs survive b's read of the same tab (the viewer has its own ref table)
+    const aRef = await refOf("s78 send", "--tab", "t1", ...A);
+    const view = await ok("snapshot", "--target", t1Target.slice(0, 8).toLowerCase(), "--session", "b");
+    expect(s(view["tree"])).toContain("S78_C");
+    const shot = await ok("screenshot", "--target", t1Target, "--session", "b");
+    expect(typeof shot["path"] === "string" || typeof shot["file"] === "string").toBe(true);
+    expect(recs((await ok("tab", "list", "--session", "b"))["tabs"])).toEqual([]);
+    const aList = await ok("tab", "list", ...A);
+    expect(aList["current"]).toBe("t1");
+    expect(recs(aList["tabs"]).map((x) => x["tab"])).toEqual(["t1", "t2"]);
+    const from = site.hits.length;
+    await ok("click", aRef, "--tab", "t1", ...A);
+    await waitHit("/s78/api", from);
+    expect((await tabcap(["snapshot", "--target", t1Target, "--tab", "t1", "--session", "b"])).error?.["code"]).toBe("usage");
+    const listed = recs((await ok("session", "list"))["sessions"]).find((x) => x["session"] === "b");
+    expect(listed?.["purpose"]).toBe("s78 reader");
+  });
+
+  test("9. stop: the bundle is finished", async () => {
     bundle = s((await ok("session", "stop", "a"))["bundle"]);
+    expect(bundle).not.toBe("");
   });
 
   test("2. the bundle: external navigations and their documents are external, cmd null; the session's own are ai", () => {
@@ -152,7 +188,7 @@ describe.skipIf(!enabled)("tabcap browser-wide tabs L2 (s78)", () => {
     const ownA = navs.find((e) => s(e["url"]).endsWith("/s78/a"));
     expect(s(ownA?.["cmd"])).toMatch(/^c-\d+$/);
     const api = events.filter((e) => e["kind"] === "request" && s(e["url"]).endsWith("/s78/api"));
-    expect(api.length).toBe(2);
+    expect(api.length).toBe(3);
     for (const e of api) expect(e).toMatchObject({ actor: "ai", cmd: expect.stringMatching(/^c-\d+$/) });
   });
 });

@@ -1,5 +1,6 @@
 // tabcap evaluate | screenshot | dialog
 
+import { readTab } from "./readtab.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -182,7 +183,7 @@ const SCROLL_OFFSET = "({ x: window.scrollX, y: window.scrollY })";
 export async function screenshot(d: Daemon, a: Args, session: string): Promise<unknown> {
   const o = shotOptions(a);
   const { t, tabs } = d.need();
-  const tab = tabs.pick(session, optStr(a, "tab"));
+  const tab = await readTab(tabs, a, session);
   return tabs.run(
     tab,
     async () => {

@@ -5,6 +5,7 @@
 // frame tree, as in the snapshot header). Regions, data blocks and controls
 // come in later cells.
 
+import { readTab } from "./readtab.ts";
 import type { Daemon } from "../state.ts";
 import { inspectPage } from "../adapters/runtime.ts";
 import { cutText, headerLines, LABEL } from "../adapters/view.ts";
@@ -21,7 +22,7 @@ export const OUTLINE_MAX_CHARS = 6000;
 export async function outline(d: Daemon, a: Args, session: string): Promise<unknown> {
   const maxChars = Math.max(500, Math.min(optNum(a, "maxChars") ?? OUTLINE_MAX_CHARS, 60_000));
   const { t, tabs } = d.need();
-  const tab = tabs.pick(session, optStr(a, "tab"));
+  const tab = await readTab(tabs, a, session);
   return tabs.run(
     tab,
     async () => {

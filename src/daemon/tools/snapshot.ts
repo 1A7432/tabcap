@@ -7,6 +7,7 @@
 // the tree (browser/axfilter.ts); the header and the ref table stay those of
 // the full snapshot.
 
+import { readTab } from "./readtab.ts";
 import { protectionField } from "../protection/live.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -455,7 +456,7 @@ export async function renderSnapshot(d: Daemon, t: Transport, tab: Tab, o: Snaps
 export async function snapshot(d: Daemon, a: Args, session: string): Promise<unknown> {
   const o = snapshotOptions(a);
   const { t, tabs } = d.need();
-  const tab = tabs.pick(session, optStr(a, "tab"));
+  const tab = await readTab(tabs, a, session);
   return tabs.run(tab, () => renderSnapshot(d, t, tab, o), { timeoutMs: timeoutOf(a) });
 }
 
@@ -541,7 +542,7 @@ type FindDoc = { frame: FrameNode | null; root: AxNode; refFor: RefFor; sessionI
 export async function find(d: Daemon, a: Args, session: string): Promise<unknown> {
   const text = reqStr(a, "text", "tabcap find <text>");
   const { t, tabs } = d.need();
-  const tab = tabs.pick(session, optStr(a, "tab"));
+  const tab = await readTab(tabs, a, session);
   return tabs.run(
     tab,
     async () => {

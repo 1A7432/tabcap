@@ -785,6 +785,8 @@ export type Manifest = {
     account: string | null;
     /** 0.4-D: the proxy name the session went out through, `system` / `none`, or null (names only). */
     proxy?: string | null;
+    /** docs/04 §52.5: `session start --purpose`, one line; null when the session has none (absent in bundles before it). */
+    purpose?: string | null;
     tabs: ManifestTab[];
   };
   mode: { capture: CaptureMode; trace: false | TraceMode; raw: boolean; humanRecorder: boolean; sample?: boolean };

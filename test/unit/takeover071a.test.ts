@@ -294,6 +294,7 @@ describe("daemon answers (no browser)", () => {
   test("status next for a take-over (pure): nobody to tell, the user is at the tab", () => {
     const s: StatusSession = {
       session: "a",
+      purpose: null,
       site: null,
       account: null,
       tabSite: null,

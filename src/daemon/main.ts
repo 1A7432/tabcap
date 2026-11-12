@@ -108,7 +108,9 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   // docs/04 §52.2: a tab someone else navigated is not acted on until the session acknowledges it.
   const tabsNow = d.browser?.tabs ?? null;
   const tabArg = action !== "tab.close" && action !== "tab.use" && typeof args["tab"] === "string" ? args["tab"] : null;
-  const currentTab = () => tabArg ?? tabsNow?.session(session)?.current ?? null;
+  // docs/04 §52.3: `--target` reads a tab that is not the session's: no session tab is involved.
+  const viewing = typeof args["target"] === "string";
+  const currentTab = () => (viewing ? null : (tabArg ?? tabsNow?.session(session)?.current ?? null));
   const changedTabId = action === "tab.use" ? (typeof args["tab"] === "string" ? args["tab"] : null) : currentTab();
   const changedTab = changedTabId === null ? undefined : tabsNow?.tabs.get(changedTabId);
   const change = changedTab !== undefined && changedTab.session === session && !changedTab.closed ? (tabsNow?.changedOf(changedTab.id) ?? null) : null;

@@ -1668,6 +1668,14 @@ export class Recorder {
   }
 
   /** Record the store site / account / proxy (names only) of the session in the manifest (docs/04 §7, §8.1). */
+  /** docs/04 §52.5: the session's purpose in the manifest (`session.purpose`). */
+  setPurpose(purpose: string | null): void {
+    if (this.writerClosed) return;
+    this.writer.updateManifest((m) => {
+      m.session.purpose = purpose;
+    });
+  }
+
   setSite(site: string | null, account: string | null, proxy: string | null = null): void {
     if (this.writerClosed) return;
     this.writer.updateManifest((m) => {
