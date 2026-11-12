@@ -31,7 +31,8 @@ export function flattenAx(root: AxNode, refFor: RefFor): { lines: AxLine[]; refs
     const ref = wantsRef(n) && n.backendId !== null ? refFor(n.backendId) : null;
     if (ref !== null) refs++;
     const i = lines.length;
-    lines.push({ depth, text: `${"  ".repeat(depth)}- ${lineOf(n, ref)}`, match: lineOf(n, null), backendId: n.backendId, parent, kids: [] });
+    const same = n.sameRow === undefined ? null : refFor(n.sameRow);
+    lines.push({ depth, text: `${"  ".repeat(depth)}- ${lineOf(n, ref, same)}`, match: lineOf(n, null, same), backendId: n.backendId, parent, kids: [] });
     lines[parent]?.kids.push(i);
     for (const c of n.children) walk(c, depth + 1, i);
   };

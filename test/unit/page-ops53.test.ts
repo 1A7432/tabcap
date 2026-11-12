@@ -5,7 +5,7 @@
 // styles} with styles in LAYOUT_STYLES order.
 
 import { describe, expect, test } from "bun:test";
-import { applyLayout, countLines, splitLayer, wantsRef, lineOf, type AxNode } from "../../src/daemon/browser/ax.ts";
+import { applyLayout, countLines, findCandidates, lineOf, nameRows, splitLayer, wantsRef, type AxNode } from "../../src/daemon/browser/ax.ts";
 import { iconName, inside, LAYOUT_STYLES, parseLayout } from "../../src/daemon/browser/layout.ts";
 import { ambiguousError, notVisibleError } from "../../src/daemon/tools/input.ts";
 import { noticesOf } from "../../src/daemon/tools/notices.ts";
@@ -223,5 +223,51 @@ describe("notices (docs/04 §53.5)", () => {
   });
   test("more than 20 new text elements is a page change, not a notice: only live kinds stay", () => {
     expect(noticesOf([{ kind: "text", text: "row 1" }, { kind: "live", text: "3 results" }], 21)).toEqual([{ kind: "live", text: "3 results" }]);
+  });
+});
+
+describe("table rows (docs/04 §53.6)", () => {
+  // el-table with fixed columns: div.el-table > body-wrapper > table (main), > fixed > body > table (left), > fixed-right > body > table (right).
+  const nodes: N[] = [
+    { id: 1, parent: -1, name: "#document", type: 9, box: [0, 0, 800, 600] },
+    { id: 2, parent: 1, name: "BODY", box: [0, 0, 800, 600] },
+    { id: 10, parent: 2, name: "DIV", box: [0, 0, 800, 400] },
+    { id: 11, parent: 10, name: "DIV", box: [0, 0, 800, 400] },
+    { id: 12, parent: 11, name: "TABLE", box: [0, 0, 800, 400] },
+    { id: 20, parent: 10, name: "DIV", box: [0, 0, 100, 400] },
+    { id: 21, parent: 20, name: "DIV", box: [0, 0, 100, 400] },
+    { id: 22, parent: 21, name: "TABLE", box: [0, 0, 100, 400] },
+    { id: 30, parent: 10, name: "DIV", box: [700, 0, 100, 400] },
+    { id: 31, parent: 30, name: "DIV", box: [700, 0, 100, 400] },
+    { id: 32, parent: 31, name: "TABLE", box: [700, 0, 100, 400] },
+    { id: 40, parent: 2, name: "TABLE", box: [0, 500, 300, 40] },
+  ];
+  const l = parseLayout(snap(nodes));
+  const row = (id: number, cells: string[], extra: AxNode[] = []) => ax("row", "", id, [...cells.map((c, i) => ax("cell", c, id * 10 + i)), ...extra]);
+  const del = (n: number) => ax("button", "删除", 9000 + n);
+  const tree = () =>
+    ax("RootWebArea", "T", 1, [
+      ax("table", "", 12, [row(120, ["", "A01", "2026"]), row(121, ["", "A02", "2026"])]),
+      ax("table", "", 22, [row(220, ["甲公司"]), row(221, ["乙公司"])]),
+      ax("table", "", 32, [ax("row", "", 320, [ax("cell", "", 3200, [del(1)])]), ax("row", "", 321, [ax("cell", "", 3210, [del(2)])])]),
+      ax("table", "", 40, [row(400, ["x", "y"])]),
+    ]);
+  test("copies of a row get one name from all their cells; copies after the first say which row they are", () => {
+    const t = tree();
+    nameRows(t, l);
+    const rows = (k: number) => t.children[k]?.children ?? [];
+    expect(rows(0).map((r) => r.name)).toEqual(["A01 2026 甲公司 删除", "A02 2026 乙公司 删除"]);
+    expect(rows(1)[0]?.sameRow).toBe(120);
+    expect(rows(2)[1]?.sameRow).toBe(121);
+    expect(rows(0)[0]?.sameRow).toBeUndefined();
+    expect(rows(3)[0]?.name).toBe("x y");
+    expect(lineOf(rows(2)[0] ?? ax("row", "", null), "e9", "e3")).toBe('row "A01 2026 甲公司 删除" (same row as e3) [e9]');
+  });
+  test("find --within: only hits under a line whose name has the text; row copies are not hits", () => {
+    const t = tree();
+    nameRows(t, l);
+    const hits = findCandidates(t, "删除", 20, "乙公司").cands;
+    expect(hits.map((h) => h.node.backendId)).toEqual([9002]);
+    expect(findCandidates(t, "甲公司", 20).cands.map((h) => h.node.backendId)).toEqual([120, 2200]);
   });
 });

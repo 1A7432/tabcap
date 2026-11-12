@@ -426,7 +426,14 @@ export const COMMANDS: CommandSpec[] = [
     example: "tabcap outline",
     action: "outline",
   },
-  { path: ["find"], pos: ["text..."], flags: TTR, summary: "search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs), clickable ones first", example: "tabcap find Add to cart", action: "find" },
+  {
+    path: ["find"],
+    pos: ["text..."],
+    flags: [...TTR, { flag: "--within", key: "within", kind: "string", help: "only hits under a line whose name contains this text (a table row, list item or card; rows without a name are named by their cells' text)", metavar: "text" }],
+    summary: "search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs; a text hit's ref is the element holding the text), clickable ones first",
+    example: "tabcap find 删除 --within 甲公司",
+    action: "find",
+  },
   {
     path: ["html"],
     pos: ["ref"],

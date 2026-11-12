@@ -1618,7 +1618,7 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
     },
     {
       "daemon": true,
-      "example": "tabcap find Add to cart",
+      "example": "tabcap find 删除 --within 甲公司",
       "flags": [
         {
           "alias": null,
@@ -1664,6 +1664,17 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "type": "string",
           "valueOptional": false,
         },
+        {
+          "alias": null,
+          "default": null,
+          "flag": "--within",
+          "help": "only hits under a line whose name contains this text (a table row, list item or card; rows without a name are named by their cells' text)",
+          "key": "within",
+          "repeatable": false,
+          "required": false,
+          "type": "string",
+          "valueOptional": false,
+        },
       ],
       "internal": false,
       "name": "find",
@@ -1678,8 +1689,8 @@ exports[`CLI contract (schema snapshot) tabcap schema --json is unchanged 1`] = 
           "variadic": true,
         },
       ],
-      "summary": "search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry \`frame\` and frame-path refs), clickable ones first",
-      "usage": "tabcap find <text> [--session name] [--timeout ms] [--tab t2] [--target target]",
+      "summary": "search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry \`frame\` and frame-path refs; a text hit's ref is the element holding the text), clickable ones first",
+      "usage": "tabcap find <text> [--session name] [--timeout ms] [--tab t2] [--target target] [--within text]",
     },
     {
       "daemon": true,

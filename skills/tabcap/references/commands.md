@@ -401,18 +401,19 @@ Example: `tabcap outline`
 
 ### `tabcap find`
 
-search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs), clickable ones first
+search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs; a text hit's ref is the element holding the text), clickable ones first
 
 ```
-tabcap find <text> [--session name] [--timeout ms] [--tab t2] [--target target]
+tabcap find <text> [--session name] [--timeout ms] [--tab t2] [--target target] [--within text]
 ```
 
-Example: `tabcap find Add to cart`
+Example: `tabcap find 删除 --within 甲公司`
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--target <target>` |  | read this tab of the browser instead (another session's, the user's, another tool's): `target` from `tab list --all`, or 8+ characters of it; not taken, not recorded, refs only for commands with the same --target |
+| `--within <text>` |  | only hits under a line whose name contains this text (a table row, list item or card; rows without a name are named by their cells' text) |
 
 ### `tabcap wait`
 

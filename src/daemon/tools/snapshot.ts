@@ -16,7 +16,7 @@ import { isRecord, num, str } from "../../shared/json.ts";
 import { markLanding } from "./landing.ts";
 import { LAYOUT_STYLES, parseLayout, type PageLayout } from "../browser/layout.ts";
 import { log } from "../../shared/log.ts";
-import { applyLayout, countLines, splitLayer, buildAxTree, findCandidates, hitOf, interactiveOnly, rankClickable, renderAxTree, textInputsWithValue, type AxNode, type FindCandidate, type RefFor, type Rendered } from "../browser/ax.ts";
+import { applyLayout, countLines, nameRows, splitLayer, buildAxTree, findCandidates, hitOf, interactiveOnly, rankClickable, renderAxTree, textInputsWithValue, type AxNode, type FindCandidate, type RefFor, type Rendered } from "../browser/ax.ts";
 import { flattenAx, grepAx, nodesAx, pickLines, subtreeLines } from "../browser/axfilter.ts";
 import { inspectPage } from "../adapters/runtime.ts";
 import { cutText, headerLines, type Overlay } from "../adapters/view.ts";
@@ -84,6 +84,7 @@ export async function axTree(t: Transport, tab: Tab, verbose = false): Promise<T
     const pw = await passwordIds(t, tab.sessionId, raw);
     const built = buildAxTree(raw, pw, { verbose });
     const root = built === null ? null : applyLayout(built, layout, verbose);
+    if (root !== null) nameRows(root, layout);
     if (root === null) throw new TabcapError("page", "the accessibility tree is empty", "Wait for the page to render (`tabcap screenshot`), then snapshot again.");
     tab.refs.setDocument(after);
     return { root, doc: after, layout };
@@ -163,7 +164,9 @@ async function frameView(t: Transport, tab: Tab, f: FrameNode, o: SnapshotOption
   try {
     const raw = await t.send("Accessibility.getFullAXTree", { frameId: f.frameId }, f.sessionId, 30_000);
     const built = buildAxTree(raw, await passwordIds(t, f.sessionId, raw), { verbose: o.verbose });
-    const root = built === null ? null : applyLayout(built, await pageLayout(t, f.sessionId), o.verbose);
+    const flayout = await pageLayout(t, f.sessionId);
+    const root = built === null ? null : applyLayout(built, flayout, o.verbose);
+    if (root !== null) nameRows(root, flayout);
     if (root === null) return "(empty)";
     const view = o.interactive ? (interactiveOnly(root) ?? root) : root;
     // 0.6-J: controls whose click lands on a descendant get `landing="child"`.
@@ -618,7 +621,8 @@ type FindDoc = { frame: FrameNode | null; root: AxNode; refFor: RefFor; sessionI
  * `framesSkipped`. Clickable hits first over all documents, document order otherwise.
  */
 export async function find(d: Daemon, a: Args, session: string): Promise<unknown> {
-  const text = reqStr(a, "text", "tabcap find <text>");
+  const text = reqStr(a, "text", "tabcap find <text> [--within <text>]");
+  const within = optStr(a, "within");
   const { t, tabs } = d.need();
   const tab = await readTab(tabs, a, session);
   return tabs.run(
@@ -640,7 +644,7 @@ export async function find(d: Daemon, a: Args, session: string): Promise<unknown
       const cands: Cand[] = [];
       let total = 0;
       for (const x of docs) {
-        const r = findCandidates(x.root, text, Math.max(0, FIND_SCAN - cands.length));
+        const r = findCandidates(x.root, text, Math.max(0, FIND_SCAN - cands.length), within === null || within.trim() === "" ? null : within);
         total += r.total;
         for (const c of r.cands) cands.push({ c, doc: x });
       }
@@ -670,6 +674,7 @@ export async function find(d: Daemon, a: Args, session: string): Promise<unknown
         url: doc.url,
         nav: d.navOf(tab),
         query: text,
+        ...(within === null ? {} : { within }),
         total,
         order: "clickable first, then document order",
         ...(frames + skipped > 0 ? { frames, ...(skipped > 0 ? { framesSkipped: skipped } : {}) } : {}),
