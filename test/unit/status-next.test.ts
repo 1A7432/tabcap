@@ -10,7 +10,7 @@ import { conflictsOf, nextOf, STATUS_SCHEMA, type StatusFacts, type StatusGuardS
 const OFF = { state: "off" as const, decode: false, weakRows: null };
 
 function sess(name: string, o: Partial<StatusSession> = {}): StatusSession {
-  return { session: name, site: "shop", account: "alice", tabSite: null, tabs: 1, current: "t1", url: null, recording: null, state: "running", reason: null, screenshot: null, trace: OFF, guardStops: [], protection: [], ...o };
+  return { session: name, purpose: null, site: "shop", account: "alice", tabSite: null, tabs: 1, current: "t1", url: null, recording: null, state: "running", reason: null, screenshot: null, trace: OFF, guardStops: [], protection: [], ...o };
 }
 
 function facts(sessions: StatusSession[], o: Partial<StatusFacts> = {}): StatusFacts {

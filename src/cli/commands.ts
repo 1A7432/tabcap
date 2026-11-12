@@ -66,6 +66,16 @@ const T = [SESSION, TIMEOUT];
 const TAB: FlagSpec = { flag: "--tab", key: "tab", kind: "string", help: "act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab", metavar: "t2" };
 /** Session, timeout and --tab: the flags of commands that act on one tab. */
 const TT = [SESSION, TIMEOUT, TAB];
+/** docs/04 §52.3: read any tab of the browser without taking it (read-only commands only). */
+const TARGET: FlagSpec = {
+  flag: "--target",
+  key: "target",
+  kind: "string",
+  help: "read this tab of the browser instead (another session's, the user's, another tool's): `target` from `tab list --all`, or 8+ characters of it; not taken, not recorded, refs only for commands with the same --target",
+  metavar: "target",
+};
+/** Session, timeout, --tab and --target: read-only commands that can look at any tab. */
+const TTR = [...TT, TARGET];
 const WAIT_TIMEOUT: FlagSpec = { flag: "--timeout", key: "timeoutMs", kind: "number", help: "give up after this many ms (max 120000)", default: 10000, metavar: "ms" };
 /** Flags most browser commands share; the generated docs mention them once instead of per row. */
 export const COMMON_FLAGS: readonly string[] = ["--session", "--timeout"];
@@ -293,6 +303,7 @@ export const COMMANDS: CommandSpec[] = [
         help: "which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); every account session gets its own browser context (through the account's proxy when it is bound to one)",
         metavar: "user|auto",
       },
+      { flag: "--purpose", key: "purpose", kind: "string", help: "what this session is for, one line (≤ 200 chars), shown to other agents and the user in `tab list --all`, `session list` and `status` (an existing session only gets it updated)", metavar: "text" },
     ],
     summary: "create a session (navigate also creates it); --site binds a stored site → entryUrl, the secret references, account and proxy (names only)",
     example: "tabcap session start example --site example",
@@ -377,7 +388,7 @@ export const COMMANDS: CommandSpec[] = [
     path: ["snapshot"],
     pos: [],
     flags: [
-      ...TT,
+      ...TTR,
       { flag: "--interactive", key: "interactive", kind: "bool", help: "only controls (buttons, links, inputs …) and their ancestors" },
       { flag: "--verbose", key: "verbose", kind: "bool", help: "the full tree: keep unnamed wrappers and text that repeats its parent's name, add descriptions and capability flags (focusable, expandable …)" },
       { flag: "--max-chars", key: "maxChars", kind: "number", help: "truncate the tree text (the note says so and how to get more)", default: 12000, metavar: "n" },
@@ -407,19 +418,19 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["outline"],
     pos: [],
-    flags: [...TT, { flag: "--max-chars", key: "maxChars", kind: "number", help: "truncate the outline text", default: 6000, metavar: "n" }],
+    flags: [...TTR, { flag: "--max-chars", key: "maxChars", kind: "number", help: "truncate the outline text", default: 6000, metavar: "n" }],
     summary:
       "page map head: tab line, overlays (dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs; also inside frames), detected (adapters, with confidence), frames (path, url, same-origin / cross-origin, depth, title), popups; read-only, never closes anything",
     example: "tabcap outline",
     action: "outline",
   },
-  { path: ["find"], pos: ["text..."], flags: TT, summary: "search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs), clickable ones first", example: "tabcap find Add to cart", action: "find" },
+  { path: ["find"], pos: ["text..."], flags: TTR, summary: "search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs), clickable ones first", example: "tabcap find Add to cart", action: "find" },
   {
     path: ["html"],
     pos: ["ref"],
     optional: 1,
     flags: [
-      ...TT,
+      ...TTR,
       { flag: "--css", key: "css", kind: "string", help: "the first element this CSS selector matches in the root document, instead of a ref (`matched` counts all)", metavar: "selector" },
       { flag: "--inner", key: "inner", kind: "bool", help: "innerHTML instead of outerHTML" },
       { flag: "--text", key: "textContent", kind: "bool", help: "textContent instead of markup" },
@@ -523,7 +534,7 @@ export const COMMANDS: CommandSpec[] = [
     path: ["screenshot"],
     pos: [],
     flags: [
-      ...TT,
+      ...TTR,
       { flag: "--file-path", key: "filePath", kind: "string", help: "image path (default under ~/.local/share/tabcap/shots/)", metavar: "path" },
       { flag: "--full-page", key: "fullPage", kind: "bool", help: "the whole page, not just the viewport (not with --ref)" },
       { flag: "--format", key: "format", kind: "string", help: "png | jpeg | webp", default: "png", metavar: "png|jpeg|webp" },

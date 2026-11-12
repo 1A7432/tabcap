@@ -176,6 +176,7 @@ export function parseManifest(raw: unknown): Manifest {
       site: str(sessionRaw, "site"),
       account: str(sessionRaw, "account"),
       ...("proxy" in sessionRaw ? { proxy: str(sessionRaw, "proxy") } : {}),
+      ...("purpose" in sessionRaw ? { purpose: str(sessionRaw, "purpose") } : {}),
       tabs,
     },
     mode,

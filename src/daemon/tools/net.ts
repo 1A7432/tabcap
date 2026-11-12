@@ -115,6 +115,7 @@ export async function netStart(d: Daemon, a: Args, session: string): Promise<unk
   d.store?.noteBundle({ path: dir, site: bound?.site ?? null, sessionName: session });
   d.guard.watch(r);
   d.recorders.set(session, r);
+  r.setPurpose(d.browser?.tabs.session(session)?.purpose ?? null);
   // Trace mode already on: this recording gets a trace window from now on (0.4-F).
   d.tracers.get(session)?.attachRecorder(r);
   return {

@@ -62,7 +62,12 @@ export type Session = {
   lastClosed: string | null;
   /** Tabs that were current, most recent first (0.7.3: fallback when the current tab closes). */
   recentCurrent: string[];
+  /** docs/04 §52.5: what the session is for, one line for other agents and the human; null when not given. */
+  purpose: string | null;
 };
+
+/** docs/04 §52.3: a page target of the browser that is not the asking session's; `held` is the tab of the session that has it. */
+export type OtherTab = { target: string; url: string; title: string; held: Tab | null };
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 
@@ -216,7 +221,7 @@ export class Tabs {
   ensureSession(name: string): { session: Session; created: boolean } {
     const have = this.sessions.get(name);
     if (have !== undefined) return { session: have, created: false };
-    const s: Session = { name, tabs: [], current: null, created: Date.now(), lastClosed: null, recentCurrent: [] };
+    const s: Session = { name, tabs: [], current: null, created: Date.now(), lastClosed: null, recentCurrent: [], purpose: null };
     this.sessions.set(name, s);
     return { session: s, created: true };
   }
@@ -292,9 +297,45 @@ export class Tabs {
     });
   }
 
-  /** `tab list --all`: page targets of no session, for `tab adopt`. */
-  async others(): Promise<{ target: string; url: string; title: string }[]> {
-    return (await this.pageTargets()).filter((x) => this.byTarget(x.targetId) === undefined).map((x) => ({ target: x.targetId.toLowerCase(), url: x.url, title: x.title }));
+  /** `tab list --all` (docs/04 §51, §52.3): every page target that is not `session`'s, with the tab of the session holding it. */
+  async others(session: string): Promise<OtherTab[]> {
+    return (await this.pageTargets()).flatMap((x) => {
+      const held = this.byTarget(x.targetId) ?? null;
+      if (held !== null && held.session === session) return [];
+      return [{ target: x.targetId.toLowerCase(), url: x.url, title: x.title, held }];
+    });
+  }
+
+  /** The one page target `ref` names: a target id or a prefix of at least ADOPT_MIN_PREFIX characters (docs/04 §51). */
+  private async resolveTarget(ref: string, verb: string): Promise<PageTarget> {
+    const prefix = ref.toLowerCase();
+    if (prefix.length < ADOPT_MIN_PREFIX) throw new TabcapError("usage", `${verb} needs at least ${ADOPT_MIN_PREFIX} characters of the target, got "${ref}"`, "Copy `target` from `tabcap tab list --all`.");
+    const hits = (await this.pageTargets()).filter((x) => x.targetId.toLowerCase().startsWith(prefix));
+    const hit = hits[0];
+    if (hit === undefined) throw new TabcapError("not-found", `no tab with target ${ref}`, "Run `tabcap tab list --all` to see the browser's other tabs.");
+    if (hits.length > 1) throw new TabcapError("usage", `target ${ref} matches ${hits.length} tabs: ${hits.map((x) => x.targetId.toLowerCase()).join(", ")}`, "Give more characters of the target.");
+    return hit;
+  }
+
+  /** docs/04 §52.3: read-only views of any page target (`--target`), by target id; in no session, with refs of their own. */
+  private viewers = new Map<string, Tab>();
+
+  /**
+   * docs/04 §52.3: a tab object for reading the page target `ref` without taking it:
+   * not in any session, not recorded, no listener, its own ref table (so another
+   * session's refs stay as they were), id `@<first 8 of the target>`.
+   */
+  async viewTarget(ref: string): Promise<Tab> {
+    const hit = await this.resolveTarget(ref, "--target");
+    let v = this.viewers.get(hit.targetId);
+    if (v === undefined || v.closed) {
+      const attached = await this.t.waitAttached(hit.targetId, 5000);
+      v = this.makeTab(`@${hit.targetId.slice(0, ADOPT_MIN_PREFIX).toLowerCase()}`, attached, "", false, null, "borrowed");
+      this.viewers.set(hit.targetId, v);
+    }
+    v.url = hit.url;
+    v.title = hit.title;
+    return v;
   }
 
   /**
@@ -303,13 +344,7 @@ export class Tabs {
    * before the session is created, so a failed adopt leaves nothing behind.
    */
   async adopt(sessionName: string, ref: string): Promise<{ tab: Tab; already: boolean }> {
-    const prefix = ref.toLowerCase();
-    if (prefix.length < ADOPT_MIN_PREFIX) throw new TabcapError("usage", `tab adopt needs at least ${ADOPT_MIN_PREFIX} characters of the target, got "${ref}"`, "Copy `target` from `tabcap tab list --all`.");
-    const pages = await this.pageTargets();
-    const hits = pages.filter((x) => x.targetId.toLowerCase().startsWith(prefix));
-    const hit = hits[0];
-    if (hit === undefined) throw new TabcapError("not-found", `no tab with target ${ref}`, "Run `tabcap tab list --all` to see the tabs of no session.");
-    if (hits.length > 1) throw new TabcapError("usage", `target ${ref} matches ${hits.length} tabs: ${hits.map((x) => x.targetId.toLowerCase()).join(", ")}`, "Give more characters of the target.");
+    const hit = await this.resolveTarget(ref, "tab adopt");
     const held = this.byTarget(hit.targetId);
     if (held !== undefined) {
       if (held.session !== sessionName) throw new TabcapError("conflict", `that tab is ${held.id} of session "${held.session}"`, `Use it there, or \`tabcap session stop ${held.session}\` first.`);
@@ -332,11 +367,20 @@ export class Tabs {
     const existing = this.byTarget(x.targetId);
     if (existing !== undefined) return existing;
     const { session } = this.ensureSession(sessionName);
-    const tab: Tab = {
-      id: `t${++this.tabSeq}`,
+    const tab = this.makeTab(`t${++this.tabSeq}`, x, session.name, owned, opener, reason);
+    this.tabs.set(tab.id, tab);
+    this.joined.set(tab.id, this.tick());
+    session.tabs.push(tab.id);
+    log.info("tab registered", { tab: tab.id, session: session.name, owned, opener });
+    return tab;
+  }
+
+  private makeTab(id: string, x: AttachedTarget, session: string, owned: boolean, opener: string | null, reason: Tab["reason"]): Tab {
+    return {
+      id,
       targetId: x.targetId,
       sessionId: x.sessionId,
-      session: session.name,
+      session,
       owned,
       reason,
       opener,
@@ -354,11 +398,6 @@ export class Tabs {
       pointer: null,
       emulation: {},
     };
-    this.tabs.set(tab.id, tab);
-    this.joined.set(tab.id, this.tick());
-    session.tabs.push(tab.id);
-    log.info("tab registered", { tab: tab.id, session: session.name, owned, opener });
-    return tab;
   }
 
   private async fireAdded(tab: Tab): Promise<void> {
@@ -584,6 +623,11 @@ export class Tabs {
       const id = str(e.params, "targetId");
       const tab = id === null ? undefined : this.byTarget(id);
       if (tab !== undefined) this.markClosed(tab);
+      const v = id === null ? undefined : this.viewers.get(id);
+      if (v !== undefined && id !== null) {
+        v.closed = true;
+        this.viewers.delete(id);
+      }
       return;
     }
     if (e.method === "Target.targetInfoChanged") {

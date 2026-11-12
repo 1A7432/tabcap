@@ -55,7 +55,7 @@ describe("tab list --all: others", () => {
       { targetId: "WORK", type: "service_worker", url: "http://x/sw.js" },
     ]);
     await tabs.createTab("a");
-    expect(await tabs.others()).toEqual([{ target: HUMAN.toLowerCase(), url: "http://x/a", title: "A" }]);
+    expect(await tabs.others("a")).toEqual([{ target: HUMAN.toLowerCase(), url: "http://x/a", title: "A", held: null }]);
   });
 });
 
@@ -67,7 +67,7 @@ describe("tab adopt", () => {
     expect(tab).toMatchObject({ session: "a", owned: false, reason: "borrowed", opener: null, url: "http://x/a" });
     expect(tabs.session("a")?.current).toBe(tab.id);
     expect(sent.filter((m) => m === "Target.activateTarget" || m === "Page.bringToFront")).toEqual([]);
-    expect(await tabs.others()).toEqual([]);
+    expect(await tabs.others("a")).toEqual([]);
   });
 
   test("a prefix is case-insensitive; too short is usage; unknown is not-found; a failed adopt creates no session", async () => {
@@ -102,7 +102,7 @@ describe("tab adopt", () => {
     const first = await tabs.adopt("a", HUMAN);
     expect(await tabs.dropSession("a")).toEqual({ closed: [], released: [first.tab.id] });
     expect(sent).not.toContain("Target.closeTarget");
-    expect(await tabs.others()).toHaveLength(1);
+    expect(await tabs.others("a")).toHaveLength(1);
     expect((await tabs.adopt("a", HUMAN)).tab.id).not.toBe(first.tab.id);
   });
 

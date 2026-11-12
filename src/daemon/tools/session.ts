@@ -11,9 +11,22 @@ import type { Transport } from "../transport/types.ts";
 import { checkSessionName, optBool, optStr, reqStr, type Args } from "./args.ts";
 import { stopTrace } from "./trace.ts";
 import { changeField } from "./drift.ts";
-import type { TabChange } from "../browser/targets.ts";
+import type { Tab, TabChange } from "../browser/targets.ts";
 
-const START_USAGE = "tabcap session start <name> [--site <site>] [--account <user>|auto]";
+const START_USAGE = "tabcap session start <name> [--site <site>] [--account <user>|auto] [--purpose <text>]";
+
+/** docs/04 §52.5: at most this many characters of `--purpose`. */
+export const MAX_PURPOSE = 200;
+
+/** docs/04 §52.5: `--purpose` is one line of at most MAX_PURPOSE characters; null when not given. */
+export function parsePurpose(v: string | null): string | null {
+  if (v === null) return null;
+  if (/[\r\n]/.test(v)) throw new TabcapError("usage", "--purpose must be one line", `Usage: ${START_USAGE}`);
+  const p = v.trim();
+  if (p === "") throw new TabcapError("usage", "--purpose must not be empty", `Usage: ${START_USAGE}`);
+  if (p.length > MAX_PURPOSE) throw new TabcapError("usage", `--purpose is longer than ${MAX_PURPOSE} characters (${p.length})`, `Usage: ${START_USAGE}`);
+  return p;
+}
 
 /**
  * `session start <name> [--site <s>] [--account <user>|auto]` (0.4-D): the
@@ -28,6 +41,7 @@ export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
   const siteArg = optStr(a, "site");
   const accountArg = optStr(a, "account");
   if (accountArg !== null && siteArg === null) throw new TabcapError("usage", "--account needs --site", `Usage: ${START_USAGE}`);
+  const purposeArg = parsePurpose(optStr(a, "purpose"));
   const { t, tabs } = d.need();
   let binding: SiteBinding | null = null;
   let restored: number | null = null;
@@ -55,6 +69,11 @@ export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
     }
   }
   const { session, created } = tabs.ensureSession(name);
+  // docs/04 §52.5: an existing session only gets its purpose updated; it goes through the secret scrubber.
+  if (purposeArg !== null) {
+    session.purpose = d.secrets.scrub(purposeArg);
+    d.recorders.get(name)?.setPurpose(session.purpose);
+  }
   if (binding !== null) {
     d.sites.set(name, binding);
     d.recorders.get(name)?.setSite(binding.site, binding.account, binding.proxy);
@@ -64,6 +83,7 @@ export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
   return {
     session: session.name,
     created,
+    purpose: session.purpose,
     tabs: tabs.sessionTabs(name).map((x) => x.id),
     site: b?.site ?? null,
     account: b?.account ?? null,
@@ -212,6 +232,7 @@ export function sessionList(d: Daemon): unknown {
   return {
     sessions: [...tabs.sessions.values()].map((s) => ({
       session: s.name,
+      purpose: s.purpose,
       tabs: tabs.sessionTabs(s.name).map((x) => x.id),
       current: s.current,
       recording: d.recorders.has(s.name),
@@ -236,6 +257,25 @@ export async function refreshTabInfo(d: Daemon, session: string): Promise<void> 
   }
 }
 
+/**
+ * docs/04 §52.3: who holds another session's tab, for `tab list --all`: the session, its tab id,
+ * owned, the session's purpose, whether it has its own browser context (another window),
+ * its last action command, and the tab's unacknowledged change.
+ */
+function holderOf(d: Daemon, held: Tab): Record<string, unknown> {
+  const { tabs } = d.need();
+  const last = d.lastAction(held.session);
+  return {
+    session: held.session,
+    tab: held.id,
+    owned: held.owned,
+    purpose: tabs.session(held.session)?.purpose ?? null,
+    isolated: tabs.contexts.has(held.session),
+    lastAction: last === null ? null : { action: last.action, at: new Date(last.at).toISOString() },
+    ...changedRow(tabs.changedOf(held.id)),
+  };
+}
+
 /** docs/04 §52.2: a `tab list` row carries `changed` only when the tab has an unacknowledged change. */
 const changedRow = (c: TabChange | null) => (c === null ? {} : { changed: changeField(c) });
 
@@ -258,7 +298,7 @@ export async function tabsList(d: Daemon, a: Args, session: string): Promise<unk
       dialog: x.dialog === null ? null : x.dialog.type,
       ...changedRow(tabs.changedOf(x.id)),
     })),
-    ...(optBool(a, "all") ? { others: await tabs.others() } : {}),
+    ...(optBool(a, "all") ? { others: (await tabs.others(session)).map((o) => ({ target: o.target, url: o.url, title: o.title, holder: o.held === null ? null : holderOf(d, o.held) })) } : {}),
   };
 }
 

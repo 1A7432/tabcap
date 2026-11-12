@@ -357,7 +357,7 @@ Example: `tabcap reload --ignore-cache`
 accessibility tree as indented text, one element per line: role "name" [ref] flags (e.g. `- button "Save" [e12] disabled`); refs are for click / fill and expire when the document changes; starts with the overlay header (overlays / detected / frames, counts toward --max-chars); child frames are header lines until --frames / --frame
 
 ```
-tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--interactive] [--verbose] [--max-chars n] [--file-path path] [--frames] [--frame f2/f1] [--grep regex] [--css selector] [--xpath expr] [--ref e12] [--depth n] [--context n] [--max-matches n]
+tabcap snapshot [--session name] [--timeout ms] [--tab t2] [--target target] [--interactive] [--verbose] [--max-chars n] [--file-path path] [--frames] [--frame f2/f1] [--grep regex] [--css selector] [--xpath expr] [--ref e12] [--depth n] [--context n] [--max-matches n]
 ```
 
 Example: `tabcap snapshot --interactive`
@@ -365,6 +365,7 @@ Example: `tabcap snapshot --interactive`
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--target <target>` |  | read this tab of the browser instead (another session's, the user's, another tool's): `target` from `tab list --all`, or 8+ characters of it; not taken, not recorded, refs only for commands with the same --target |
 | `--interactive` |  | only controls (buttons, links, inputs …) and their ancestors |
 | `--verbose` |  | the full tree: keep unnamed wrappers and text that repeats its parent's name, add descriptions and capability flags (focusable, expandable …) |
 | `--max-chars <n>` | `12000` | truncate the tree text (the note says so and how to get more) |
@@ -384,7 +385,7 @@ Example: `tabcap snapshot --interactive`
 page map head: tab line, overlays (dialogs, masks, iframe layers, timeout prompts, consent banners, with close-button refs; also inside frames), detected (adapters, with confidence), frames (path, url, same-origin / cross-origin, depth, title), popups; read-only, never closes anything
 
 ```
-tabcap outline [--session name] [--timeout ms] [--tab t2] [--max-chars n]
+tabcap outline [--session name] [--timeout ms] [--tab t2] [--target target] [--max-chars n]
 ```
 
 Example: `tabcap outline`
@@ -392,6 +393,7 @@ Example: `tabcap outline`
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--target <target>` |  | read this tab of the browser instead (another session's, the user's, another tool's): `target` from `tab list --all`, or 8+ characters of it; not taken, not recorded, refs only for commands with the same --target |
 | `--max-chars <n>` | `6000` | truncate the outline text |
 
 ### `tabcap find`
@@ -399,7 +401,7 @@ Example: `tabcap outline`
 search the accessibility tree (name, value, description) of the page and every child frame; up to 20 hits with refs (frame hits carry `frame` and frame-path refs), clickable ones first
 
 ```
-tabcap find <text> [--session name] [--timeout ms] [--tab t2]
+tabcap find <text> [--session name] [--timeout ms] [--tab t2] [--target target]
 ```
 
 Example: `tabcap find Add to cart`
@@ -407,6 +409,7 @@ Example: `tabcap find Add to cart`
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--target <target>` |  | read this tab of the browser instead (another session's, the user's, another tool's): `target` from `tab list --all`, or 8+ characters of it; not taken, not recorded, refs only for commands with the same --target |
 
 ### `tabcap wait`
 
@@ -572,7 +575,7 @@ Example: `tabcap evaluate 'document.title'`
 save an image of the tab, the full page or one element (works on background tabs) → path, width, height (never the image itself)
 
 ```
-tabcap screenshot [--session name] [--timeout ms] [--tab t2] [--file-path path] [--full-page] [--format png|jpeg|webp] [--quality 0-100] [--ref e12]
+tabcap screenshot [--session name] [--timeout ms] [--tab t2] [--target target] [--file-path path] [--full-page] [--format png|jpeg|webp] [--quality 0-100] [--ref e12]
 ```
 
 Example: `tabcap screenshot --full-page`
@@ -580,6 +583,7 @@ Example: `tabcap screenshot --full-page`
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--target <target>` |  | read this tab of the browser instead (another session's, the user's, another tool's): `target` from `tab list --all`, or 8+ characters of it; not taken, not recorded, refs only for commands with the same --target |
 | `--file-path <path>` |  | image path (default under ~/.local/share/tabcap/shots/) |
 | `--full-page` |  | the whole page, not just the viewport (not with --ref) |
 | `--format <png\|jpeg\|webp>` | `png` | png \| jpeg \| webp |
@@ -1501,7 +1505,7 @@ Example: `tabcap account set-state example.alice disabled`
 one element's markup: outerHTML (default), --inner, --text or --attrs, by ref (frame refs too) or --css; read in an isolated world, read-only, secret-scrubbed
 
 ```
-tabcap html [<ref>] [--session name] [--timeout ms] [--tab t2] [--css selector] [--inner] [--text] [--attrs] [--max-chars n]
+tabcap html [<ref>] [--session name] [--timeout ms] [--tab t2] [--target target] [--css selector] [--inner] [--text] [--attrs] [--max-chars n]
 ```
 
 Example: `tabcap html e12 --inner`
@@ -1509,6 +1513,7 @@ Example: `tabcap html e12 --inner`
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--target <target>` |  | read this tab of the browser instead (another session's, the user's, another tool's): `target` from `tab list --all`, or 8+ characters of it; not taken, not recorded, refs only for commands with the same --target |
 | `--css <selector>` |  | the first element this CSS selector matches in the root document, instead of a ref (`matched` counts all) |
 | `--inner` |  | innerHTML instead of outerHTML |
 | `--text` |  | textContent instead of markup |
