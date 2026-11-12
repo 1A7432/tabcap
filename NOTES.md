@@ -769,3 +769,8 @@
 - 做了什么：本机逐个文件跑 e2e（v02d 会抢作者前台，跳过）：第一轮 v04d、v06f、v10a 有失败，都是 §52 的直接后果（漏改一处 `browserContext:"own"`；默认上下文共用后无账号会话看得到账号会话的 localStorage；跨会话 `tab adopt` 不再是 `conflict`），改预期后三个文件全过，其余 46 个第一轮就全过；v11a 连跑 3 次全过【实测】。
 - 卡在哪：全量单测有 9 条 Python 相关的跳过：uv 离线缓存里没有 pytest 9.2.0（测试从不下载），与本格无关，要在 CI 或补齐缓存后再确认；v02d（s17）没跑。
 - 下一格从哪开始：作者决定是否开 PR（分支 `0.9.2-tab-visibility`，scratchpad worktree，`native/dist` 是拷进来的未跟踪文件，不要提交）。
+
+## 2026-11-12 · 0.9.1 报告其余几条：复现与设计（主循环）
+- 做了什么：作者定「先修两个 bug，其余一次写完一起审」。在 scratchpad 用真 Vue 2.7.16 + Element UI 2.15.14（不进仓库）复现：「trusted 点选项选错却回成功」复现，根因是 `find` 文字命中的 `ref` 落到最近有 ref 的祖先（整个下拉 `ul`），点的是列表中心【实测】；「el-dialog 不进快照」四种变体（默认、append-to-body、slot 标题、无遮罩 + evaluate 打开等 35 s）都没复现【实测】。写了 docs/04 §53（两个修法、可见性、`select`、`notices`、表格行与 `find --within`、`--wait requests`、`fetch --like` 现取鉴权头）与 docs/05 s79。分支 `0.9.3-page-ops`（叠在 `0.9.2-tab-visibility` 上）。
+- 卡在哪：门户上 `overlays none` 的真实原因【待验】，推断是大表格把挂在 body 末尾的弹窗挤出了 12000 字符的截断（只解释一半）；§53 全部字段待作者审。
+- 下一格从哪开始：作者审 §53 / s79，通过后按 §53.11 的顺序实现，53.1 先做。

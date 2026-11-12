@@ -1448,3 +1448,100 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - 单测：`test/unit/tab-drift52.test.ts`（`windowCovers`、`isExternalStart`、Tabs 的漂移状态、`decideChange`、错误字段）、`test/unit/tab-adopt.test.ts`（跨会话接管、`tab-taken` 只报一次、拒绝条件）、`test/unit/session06r.test.ts`（默认上下文、`defaultContextClash`、`--isolate` 下的全有或全无）。
 - 随之改的旧 e2e：v06d D6（第二个账号要 `--isolate`；没有账号的会话现在和账号会话共用 cookie）、v04d（池代理账号自动独立，`isolated:true`）、v06f（没有账号的会话现在看得到同站账号会话的 localStorage）、v09b / v09d / v10a 第 9 步（要独立上下文的场景加 `--isolate`）、v10a 第 5、6 步（别的会话接走再接回，包里两条 borrowed attach、一条 taken detach）。11-12 本机全量 e2e（除 v02d，它会抢前台）49 个文件全过【实测】。
 - 【待验】：有界面时新上下文是否真的另开窗口（作者看一眼即可）；`Page.navigate` 与地址栏输入在 `sec-fetch-user` 上是否不同（如果不同，§52.1 可以把 external 再分成 `human` 与 `cdp`）。
+
+## 53. 0.9.1 报告的其余几条：选错不报、看不见的弹窗、下拉选择、临时提示、表格行、命令触发的请求、`fetch --like`（11-12 作者定：先修两个 bug，其余一次写完一起审；字段与下列细节待作者审）
+
+来源：§52 的同一份真实门户报告（Vue 2 + Element UI 2 的代账门户，11-11），以及报告者 11-12 对每条的回复。这次会话里 tabcap 调用最多的是 `evaluate`（131 次），其中在页面里调接口 31 次、DOM 操作 65 次、直接改 Vue 组件 23 次，都是现有命令不够用时的绕路。复现用的是 scratchpad 里的真 Vue 2.7.16 + Element UI 2.15.14 页面（只用来对照，不进仓库；靶场页面照 AGENTS.md 手写，见 `05` s79）。
+
+范围：通用的、按无障碍树 / ARIA / 可见性 / 浮层做的能力进 tabcap；某个组件库内部的东西（Vue 实例的方法、Element 的 class 名）不进核心，留给 `evaluate` 或以后用户自己的适配器。
+
+### 53.1 修：文字命中的 ref 落到大容器上，点击「成功」却点错（bug）
+
+- **现象**：门户上 `find "1001 库存现金"` 返回 `e412`（`role:"text"`），`click e412 --trusted` 回答成功，保存进去的却是另一个科目。【实测 spike 11-12】同样的操作在 Element 2.15.14 上复现：目标是 1001，选中的是「220020 科目20」。
+- **根因**【实测】：`find` 的文字命中，`ref` 取「最近一个有 ref 的祖先」（`FindCandidate.ownId`）。Element 的 `li` / `span` 在无障碍树里是被忽略的通用节点，最近的祖先是整个下拉列表 `ul`（`role:"list"`）。点击取的是这个 `ul` 的中心：先 `scrollIntoView({block:"center"})` 把列表滚到中间，中心落在另一项上。落点检查（`OCCLUSION_FN`）只看「落点在不在目标里」，`ul` 当然包含那一项，所以放行；`delivered` 的探针也一样。同一条命中里的 `clickable`（`e28` → `<span>1001 库存现金</span>`）才是对的，报告者和复现时都点了 `ref`。
+- **修法**：
+  1. `find` 的文字命中（`role:"text"`，以及 name 来自子文字的节点），`ref` 改为**包含这段文字的最小元素**：文字节点的父元素，铸成 DOM 支撑的 ref（同 §27 的 `(no accessible node)` ref）。原来那个祖先 ref 不再作为 `ref` 给出；`path` 仍写祖先链。`clickable` 不变。
+  2. **点到别的可点子元素时拒绝**：`click`（DOM 与 `--trusted`）在按下前取落点元素 `hit`。如果 `hit` 不是目标本身，而是目标的后代，并且 `hit` 或它到目标之间的某个祖先是「可点的」（与 `HIT_FN` 同一判据：控件标签、`role=button|link|option|menuitem…`、`onclick`、`cursor:pointer`），而目标自己不可点，就回新错误 `ambiguous-target`：命令不执行，`error.landedOn` 写落点元素的标签与文字（至多 60 字符），`next` 写「你点的 <ref> 是一个容器，中心处是另一个可点元素 <文字>；用 `find <文字>` 拿那一项的 ref，或用命中结果里的 `clickable`」。
+  3. 点击回答多 `landedOn: {tag, text}`：实际按下处的元素（DOM 点击是目标自己），文字过秘密值替换，至多 60 字符。看一眼就能发现「点的不是想点的」。
+- 不改的：目标自己可点（按钮里的图标、链接里的文字）时照旧放行。
+
+### 53.2 修：弹窗开着，快照里找不到（bug，未复现，兜底）
+
+- **现象**（报告者 11-12 更正后的说法）：门户的「新建账套」el-dialog 开着时，`snapshot -i` 第一行是 `overlays  none`，正则在输出里找不到 `dialog "新建账套"`；当时只打印了第一行和前三条匹配，没有存整棵树。弹窗在顶层 document，不在 iframe 里；用 `evaluate` 的 `el.click()` 打开，约 38 s 后才拍快照。门户的模板（报告者本地的 app.js）：标题写在 `slot="title"`、没有 `title` 属性，`append-to-body`、`close-on-click-modal:false`，外层自定义 class；截图上背景没有遮罩变暗。
+- **没复现**【实测 spike 11-12，Element 2.15.14】：默认弹窗、`append-to-body`、`slot="title"`（无障碍名称退成 `"dialog"`）、`:modal="false"`、用 `evaluate` 打开等 35 s，四种情况快照里都有 `overlays o1 dialog "新建账套"` 和整个弹窗子树；里面 `display:none` 的同名「建账」按钮正确地被排除。门户的 Element 版本、qiankun 微前端的样式改写都没法离线确认。
+- **一个能解释一半的推断**：门户的表格有 28 行 × 十几列，左右固定列还各渲染一份（见 §53.6），`snapshot -i` 的树很容易超过默认 `--max-chars 12000`；`append-to-body` 的弹窗挂在 `body` 末尾，正好在被截掉的部分里。这能解释「搜不到 `dialog "新建账套"`」，解释不了 `overlays none`【推断】。
+- **修法（兜底，两件都做）**：
+  1. **浮层在前**：页面上有 overlay（§33 的 overlays 行认出的，或 §53.3 的「最上层」）时，快照先输出最上层浮层的子树，再输出其余部分；截断从其余部分截。头部多一行 `order  o1 first`。这样弹窗永远不会被表格挤出去。
+  2. **识别不依赖名称和遮罩**：overlay 识别再加一条 DOM 证据：可见的 `[role=dialog]` / `[aria-modal=true]` / `<dialog open>`，层叠在最上（`elementFromPoint` 取弹窗盒子中心落在它里面），面积占视口至少 15%。有它就算 overlay，不要求可访问名称、遮罩或铺满视口的外层；名称取不到时用标题区第一行文字（`[class*=title]` / 第一个 heading），再取不到写 `(unnamed)`。
+- 【待验】门户上 `overlays none` 的真实原因：报告者下次遇到时存整份 `snapshot -i --file-path` 和 `html --css '[role=dialog]' --attrs`。
+
+### 53.3 看不见的不出 ref，点看不见的拒绝；只给最上层
+
+- **不出 ref 的元素**：Chrome 的无障碍树已经排除 `display:none` / `visibility:hidden` / `hidden`。再排除：`getClientRects()` 为空；自身或祖先 `opacity:0`；被 `overflow:hidden|clip` 的祖先完全裁掉（不含可滚动的祖先：滚过去就看得见）；宽或高小于 1 px。这些节点在快照里不出行（`--verbose` 下出行，带 `invisible` 标记、没有 ref）；`find` 不返回它们。判定在隔离世界里按 `backendNodeId` 批量做，一次快照一次。
+- **点击不可见的目标**：`click` / `fill` / `type` / `hover` / `select` 的目标在执行时不可见（同上判据）回新错误 `not-visible`，命令不执行。旧 ref（可见时铸的，之后被隐藏）也走这一条。DOM 点击不再能点到隐藏的同名按钮（报告者那次是 `evaluate` 点的，但同样的 ref 用 `click` 也会点进去）。
+- **只给最上层**：页面上有模态的 overlay（`aria-modal=true`，或有遮罩、或铺满视口的外层）时，快照的其余部分默认折成一行 `… <n> lines behind o1 (--behind to show)`，`--behind` 才展开；有非模态 overlay 时照常展开。点被挡住的元素本来就回 `covered`（0.7.3），这里只是让模型一开始就看不到它们。
+- **只有图标的按钮**：没有可访问名称的 `button` / `role=button` / 带点击监听的元素，名称依次取 `title`、`aria-label`、内部 `<svg><title>`、class 里的提示词（`close`、`delete`、`edit`、`search`、`more`、`add`、`refresh`、`download`、`upload`），写成 `button "(icon: close)"`。只影响快照显示与 `find`，不改页面。
+
+### 53.4 新命令 `tabcap select <ref> <文字>`
+
+- 一条命令完成「打开下拉、在选项层里按文字选、确认值写回」。参数：`--exact`（整串相等，默认包含匹配）、`--trusted`（打开和点选项都用可信输入）、`--tab`、`--timeout`，以及动作命令通用的 `--no-wait` / `--snapshot`。动作元数据同 `click`（`blockedWhileWaiting`、`cmdWindow`）。
+- **原生 `<select>`**：按选项文字找 `<option>`，设 `selectedIndex`，派发 `input` + `change`（同 Playwright `selectOption`）。
+- **其余**：
+  1. 点 `<ref>` 打开（DOM 点击，`--trusted` 时可信）。
+  2. 找选项层：先 ARIA：`<ref>` 或它的输入框的 `aria-controls` / `aria-owns` 指向的元素，里面 `role=option`。【实测 spike】Element 2.15.14 的 el-select 输入框没有任何 ARIA 属性，选项 `li` 没有 role；el-autocomplete 的 `aria-controls` 是字面量 `"id"`。所以退到：**这次打开后变成可见的浮层**：点击前记下页面上可见的定位元素（`position: fixed|absolute`，`z-index` 不为 auto，或挂在 `body` 直下），点击后再看一次，新出现或由不可见变可见的、含文字的就是候选浮层；有多个取最上层（z-index 大、后加入的）。
+  3. 在浮层里按文字找选项：可见文字匹配的最小元素，往上取到最近的可点元素（同 §53.1 判据）为选项。完全相等优先；多个包含匹配又没有完全相等的回 `ambiguous-target`，列出至多 10 个候选文字；一个都没有回 `not-found`，列出浮层里至多 10 个选项文字；找不到任何浮层也回 `not-found`，`next` 建议先 `click <ref>` 再 `snapshot` 看看。在浮层的滚动容器里把它滚到可见，确认落点就是它（§53.1 的检查），再点。
+  4. **回读校验**：等动作的常规等待结束后，读 `<ref>` 所在控件显示的值（输入框的 `value`；不是输入框时取它的可见文字；有 `aria-activedescendant` 时取那个元素的文字），与目标文字比较（`--exact` 时相等，否则包含）。不一致回新错误 `not-selected`：`{wanted, got}`，`next` 写「下拉显示的是 <got>；`snapshot` 看看，必要时换 `--exact` 或 `--trusted` 再试」。命令已经点过了，所以 `not-selected` 的 `error.result` 带点击的回答（同 §18 `waiting` 的做法）。
+  5. 选完浮层还开着（自动补全一般会自己关）就留着，回答带 `layerOpen:true`。**不按 Escape、不点空白处**：报告者指出 Element 的 el-dialog 默认按 Esc 关闭、点遮罩也可能关闭，会把整个表单弹窗关掉。
+- 回答：`{tab, ref, selected:{text, option:"<浮层里那一项的 ref>"}, via:"native"|"aria"|"layer", value:"<回读到的值>", landedOn, effect, notices?, wait}`。
+- 不做：多选、带搜索的远程选项（输入文字后等接口返回再选：先 `type` 再 `select` 能覆盖，不另做）、级联选择器（多级浮层）。都进 backlog。
+
+### 53.5 动作回答带上命令期间出现的提示文字 `notices`
+
+- **为什么**：Element 的 `el-message`（`role=alert`）约 3 s 后消失，表单校验错误（`.el-form-item__error`，没有 role）在下一次快照前可能已变。【实测 spike】`click 建账 --snapshot` 能看到 `alert "科目为空"`，4 s 后的快照里已经没有。报告者「科目为空」「辅助核算不允许为空」都是靠 `evaluate` 才看到的。
+- **做法**：`click`、`fill`、`type`、`press`、`select` 的效果观察（§27 的隔离世界 MutationObserver，同一个观察器）从命令开始到等待结束，记下这段时间**新加入或由不可见变可见**的元素：
+  - `role` 为 `alert` / `status` / `log`，或在 `aria-live` 不为 `off` 的区域里的：`{kind:"alert"|"status"|"live", text}`；
+  - 其余新出现的、可见文字不超过 120 字符的元素：`{kind:"text", text}`，只在这次新出现的文字元素不超过 20 个时记（大段页面变化不算提示）。
+  - 去重，至多 10 条，文字过秘密值替换。带 `ref` 的（在快照里能铸 ref 的）附上 `ref`。
+- 回答多 `notices: [...]`（没有就不写）。录制中写进 `cmd` 结束事件的 `outputSummary.notices`（只有条数与前 3 条文字）。
+- `--no-wait` 时只收到命令返回为止。
+
+### 53.6 表格行带上行文字；按行定位
+
+- **行名**：快照里 `row` 没有可访问名称时，名称取这一行可见单元格文字的拼接（空格分隔，至多 80 字符）。
+- **固定列拆成几张表**：【实测 spike，Element 2.15.14】有固定列时，表头、主体、左固定、右固定各是一张 `<table>`，同一行的单元格分散在三张表里：右固定表那一行只有「进入账套 删除」，名称在左固定表、编码在主表，其余单元格是空的（被隐藏）。规则：同一个最近公共祖先下、行数相同的几张 `<table>`，下标相同的行视为同一行，行名取它们可见单元格文字的并集（按表在 DOM 里的顺序）。这样右固定表里「删除」所在的行名是「甲公司 A01 2026」。
+- **重复的行**：同一组里的几份行，快照里第一份照常出，其余的行名后加 ` (same row as e37)`，`find` 的文字命中只返回第一份。
+- **按行定位**：`find <文字> --within <文字>`：只在祖先行（任意祖先行的名称）包含 `--within` 文字的子树里找。例：`find 删除 --within 甲公司`。`--within` 不限于表格行：任何祖先行名称包含它都算（列表项、卡片同样适用）。
+
+### 53.7 `--wait requests`：等这条命令发出的请求结束
+
+- 动作命令（`click`、`fill`、`type`、`press`、`select`、`navigate`）新增 `--wait requests`：常规等待（导航 + DOM 安静）之后，再等**这条命令开始以后、在这个标签上发起的 XHR / fetch 请求**全部结束（`loadingFinished` / `loadingFailed`）。不算 WebSocket、EventSource、worker 发的请求，也不算 `type` 为 `Ping` 的上报。上限是命令的 `--timeout`；超时**不是错误**：回答照常，`wait.requests: {finished, pending:[url…至多 5 个]}`。没在录制时，为这次等待临时开 Network（同 `wait --idle` 的引用计数开关）。
+- 回答里 `wait.requests` 写等到的数目；录制中同时给出这些请求的 `r-N`（`requests:[…]`），省掉报告者「每个动作后 `net list --since $C`」那一步。
+- `config.json` 新键 `actions.wait`：`"dom"`（默认，现在的行为）或 `"requests"`，命令行的 `--wait` 覆盖它。不做「全局网络空闲」的默认：长连接页面永远不空闲（报告者那次 `wait --idle` 就被一个 worker.js 请求拖到超时）。
+
+### 53.8 `tabcap fetch --like r-N`：照一条已录请求重发，鉴权头现取
+
+- `tabcap fetch --like <r-N> [--json …|--body …|--form …] [--query k=v]… [--header k:v]… [--header-from-storage <名>=<模板>]…`：
+  - 取当前录制（没在录制时取会话最近一份包）里的 `r-N`：沿用它的 method、URL（含查询串）、非鉴权请求头、请求体；`--json` / `--body` / `--form` 换请求体，`--query` 覆盖或添加查询参数（`k=` 删除），`--header` 覆盖单个头。不能和位置参数 `<url>` 同时给（`usage`）。
+  - **鉴权头默认现取**（报告者：同一会话几个标签各开一个账套，token 按账套发，录下的那条可能属于别的账套，会被服务端拒绝）：鉴权头（`isSensitiveHeaderName` 认出的，`cookie` 除外）取**发送它的标签**最近一条发往同一 host 的已录请求里的值；那个标签没有发往这个 host 的请求时才用 `r-N` 自己的，回答带 `auth:{from:"r-31", tab:"t3"}` 或 `auth:{from:"r-12", note:"no request of this tab to the host; used r-12's own"}`。`Cookie` 不手设，照旧由浏览器按 `--credentials` 带。
+  - **`--header-from-storage`** 兜底：在发送它的标签里读存储拼一个头。模板里 `{local:<key>}` 取 `localStorage[key]`，`{session:<key>}` 取 `sessionStorage[key]`，`{local:@session:<key>}` 先从 `sessionStorage` 取 key 再读 `localStorage`（报告者的 `localStorage[sessionStorage.singleId]`）。例：`--header-from-storage 'Authorization=Bearer {local:@session:singleId}'`。读在 tabcap 的隔离世界里做（存储按源共享），值不进命令行、不进输出（`<redacted:authorization>`）、不进 `cmd` 事件。键不存在回 `not-found`，说出是哪个键。
+  - 其余与 `fetch` 相同：停手规则、结束规则、3 s / host 的节流、`--out`、打码、`fetchId` 归属。
+- **响应过解码插件**：`fetch` 的回答在有解码插件给出明文时（§28 的 `decoded` 视图），默认给明文，加 `decoded:"plugin:<名>"`；`--raw-body`（已有）给原文。不限于 `--like`，所有 `fetch` 都这样。
+- 不做（backlog）：请求体加密钩子（encode 插件：报告者门户侧的 `{"p":AES}` 请求体，这次用不上）。
+
+### 53.9 不做 / backlog
+
+- 带状态的解码插件：报告者 11-12 查实这个站的密钥是常量（三份包 33 次 `getClientConfig` 解出同一把），现有常驻进程方案够用；调用里带 tab / session 是通用增强，等有站点需要再做。
+- 点击后 DOM 没变就提示 `--trusted`：§27 早有（`effect:"none"` + `note`）；报告者 11-12 查实那次 tabcap 的 click 都是 `effect:"dom"`，不用改。
+- `net list --grep` 反选、encode 插件、级联选择器、多选、通用 `dismiss`、Vue / Element 组件内部（侦查时用 `evaluate` 合理）。
+
+### 53.10 新错误码与契约变化（一览）
+
+- 新错误码：`ambiguous-target`（§53.1、§53.4）、`not-visible`（§53.3）、`not-selected`（§53.4）。
+- 新命令：`select`。新参数：`snapshot --behind`、`find --within`、动作命令的 `--wait requests`、`fetch --like` / `--query` / `--header-from-storage`。新回答字段：`landedOn`、`notices`、`wait.requests`、`fetch` 的 `decoded` / `auth`。新配置键：`actions.wait`。
+- 快照显示的变化：不可见元素不出行；有模态浮层时其余部分折叠、浮层在前；表格行有名称；只有图标的按钮有名称；`find` 的文字命中 `ref` 换成文字所在元素。
+
+### 53.11 验证
+
+- 靶场 `05` s79（手写页面，模仿上面实测到的结构，不引入 Element UI）。
+- 单测：可见性判据、行合并、浮层差分、回读比较、`--header-from-storage` 模板解析、`ambiguous-target` 判定、notices 过滤。
+- 实现顺序：先修两个 bug（53.1 → 53.2，连同 53.3 的可见性），再按报告者给的优先级：53.8 `fetch --like` → 53.4 `select` → 53.5 `notices` → 53.6 表格行 → 53.7 `--wait requests`。53.1 是安全问题，最先做。

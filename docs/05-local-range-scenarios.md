@@ -503,6 +503,29 @@
   8. **上下文按需**：靶场站点（入口 `/s78/b`）存两个账号 a1、a2。窗口由测试经端口的浏览器级连接 `Browser.getWindowForTarget` 读，target 取自 `tab list --all` 的 `holder.session`。`session start X --site <站点> --account a1`：`isolated` 不为 true；X 开的标签与一个默认上下文标签 `windowId` 相同。`session start Y --site <站点> --account a2` → `conflict`，`next` 提到 `--isolate`。`session start Y --site <站点> --account a2 --isolate` → 成功、`isolated:true`；Y 开的标签 `windowId` 与 X 的不同。同账号 `session start Z --site <站点> --account a1` → 成功、不 isolated。
 - 不在靶场里的【待验】：地址栏输入是否同样被记成 `external`（作者手动）；有界面时 `--isolate` 是否另开窗口（作者看一眼）。
 
+## 20.3 组件库常见结构（11-12，P1）
+
+### s79 ui-library-patterns（P1；`04` §53）
+- 靶场（`test/e2e/site.ts` 的新站点函数，手写页面，不引入任何组件库）：结构照 11-12 在 Element UI 2.15.14 上实测到的样子写，oracle 是靶场日志、页面自己记下的事件（`window.__s79` 数组，经 `evaluate` 读）与 CDP 读到的值。
+  - `/s79`：主页面。
+    - **大列表下拉**：一个没有任何 ARIA 的输入框（同 el-select），点击后在 `body` 直下显示一个 `position:fixed` 的浮层，里面是一个可滚动的 `ul`（高 274 px），40 个没有 role 的 `li`，第 26 项文字 `S79_TARGET 1001`、第 4 项 `S79_DECOY 222123`；点 `li` 写回输入框并记 `__s79.push("pick:<文字>")`。
+    - **ARIA 下拉**：`role=combobox` + `aria-controls` → `role=listbox` / `role=option`；另一个原生 `<select>`。
+    - **弹窗**：`role=dialog aria-modal=true`，标题写在内部元素里、没有 `aria-label`，没有遮罩，挂在 `body` 末尾（同 `append-to-body` + `slot="title"` + `:modal="false"`）；里面有「S79 建账」按钮，另有一个 `display:none` 的子层和一个 `opacity:0` 的子层，各有同名「S79 建账」按钮，点到它们记 `hidden-build`；右上角关闭按钮只有一个图标（class 含 `close`，没有名字）。
+    - **大表格**：30 行 × 12 列，左右固定列各一张 `<table>`（同 Element 的拆分），右固定表每行有「S79 删除」按钮，点了记 `del:<行名>`；整页 `snapshot -i` 的树超过 12000 字符，弹窗在最后。
+    - **提示**：「S79 保存」按钮：表单为空时加一个 `role=alert` 的提示「S79 科目为空」（1.5 s 后删掉）和一个没有 role 的字段错误「S79 名称不能为空」。
+    - **鉴权**：页面加载时 `sessionStorage.s79key = "acct-A"`、`localStorage["acct-A"] = "tok-A"`；按钮「S79 查询」发 `POST /s79/api/list`，带 `Authorization: Bearer <localStorage[sessionStorage.s79key]>`；另一个标签里打开的 `/s79?acct=B` 用 `acct-B` / `tok-B`。`/s79/api/list` 在 token 与请求体里的 `acct` 不一致时回 `{code:290102}`，一致时回列表；响应体整体 base64（给解码插件用：靶场带一个测试用解码插件，base64 解成 JSON）。
+    - **命令触发的请求**：「S79 慢请求」按钮发一个 800 ms 才回的 `fetch('/s79/api/slow')`；页面另有一个一直挂着的 `/s79/api/longpoll`。
+- 走法与 expected（`test/e2e/v11b.e2e.test.ts`）：
+  1. **文字命中的 ref**（§53.1）：打开大列表下拉，`find "S79_TARGET 1001"` 的 `ref` 解析成 `li` 内的元素（`html <ref>` 的 tag 不是 `ul`）；`click <ref> --trusted` 后 `__s79` 末项是 `pick:S79_TARGET 1001`，回答 `landedOn.text` 含 `S79_TARGET`。对旧式的列表 ref（`snapshot` 里 `list` 那一行的 ref）`click` → `ambiguous-target`，`__s79` 没有新的 `pick:`。
+  2. **浮层在前、截断不丢弹窗**（§53.2）：打开弹窗（用 `evaluate` 点，不走 `click`）；`snapshot -i`（默认 `--max-chars`）的头有 `overlays  o1 dialog` 与 `order  o1 first`，树里有「S79 建账」；背景折成 `… lines behind o1`；`--behind` 展开后背景的行出现。
+  3. **看不见的不出 ref**（§53.3）：快照与 `find "S79 建账"` 里只有一个「S79 建账」；用 `snapshot --css` 给隐藏子层的按钮铸的 DOM ref 去 `click` → `not-visible`，`__s79` 没有 `hidden-build`。图标关闭按钮的行是 `button "(icon: close)"`。
+  4. **select**（§53.4）：`select <大列表输入框> "S79_TARGET 1001"` → `via:"layer"`、`value` 含 `S79_TARGET`，`__s79` 末项是 `pick:S79_TARGET 1001`；ARIA 下拉 `via:"aria"`；原生 `<select>` `via:"native"`，`change` 事件触发了一次；`select … "不存在的项"` → `not-found` 并列出候选；页面被改成点任何项都写回 `S79_DECOY`（测试用 `evaluate` 打开这个开关）时 → `not-selected`，`got` 含 `S79_DECOY`。
+  5. **notices**（§53.5）：清空表单，`click "S79 保存"` 的回答 `notices` 含 `{kind:"alert", text:"S79 科目为空"}` 与 `{kind:"text", text:"S79 名称不能为空"}`；3 s 后 `snapshot` 里已经没有那条 alert（说明只有回答里抓得到）。
+  6. **表格行**（§53.6）：快照里右固定表第 3 行的 `row` 名称含第 3 行的名称列与编码列文字，其余两份带 `(same row as …)`；`find "S79 删除" --within <第 3 行名称>` 只返回一个命中，点它后 `__s79` 末项是 `del:<第 3 行名称>`。
+  7. **`--wait requests`**（§53.7）：`click "S79 慢请求" --wait requests`：回答的 `wait.requests.finished` 为 1、没有 `pending`，录制中 `requests` 里是 `/s79/api/slow` 的 `r-N`；长轮询不在里面，命令不超时。不带 `--wait` 时回答在慢请求返回前就回来（`wait.ms` < 800）。
+  8. **`fetch --like`**（§53.8）：`net start`，标签 A 点「S79 查询」得到 `r-A`；另开标签 B（`/s79?acct=B`）点一次查询。在 B 上 `fetch --like <r-A> --json '{"acct":"B"}' --tab <B>`：服务端收到 `Bearer tok-B`（靶场日志），回答 `auth.tab` 是 B、响应不是 290102；`--header-from-storage 'Authorization=Bearer {local:@session:s79key}'` 同样拿到 `tok-B`，输出与 `events.jsonl` 里都没有 `tok-B` 字样；装了测试解码插件时回答是 JSON 明文、`decoded:"plugin:s79"`，`--raw-body` 给 base64 原文。
+- 不在靶场里的【待验】：门户上 `overlays none` 的真实原因（§53.2）；qiankun 微前端下的样式与弹窗挂载。
+
 ## 21. 场景索引
 
 10-21 建。场景编号 → 实现它的 `test/e2e/site.ts` 站点函数与主要路由 → 跑它的 e2e 文件。e2e 与单测两列是 grep 出来的：在 `test/e2e/*.e2e.test.ts`、`test/unit/*.ts` 里搜编号（前后不接字母数字，如 `s07`、`/s22/`、`S40_`），列出提到它的文件（省略目录与 `.e2e.test.ts` / `.test.ts` 后缀）；没有文件写编号的三个场景按路由搜（标「按路由」）。单测 `test/unit/scenario-index.test.ts` 读这张表：每个 `### sNN` 都要有一行，状态不是「未落地」「仅对照靶场」的，编号必须能在 `site.ts` 或某个测试文件里搜到；「未落地」的在 `site.ts` 里搜不到（落地了就要回来改表）；「仅对照靶场」的在 `docs/compare/range.ts` 里搜得到。
@@ -566,6 +589,7 @@
 | s76 | client-order | 已落地 | `startClientSite`：https 源 `/s76/{login,list,item,static.js}`，http 源 `/s76/plain` | v09e | replay-order |
 | s77 | tab-adopt | 已落地 | `startAdoptSite`：`/s77`、`/s77/before`、`/s77/api` | v10a | — |
 | s78 | tab-visibility | 已落地 | `startVisibilitySite`：`/s78/{a,b,self,c,poll,api,ping}` | v11a | tab-drift52 |
+| s79 | ui-library-patterns | 未落地 | — | — | — |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。
