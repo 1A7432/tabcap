@@ -112,12 +112,12 @@ describe.skipIf(!enabled)("tabcap 0.9-B L2 (permissions on s73)", () => {
     }
   }, 60_000);
 
-  test("5. a pool account's session has its own context: shared false, the default context's session does not see it, and the account's context starts at prompt", async () => {
+  test("5. an account session with its own context (--isolate, docs/04 §52.6): shared false, the default context's session does not see it, and the account's context starts at prompt", async () => {
     const SITE = "example";
     const add = await tabcap(["site", "add", SITE, "--url", `${site.a}/s73`, "--user", "alice", "--password-stdin"], "Site-pass-e2e-9b01\n");
     if (!add.ok) throw new Error(`site add failed: ${add.raw}`);
-    const started = await ok("session", "start", "p", "--site", SITE, "--account", "alice");
-    expect(started).toMatchObject({ account: "alice", browserContext: "own" });
+    const started = await ok("session", "start", "p", "--site", SITE, "--account", "alice", "--isolate");
+    expect(started).toMatchObject({ account: "alice", isolated: true });
     const pt = s((await ok("navigate", `${site.a}/s73`, "--session", "p"))["tab"]);
     expect(await stateOf("p", pt)).toEqual(ALL_PROMPT);
 

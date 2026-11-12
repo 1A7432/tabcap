@@ -13,7 +13,16 @@ import { stopTrace } from "./trace.ts";
 import { changeField } from "./drift.ts";
 import type { Tab, TabChange } from "../browser/targets.ts";
 
-const START_USAGE = "tabcap session start <name> [--site <site>] [--account <user>|auto] [--purpose <text>]";
+const START_USAGE = "tabcap session start <name> [--site <site>] [--account <user>|auto] [--isolate] [--purpose <text>]";
+
+/**
+ * docs/04 §52.6: may account `account` of `site` go into the default browser context?
+ * Not while another live session there is bound to another account of the same site
+ * (their cookies would mix). Returns that session's name, or null.
+ */
+export function defaultContextClash(site: string, account: string, others: ReadonlyArray<{ session: string; site: string; account: string | null; isolated: boolean }>): string | null {
+  return others.find((o) => !o.isolated && o.site === site && o.account !== null && o.account !== account)?.session ?? null;
+}
 
 /** docs/04 §52.5: at most this many characters of `--purpose`. */
 export const MAX_PURPOSE = 200;
@@ -42,6 +51,8 @@ export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
   const accountArg = optStr(a, "account");
   if (accountArg !== null && siteArg === null) throw new TabcapError("usage", "--account needs --site", `Usage: ${START_USAGE}`);
   const purposeArg = parsePurpose(optStr(a, "purpose"));
+  const isolate = optBool(a, "isolate");
+  if (isolate && siteArg === null) throw new TabcapError("usage", "--isolate needs --site (it gives the site's account its own browser context)", `Usage: ${START_USAGE}`);
   const { t, tabs } = d.need();
   let binding: SiteBinding | null = null;
   let restored: number | null = null;
@@ -63,7 +74,7 @@ export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
     } else if (bound !== undefined) {
       throw new TabcapError("conflict", `session "${name}" is already bound to account ${bound.site}.${bound.account ?? "(none)"}`, `Use another session name, or \`tabcap session stop ${name}\` first.`);
     } else {
-      const r = await bindAccount(d, t, tabs, name, site.name, accountArg);
+      const r = await bindAccount(d, t, tabs, name, site.name, accountArg, isolate);
       binding = r.binding;
       restored = r.restored;
     }
@@ -89,13 +100,20 @@ export async function sessionStart(d: Daemon, a: Args): Promise<unknown> {
     account: b?.account ?? null,
     proxy: b?.proxy ?? null,
     ...(binding === null ? {} : { entryUrl: d.needStore().site(binding.site)?.entryUrl ?? null, secrets: [`${binding.site}.username`, `${binding.site}.password`] }),
-    ...(ctx === undefined ? {} : { browserContext: "own", cookiesRestored: restored }),
+    // docs/04 §52.6: an account session says whether it has its own context (another Chrome window).
+    ...(b?.account === null || b?.account === undefined
+      ? {}
+      : ctx === undefined
+        ? { isolated: false, cookiesRestored: restored }
+        : { isolated: true, cookiesRestored: restored, note: "this session's tabs are in another Chrome window (its own browser context)" }),
   };
 }
 
 /**
- * Pick the account, check it may be used, open its own browser context (0.6-D:
- * every account in the direct mode; through its pool proxy when it has one).
+ * Pick the account, check it may be used, and give it a browser context. docs/04 §52.6
+ * (11-12, replaces 0.6-D's one context per account): the default context (the window
+ * everything else is in) unless the account is bound to a pool proxy or `--isolate`
+ * asks for its own; the default context refuses a second account of the same site.
  * `ext` mode has one cookie jar and no contexts (extContextError).
  * 0.6-R: all or nothing — a failure after the context was opened disposes it
  * again, so no account context is left for a later implicit session of the
@@ -108,6 +126,7 @@ export async function bindAccount(
   session: string,
   site: string,
   accountArg: string | null,
+  isolate = false,
 ): Promise<{ binding: SiteBinding; restored: number | null }> {
   const store = d.needStore();
   const acc = d.pool.pick(store, site, accountArg);
@@ -124,6 +143,27 @@ export async function bindAccount(
     if (kind !== "ext") {
       const row = egress.proxy === null ? null : store.proxy(egress.proxy);
       if (egress.proxy !== null && row === null) throw new TabcapError("not-found", `no proxy named "${egress.proxy}"`, "Run `tabcap proxy list`; rebind the account with `tabcap account bind`.");
+      if (row === null && !isolate) {
+        // docs/04 §52.6: the default context.
+        const others = [...d.sites].filter(([s]) => s !== session).map(([s, b]) => ({ session: s, site: b.site, account: b.account, isolated: tabs.contexts.has(s) }));
+        const clash = defaultContextClash(site, acc.username, others);
+        if (clash !== null) {
+          throw new TabcapError(
+            "conflict",
+            `session "${clash}" already uses another account of site "${site}" in the browser's default context; their cookies would mix`,
+            `Add --isolate (this account gets its own browser context: another Chrome window), or \`tabcap session stop ${clash}\` first.`,
+          );
+        }
+        try {
+          restored = await d.pool.restoreDefaultCookies(store, t, site, acc.username);
+        } catch (e) {
+          log.warn("pool: restoring the account's cookies failed", { session, error: String(e) });
+          restored = null;
+        }
+        store.patchAccount(site, acc.username, { lastUsedAt: d.pool.now() });
+        egress.commit();
+        return { binding: { site, account: acc.username, proxy: egress.proxy ?? acc.proxy }, restored };
+      }
       if (tabs.sessionTabs(session).length > 0) {
         throw new TabcapError("conflict", `session "${session}" already has tabs outside account ${site}.${acc.username}'s browser context`, `Start a new session name for this account (its tabs must open in its own context), or \`tabcap session stop ${session}\` first.`);
       }

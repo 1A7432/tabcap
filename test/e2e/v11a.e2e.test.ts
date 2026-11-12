@@ -187,6 +187,45 @@ describe.skipIf(!enabled)("tabcap browser-wide tabs L2 (s78)", () => {
     await waitHit("/s78/api", from);
   });
 
+  test("8. contexts on demand: an account uses the default window; a second account of the site is refused unless --isolate (another window)", async () => {
+    const add = await tabcap(["site", "add", "s78site", "--url", `${site.origin}/s78/b`, "--user", "a1", "--password-stdin"], "s78-pass-0001\n");
+    if (!add.ok) throw new Error(`site add failed: ${add.raw}`);
+    const acc = await tabcap(["account", "add", "s78site", "--user", "a2", "--password-stdin"], "s78-pass-0002\n");
+    if (!acc.ok) throw new Error(`account add failed: ${acc.raw}`);
+    expect(await ok("session", "start", "x", "--site", "s78site", "--account", "a1")).toMatchObject({ account: "a1", isolated: false });
+    await ok("navigate", `${site.origin}/s78/b`, "--session", "x");
+    const clash = await tabcap(["session", "start", "y", "--site", "s78site", "--account", "a2"]);
+    expect(clash.error?.["code"]).toBe("conflict");
+    expect(s(clash.error?.["next"])).toContain("--isolate");
+    expect(await ok("session", "start", "y", "--site", "s78site", "--account", "a2", "--isolate")).toMatchObject({ account: "a2", isolated: true });
+    await ok("navigate", `${site.origin}/s78/b`, "--session", "y");
+    expect(await ok("session", "start", "z", "--site", "s78site", "--account", "a1")).toMatchObject({ isolated: false });
+    // windows, from the browser itself
+    const targets = recs((await ok("tab", "list", "--all", "--session", "nobody"))["others"]);
+    const of = (sess: string) => s(targets.find((x) => rec(x["holder"])["session"] === sess)?.["target"]);
+    expect(rec(targets.find((x) => rec(x["holder"])["session"] === "y")?.["holder"])["isolated"]).toBe(true);
+    const ver = rec(await (await fetch(`http://127.0.0.1:${port}/json/version`)).json());
+    const ws = new WebSocket(s(ver["webSocketDebuggerUrl"]));
+    await new Promise<void>((r) => (ws.onopen = () => r()));
+    let n = 0;
+    const windowOf = (targetId: string) =>
+      new Promise<number>((resolve) => {
+        const id = ++n;
+        ws.onmessage = (m) => {
+          const v = rec(JSON.parse(String(m.data)));
+          if (v["id"] === id) resolve(Number(rec(v["result"])["windowId"]));
+        };
+        ws.send(JSON.stringify({ id, method: "Browser.getWindowForTarget", params: { targetId: targetId.toUpperCase() } }));
+      });
+    const wa = await windowOf(t1Target);
+    const wx = await windowOf(of("x"));
+    const wy = await windowOf(of("y"));
+    ws.close();
+    expect(wx).toBe(wa);
+    expect(wy).not.toBe(wa);
+    for (const n2 of ["x", "y", "z"]) await ok("session", "stop", n2);
+  });
+
   test("9. stop: the bundle is finished", async () => {
     bundle = s((await ok("session", "stop", "a"))["bundle"]);
     expect(bundle).not.toBe("");

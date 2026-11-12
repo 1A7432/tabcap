@@ -174,7 +174,7 @@ describe.skipIf(!enabled)("tabcap tab adopt L2 (s77)", () => {
 
   test("9. a session with its own browser context does not take a default-context tab", async () => {
     const lone = await humanTab(`${site.origin}/s77/before`);
-    await ok("session", "start", "bound", "--site", "s77site");
+    await ok("session", "start", "bound", "--site", "s77site", "--isolate");
     await until(lone);
     const r = await tabcap(["tab", "adopt", lone, "--session", "bound"]);
     expect(r.error?.["code"]).toBe("conflict");

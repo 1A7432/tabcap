@@ -244,6 +244,16 @@ export class Pool {
     return cookies.length;
   }
 
+  /** docs/04 §52.6: an account in the default context gets its saved cookies there (Storage.setCookies without a context). */
+  async restoreDefaultCookies(store: Pick<Store, "savedSession">, t: Transport, site: string, account: string): Promise<number> {
+    const saved = store.savedSession(site, account);
+    if (saved === null || saved.username !== account || !Array.isArray(saved.cookies)) return 0;
+    const cookies = saved.cookies.filter(isRecord).map(cookieParam).filter((x): x is Record<string, unknown> => x !== null);
+    if (cookies.length === 0) return 0;
+    await t.send("Storage.setCookies", { cookies }, null, 10_000);
+    return cookies.length;
+  }
+
   /** Write the context's cookies back to the store; the count, or null when the browser did not answer. */
   async saveCookies(store: Pick<Store, "saveSession">, t: Transport, session: string): Promise<number | null> {
     const ctx = this.contexts.get(session);

@@ -225,13 +225,13 @@ describe.skipIf(!enabled)("tabcap 0.9-D L2 (s75 downloads)", () => {
     expect(inUserDownloads()).toEqual([]);
   }, 120_000);
 
-  test("5. a pool account's session (its own browser context) keeps its download while recording", async () => {
+  test("5. an account session with its own browser context (--isolate, docs/04 §52.6) keeps its download while recording", async () => {
     const SITE = "example";
     const added = await cli.tabcap(["site", "add", SITE, "--url", `${site.origin}/s75`, "--user", "alice", "--password-stdin"], "Site-pass-e2e-9d01\n");
     if (!added.ok) throw new Error(`site add failed: ${added.raw}`);
     const P = ["--session", "p"];
-    const started = await ok("session", "start", "p", "--site", SITE, "--account", "alice");
-    expect(started).toMatchObject({ account: "alice", browserContext: "own" });
+    const started = await ok("session", "start", "p", "--site", SITE, "--account", "alice", "--isolate");
+    expect(started).toMatchObject({ account: "alice", isolated: true });
     await ok("navigate", `${site.origin}/s75`, ...P);
     const rp = await ok("net", "start", ...P);
     const l = await links(P);

@@ -193,7 +193,7 @@ Example: `tabcap site remove example`
 create a session (navigate also creates it); --site binds a stored site → entryUrl, the secret references, account and proxy (names only)
 
 ```
-tabcap session start <name> [--site site] [--account user|auto]
+tabcap session start <name> [--site site] [--account user|auto] [--isolate] [--purpose text]
 ```
 
 Example: `tabcap session start example --site example`
@@ -201,7 +201,9 @@ Example: `tabcap session start example --site example`
 | Option | Default | Meaning |
 |---|---|---|
 | `--site <site>` |  | bind a stored site: its account is used by fill --secret and recorded in the bundle manifest |
-| `--account <user\|auto>` |  | which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); every account session gets its own browser context (through the account's proxy when it is bound to one) |
+| `--account <user\|auto>` |  | which of the site's accounts (default: its first); auto = pick by config.json pool.strategy (fixed / round-robin / lru); the account uses the browser's default context unless it is bound to a pool proxy or --isolate is given (then its own context, another window) |
+| `--isolate` |  | give the site's account its own browser context (another Chrome window; e.g. two accounts of one site at once); without it the account uses the default context, the window everything else is in, unless it is bound to a pool proxy |
+| `--purpose <text>` |  | what this session is for, one line (≤ 200 chars), shown to other agents and the user in `tab list --all`, `session list` and `status` (an existing session only gets it updated) |
 
 ### `tabcap session stop`
 
