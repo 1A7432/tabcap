@@ -2929,3 +2929,32 @@ export function startAdoptSite(): AdoptSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, hits, stop: () => server.stop(true) };
 }
+
+export type VisibilitySite = { origin: string; hits: string[]; stop: () => void };
+
+/**
+ * docs/05 s78 (docs/04 §52): pages for external navigations, the page's own navigation,
+ * a polling page (a command on another tab that never goes idle) and cross-session reads.
+ * Oracle: the request log `hits` (paths in arrival order).
+ */
+export function startVisibilitySite(): VisibilitySite {
+  const hits: string[] = [];
+  const html = (body: string) => new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (req) => {
+      const p = new URL(req.url).pathname;
+      if (p === "/favicon.ico") return new Response("", { status: 204 });
+      hits.push(p);
+      if (p === "/s78/a") return html(`<!doctype html><title>s78 a</title><h1>S78_A</h1><button id=go onclick="fetch('/s78/api')">s78 send</button>`);
+      if (p === "/s78/b") return html(`<!doctype html><title>s78 b</title><h1>S78_B</h1>`);
+      if (p === "/s78/self") return html(`<!doctype html><title>s78 self</title><p>S78_SELF</p><script>setTimeout(() => { location.href = '/s78/c'; }, 1000)</script>`);
+      if (p === "/s78/c") return html(`<!doctype html><title>s78 c</title><h1>S78_C</h1><button id=go onclick="fetch('/s78/api')">s78 send</button>`);
+      if (p === "/s78/poll") return html(`<!doctype html><title>s78 poll</title><p>S78_POLL</p><script>setInterval(() => fetch('/s78/ping'), 500)</script>`);
+      if (p === "/s78/api" || p === "/s78/ping") return Response.json({ ok: true });
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, hits, stop: () => server.stop(true) };
+}
