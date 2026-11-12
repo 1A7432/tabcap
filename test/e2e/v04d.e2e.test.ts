@@ -98,12 +98,12 @@ describe.skipIf(!enabled)("tabcap 0.4-D L2 (account pool, proxy pool, per-accoun
     const A = ["--session", "sa"];
     const B = ["--session", "sb"];
     const sa = await ok("session", "start", "sa", "--site", SITE, "--account", "alice");
-    expect(sa).toMatchObject({ site: SITE, account: "alice", proxy: "p1", browserContext: "own", cookiesRestored: 0, fetchAuth: "on" });
+    expect(sa).toMatchObject({ site: SITE, account: "alice", proxy: "p1", isolated: true, cookiesRestored: 0, fetchAuth: "on" });
     bundleA = s((await ok("net", "start", ...A))["bundle"]);
     const nav = await ok("navigate", `${site.origin}/pool/set?v=alice-cookie-0001`, ...A);
     expect(nav["fetchAuth"]).toBe("on");
     const sb = await ok("session", "start", "sb", "--site", SITE, "--account", "bob");
-    expect(sb).toMatchObject({ account: "bob", proxy: "p2", browserContext: "own" });
+    expect(sb).toMatchObject({ account: "bob", proxy: "p2", isolated: true });
     await ok("navigate", `${site.origin}/pool/set?v=bob-cookie-0002`, ...B);
     await ok("navigate", `${site.origin}/pool/me?who=a`, ...A);
     await ok("navigate", `${site.origin}/pool/me?who=b`, ...B);

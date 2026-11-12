@@ -225,6 +225,7 @@ describe("status off a daemon (no browser)", () => {
     expect(data["sessions"]).toEqual([
       {
         session: "w",
+        purpose: null,
         site: "shop",
         account: "alice",
         tabSite: null,

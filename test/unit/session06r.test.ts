@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Daemon } from "../../src/daemon/state.ts";
 import { Store } from "../../src/daemon/store/db.ts";
 import { unboundSecretError } from "../../src/daemon/tools/input.ts";
-import { bindAccount } from "../../src/daemon/tools/session.ts";
+import { bindAccount, defaultContextClash } from "../../src/daemon/tools/session.ts";
 import type { AttachedTarget, CdpEvent, CdpParams, Transport } from "../../src/daemon/transport/types.ts";
 import { TabcapError } from "../../src/shared/envelope.ts";
 import { paths } from "../../src/shared/paths.ts";
@@ -60,7 +60,7 @@ function fakeBrowser() {
   return { t, sent };
 }
 
-describe("bindAccount is all or nothing (0.6-R)", () => {
+describe("bindAccount is all or nothing (0.6-R; an own context: --isolate since docs/04 §52.6)", () => {
   test("a failure after the account's context opened disposes it: no context in the pool or the session's tab map", async () => {
     const { d, s } = home();
     const f = fakeBrowser();
@@ -69,7 +69,7 @@ describe("bindAccount is all or nothing (0.6-R)", () => {
       throw new TabcapError("io", "disk full", "free some space");
     };
     let err: unknown = null;
-    await bindAccount(d, f.t, tabs, "s1", "example", null).catch((e: unknown) => {
+    await bindAccount(d, f.t, tabs, "s1", "example", null, true).catch((e: unknown) => {
       err = e;
     });
     expect(err instanceof TabcapError ? err.message : String(err)).toBe("disk full");
@@ -84,7 +84,7 @@ describe("bindAccount is all or nothing (0.6-R)", () => {
     const { d, s } = home();
     const f = fakeBrowser();
     const tabs = { sessionTabs: () => [], contexts: new Map<string, string>() };
-    const r = await bindAccount(d, f.t, tabs, "s1", "example", null);
+    const r = await bindAccount(d, f.t, tabs, "s1", "example", null, true);
     expect(r.binding).toEqual({ site: "example", account: "alice", proxy: null });
     expect(tabs.contexts.get("s1")).toBe("CTX1");
     expect(d.pool.contexts.get("s1")?.browserContextId).toBe("CTX1");
@@ -97,13 +97,54 @@ describe("bindAccount is all or nothing (0.6-R)", () => {
     const f = fakeBrowser();
     const tabs = { sessionTabs: () => [{ id: "t1" }], contexts: new Map<string, string>() };
     const got: { code: string | null } = { code: null };
-    await bindAccount(d, f.t, tabs, "s1", "example", null).catch((e: unknown) => {
+    await bindAccount(d, f.t, tabs, "s1", "example", null, true).catch((e: unknown) => {
       got.code = e instanceof TabcapError ? e.code : "other";
     });
     expect(got.code).toBe("conflict");
     expect(f.sent).toEqual([]);
     expect(d.pool.contexts.size).toBe(0);
     s.close();
+  });
+});
+
+describe("bindAccount in the default context (docs/04 §52.6)", () => {
+  test("no browser context is made; the account is bound; saved cookies go to the default context", async () => {
+    const { d, s } = home();
+    const f = fakeBrowser();
+    const tabs = { sessionTabs: () => [{ id: "t1" }], contexts: new Map<string, string>() };
+    const r = await bindAccount(d, f.t, tabs, "s1", "example", null);
+    expect(r.binding).toEqual({ site: "example", account: "alice", proxy: null });
+    expect(tabs.contexts.has("s1")).toBe(false);
+    expect(d.pool.contexts.has("s1")).toBe(false);
+    expect(f.sent.map((x) => x.method).filter((m) => m.includes("BrowserContext"))).toEqual([]);
+    s.close();
+  });
+
+  test("another live session with another account of the same site in the default context: conflict naming --isolate", async () => {
+    const { d, s } = home();
+    const f = fakeBrowser();
+    d.sites.set("other", { site: "example", account: "bob", proxy: null });
+    const tabs = { sessionTabs: () => [], contexts: new Map<string, string>() };
+    const got: { code: string | null; next: string } = { code: null, next: "" };
+    await bindAccount(d, f.t, tabs, "s1", "example", null).catch((e: unknown) => {
+      got.code = e instanceof TabcapError ? e.code : "other";
+      got.next = e instanceof TabcapError ? e.next : "";
+    });
+    expect(got.code).toBe("conflict");
+    expect(got.next).toContain("--isolate");
+    expect(f.sent).toEqual([]);
+    s.close();
+  });
+});
+
+describe("defaultContextClash (docs/04 §52.6)", () => {
+  const o = (session: string, site: string, account: string | null, isolated = false) => ({ session, site, account, isolated });
+  test("another account of the same site in the default context clashes; the same account, another site, an isolated one or no account do not", () => {
+    expect(defaultContextClash("shop", "alice", [o("b", "shop", "bob")])).toBe("b");
+    expect(defaultContextClash("shop", "alice", [o("b", "shop", "alice")])).toBeNull();
+    expect(defaultContextClash("shop", "alice", [o("b", "mail", "bob")])).toBeNull();
+    expect(defaultContextClash("shop", "alice", [o("b", "shop", "bob", true)])).toBeNull();
+    expect(defaultContextClash("shop", "alice", [o("b", "shop", null)])).toBeNull();
   });
 });
 
