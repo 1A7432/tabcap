@@ -54,6 +54,11 @@ export function summarize(data: unknown): unknown {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {
     if (["tree", "value", "valueText", "textPreview", "hits", "requests", "body", "bodyBase64"].includes(k)) continue;
+    // docs/04 §53.5: how many notices, and the first three texts.
+    if (k === "notices" && Array.isArray(v)) {
+      out[k] = { count: v.length, first: v.slice(0, 3).map((x) => (isRecord(x) && typeof x["text"] === "string" ? x["text"].slice(0, 120) : "")) };
+      continue;
+    }
     if (k === "receipt" && isRecord(v)) {
       const r = Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === "string" && x.length <= 200).slice(0, 8));
       if (Object.keys(r).length > 0) out[k] = r;
