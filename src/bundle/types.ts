@@ -77,7 +77,8 @@ export type SessionFields = {
   mode: { capture: CaptureMode; trace: false | TraceMode; raw: boolean };
 };
 
-export type TabReason = "ai-opened" | "borrowed" | "user-cancelled-debugging" | "closed" | "crashed" | "popup";
+/** §4.1; `taken` (§52.4): the tab left for another session (`phase:"detach"`, with `by`). */
+export type TabReason = "ai-opened" | "borrowed" | "user-cancelled-debugging" | "closed" | "crashed" | "popup" | "taken";
 
 /** A child target (OOPIF / service worker / worker) attached under its host tab (§4.1 `tab`). */
 export type TabTarget = { id: string; type: "iframe" | "service_worker" | "worker"; url: string; sessionId: string };
@@ -97,6 +98,10 @@ export type TabFields = {
   title?: string | null;
   reason?: TabReason | null;
   target?: TabTarget;
+  /** §52.4: on `reason:"taken"`, the session that took the tab. */
+  by?: string;
+  /** §52.4: on a borrowed tab taken from another session, that session. */
+  from?: string;
 };
 
 export type NavType = "navigation" | "history" | "reload" | "back_forward";

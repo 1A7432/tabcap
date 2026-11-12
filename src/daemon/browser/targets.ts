@@ -122,6 +122,19 @@ type Drift = {
   changed: TabChange | null;
 };
 
+/** docs/04 §52.4: a tab another session took; kept by the old tab id until reported once. */
+type Taken = { session: string; by: string; at: number; url: string; target: string; reported: boolean };
+
+/** docs/04 §52.4: the error the old session gets, once, when it names the tab (or it was its current tab). */
+export function tabTakenError(tab: string, k: { by: string; at: number; url: string; target: string }): TabcapError {
+  return new TabcapError(
+    "tab-taken",
+    `tab ${tab} was taken by session "${k.by}" at ${new Date(k.at).toISOString()} (it was at ${k.url}); it is no longer this session's`,
+    `\`tabcap tab list --all\` shows it under session "${k.by}". To take it back: \`tabcap tab adopt ${k.target.slice(0, ADOPT_MIN_PREFIX)}\`; to go on with another tab of this session: \`tabcap tab select <tab>\`.`,
+    { tab, by: k.by, at: new Date(k.at).toISOString(), url: k.url },
+  );
+}
+
 /** Least length of a `tab adopt` prefix (docs/04 §51). */
 export const ADOPT_MIN_PREFIX = 8;
 
@@ -150,6 +163,11 @@ export class Tabs {
   private joined = new Map<string, number>();
   private clock = 0;
   private drift = new Map<string, Drift>();
+  /** docs/04 §52.4: tabs other sessions took, by the old tab id. */
+  private taken = new Map<string, Taken>();
+  /** docs/04 §52.4: the session a tab was taken from, by its new tab id. */
+  private takenFrom = new Map<string, string>();
+  private takenListeners = new Set<(tab: Tab, by: string) => Promise<void>>();
   /** docs/04 §52.1: is the session waiting for the human? The daemon sets it (guard); navigations then are the human's. */
   waitingOf: (session: string) => boolean = () => false;
   private addedListeners = new Set<(tab: Tab) => Promise<void>>();
@@ -184,6 +202,17 @@ export class Tabs {
   onTabAdded(fn: (tab: Tab) => Promise<void>): () => void {
     this.addedListeners.add(fn);
     return () => this.addedListeners.delete(fn);
+  }
+
+  /** docs/04 §52.4: called (and awaited) when another session takes a tab, before it joins that session; `tab` is the old one. */
+  onTabTaken(fn: (tab: Tab, by: string) => Promise<void>): () => void {
+    this.takenListeners.add(fn);
+    return () => this.takenListeners.delete(fn);
+  }
+
+  /** docs/04 §52.4: the session this tab was taken from, or null. */
+  takenFromOf(tabId: string): string | null {
+    return this.takenFrom.get(tabId) ?? null;
   }
 
   /** Root-frame commits and same-document navigations of session tabs (after the epoch moved). */
@@ -238,6 +267,7 @@ export class Tabs {
     if (s === undefined) throw new TabcapError("no-tab", `session "${name}" does not exist`, "Run `tabcap navigate <url>` (it creates the session) or `tabcap session start <name>`.");
     const tab = s.current === null ? undefined : this.tabs.get(s.current);
     if (tab === undefined || tab.closed) {
+      if (s.lastClosed !== null) this.throwTaken(name, s.lastClosed);
       const why = s.lastClosed !== null ? `session "${name}" tab ${s.lastClosed} was closed` : `session "${name}" has no tab`;
       throw new TabcapError("no-tab", why, "run navigate first: `tabcap navigate <url>` opens a background tab for this session.");
     }
@@ -252,9 +282,18 @@ export class Tabs {
     if (id === null) return this.currentTab(name);
     const tab = this.tabs.get(id);
     if (tab === undefined || tab.closed || tab.session !== name) {
+      this.throwTaken(name, id);
       throw new TabcapError("no-tab", `tab ${id} is not an open tab of session "${name}"`, "Run `tabcap tab list` to list this session's tabs.");
     }
     return tab;
+  }
+
+  /** docs/04 §52.4: `tab-taken` the first time the old session names a tab another session took. */
+  private throwTaken(session: string, id: string): void {
+    const k = this.taken.get(id);
+    if (k === undefined || k.session !== session || k.reported) return;
+    k.reported = true;
+    throw tabTakenError(id, k);
   }
 
   /** Make one of the session's tabs its current tab (`tabcap tab select`). */
@@ -346,18 +385,26 @@ export class Tabs {
   async adopt(sessionName: string, ref: string): Promise<{ tab: Tab; already: boolean }> {
     const hit = await this.resolveTarget(ref, "tab adopt");
     const held = this.byTarget(hit.targetId);
-    if (held !== undefined) {
-      if (held.session !== sessionName) throw new TabcapError("conflict", `that tab is ${held.id} of session "${held.session}"`, `Use it there, or \`tabcap session stop ${held.session}\` first.`);
+    if (held !== undefined && held.session === sessionName) {
       const s = this.sessions.get(sessionName);
       if (s !== undefined) this.setCurrent(s, held.id);
       return { tab: held, already: true };
     }
+    // docs/04 §52.4: another session's tab can be taken, without its consent, except while it is busy on it or waits for the human.
+    if (held !== undefined && this.waitingOf(held.session)) {
+      throw new TabcapError("conflict", `that tab is ${held.id} of session "${held.session}", which is waiting for the human (they may be using it)`, `Wait until session "${held.session}" is resumed (\`tabcap handoff continue --session ${held.session}\`), then adopt it.`);
+    }
+    if (held !== undefined && (this.busy(held) || this.hasWindowOn(held))) {
+      throw new TabcapError("conflict", `that tab is ${held.id} of session "${held.session}", and a command of that session is running on it`, "Try again in a moment, when that command has finished.");
+    }
     if (!adoptContextOk(this.contexts.get(sessionName), hit.browserContextId, new Set(this.contexts.values()))) {
       throw new TabcapError("conflict", `that tab is in another browser context than session "${sessionName}"`, "A session with its own context (a stored site's account) only takes tabs opened in its own windows; adopt it in a session that has none.");
     }
+    if (held !== undefined) await this.take(held, sessionName, hit.targetId);
     const attached = await this.t.waitAttached(hit.targetId, 5000);
     const { session } = this.ensureSession(sessionName);
     const tab = this.register(session.name, attached, false, null, "borrowed");
+    if (held !== undefined) this.takenFrom.set(tab.id, held.session);
     await this.fireAdded(tab);
     this.setCurrent(session, tab.id);
     return { tab, already: false };
@@ -499,6 +546,30 @@ export class Tabs {
   /** The tab's `tick()` stamp when it joined its session; 0 when unknown. */
   joinedAt(tabId: string): number {
     return this.joined.get(tabId) ?? 0;
+  }
+
+  /** docs/04 §52.4: a window of the tab's own session names this very tab. */
+  private hasWindowOn(tab: Tab): boolean {
+    for (const w of this.windows.values()) if (w.session === tab.session && w.tab === tab.id) return true;
+    return false;
+  }
+
+  /**
+   * docs/04 §52.4: `held` leaves its session for `by`. Its session does not fall back to
+   * another tab when this was its current one (current becomes null): its next command
+   * gets `tab-taken`, never silently another page.
+   */
+  private async take(held: Tab, by: string, target: string): Promise<void> {
+    for (const fn of [...this.takenListeners]) await fn(held, by).catch((e: unknown) => log.warn("tabTaken listener failed", { tab: held.id, error: String(e) }));
+    const s = this.sessions.get(held.session);
+    const wasCurrent = s?.current === held.id;
+    this.markClosed(held);
+    if (s !== undefined && wasCurrent) {
+      s.current = null;
+      s.lastClosed = held.id;
+    }
+    this.taken.set(held.id, { session: held.session, by, at: Date.now(), url: held.url, target: target.toLowerCase(), reported: false });
+    log.info("tab taken", { tab: held.id, from: held.session, by });
   }
 
   /** docs/04 §52.1: does an open command window of the tab's session act on it? */

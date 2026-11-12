@@ -302,7 +302,10 @@ export async function tabsList(d: Daemon, a: Args, session: string): Promise<unk
   };
 }
 
-/** `tab adopt <target>` (docs/04 §51): a tab the human opened joins the session, borrowed, as its current tab. */
+/** docs/04 §52.4: `from` on a tab taken from another session (that session's next command on it gets `tab-taken`). */
+const fromOf = (from: string | null) => (from === null ? {} : { from });
+
+/** `tab adopt <target>` (docs/04 §51, §52.4): a tab the human opened, or another session's, joins the session, borrowed, as its current tab. */
 export async function tabAdopt(d: Daemon, a: Args, session: string): Promise<unknown> {
   const ref = reqStr(a, "target", "tabcap tab adopt <target>");
   const { tabs } = d.need();
@@ -316,6 +319,7 @@ export async function tabAdopt(d: Daemon, a: Args, session: string): Promise<unk
     title: tab.title,
     owned: tab.owned,
     reason: tab.reason,
+    ...fromOf(tabs.takenFromOf(tab.id)),
     recording,
     ...(already ? { alreadyAdopted: true } : {}),
     note: recording ? "recorded from now on: requests before the adoption are not in the bundle" : "not recording; `tabcap net start` records this tab too",

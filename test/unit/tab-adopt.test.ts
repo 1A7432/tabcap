@@ -84,7 +84,7 @@ describe("tab adopt", () => {
     expect((await tabs.adopt("a", "aaaabbbb02")).tab.targetId).toBe("AAAABBBB02");
   });
 
-  test("again in the same session: the same tab, made current; in another session: conflict", async () => {
+  test("again in the same session: the same tab, made current; another session takes it (docs/04 §52.4)", async () => {
     const { tabs } = fake([{ targetId: HUMAN }]);
     const first = await tabs.adopt("a", HUMAN);
     const opened = await tabs.createTab("a");
@@ -93,8 +93,9 @@ describe("tab adopt", () => {
     expect(again).toMatchObject({ already: true });
     expect(again.tab.id).toBe(first.tab.id);
     expect(tabs.session("a")?.current).toBe(first.tab.id);
-    await expect(tabs.adopt("b", HUMAN)).rejects.toThrow('session "a"');
-    expect(tabs.session("b")).toBeUndefined();
+    const taken = await tabs.adopt("b", HUMAN);
+    expect(taken.tab.session).toBe("b");
+    expect(tabs.takenFromOf(taken.tab.id)).toBe("a");
   });
 
   test("session stop releases it (not closed); it can be adopted again under a new id", async () => {
@@ -139,5 +140,64 @@ describe("tab adopt", () => {
     expect(adoptContextOk(undefined, "DEFAULT", own)).toBe(true);
     expect(adoptContextOk(undefined, null, own)).toBe(true);
     expect(adoptContextOk(undefined, "CTX-A", own)).toBe(false);
+  });
+});
+
+describe("tab adopt across sessions (docs/04 §52.4)", () => {
+  test("the old session's current tab is not replaced; it hears tab-taken once, then no-tab; listeners run before the move", async () => {
+    const { tabs } = fake([]);
+    const t1 = await tabs.createTab("a");
+    await tabs.createTab("a");
+    tabs.use("a", t1.id);
+    const heard: string[] = [];
+    tabs.onTabTaken(async (tab, by) => {
+      heard.push(`${tab.id}>${by}:${tabs.session("a")?.tabs.includes(tab.id) === true ? "still" : "gone"}`);
+    });
+    const r = await tabs.adopt("b", t1.targetId);
+    expect(heard).toEqual([`${t1.id}>b:still`]);
+    expect(r.tab.id).not.toBe(t1.id);
+    expect(r.tab).toMatchObject({ session: "b", owned: false, reason: "borrowed" });
+    expect(tabs.session("b")?.current).toBe(r.tab.id);
+    expect(tabs.session("a")?.current).toBeNull();
+    expect(await code(Promise.resolve().then(() => tabs.pick("a", null)))).toBe("tab-taken");
+    expect(await code(Promise.resolve().then(() => tabs.pick("a", t1.id)))).toBe("no-tab");
+    expect(await code(Promise.resolve().then(() => tabs.pick("a", null)))).toBe("no-tab");
+  });
+
+  test("--tab names it: tab-taken carries who, when and where it was, and a next that takes it back", async () => {
+    const { tabs } = fake([]);
+    const t1 = await tabs.createTab("a");
+    const t2 = await tabs.createTab("a");
+    await tabs.adopt("b", t1.targetId);
+    expect(tabs.session("a")?.current).toBe(t2.id);
+    try {
+      tabs.pick("a", t1.id);
+      throw new Error("no throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(TabcapError);
+      if (!(e instanceof TabcapError)) return;
+      expect(e.code).toBe("tab-taken");
+      expect(e.extra).toMatchObject({ tab: t1.id, by: "b", url: "about:blank" });
+      expect(e.next).toContain(`tab adopt ${t1.targetId.slice(0, 8).toLowerCase()}`);
+    }
+  });
+
+  test("refused while the holding session waits for the human, or has a command on that tab", async () => {
+    const { tabs } = fake([]);
+    const t1 = await tabs.createTab("a");
+    tabs.waitingOf = (s) => s === "a";
+    expect(await code(tabs.adopt("b", t1.targetId))).toBe("conflict");
+    tabs.waitingOf = () => false;
+    const w = tabs.openWindow("a", t1.id);
+    expect(await code(tabs.adopt("b", t1.targetId))).toBe("conflict");
+    tabs.closeWindow(w);
+    let release = () => undefined as void;
+    const running = tabs.run(t1, () => new Promise<void>((res) => (release = res)));
+    await Bun.sleep(5);
+    expect(await code(tabs.adopt("b", t1.targetId))).toBe("conflict");
+    release();
+    await running;
+    expect(tabs.session("a")?.tabs).toEqual([t1.id]);
+    expect((await tabs.adopt("b", t1.targetId)).tab.session).toBe("b");
   });
 });

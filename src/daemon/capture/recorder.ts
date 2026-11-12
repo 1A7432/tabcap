@@ -307,6 +307,9 @@ export type RecorderDecode = {
   decode(job: DecodeJob): Promise<DecodeOutcome | null>;
 };
 
+/** docs/04 §52.4: the `from` field of a borrowed tab's `tab` event when it was taken from another session. */
+const fromField = (from: string | null): { from?: string } => (from === null ? {} : { from });
+
 export class Recorder {
   readonly dir: string;
   readonly session: string;
@@ -393,6 +396,7 @@ export class Recorder {
       o.t.onDetach((x) => r.onDetach(x)),
       o.tabs.onTabAdded((tab) => (tab.session === o.session ? r.addTab(tab, tab.reason === "borrowed" ? "attach" : "open") : Promise.resolve())),
       o.tabs.onNav((tab, e) => r.onNav(tab, e)),
+      o.tabs.onTabTaken((tab, by) => r.onTaken(tab, by)),
     );
     if (o.console !== undefined && o.console !== null) r.offs.push(o.console.onEntry((tabId, en) => r.onConsole(tabId, en)));
     for (const tab of o.tabs.sessionTabs(o.session)) {
@@ -478,6 +482,7 @@ export class Recorder {
       url: tab.url,
       title: tab.title,
       reason: tab.reason,
+      ...fromField(this.opts.tabs.takenFromOf(tab.id)),
     });
     const entry: ManifestTab = { tab: bt, chromeTabId: null, owned: tab.owned, firstUrl: tab.url };
     this.writer.updateManifest((m) => m.session.tabs.push(entry));
@@ -503,6 +508,25 @@ export class Recorder {
       target: { id: x.targetId, type, url: x.url, sessionId: x.sessionId },
     });
     await this.enableOn(x);
+  }
+
+  /**
+   * docs/04 §52.4: another session took this recording's tab. The tab event says so,
+   * requests still open on it end as `detached`, and this recording's instrumentation
+   * leaves the tab (the taking session's recording, if any, turns its own on after this).
+   */
+  private async onTaken(tab: Tab, by: string): Promise<void> {
+    const bt = this.bundleTab.get(tab.id);
+    if (bt === undefined || this.stopping || this.writerClosed) return;
+    const sids = [...this.sessions].filter(([, host]) => host.id === tab.id).map(([sid]) => sid);
+    this.flush((p) => sids.includes(p.sessionId), "detached");
+    for (const sid of sids) this.sessions.delete(sid);
+    this.put({ ts: nowMs(), mono: null, kind: "tab", actor: "system", tab: bt, cmd: null, phase: "detach", reason: "taken", by, url: tab.url });
+    for (const sid of sids) {
+      await this.t.send("Fetch.disable", {}, sid, 5000).catch(() => undefined);
+      if (sid === tab.sessionId && tab.emulation.networkConditions !== undefined) continue;
+      await this.t.send("Network.disable", {}, sid, 5000).catch(() => undefined);
+    }
   }
 
   private onDetach(x: AttachedTarget): void {
