@@ -784,3 +784,8 @@
 - 做了什么：作者 11-13 看过 §53 实现报告后说「推吧，发版，感觉可以1.0.0了」，即确认上一条列的四处预期变化（v03d 加 `snapshot --behind`、v05f s40 命中 1→2、s79 第 7 步按 `wait.ms < 800`、第 8 步只查 `cmd` 事件）【人确认】。§52 + §53 与版本提交一起开一个 PR；版本号改为 1.0.0（package.json、npm 模板、README 状态行去掉 alpha、两份 CHANGELOG 标题、样例 fixture）。发版前本机单测 2058 过、tsc、validate:skill 过【实测】。
 - 卡在哪：§52 的两处界面上的手动检查（有界面时 `--isolate` 新开窗口、地址栏输入记 external）与 v02d 仍没跑【待验】；门户上的 Bug A【待验】。
 - 下一格从哪开始：PR CI 绿 → rebase 合并 → main 上 ci.yml 绿 → 推 `v1.0.0` 标签 → 看 release、npm、tap / Scoop。
+
+## 2026-11-13 · 1.0.0 发布之后（主循环）
+- 做了什么：PR #49 合入（rebase，main 94cb792），main 的 ci.yml 绿后推 `v1.0.0`；release run 43261223547 全绿，npm 五个包都是 1.0.0【实测：npm view】。作者让我代为发布 GitHub Release：去掉预发布、设为 Latest，说明取 CHANGELOG 1.0.0 一节。homebrew.yml run 43265256624 绿：tap 的 `Formula/tabcap.rb` 与 Scoop 清单（e6b4852）的哈希都与 release 的 SHA256SUMS 一致【实测】。
+- 卡在哪：PR #49 第一次 CI 里 `unit (macos-26)`、`native (macos-26)` 报「The job was not acquired by Runner of type hosted even after multiple attempts」，0 步，GitHub 的 macOS arm64 容量问题，只重跑这两个后通过——不是偶发失败，不改代码。§52 的有界面手动检查、v02d、门户上的 Bug A 仍【待验】。
+- 下一格从哪开始：回到作者项目里用 1.0.0 复测门户（Bug A 与 §53 各项），或作者指定的下一项。
