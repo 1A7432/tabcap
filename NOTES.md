@@ -764,3 +764,8 @@
 - 做了什么：作者 11-12 审过 docs/04 §52。按 52.1–52.2 → 52.3 → 52.5 → 52.4 → 52.6 实现：Tabs 记命令窗口（录不录都记，单调计数比先后）与漂移状态，external 判据改用 `Page.frameRequestedNavigation`（spike：页面自己的跳转都先发它，另一 CDP 客户端的 `Page.navigate` 不发，meta refresh 第二跳 initiator 也是 other，所以不用 initiator）；recorder 的 `cmd` / `actor` 按标签算；`tab-changed`、`tab-taken` 两个新错误码；`tab list --all` 带 `holder`；只读命令 `--target`（独立 ref 表）；`session start --purpose`、`--isolate`；账号默认进默认上下文，同站第二个账号拒绝。§52 按实现改了几处（判据、`from` 取导航前的 URL、`lastAction`、接管后原会话不回退、`isolated` 取代 `browserContext:"own"`）。单测 `bun test test/unit` 全过【实测】；e2e s78（v11a）9 条本机通过【实测】；改了 v04d / v06d / v09b / v09d / v10a 的预期。
 - 卡在哪：页面脚本的 `history.back()` 不发 `frameRequestedNavigation`，没有命令窗口时会误报 external（已写进 §52.1）；有界面时新上下文另开窗口、地址栏输入是否同样记 external，都要作者手动看一眼【待验】。全量单测里 `replay-order` 的 CLI 测试偶发失败一次，单跑 3 次都过，与本格无关。
 - 下一格从哪开始：作者看本机 e2e 全量结果后决定开 PR；之后回到 0.9.1 报告的其余几条（`fetch --like`、Element UI、带状态解码插件、`--grep` 反选、动作后等网络空闲）。
+
+## 2026-11-12 · §52 全量 e2e（主循环）
+- 做了什么：本机逐个文件跑 e2e（v02d 会抢作者前台，跳过）：第一轮 v04d、v06f、v10a 有失败，都是 §52 的直接后果（漏改一处 `browserContext:"own"`；默认上下文共用后无账号会话看得到账号会话的 localStorage；跨会话 `tab adopt` 不再是 `conflict`），改预期后三个文件全过，其余 46 个第一轮就全过；v11a 连跑 3 次全过【实测】。
+- 卡在哪：全量单测有 9 条 Python 相关的跳过：uv 离线缓存里没有 pytest 9.2.0（测试从不下载），与本格无关，要在 CI 或补齐缓存后再确认；v02d（s17）没跑。
+- 下一格从哪开始：作者决定是否开 PR（分支 `0.9.2-tab-visibility`，scratchpad worktree，`native/dist` 是拷进来的未跟踪文件，不要提交）。

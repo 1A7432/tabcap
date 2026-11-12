@@ -146,7 +146,7 @@ describe.skipIf(!enabled)("tabcap 0.4-D L2 (account pool, proxy pool, per-accoun
     expect(stop).toMatchObject({ browserContext: "disposed", storeSession: { site: SITE, account: "alice" } });
     expect(Number(rec(stop["storeSession"])["cookies"])).toBeGreaterThanOrEqual(1);
     const again = await ok("session", "start", "sa2", "--site", SITE, "--account", "alice");
-    expect(again).toMatchObject({ account: "alice", proxy: "p1", browserContext: "own" });
+    expect(again).toMatchObject({ account: "alice", proxy: "p1", isolated: true });
     expect(Number(again["cookiesRestored"])).toBeGreaterThanOrEqual(1);
     await ok("navigate", `${site.origin}/pool/me?who=a2`, "--session", "sa2");
     expect(cookiesAt("/pool/me?who=a2")).toEqual(["pool_sid=alice-cookie-0001"]);

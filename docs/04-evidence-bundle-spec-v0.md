@@ -1446,5 +1446,5 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - 靶场 `05` s78（`test/e2e/v11a.e2e.test.ts`，9 条，本机通过【实测 11-12】）：external 导航的归因与 `tab-changed`、另一标签命令期间的归因（11-11 的原样）、页面自己跳转不算 external、`--target` 只读、跨会话接管与 `tab-taken`、上下文按需与冲突。
 - 单测：`test/unit/tab-drift52.test.ts`（`windowCovers`、`isExternalStart`、Tabs 的漂移状态、`decideChange`、错误字段）、`test/unit/tab-adopt.test.ts`（跨会话接管、`tab-taken` 只报一次、拒绝条件）、`test/unit/session06r.test.ts`（默认上下文、`defaultContextClash`、`--isolate` 下的全有或全无）。
-- 随之改的旧 e2e：v06d D6（第二个账号要 `--isolate`；没有账号的会话现在和账号会话共用 cookie）、v04d（池代理账号自动独立，`isolated:true`）、v09b / v09d / v10a 第 9 步（要独立上下文的场景加 `--isolate`）。
+- 随之改的旧 e2e：v06d D6（第二个账号要 `--isolate`；没有账号的会话现在和账号会话共用 cookie）、v04d（池代理账号自动独立，`isolated:true`）、v06f（没有账号的会话现在看得到同站账号会话的 localStorage）、v09b / v09d / v10a 第 9 步（要独立上下文的场景加 `--isolate`）、v10a 第 5、6 步（别的会话接走再接回，包里两条 borrowed attach、一条 taken detach）。11-12 本机全量 e2e（除 v02d，它会抢前台）49 个文件全过【实测】。
 - 【待验】：有界面时新上下文是否真的另开窗口（作者看一眼即可）；`Page.navigate` 与地址栏输入在 `sec-fetch-user` 上是否不同（如果不同，§52.1 可以把 external 再分成 `human` 与 `cdp`）。
