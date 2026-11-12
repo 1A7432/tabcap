@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 1.0.0 (2026-11-13)
 
 ### Every tab of the browser: who changed it, who holds it, one window (docs/04 §52)
 
