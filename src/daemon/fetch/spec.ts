@@ -21,7 +21,7 @@ export type FetchCredentials = (typeof FETCH_CREDENTIALS)[number];
 export const DEFAULT_FETCH_CREDENTIALS: FetchCredentials = "include";
 
 export const FETCH_USAGE =
-  "tabcap fetch <url> [--method M] [--header k:v]... [--body <text>|@<file>] [--json <text>|@<file>] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--end-on rule]... [--out file] [--tab t2] [--timeout ms] | tabcap fetch --batch <file.jsonl>";
+  "tabcap fetch <url> | --like <r-N> [--query k=v]... [--header-from-storage 'Name=… {local:key} …']... [--method M] [--header k:v]... [--body <text>|@<file>] [--json <text>|@<file>] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--end-on rule]... [--out file] [--tab t2] [--timeout ms] | tabcap fetch --batch <file.jsonl>";
 
 export type FetchSpec = {
   url: string;

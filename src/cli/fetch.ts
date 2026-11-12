@@ -80,6 +80,9 @@ const REQUEST_FLAGS: ReadonlyArray<[string, string]> = [
   ["out", "--out"],
   ["rawBody", "--raw"],
   ["tab", "--tab"],
+  ["like", "--like"],
+  ["query", "--query"],
+  ["headerFromStorage", "--header-from-storage"],
 ];
 
 /** CLI args (parseCommand + withLocalPaths) → the daemon's fetch args. */
@@ -96,8 +99,15 @@ export function fetchArgs(a: Record<string, unknown>, cwd: string, read: ReadTex
     const withMode = credentials === undefined ? withTimeout : withTimeout.map((l) => ("credentials" in l ? l : { ...l, credentials }));
     return { batch: a["reveal"] === true ? withMode.map((l) => ("reveal" in l ? l : { ...l, reveal: true })) : withMode };
   }
-  if (typeof a["url"] !== "string" || a["url"] === "") throw usage("missing <url>");
-  const out: Record<string, unknown> = { url: a["url"] };
+  const like = typeof a["like"] === "string" ? a["like"] : null;
+  if (like !== null && typeof a["url"] === "string") throw usage("give either <url> or --like <r-N>, not both");
+  if (like === null && (typeof a["url"] !== "string" || a["url"] === "")) throw usage("missing <url> (or --like <r-N>)");
+  const out: Record<string, unknown> = like === null ? { url: a["url"] } : { like };
+  // docs/04 §53.8: --query k=v and --header-from-storage 'Name=template' go with --like; values are read in the tab, never here.
+  const query = list(a["query"]);
+  if (query.length > 0) out["query"] = query;
+  const fromStorage = list(a["headerFromStorage"]);
+  if (fromStorage.length > 0) out["headerFromStorage"] = fromStorage;
   if (typeof a["method"] === "string") out["method"] = a["method"];
   const headers = list(a["header"]).map(headerPair);
   if (headers.length > 0) out["headers"] = headers;

@@ -862,10 +862,10 @@ Example: `tabcap download wait --url /export.csv --timeout 60000`
 
 ### `tabcap fetch`
 
-send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) | bodyFile, timing, waitedMs}
+send via the logged-in tab; the session's tab sends the request (the page's own fetch with its cookies, in a tabcap isolated world) and it is recorded (needs net start): fetchId c-N:f-K on the request event, per-host pacing (config.json fetch.minIntervalMs, default 3000 ms between requests), stop rules → {id, fetchId, status, statusText, mime, bytes, headers, body (text ≤ 8 KB) | bodyFile, timing, waitedMs, decoded?, like?, auth?}
 
 ```
-tabcap fetch [<url>] [--session name] [--timeout ms] [--tab t2] [--method M] [--header k:v]... [--body text|@file] [--json text|@file] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--end-on rule]... [--out file] [--raw] [--batch file.jsonl] [--reveal]
+tabcap fetch [<url>] [--session name] [--timeout ms] [--tab t2] [--like r-N] [--query k=v]... [--header-from-storage 'Name=Bearer {local:key}']... [--method M] [--header k:v]... [--body text|@file] [--json text|@file] [--form k=v]... [--credentials include|same-origin|omit] [--stop-on rule]... [--end-on rule]... [--out file] [--raw] [--batch file.jsonl] [--reveal]
 ```
 
 Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
@@ -873,7 +873,10 @@ Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
-| `--method <M>` | `GET` | HTTP method |
+| `--like <r-N>` |  | send recorded request r-N again (in place of <url>): its method, URL, headers and body; authentication headers come fresh from the sending tab's newest recorded request to that host (answer: auth {from, tab}); the other flags change it |
+| `--query <k=v>` |  | with --like: set a query parameter (k= removes it) (repeatable) |
+| `--header-from-storage <'Name=Bearer {local:key}'>` |  | with --like: a header built in the sending tab from its storage: {local:key}, {session:key}, {local:@session:key} (= localStorage[sessionStorage[key]]); the value never appears in output (repeatable) |
+| `--method <M>` | `GET` | HTTP method (with --like: the recorded one) |
 | `--header <k:v>` |  | request header (name:value) (repeatable) |
 | `--body <text\|@file>` |  | request body text, or @<file> to read it from a file |
 | `--json <text\|@file>` |  | JSON request body (checked; content-type application/json unless --header sets one), or @<file> |
@@ -882,7 +885,7 @@ Example: `tabcap fetch '/api/list?page=2' --stop-on 'json:$.code!=0'`
 | `--stop-on <rule>` |  | stop rule, on top of config.json fetch.stopOn: empty-body \| status>=<n> \| status=<n> \| json:<$.path>=<v> \| json:<$.path>!=<v> \| text:<regex>; when one fires the site's fetches are refused until `tabcap guard resume --site` (repeatable) |
 | `--end-on <rule>` |  | end rule (the --stop-on syntax), on top of config.json sites.<s>.guard.endOn: the list has ended (e.g. json:$.code=203); checked before every stop rule, a match answers ok with end {rule, detail} and stops nothing (repeatable) |
 | `--out <file>` |  | write the body (text secret-scrubbed) to this file instead of inline / bodyFile |
-| `--raw` |  | the body as base64 inline (bodyBase64, up to 16 MB; text secret-scrubbed) instead of inline text / bodyFile |
+| `--raw` |  | the original body as base64 inline (bodyBase64, up to 16 MB; text secret-scrubbed) instead of inline text / bodyFile; without it a decode plugin's plaintext is the body (decoded: plugin:<name>) |
 | `--batch <file.jsonl>` |  | JSON lines file, one request per line {url, method?, headers?, body?\|json?\|form?, credentials?, tab?, timeoutMs?, stopOn?, endOn?}: sent in order under the same limits, one envelope printed per line |
 | `--reveal` |  | print sensitive header values, cookie values and sensitive-named query / body fields as recorded instead of <redacted:name> (only when the human asks; store secrets stay <secret:…>) |
 

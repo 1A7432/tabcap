@@ -36,6 +36,10 @@ import { exportBody } from "./bodyexport.ts";
 import { decodeBody } from "./netsearch.ts";
 import { redactFlatHeaders, redactRuleDetail } from "./liveredact.ts";
 import type { Args } from "./args.ts";
+import { current } from "./net.ts";
+import { findRequestEvent } from "./netshow.ts";
+import { docIdentity } from "../browser/doc.ts";
+import { fillTemplate, isAuthHeader, likeSource, parseStorageTemplate, queryPair, resendHeaders, STORAGE_FN, withHeaders, withQuery, type StorageTemplate } from "../fetch/like.ts";
 
 /** Text bodies up to this size come back inline (`body`); larger or binary ones as a file (`bodyFile`). */
 export const INLINE_BODY_MAX = 8 * 1024;
@@ -115,17 +119,21 @@ function buildEnvelope(
 ): { data: Record<string, unknown>; status: number | null; bytes: number; text: string | null } {
   const scrub = (s: string) => d.secrets.scrub(s);
   const resp = isRecord(r.event["response"]) ? r.event["response"] : {};
-  const bytes = recordedBody(rec, r);
-  const charset = () => str(resp, "charset");
-  const decoded = bytes === null ? null : decodeBody(bytes, r.entry.mime, charset);
+  // docs/04 §53.8: a decode plugin's plaintext (§28) is the default body; --raw keeps the original.
+  const view = o.spec.rawBody ? null : decodedView(rec, r);
+  const bytes = view?.bytes ?? recordedBody(rec, r);
+  const mime = view === null ? r.entry.mime : view.mime;
+  const charset = () => (view === null ? str(resp, "charset") : null);
+  const decoded = bytes === null ? null : decodeBody(bytes, mime, charset);
   const text = decoded === null ? null : scrub(decoded);
   const data: Record<string, unknown> = {
     id: r.entry.id,
     fetchId: o.fetchId,
     status: r.entry.status,
     statusText: str(resp, "statusText") ?? "",
-    mime: r.entry.mime,
+    mime,
     bytes: bytes?.length ?? 0,
+    ...(view === null ? {} : { decoded: `plugin:${view.by}` }),
     // 0.6-E: sensitive header values and URL query tokens shown as <redacted:name> unless reveal (docs/04 §8.3)
     headers: o.spec.reveal ? envelopeHeaders(resp["headers"], scrub) : redactFlatHeaders(envelopeHeaders(resp["headers"], scrub), { scrub }),
   };
@@ -141,7 +149,7 @@ function buildEnvelope(
       writePrivate(path, out.bytes);
       data["bodyFile"] = path;
     } else {
-      const f = exportBody({ id: r.entry.id, url: r.entry.url, bytes, mime: r.entry.mime, resourceType: r.entry.type, charset, scrub, pretty: false, where: { bundle: rec.dir } });
+      const f = exportBody({ id: r.entry.id, url: r.entry.url, bytes, mime, resourceType: r.entry.type, charset, scrub, pretty: false, where: { bundle: rec.dir } });
       data["bodyFile"] = f["file"];
       if (o.spec.rawBody) data["note"] = `rawBody: the body is over ${RAW_BODY_MAX} bytes, so it went to bodyFile`;
     }
@@ -149,6 +157,19 @@ function buildEnvelope(
   data["timing"] = envelopeTiming(r.event);
   data["waitedMs"] = o.waitedMs;
   return { data, status: r.entry.status, bytes: bytes?.length ?? 0, text };
+}
+
+/** The response's decode-plugin view stored while recording (index entry `decoded`), or null. */
+function decodedView(rec: Recorder, r: FetchRecord): { bytes: Uint8Array; mime: string | null; by: string } | null {
+  const dv = r.entry.decoded;
+  if (dv === undefined) return null;
+  const p = new BlobStore(rec.dir).pathOf(dv.blob);
+  if (p === null) return null;
+  try {
+    return { bytes: readFileSync(p), mime: dv.mime, by: dv.by };
+  } catch {
+    return null;
+  }
 }
 
 /** Where the body goes: --out, rawBody (base64 ≤ 16 MB), inline (text ≤ 8 KB), else a file. */
@@ -279,8 +300,134 @@ function endRules(d: Daemon, spec: FetchSpec, site: string | null): { site: Stop
   return { site: site === null ? [] : (allSiteRules(d.paths.configFile).get(site)?.endRules ?? []), own };
 }
 
+const LIKE_ONLY = ["like", "query", "headerFromStorage"] as const;
+/** Most recorded requests of the sending tab looked at for fresh authentication headers (newest first). */
+const AUTH_LOOKBACK = 200;
+
+const pairList = (v: unknown, what: string): Array<[string, string]> => {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v)) throw new TabcapError("usage", `${what} must be a list of [name, value] pairs`, "e.g. [[\"page\", \"2\"]]");
+  return v.map((p) => {
+    if (!Array.isArray(p) || p.length !== 2 || typeof p[0] !== "string" || typeof p[1] !== "string") throw new TabcapError("usage", `${what} must be a list of [name, value] pairs`, "e.g. [[\"page\", \"2\"]]");
+    return [p[0], p[1]];
+  });
+};
+
+/** The --like parts of a request (checked before anything is sent). */
+function likeParts(a: Args): { like: string; query: Array<[string, string]>; storage: StorageTemplate[] } | null {
+  const like = a["like"];
+  if (like === undefined || like === null) {
+    for (const k of ["query", "headerFromStorage"]) if (a[k] !== undefined && a[k] !== null) throw new TabcapError("usage", `${k === "query" ? "--query" : "--header-from-storage"} goes with --like <r-N>`, "e.g. tabcap fetch --like r-12 --query page=2");
+    return null;
+  }
+  if (typeof like !== "string" || !/^r-\d{1,9}$/.test(like)) throw new TabcapError("usage", "--like takes a request id like r-12", "See `tabcap net list` for ids.");
+  if (a["url"] !== undefined && a["url"] !== null) throw new TabcapError("usage", "give either <url> or --like <r-N>, not both", "--like takes the URL from the recorded request; --query changes its query string.");
+  const q = a["query"];
+  const query = Array.isArray(q) && q.every((x) => typeof x === "string") ? q.map((x) => queryPair(x as string)) : pairList(q, "query");
+  const hs = a["headerFromStorage"];
+  const storage = (hs === undefined || hs === null ? [] : Array.isArray(hs) ? hs : [hs]).map((x) => {
+    if (typeof x !== "string") throw new TabcapError("usage", "headerFromStorage must be a list of 'Name=template' strings", "e.g. 'Authorization=Bearer {local:@session:singleId}'");
+    return parseStorageTemplate(x);
+  });
+  return { like, query, storage };
+}
+
+/** Read the storage templates' values in the sending tab (tabcap's isolated world: storage is per origin). */
+async function storageHeaders(d: Daemon, b: FetchBrowser, tab: Tab, storage: StorageTemplate[]): Promise<Array<[string, string]>> {
+  if (storage.length === 0) return [];
+  const doc = rootDoc(tab, await docIdentity(b.t, tab));
+  const out: Array<[string, string]> = [];
+  for (const tpl of storage) {
+    const reads = tpl.parts.filter((p) => typeof p !== "string");
+    const v = await inWorld(b.t, tab, doc, async (ctx) => {
+      const r = await b.t.send("Runtime.callFunctionOn", { functionDeclaration: STORAGE_FN, executionContextId: ctx, arguments: [{ value: reads }], returnByValue: true }, tab.sessionId, 5000);
+      return isRecord(r["result"]) && isRecord(r["result"]["value"]) ? r["result"]["value"] : {};
+    });
+    const missing = str(v, "missing");
+    if (missing !== null) throw new TabcapError("not-found", `--header-from-storage ${tpl.name}: ${missing} is not set in tab ${tab.id}`, "Check the key on the page (`tabcap evaluate 'Object.keys(localStorage)'`), or log in again in that tab.", { header: tpl.name, missing });
+    const values = Array.isArray(v["values"]) ? v["values"].filter((x): x is string => typeof x === "string") : [];
+    for (const x of values) if (x.length >= 4) d.secrets.add(x);
+    const value = fillTemplate(tpl, values);
+    if (/[\r\n\0]/.test(value)) throw new TabcapError("bad-input", `--header-from-storage ${tpl.name}: the stored value has a line break`, "A header value is one line; check what the page stores.");
+    out.push([tpl.name, value]);
+  }
+  return out;
+}
+
+/**
+ * docs/04 §53.8: the request a `--like <r-N>` sends: the recorded method, URL,
+ * resendable headers and body, with authentication headers taken from the
+ * sending tab's newest recorded request to the same host (r-N's own when that
+ * tab has none), then --query, --header, --header-from-storage and a new body.
+ */
+async function likeArgs(d: Daemon, b: FetchBrowser, a: Args, session: string, parts: NonNullable<ReturnType<typeof likeParts>>): Promise<{ args: Args; extra: Record<string, unknown> }> {
+  const { dir, index, rec } = current(d, session);
+  await rec.flushEvents();
+  const store = new BlobStore(dir);
+  const ev = findRequestEvent(dir, parts.like);
+  const src = ev === null ? null : likeSource(ev, (blob) => {
+    const x = store.tryRead(blob);
+    return x === null ? null : new TextDecoder().decode(x);
+  });
+  if (src === null) throw new TabcapError("not-found", `no request ${parts.like} in ${dir}`, "Run `tabcap net list` for request ids.");
+  const tab = b.tabs.pick(session, typeof a["tab"] === "string" ? a["tab"] : null);
+  let host: string;
+  try {
+    host = new URL(src.url).host;
+  } catch {
+    throw new TabcapError("bad-input", `${src.id} has no usable URL`, "Pick another request from `tabcap net list`.");
+  }
+  let headers = resendHeaders(src.headers);
+  const ownAuth = headers.filter(([k]) => isAuthHeader(k));
+  const extra: Record<string, unknown> = { like: src.id };
+  let fresh: { from: string; headers: Array<[string, string]> } | null = null;
+  let looked = 0;
+  for (let i = index.length - 1; i >= 0 && looked < AUTH_LOOKBACK && fresh === null; i--) {
+    const e = index[i];
+    if (e === undefined || e.tab !== tab.id || e.fetchId !== undefined) continue;
+    let h: string;
+    try {
+      h = new URL(e.url).host;
+    } catch {
+      continue;
+    }
+    if (h !== host) continue;
+    looked++;
+    const other = findRequestEvent(dir, e.id);
+    const req = other !== null && isRecord(other["request"]) ? other["request"] : {};
+    const auth = resendHeaders(req["headers"]).filter(([k]) => isAuthHeader(k));
+    if (auth.length > 0) fresh = { from: e.id, headers: auth };
+  }
+  if (fresh !== null) {
+    headers = withHeaders(headers, fresh.headers);
+    extra["auth"] = { from: fresh.from, tab: tab.id };
+  } else if (ownAuth.length > 0) {
+    extra["auth"] = { from: src.id, note: `no recorded request of tab ${tab.id} to ${host} carries authentication headers; used ${src.id}'s own` };
+  }
+  const given = Array.isArray(a["headers"]) || isRecord(a["headers"]) ? a["headers"] : null;
+  const over: Array<[string, string]> = given === null ? [] : Array.isArray(given) ? pairList(given, "headers") : Object.entries(given).filter((x): x is [string, string] => typeof x[1] === "string");
+  headers = withHeaders(headers, over);
+  const fromStorage = await storageHeaders(d, b, tab, parts.storage);
+  headers = withHeaders(headers, fromStorage);
+  if (fromStorage.length > 0) extra["fromStorage"] = fromStorage.map(([k]) => k);
+  const args: Args = { ...a, url: withQuery(src.url, parts.query), headers };
+  for (const k of LIKE_ONLY) delete args[k];
+  if (typeof a["method"] !== "string") args["method"] = src.method;
+  const newBody = ["body", "json", "form"].some((k) => a[k] !== undefined && a[k] !== null);
+  if (!newBody && src.body !== null) args["body"] = src.body;
+  if (!newBody && src.body === null && src.bodyMissing) throw new TabcapError("not-found", `${src.id}'s request body was not recorded`, "Give the body with --json / --body / --form.");
+  return { args, extra };
+}
+
 /** One fetch; `k` numbers it inside its command (`c-N:f-K`). */
-export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: string, cmd: string | null, k: number): Promise<Record<string, unknown>> {
+export async function fetchOne(d: Daemon, b: FetchBrowser, given: Args, session: string, cmd: string | null, k: number): Promise<Record<string, unknown>> {
+  const parts = likeParts(given);
+  const resolved = parts === null ? { args: given, extra: {} } : await likeArgs(d, b, given, session, parts);
+  const out = await fetchSpec(d, b, resolved.args, session, cmd, k);
+  return { ...out, ...resolved.extra };
+}
+
+async function fetchSpec(d: Daemon, b: FetchBrowser, a: Args, session: string, cmd: string | null, k: number): Promise<Record<string, unknown>> {
   const spec = parseFetchSpec(a);
   const rec = d.recorders.get(session);
   if (rec === undefined) {
@@ -403,7 +550,9 @@ export async function fetchOne(d: Daemon, b: FetchBrowser, a: Args, session: str
 /** `tabcap fetch` / `POST /fetch`: one request, or `batch` (a list of requests, in order, under the same limits). */
 export function fetchTool(d: Daemon, a: Args, session: string, ctx: ToolCtx = { cmd: null }): Promise<unknown> {
   // Validation first: a bad request is a usage error even without a browser.
-  if (a["batch"] === undefined || a["batch"] === null) parseFetchSpec(a);
+  if (a["batch"] === undefined || a["batch"] === null) {
+    if (likeParts(a) === null) parseFetchSpec(a);
+  }
   return fetchRun(d, d.need(), a, session, ctx);
 }
 
@@ -416,7 +565,7 @@ export async function fetchRun(d: Daemon, b: FetchBrowser, a: Args, session: str
   // Validate every line before the first request goes out.
   batch.forEach((x, i) => {
     try {
-      parseFetchSpec(x);
+      if (!isRecord(x) || likeParts(x) === null) parseFetchSpec(x);
     } catch (e) {
       throw e instanceof TabcapError ? new TabcapError(e.code, `batch line ${i + 1}: ${e.message}`, e.next) : e;
     }
