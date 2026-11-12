@@ -67,12 +67,12 @@ tabcap navigate <url>                       # background tab; answer has status 
 tabcap snapshot --interactive               # controls with refs; find <text> for one element
 tabcap click e4 --snapshot                  # waits for navigation + quiet DOM
 tabcap fill e2 alice                        # type <text> for the focused element
+tabcap select e7 "1001 现金"                # any dropdown
 tabcap wait --text "Saved"                  # never sleep
 tabcap net start / net stop                 # record into a bundle
-tabcap net list --grep /api/ --fields id,url   # 30 rows a page
-tabcap net body r-11 --grep token --context 2
+tabcap net list --grep /api/ --fields id,url
+tabcap fetch --like r-11 --query page=2     # resend, fresh auth
 tabcap where e12                            # which response carries this value
-tabcap analyze deps <bundle> --select unresolved
 ```
 
-Errors: `waiting` (hand over) · `tab-changed` (someone else moved your tab: `snapshot`, then do what `next` says) · `tab-taken` (another session took it) · `guard.login-limit` (ask, then `--confirm`) · `not-running` · `daemon-version` (`tabcap daemon stop && tabcap daemon start`) · `no-tab` (navigate, or `tab list`) · `stale-ref` (snapshot again) · `needs-await` · `dialog` (`dialog accept|dismiss`) · `timeout` · `covered` (an overlay is in front; never close consent or timeout prompts without the user) · `not-delivered` / `move-timeout` (look before clicking again) · `usage`.
+Errors: `waiting` (hand over) · `tab-changed` (someone moved your tab: do what `next` says) · `tab-taken` (another session took it) · `guard.login-limit` (ask, then `--confirm`) · `not-running` · `daemon-version` (`tabcap daemon stop && tabcap daemon start`) · `no-tab` (navigate, or `tab list`) · `stale-ref` (snapshot again) · `needs-await` · `dialog` (`dialog accept|dismiss`) · `timeout` · `covered` (an overlay is in front; never close consent or timeout prompts without the user) · `ambiguous-target` / `not-visible` (`find` the item's own ref) · `not-delivered` / `move-timeout` (look first).

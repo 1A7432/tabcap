@@ -126,7 +126,8 @@ describe.skipIf(!enabled)("tabcap 0.5-F L2 (in-command search: snapshot filters,
     const tr = await ok("snapshot", "--css", "table#rows tbody tr", ...S);
     expect(rec(tr["search"])).toMatchObject({ mode: "css", matches: 2, shown: 2 });
     const g = await ok("snapshot", "--grep", amount.replaceAll(".", "\\."), ...S);
-    expect(rec(g["search"])).toMatchObject({ matches: 1 });
+    // docs/04 §53.6: the row is named by its cells, so its line matches as well as the cell's.
+    expect(rec(g["search"])).toMatchObject({ matches: 2 });
     expect(s(g["tree"])).toContain(amount);
     const cap = await ok("snapshot", "--css", "td", "--max-matches", "3", ...S);
     expect(rec(cap["search"])).toMatchObject({ matches: cols.length * 2, shown: 3 });
