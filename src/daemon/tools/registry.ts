@@ -54,6 +54,8 @@ export const TOOL_ACTIONS = {
   find: row(),
   html: row(),
   click: action(),
+  // docs/04 §53.4: opens a dropdown and clicks an option, like click
+  select: action(),
   // hover and upload (0.3-F) act on the page like click
   hover: action(),
   fill: action({ defersText: true }),

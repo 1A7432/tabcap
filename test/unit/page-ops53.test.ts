@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { applyLayout, countLines, splitLayer, wantsRef, lineOf, type AxNode } from "../../src/daemon/browser/ax.ts";
 import { iconName, inside, LAYOUT_STYLES, parseLayout } from "../../src/daemon/browser/layout.ts";
 import { ambiguousError, notVisibleError } from "../../src/daemon/tools/input.ts";
+import { ambiguousOptions, noOption, notSelected, pickOption, selectedMatches } from "../../src/daemon/tools/select.ts";
 
 type N = { id: number; parent: number; name: string; type?: number; value?: string; attrs?: Record<string, string>; box?: [number, number, number, number]; style?: Partial<Record<(typeof LAYOUT_STYLES)[number], string>> };
 
@@ -174,5 +175,30 @@ describe("refusals (docs/04 §53.1, §53.3)", () => {
     const e = notVisibleError("e9", "opacity 0");
     expect(e.code).toBe("not-visible");
     expect(e.message).toContain("nothing was done");
+  });
+});
+
+describe("select: picking and reading back (docs/04 §53.4)", () => {
+  test("an exact match wins; one containing match is taken; several are ambiguous; --exact takes equals only", () => {
+    expect(pickOption(["1001 库存现金", "100101 现金-人民币"], "1001 库存现金", false)).toEqual({ index: 0 });
+    expect(pickOption(["S79_TARGET 1001", "S79_DECOY 222123"], "S79_TARGET", false)).toEqual({ index: 0 });
+    expect(pickOption(["1001 a", "1001 b"], "1001", false)).toEqual({ ambiguous: [0, 1] });
+    expect(pickOption(["1001 a"], "1001", true)).toEqual({ none: true });
+    expect(pickOption(["x", "x"], "x", false)).toEqual({ ambiguous: [0, 1] });
+    expect(pickOption([], "x", false)).toEqual({ none: true });
+  });
+  test("read-back: contains by default, equals with --exact, whitespace normalised", () => {
+    expect(selectedMatches(" S79_TARGET   1001 ", "S79_TARGET 1001", true)).toBe(true);
+    expect(selectedMatches("S79_DECOY 222123", "S79_TARGET", false)).toBe(false);
+    expect(selectedMatches("1001 库存现金", "库存", false)).toBe(true);
+    expect(selectedMatches("1001 库存现金", "库存", true)).toBe(false);
+  });
+  test("errors: not-found lists candidates, ambiguous-target lists them, not-selected carries wanted / got / the click's answer", () => {
+    expect(noOption("e3", "x", null).code).toBe("not-found");
+    expect(noOption("e3", "x", ["a", "b"]).extra).toEqual({ candidates: ["a", "b"] });
+    expect(ambiguousOptions("e3", "1001", ["1001 a", "1001 b"]).code).toBe("ambiguous-target");
+    const e = notSelected("e3", "S79_TARGET", "S79_DECOY 222123", { via: "layer" });
+    expect(e.code).toBe("not-selected");
+    expect(e.extra).toEqual({ wanted: "S79_TARGET", got: "S79_DECOY 222123", result: { via: "layer" } });
   });
 });

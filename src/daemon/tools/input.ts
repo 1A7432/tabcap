@@ -366,7 +366,7 @@ export function liveOrStale(v: Record<string, unknown>, ref: string): Record<str
  * centre like the trusted path does, so an overlay the classifier missed still
  * fails as `covered` instead of clicking through it.
  */
-async function overlayGate(t: Transport, tab: Tab, node: InputNode, ref: string, deep = false): Promise<"clear" | "skipped"> {
+export async function overlayGate(t: Transport, tab: Tab, node: InputNode, ref: string, deep = false): Promise<"clear" | "skipped"> {
   liveOrStale(rec(callResult(await call(t, sessionOf(tab, node), node.objectId, SCROLL_FN))), ref);
   await visibleGate(t, sessionOf(tab, node), node.objectId, ref);
   let cover;
