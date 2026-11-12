@@ -30,6 +30,7 @@ import { CdpClosedError, CdpError, CdpTimeoutError } from "./transport/direct/cd
 import { TRACE_PAUSED_NOTE } from "./trace/tracer.ts";
 import { statusOf, type StatusDaemon } from "./tools/status.ts";
 import { NOT_RECORDING_NEXT, type Downloads } from "./capture/downloads.ts";
+import { changeField, decideChange, tabChangedError } from "./tools/drift.ts";
 
 /** How often the daemon looks for proxies whose health check is due (pool.health.intervalS, down back-off). */
 const HEALTH_TICK_MS = 15_000;
@@ -104,7 +105,18 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
   if (blockedBy !== null) await d.guard.shotTaken(blockedBy.session);
   // 0.4-D: an account over its configured hourly budget does not act on pages either.
   const overBudget = blockedBy === null ? budgetBlock(d, session, action) : null;
-  const tool: typeof known = blockedBy !== null ? () => Promise.reject(waitingError(blockedBy)) : overBudget !== null ? () => Promise.reject(overBudget) : known;
+  // docs/04 §52.2: a tab someone else navigated is not acted on until the session acknowledges it.
+  const tabsNow = d.browser?.tabs ?? null;
+  const tabArg = action !== "tab.close" && action !== "tab.use" && typeof args["tab"] === "string" ? args["tab"] : null;
+  const currentTab = () => tabArg ?? tabsNow?.session(session)?.current ?? null;
+  const changedTabId = action === "tab.use" ? (typeof args["tab"] === "string" ? args["tab"] : null) : currentTab();
+  const changedTab = changedTabId === null ? undefined : tabsNow?.tabs.get(changedTabId);
+  const change = changedTab !== undefined && changedTab.session === session && !changedTab.closed ? (tabsNow?.changedOf(changedTab.id) ?? null) : null;
+  const decision = decideChange(action, change, !(action === "navigate" && args["newTab"] === true));
+  if (decision === "acknowledge" && changedTab !== undefined && blockedBy === null && overBudget === null) tabsNow?.acknowledge(changedTab.id);
+  const refusedChange = blockedBy === null && overBudget === null && decision === "refuse" && change !== null && changedTab !== undefined ? tabChangedError(changedTab.id, change) : null;
+  const tool: typeof known =
+    blockedBy !== null ? () => Promise.reject(waitingError(blockedBy)) : overBudget !== null ? () => Promise.reject(overBudget) : refusedChange !== null ? () => Promise.reject(refusedChange) : known;
   const started = Date.now();
   // docs/04 §14: a `cmd` start event before the tool runs, an end event after;
   // everything the recorder writes in between carries cmd: "c-<start seq>".
@@ -116,17 +128,20 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     return { argv: argv === null ? null : argv.map((a) => d.secrets.scrub(a)), input: isRecord(input) ? input : {} };
   };
   const startArgs = () => (deferText ? { argv: null, input: { ...scrubbed().input, text: DEFERRED } } : scrubbed());
-  const tabArg = action !== "tab.close" && action !== "tab.use" && typeof args["tab"] === "string" ? args["tab"] : null;
-  const currentTab = () => tabArg ?? d.browser?.tabs.session(session)?.current ?? null;
   const recAtStart = d.recorders.get(session);
   const startId = recAtStart?.cmdStart({ tab: currentTab(), ...startArgs() }) ?? null;
   d.noteAction(session, { action, at: started, cmd: startId });
   // Owner 2026-11-06: a window a page opens is handed back to the human's app only around such a command (front.ts).
-  const pageCommand = BLOCKED_WHILE_WAITING.has(action) && blockedBy === null && overBudget === null;
+  const pageCommand = BLOCKED_WHILE_WAITING.has(action) && blockedBy === null && overBudget === null && refusedChange === null;
   if (pageCommand) d.browser?.t.pageCommandStart();
+  // docs/04 §52.1: a window on the tab the command acts on, recorded or not (a refused command acts on nothing).
+  const windowId = blockedBy === null && overBudget === null && refusedChange === null ? (tabsNow?.openWindow(session, currentTab()) ?? null) : null;
   let env: Envelope<unknown>;
   try {
-    const data = withDownloadNotices(d, session, started, await tool(d, args, session, { cmd: startId }));
+    const raw = withDownloadNotices(d, session, started, await tool(d, args, session, { cmd: startId }));
+    // docs/04 §52.2: read-only commands on a changed tab say so.
+    const changedNow = decision === "pass" && change !== null && changedTab !== undefined ? tabsNow?.changedOf(changedTab.id) : null;
+    const data = changedNow !== null && changedNow !== undefined && action !== "tabs" && isRecord(raw) && !("changed" in raw) ? { ...raw, changed: changeField(changedNow) } : raw;
     // While recording, action commands say which command window they were (`net list --since c-<n>`).
     const out = startId !== null && ACTION_COMMANDS.has(action) && isRecord(data) && !("cmd" in data) ? { ...data, cmd: startId } : data;
     // 0.8.2 (docs/04 §18): a document this command loaded is judged by the guard before the answer goes out.
@@ -146,6 +161,8 @@ export async function handleCommand(d: Daemon, body: unknown, shutdown: () => vo
     }
   } catch (e) {
     env = toEnvelope(e);
+  } finally {
+    if (windowId !== null) tabsNow?.closeWindow(windowId);
   }
   env = markFetchAuth(d, env);
   env = withTraceField(d, session, env);

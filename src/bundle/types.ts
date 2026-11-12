@@ -19,7 +19,8 @@ import type { DecodedView } from "./decoded.ts";
 export const FORMAT_ID = "evidence-bundle/0";
 export const FORMAT_MAJOR = 0;
 
-export const ACTORS = ["human", "ai", "system"] as const;
+/** docs/04 §3; `external` (§52.1, 11-12): neither the session nor the page made it (another CDP client, a person at the address bar). */
+export const ACTORS = ["human", "ai", "system", "external"] as const;
 export type Actor = (typeof ACTORS)[number];
 
 /** §3 public fields carried by every line of events.jsonl. */
