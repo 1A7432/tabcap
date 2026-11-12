@@ -312,7 +312,7 @@ Example: `tabcap tab close t2`
 load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav, status (the HTTP status of the main document the tab shows, the last hop of a redirect; null for about:blank and error pages)
 
 ```
-tabcap navigate <url> [--session name] [--timeout ms] [--tab t2] [--new-tab] [--no-wait]
+tabcap navigate <url> [--session name] [--timeout ms] [--tab t2] [--new-tab] [--no-wait] [--wait dom|requests]
 ```
 
 Example: `tabcap navigate http://127.0.0.1:8080/ --session example`
@@ -322,6 +322,7 @@ Example: `tabcap navigate http://127.0.0.1:8080/ --session example`
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--new-tab` |  | open a new background tab (it becomes the session's current tab) |
 | `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
+| `--wait <dom\|requests>` |  | requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom |
 
 ### `tabcap go`
 
@@ -441,7 +442,7 @@ Example: `tabcap wait --text 'Order placed' --text 'Payment failed' --timeout 20
 click an element by ref (default: DOM el.click(), eventShape incomplete), then wait for a navigation it starts and for the DOM to settle; fails with `covered` when an overlay is in front (its close-button refs are in the error; tabcap never closes it)
 
 ```
-tabcap click <ref> [--session name] [--timeout ms] [--tab t2] [--trusted] [--dbl-click] [--no-wait] [--snapshot]
+tabcap click <ref> [--session name] [--timeout ms] [--tab t2] [--trusted] [--dbl-click] [--no-wait] [--snapshot] [--wait dom|requests]
 ```
 
 Example: `tabcap click e12`
@@ -453,6 +454,7 @@ Example: `tabcap click e12`
 | `--dbl-click` |  | double click (DOM: two clicks and a dblclick event; --trusted: two presses, Chrome fires dblclick) |
 | `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
 | `--snapshot` |  | also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait |
+| `--wait <dom\|requests>` |  | requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom |
 
 ### `tabcap hover`
 
@@ -475,7 +477,7 @@ Example: `tabcap hover e4`
 set a text field's value, React-safe (password values are masked everywhere); --secret fills from the store, one password fill per site per session (guard.login-limit)
 
 ```
-tabcap fill <ref> [<text>] [--session name] [--timeout ms] [--tab t2] [--trusted] [--secret site.field] [--confirm] [--no-wait] [--snapshot]
+tabcap fill <ref> [<text>] [--session name] [--timeout ms] [--tab t2] [--trusted] [--secret site.field] [--confirm] [--no-wait] [--snapshot] [--wait dom|requests]
 ```
 
 Example: `tabcap fill e7 --secret example.password`
@@ -488,13 +490,14 @@ Example: `tabcap fill e7 --secret example.password`
 | `--confirm` |  | allow a second --secret password fill in this session (only after the human said so) |
 | `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
 | `--snapshot` |  | also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait |
+| `--wait <dom\|requests>` |  | requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom |
 
 ### `tabcap type`
 
 type into the element that has focus now (focus it first with click or fill). Default / --insert: one insertText, no key events (eventShape insert); --trusted: per-key events
 
 ```
-tabcap type <text> [--session name] [--timeout ms] [--tab t2] [--trusted] [--delay ms] [--insert] [--submit-key key] [--no-wait] [--snapshot]
+tabcap type <text> [--session name] [--timeout ms] [--tab t2] [--trusted] [--delay ms] [--insert] [--submit-key key] [--no-wait] [--snapshot] [--wait dom|requests]
 ```
 
 Example: `tabcap type hello --submit-key Enter`
@@ -508,13 +511,14 @@ Example: `tabcap type hello --submit-key Enter`
 | `--submit-key <key>` |  | press this key after typing, e.g. Enter or Tab |
 | `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
 | `--snapshot` |  | also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait |
+| `--wait <dom\|requests>` |  | requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom |
 
 ### `tabcap press-key`
 
 press a key or a combination on the focused element: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a, Control+Shift+R … (modifiers: Control, Shift, Alt, Meta)
 
 ```
-tabcap press-key <key> [--session name] [--timeout ms] [--tab t2] [--no-wait] [--snapshot]
+tabcap press-key <key> [--session name] [--timeout ms] [--tab t2] [--no-wait] [--snapshot] [--wait dom|requests]
 ```
 
 Example: `tabcap press-key Enter`
@@ -524,6 +528,7 @@ Example: `tabcap press-key Enter`
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
 | `--snapshot` |  | also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait |
+| `--wait <dom\|requests>` |  | requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom |
 
 ### `tabcap upload`
 
@@ -1532,7 +1537,7 @@ Example: `tabcap html e12 --inner`
 pick a dropdown option by its text: a native <select> directly (input + change); otherwise click <ref> open, find the option in its aria-controls list or in the layer the click showed (Element UI-style dropdowns without ARIA), click it, and read the control back (not-selected when it shows another value); never presses Escape or clicks outside → {via: native|aria|layer, selected {text, option}, value, landedOn, layerOpen?}
 
 ```
-tabcap select <ref> <text> [--session name] [--timeout ms] [--tab t2] [--exact] [--trusted] [--no-wait] [--snapshot]
+tabcap select <ref> <text> [--session name] [--timeout ms] [--tab t2] [--exact] [--trusted] [--no-wait] [--snapshot] [--wait dom|requests]
 ```
 
 Example: `tabcap select e14 "1001 库存现金"`
@@ -1544,6 +1549,7 @@ Example: `tabcap select e14 "1001 库存现金"`
 | `--trusted` |  | open the dropdown and click the option with trusted input (as click --trusted) |
 | `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
 | `--snapshot` |  | also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait |
+| `--wait <dom\|requests>` |  | requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom |
 
 ### `tabcap record`
 

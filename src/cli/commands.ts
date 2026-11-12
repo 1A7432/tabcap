@@ -138,6 +138,15 @@ const DECODE_VERBOSE: FlagSpec = {
   help: "with --decode on: the counters behind the compact decode block too (armed, held, settling, rows.attributed, unattributedKept, evidenceHits, recovered, walks, sinks, drops by reason)",
 };
 const INTERACT: FlagSpec[] = [NO_WAIT, { flag: "--snapshot", key: "snapshot", kind: "bool", help: "also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait" }];
+/** docs/04 §53.7: also wait for the XHR / fetch requests the command started. */
+const WAIT_REQUESTS: FlagSpec = {
+  flag: "--wait",
+  key: "wait",
+  kind: "string",
+  help: "requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom",
+  metavar: "dom|requests",
+};
+const INTERACT_W: FlagSpec[] = [...INTERACT, WAIT_REQUESTS];
 
 export const COMMANDS: CommandSpec[] = [
   {
@@ -336,7 +345,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["navigate"],
     pos: ["url"],
-    flags: [...TT, { flag: "--new-tab", key: "newTab", kind: "bool", help: "open a new background tab (it becomes the session's current tab)" }, NO_WAIT],
+    flags: [...TT, { flag: "--new-tab", key: "newTab", kind: "bool", help: "open a new background tab (it becomes the session's current tab)" }, NO_WAIT, WAIT_REQUESTS],
     summary: "load a URL in the session's tab (opens a background tab if needed), wait until ready and the DOM is quiet → tab, url, title, readyState, nav, status (the HTTP status of the main document the tab shows, the last hop of a redirect; null for about:blank and error pages)",
     example: "tabcap navigate http://127.0.0.1:8080/ --session example",
     action: "navigate",
@@ -462,7 +471,7 @@ export const COMMANDS: CommandSpec[] = [
         help: "trusted input via focus emulation: mouse path to the target, press, 50–140 ms, release (all events isTrusted); a tab not confirmed painted falls back to the DOM click (degraded: not-painted); fails honestly if not delivered, never retries",
       },
       { flag: "--dbl-click", key: "dblClick", kind: "bool", help: "double click (DOM: two clicks and a dblclick event; --trusted: two presses, Chrome fires dblclick)" },
-      ...INTERACT,
+      ...INTERACT_W,
     ],
     summary:
       "click an element by ref (default: DOM el.click(), eventShape incomplete), then wait for a navigation it starts and for the DOM to settle; fails with `covered` when an overlay is in front (its close-button refs are in the error; tabcap never closes it)",
@@ -476,7 +485,7 @@ export const COMMANDS: CommandSpec[] = [
       ...TT,
       { flag: "--exact", key: "exact", kind: "bool", help: "the option's whole text must equal <text> (default: an option that equals it, else the one that contains it)" },
       { flag: "--trusted", key: "trusted", kind: "bool", help: "open the dropdown and click the option with trusted input (as click --trusted)" },
-      ...INTERACT,
+      ...INTERACT_W,
     ],
     summary:
       "pick a dropdown option by its text: a native <select> directly (input + change); otherwise click <ref> open, find the option in its aria-controls list or in the layer the click showed (Element UI-style dropdowns without ARIA), click it, and read the control back (not-selected when it shows another value); never presses Escape or clicks outside → {via: native|aria|layer, selected {text, option}, value, landedOn, layerOpen?}",
@@ -500,7 +509,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--trusted", key: "trusted", kind: "bool", help: "focus emulation + Input.insertText" },
       { flag: "--secret", key: "secret", kind: "string", help: "fill a stored value instead of text: <site>.password or <site>.username (the daemon fills it; output shows <secret:…>)", metavar: "site.field" },
       { flag: "--confirm", key: "confirm", kind: "bool", help: "allow a second --secret password fill in this session (only after the human said so)" },
-      ...INTERACT,
+      ...INTERACT_W,
     ],
     summary: "set a text field's value, React-safe (password values are masked everywhere); --secret fills from the store, one password fill per site per session (guard.login-limit)",
     example: "tabcap fill e7 --secret example.password",
@@ -515,7 +524,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--delay", key: "delay", kind: "number", help: "with --trusted: ms between two characters", default: 0, metavar: "ms" },
       { flag: "--insert", key: "insert", kind: "bool", help: "one Input.insertText for the whole text, no key events (the default; eventShape insert)" },
       { flag: "--submit-key", key: "submitKey", kind: "string", help: "press this key after typing, e.g. Enter or Tab", metavar: "key" },
-      ...INTERACT,
+      ...INTERACT_W,
     ],
     summary: "type into the element that has focus now (focus it first with click or fill). Default / --insert: one insertText, no key events (eventShape insert); --trusted: per-key events",
     example: "tabcap type hello --submit-key Enter",
@@ -524,7 +533,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["press-key"],
     pos: ["key"],
-    flags: [...TT, ...INTERACT],
+    flags: [...TT, ...INTERACT_W],
     summary: "press a key or a combination on the focused element: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a, Control+Shift+R … (modifiers: Control, Shift, Alt, Meta)",
     example: "tabcap press-key Enter",
     action: "press",

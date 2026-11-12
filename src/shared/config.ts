@@ -420,6 +420,33 @@ export function readProtectionConfig(file: string): ProtectionConfig {
   return parseProtectionConfig(readConfigRaw(file)[cfgKey("", "protection")]);
 }
 
+// ------------------------------------------------------------ actions (docs/04 §53.7)
+
+/**
+ * `config.json` `actions` (docs/04 §53.7, 11-12): {wait: "dom" | "requests"}. `wait`
+ * is the default of the action commands' `--wait`: "dom" (the post-action wait as
+ * before) or "requests" (also wait for the XHR / fetch requests the command started).
+ * Read at every command; another value is an error.
+ */
+export type ActionsConfig = { wait: "dom" | "requests" };
+
+export const ACTIONS_DEFAULTS: ActionsConfig = { wait: "dom" };
+
+export function parseActionsConfig(raw: unknown): ActionsConfig {
+  const out: ActionsConfig = { ...ACTIONS_DEFAULTS };
+  if (raw === undefined || raw === null) return out;
+  if (!isRecord(raw)) throw new TabcapError("bad-input", "config.json actions is invalid", 'Set actions to an object {wait: "dom" | "requests"}, or remove it.');
+  const v = raw[cfgKey("actions", "wait")];
+  if (v === undefined) return out;
+  if (v !== "dom" && v !== "requests") throw new TabcapError("bad-input", "config.json actions.wait is invalid", 'Set actions.wait to "dom" or "requests", or remove it.');
+  out.wait = v;
+  return out;
+}
+
+export function readActionsConfig(file: string): ActionsConfig {
+  return parseActionsConfig(readConfigRaw(file)[cfgKey("", "actions")]);
+}
+
 // ------------------------------------------------------------ the key table (review wave 3)
 
 /** The JSON type a key's value must have: a string, or an object (not an array). */
@@ -468,6 +495,7 @@ export const CONFIG_KEYS = {
     trace: { type: "object", default: "—", about: "defaults of `trace start`", doc: "§33" },
     handoff: { type: "object", default: "—", about: "the human take-over listener", doc: "§37" },
     protection: { type: "object", default: "—", about: "the live protection-family probe", doc: "§41.3" },
+    actions: { type: "object", default: "—", about: "defaults of the action commands (click, fill, type, press, select, navigate)", doc: "§53.7" },
     replay: { type: "object ({rules: [...]})", default: "—", about: "replay key rules for every bundle, after the site's own", doc: "§31" },
   },
   chrome: {
@@ -519,6 +547,9 @@ export const CONFIG_KEYS = {
   },
   protection: {
     live: { type: "boolean", default: shown(PROTECTION_DEFAULTS.live), about: "probe each navigated page for protection families; read at `browser start`", doc: "§41.3" },
+  },
+  actions: {
+    wait: { type: '"dom" | "requests"', default: shown(ACTIONS_DEFAULTS.wait), about: "default of `--wait`: also wait for the XHR / fetch requests the command started (\"requests\"), or not", doc: "§53.7" },
   },
   replay: REPLAY_KEYS,
   "sites.<site>.replay": REPLAY_KEYS,

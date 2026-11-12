@@ -90,8 +90,8 @@ describe("CONFIG_KEYS: the one key table", () => {
         if (info.doc !== null) expect(info.doc).toMatch(/^§\d+(\.\d+)?$/);
       }
     }
-    expect(Object.keys(CONFIG_KEYS)).toHaveLength(16);
-    expect(keys).toBe(47);
+    expect(Object.keys(CONFIG_KEYS)).toHaveLength(17);
+    expect(keys).toBe(49);
   });
 
   test("a config.json with every key: no warnings, and every reader takes it", () => {

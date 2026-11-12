@@ -9,6 +9,8 @@ import { applyLayout, countLines, findCandidates, lineOf, nameRows, splitLayer, 
 import { iconName, inside, LAYOUT_STYLES, parseLayout } from "../../src/daemon/browser/layout.ts";
 import { ambiguousError, notVisibleError } from "../../src/daemon/tools/input.ts";
 import { noticesOf } from "../../src/daemon/tools/notices.ts";
+import { countsAsCommandRequest } from "../../src/daemon/tools/reqwait.ts";
+import { parseActionsConfig } from "../../src/shared/config.ts";
 import { ambiguousOptions, noOption, notSelected, pickOption, selectedMatches } from "../../src/daemon/tools/select.ts";
 
 type N = { id: number; parent: number; name: string; type?: number; value?: string; attrs?: Record<string, string>; box?: [number, number, number, number]; style?: Partial<Record<(typeof LAYOUT_STYLES)[number], string>> };
@@ -269,5 +271,21 @@ describe("table rows (docs/04 §53.6)", () => {
     const hits = findCandidates(t, "删除", 20, "乙公司").cands;
     expect(hits.map((h) => h.node.backendId)).toEqual([9002]);
     expect(findCandidates(t, "甲公司", 20).cands.map((h) => h.node.backendId)).toEqual([120, 2200]);
+  });
+});
+
+describe("--wait requests (docs/04 §53.7)", () => {
+  test("XHR and fetch count; WebSocket, EventSource, Ping, documents and scripts do not", () => {
+    const ev = (type: string) => ({ method: "Network.requestWillBeSent", params: { requestId: "1", type, request: { url: "http://x/" } } });
+    expect(countsAsCommandRequest(ev("XHR"))).toBe(true);
+    expect(countsAsCommandRequest(ev("Fetch"))).toBe(true);
+    for (const t of ["WebSocket", "EventSource", "Ping", "Document", "Script", "Image"]) expect(countsAsCommandRequest(ev(t))).toBe(false);
+    expect(countsAsCommandRequest({ method: "Network.loadingFinished", params: {} })).toBe(false);
+  });
+  test("config actions.wait: dom (default) or requests; anything else is refused", () => {
+    expect(parseActionsConfig(undefined)).toEqual({ wait: "dom" });
+    expect(parseActionsConfig({ wait: "requests" })).toEqual({ wait: "requests" });
+    expect(() => parseActionsConfig({ wait: "network" })).toThrow();
+    expect(() => parseActionsConfig("requests")).toThrow();
   });
 });

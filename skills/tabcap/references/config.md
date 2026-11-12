@@ -20,6 +20,7 @@ One UTF-8 byte order mark at the very start of the file is skipped (Windows edit
 | `trace` | `object` | — | defaults of `trace start` | §33 |
 | `handoff` | `object` | — | the human take-over listener | §37 |
 | `protection` | `object` | — | the live protection-family probe | §41.3 |
+| `actions` | `object` | — | defaults of the action commands (click, fill, type, press, select, navigate) | §53.7 |
 | `replay` | `object ({rules: [...]})` | — | replay key rules for every bundle, after the site's own | §31 |
 | `chrome.executablePath` | `string` | — | the Chrome for Testing binary, written by `tabcap setup`; `--executable-path` and `$TABCAP_CHROME` come first | — |
 | `chrome.version` | `string` | — | its version, written by `tabcap setup` | — |
@@ -53,6 +54,7 @@ One UTF-8 byte order mark at the very start of the file is skipped (Windows edit
 | `trace.weakRows` | `boolean` | `true` | file single-suspect decoded rows (`link: weak`); false counts them as `drops.weak` | §33 |
 | `handoff.detectTakeover` | `boolean` | `true` | watch owned tabs for human input; read at `browser start` | §37 |
 | `protection.live` | `boolean` | `true` | probe each navigated page for protection families; read at `browser start` | §41.3 |
+| `actions.wait` | `"dom" \| "requests"` | `"dom"` | default of `--wait`: also wait for the XHR / fetch requests the command started ("requests"), or not | §53.7 |
 | `replay.schema` | `"tabcap-replay-rules/0"` | — | may be left out here (a `--rules` file must carry it) | §31 |
 | `replay.rules` | `rule[] ({match, key, response, prefer})` | `[]` | replay key rules: how `replay serve` / `replay check` / `bundle export fixtures` key and compare requests | §31 |
 | `sites.<site>.replay.schema` | `"tabcap-replay-rules/0"` | — | may be left out here (a `--rules` file must carry it) | §31 |
