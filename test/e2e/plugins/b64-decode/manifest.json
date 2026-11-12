@@ -1,0 +1,10 @@
+{
+  "name": "b64-decode",
+  "kind": "decode",
+  "version": "1",
+  "description": "range decode plugin (docs/05 s79): a base64 response body to its JSON; test only",
+  "match": { "host": ["127.0.0.1"], "path": ["/s79/api/list"], "contentTypes": ["text/plain"], "direction": "response" },
+  "command": ["bun", "./decode.ts"],
+  "timeoutMs": 5000,
+  "maxBytes": 1048576
+}

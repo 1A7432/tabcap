@@ -209,7 +209,7 @@ export function applyLayout(n: AxNode, l: PageLayout, verbose: boolean, isRoot =
   const vis = n.backendId === null ? "visible" : (l.get(n.backendId)?.vis ?? "visible");
   const kids = n.children.map((c) => applyLayout(c, l, verbose, false)).filter((c): c is AxNode => c !== null);
   let name = n.name;
-  if (name === "" && n.backendId !== null && BUTTON_ROLES.has(n.role)) name = iconName(l, n.backendId);
+  if (name.trim() === "" && n.backendId !== null && BUTTON_ROLES.has(n.role)) name = iconName(l, n.backendId) || name;
   const out: AxNode = { ...n, name, children: kids };
   if (isRoot || vis === "visible") return out;
   if (vis === "nobox" && kids.some((k) => k.invisible !== true)) return out;
@@ -321,6 +321,8 @@ export function findCandidates(root: AxNode, query: string, cap: number, within:
   const q = query.toLowerCase();
   const w = within === null ? null : within.toLowerCase();
   const cands: FindCandidate[] = [];
+  /** Nodes some hit is under. */
+  const under = new Set<AxNode>();
   let total = 0;
   const label = (n: AxNode) => (n.name === "" ? n.role : `${n.role} ${JSON.stringify(n.name)}`);
   const walk = (n: AxNode, anc: AxNode[]) => {
@@ -337,6 +339,7 @@ export function findCandidates(root: AxNode, query: string, cap: number, within:
         const chain = [...anc, n].reverse();
         const own = chain.find((x) => wantsRef(x));
         const click = chain.find((x) => wantsRef(x) && INTERACTIVE_ROLES.has(x.role));
+        anc.forEach((a) => under.add(a));
         cands.push({
           node: n,
           field,
@@ -350,7 +353,14 @@ export function findCandidates(root: AxNode, query: string, cap: number, within:
     for (const c of n.children) walk(c, [...anc, n]);
   };
   walk(root, []);
-  return { cands, total };
+  // docs/04 §53.6: a container whose own hit repeats one below it (cell "删除" > button "删除") gives way to it.
+  const kept = cands.filter((c) => !(under.has(c.node) && cands.some((d) => d !== c && d.match === c.match && d.path.length > c.path.length && isBelow(c.node, d.node))));
+  return { cands: kept, total: total - (cands.length - kept.length) };
+}
+
+function isBelow(a: AxNode, b: AxNode): boolean {
+  for (const c of a.children) if (c === b || isBelow(c, b)) return true;
+  return false;
 }
 
 /** Stable partition: items `isClickable` says yes to first, document order kept within each group. */

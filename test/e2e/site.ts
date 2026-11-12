@@ -2958,3 +2958,130 @@ export function startVisibilitySite(): VisibilitySite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, hits, stop: () => server.stop(true) };
 }
+
+export type PageOpsSite = { origin: string; hits: string[]; auth: string[]; stop: () => void };
+
+/**
+ * docs/05 s79 (docs/04 §53): hand-written pages shaped like what Element UI 2.15.14 renders
+ * (measured 11-12; no component library here). `window.__s79` records what the page did.
+ * - a dropdown without ARIA: an input; its list is a fixed layer under <body> with a 274 px
+ *   scrolling <ul> of 40 role-less <li> (item 4 S79_DECOY 222123, item 26 S79_TARGET 1001);
+ *   clicking the input toggles the layer; `window.__s79decoy = true` makes every pick write the decoy;
+ * - an ARIA combobox (aria-controls → role=listbox / option) and a native <select>;
+ * - a big menu (2400 links) and a 30-row table drawn as three <table>s (main, fixed left with
+ *   the names, fixed right with "S79 删除"), so the page has over 8000 elements and the tree is
+ *   far over 12000 chars; then, last in <body>, a dialog (role=dialog aria-modal, title in an
+ *   inner span, no mask) with "S79 建账", a display:none and an opacity:0 copy of it, and an
+ *   icon-only close button; `s79open()` / `s79close()` show and hide it;
+ * - "S79 保存": with the name empty, a role=alert "S79 科目为空" (removed after 1.5 s) and a
+ *   role-less "S79 名称不能为空";
+ * - "S79 查询": POST /s79/api/list {acct} with Authorization Bearer localStorage[sessionStorage.s79key]
+ *   (acct-A / tok-A, or acct-B / tok-B with ?acct=B); the answer is base64 text of JSON, code 290102
+ *   when the token is not the account's; `auth` logs the Authorization of every such request;
+ * - "S79 慢请求": GET /s79/api/slow answers after 800 ms; /s79/api/longpoll (started on load) never does.
+ */
+export function startPageOpsSite(): PageOpsSite {
+  const hits: string[] = [];
+  const auth: string[] = [];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const items = Array.from({ length: 40 }, (_, i) => (i === 3 ? "S79_DECOY 222123" : i === 25 ? "S79_TARGET 1001" : `S79_ITEM ${pad(i + 1)}`));
+  const rows = Array.from({ length: 30 }, (_, i) => i + 1);
+  const hidden = "visibility:hidden";
+  const main = rows.map((r) => `<tr>${Array.from({ length: 12 }, (_, c) => (c === 0 ? `<td style="${hidden}"><div class=cell><span>S79 公司${pad(r)}</span></div></td>` : c === 11 ? `<td style="${hidden}"><div class=cell><button>S79 删除</button></div></td>` : `<td><div class=cell><span>${c === 1 ? `A${pad(r)}` : `C${r}-${c}`}</span></div></td>`)).join("")}</tr>`).join("");
+  const left = rows.map((r) => `<tr><td><div class=cell><span>S79 公司${pad(r)}</span></div></td></tr>`).join("");
+  const right = rows.map((r) => `<tr><td><div class=cell><button onclick="__s79.push('del:S79 公司${pad(r)}')">S79 删除</button></div></td></tr>`).join("");
+  const menu = Array.from({ length: 2400 }, (_, i) => `<li><a href="#m${i}"><span>S79 菜单 ${i}</span></a></li>`).join("");
+  const page = `<!doctype html><title>s79</title>
+<style>.s79-layer{position:fixed;z-index:3000;background:#fff;border:1px solid #ccc}.s79-layer ul{height:274px;overflow:auto;margin:0;padding:0;list-style:none}.s79-layer li{cursor:pointer;height:34px;line-height:34px;padding:0 12px}
+.s79-table{position:relative}.s79-fixed{position:absolute;top:0;left:0;background:#fff}.s79-fixed-right{position:absolute;top:0;right:0;background:#fff}td{height:30px}</style>
+<h1>S79</h1>
+<p><input id=pick class=s79-select readonly placeholder="S79 请选择" onclick="s79toggle()"></p>
+<p><input id=aria role=combobox aria-controls=s79lb aria-expanded=false placeholder="S79 账套" onclick="s79aria()"><ul id=s79lb role=listbox style="display:none"><li role=option onclick="s79ariaPick(this)">S79 甲</li><li role=option onclick="s79ariaPick(this)">S79 乙</li></ul></p>
+<p><select id=nat onchange="__s79.push('change:' + this.options[this.selectedIndex].text)"><option>S79 一</option><option>S79 二</option></select></p>
+<p><input id=name placeholder="S79 名称"><span id=err></span> <button onclick="s79save()">S79 保存</button> <button onclick="s79query()">S79 查询</button> <button onclick="fetch('/s79/api/slow').then((r) => r.text()).then(() => __s79.push('slow-done'))">S79 慢请求</button></p>
+<nav><ul>${menu}</ul></nav>
+<div class=s79-table><div class=s79-body><table>${main}</table></div><div class=s79-fixed><div class=s79-fixed-body><table>${left}</table></div></div><div class=s79-fixed-right><div class=s79-fixed-body><table>${right}</table></div></div></div>
+<script>
+window.__s79 = [];
+const key = new URLSearchParams(location.search).get("acct") === "B" ? "acct-B" : "acct-A";
+sessionStorage.s79key = key;
+localStorage["acct-A"] = "tok-A";
+localStorage["acct-B"] = "tok-B";
+const layer = document.createElement("div");
+layer.className = "s79-layer";
+layer.style.display = "none";
+layer.innerHTML = "<ul>" + ${JSON.stringify(items)}.map((t) => "<li>" + t + "</li>").join("") + "</ul>";
+document.body.appendChild(layer);
+for (const li of layer.querySelectorAll("li")) li.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const text = window.__s79decoy ? "S79_DECOY 222123" : li.textContent;
+  document.getElementById("pick").value = text;
+  __s79.push("pick:" + li.textContent);
+  layer.style.display = "none";
+});
+window.s79toggle = () => {
+  if (layer.style.display !== "none") { layer.style.display = "none"; return; }
+  const r = document.getElementById("pick").getBoundingClientRect();
+  layer.style.left = r.left + "px"; layer.style.top = r.bottom + 4 + "px"; layer.style.width = "240px";
+  layer.style.display = "block";
+};
+window.s79aria = () => { document.getElementById("s79lb").style.display = "block"; document.getElementById("aria").setAttribute("aria-expanded", "true"); };
+window.s79ariaPick = (li) => { document.getElementById("aria").value = li.textContent; document.getElementById("s79lb").style.display = "none"; __s79.push("aria:" + li.textContent); };
+window.s79save = () => {
+  if (document.getElementById("name").value !== "") { __s79.push("saved"); return; }
+  const m = document.createElement("div");
+  m.setAttribute("role", "alert");
+  m.className = "s79-message";
+  m.innerHTML = "<p>S79 科目为空</p>";
+  document.body.appendChild(m);
+  setTimeout(() => m.remove(), 1500);
+  document.getElementById("err").innerHTML = "<div class=s79-form-error>S79 名称不能为空</div>";
+};
+window.s79query = () => fetch("/s79/api/list", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage[sessionStorage.s79key] }, body: JSON.stringify({ acct: sessionStorage.s79key.slice(5) }) }).then((r) => r.text()).then((t) => __s79.push("list:" + t.length));
+fetch("/s79/api/longpoll").catch(() => undefined);
+const wrap = document.createElement("div");
+wrap.className = "s79-dialog__wrapper";
+wrap.style.cssText = "position:fixed;inset:0;z-index:2000;display:none;overflow:auto";
+wrap.innerHTML = '<div role=dialog aria-modal=true class=s79-dialog style="margin:15vh auto;width:50%;background:#fff;border:1px solid #ccc;padding:16px"><div class=s79-dialog__header><span class=s79-dialog__title>S79 新建账套</span><button class=s79-dialog__headerbtn onclick="s79close()"><i class=s79-icon-close></i>&nbsp;</button></div><button id=build onclick="__s79.push(\\'build\\')">S79 建账</button><div style="display:none"><button onclick="__s79.push(\\'hidden-build\\')">S79 建账</button></div><div style="opacity:0"><button id=ghost onclick="__s79.push(\\'hidden-build\\')">S79 建账</button></div></div>';
+document.body.appendChild(wrap);
+window.s79open = () => { wrap.style.display = "block"; };
+window.s79close = () => { wrap.style.display = "none"; };
+</script>`;
+  const html = (body: string) => new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  const b64 = (v: unknown) => new Response(Buffer.from(JSON.stringify(v)).toString("base64"), { headers: { "content-type": "text/plain" } });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    idleTimeout: 0,
+    fetch: async (req) => {
+      const u = new URL(req.url);
+      const p = u.pathname;
+      if (p === "/favicon.ico") return new Response("", { status: 204 });
+      hits.push(p);
+      if (p === "/s79") return html(page);
+      if (p === "/s79/api/list") {
+        const a = req.headers.get("authorization") ?? "";
+        auth.push(a);
+        let acct = "";
+        try {
+          const body: unknown = await req.json();
+          acct = typeof body === "object" && body !== null && "acct" in body && typeof body.acct === "string" ? body.acct : "";
+        } catch {
+          acct = "";
+        }
+        return a === `Bearer tok-${acct}` ? b64({ code: 0, acct, list: [`${acct}-1`, `${acct}-2`] }) : b64({ code: 290102, msg: "token does not match the account" });
+      }
+      if (p === "/s79/api/slow") {
+        await Bun.sleep(800);
+        hits.push("slow-end");
+        return Response.json({ ok: true });
+      }
+      if (p === "/s79/api/longpoll") {
+        await Bun.sleep(120_000);
+        return Response.json({ ok: true });
+      }
+      return new Response("nf", { status: 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, hits, auth, stop: () => server.stop(true) };
+}
