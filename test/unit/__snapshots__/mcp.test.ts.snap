@@ -166,7 +166,11 @@ exports[`tools/list --all-tools: generated from the command table navigate's inp
         "type": "number",
       },
       "url": {
-        "description": "<url> in \`tabcap navigate <url> [--tab t2] [--new-tab] [--no-wait]\`",
+        "description": "<url> in \`tabcap navigate <url> [--tab t2] [--new-tab] [--no-wait] [--wait dom|requests]\`",
+        "type": "string",
+      },
+      "wait": {
+        "description": "requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom",
         "type": "string",
       },
     },

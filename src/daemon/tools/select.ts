@@ -26,6 +26,7 @@ import { timeoutOf } from "./navigate.ts";
 import { withPostWait } from "./settle.ts";
 import { snapshotAfter } from "./snapshot.ts";
 import { withNotices } from "./notices.ts";
+import { requestWaitOf } from "./reqwait.ts";
 
 const USAGE = "tabcap select <ref> <text> [--exact] [--trusted]";
 const GROUP = "tabcap-select-option";
@@ -293,6 +294,7 @@ export async function select(d: Daemon, a: Args, session: string): Promise<unkno
   const exact = optBool(a, "exact");
   const trusted = optBool(a, "trusted");
   const noWait = optBool(a, "noWait");
+  const cmdStarted = Date.now();
   const { t, tabs } = d.need();
   const tab = tabs.pick(session, optStr(a, "tab"));
   return tabs.run(
@@ -349,7 +351,7 @@ export async function select(d: Daemon, a: Args, session: string): Promise<unkno
             // The layer's object stays alive until the read-back below.
             if (layerId === null) await t.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }, sid, 3000).catch(() => undefined);
           }
-        });
+        }, { requests: requestWaitOf(d, a, cmdStarted, timeoutOf(a)) });
         const c = control as InputNode | null;
         let got = "";
         let layerOpen = false;

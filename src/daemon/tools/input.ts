@@ -25,6 +25,7 @@ import { timeoutOf } from "./navigate.ts";
 import { callResult, docIdentity, resolveRef } from "../browser/doc.ts";
 import { snapshotAfter } from "./snapshot.ts";
 import { withNotices } from "./notices.ts";
+import { requestWaitOf } from "./reqwait.ts";
 import { withPostWait } from "./settle.ts";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
@@ -829,6 +830,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
   const trusted = optBool(a, "trusted");
   const clicks = optBool(a, "dblClick") ? 2 : 1;
   const dbl = clicks === 2 ? { dblClick: true } : {};
+  const cmdStarted = Date.now();
   const { t, tabs } = d.need();
   const tab = tabs.pick(session, optStr(a, "tab"));
   const noWait = optBool(a, "noWait");
@@ -891,7 +893,7 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
             ...landed,
             ...challenge,
           };
-        });
+        }, { requests: requestWaitOf(d, a, cmdStarted, timeoutOf(a)) });
         const { result, wait } = await clicked.catch(async (e: unknown) => {
           await watched.w?.stop(true);
           throw e;
@@ -1055,6 +1057,7 @@ export async function fill(d: Daemon, a: Args, session: string): Promise<unknown
   if (secretRef === null && given === null) throw new TabcapError("usage", "missing text", `Usage: ${FILL_USAGE}`);
   const trusted = optBool(a, "trusted");
   const confirm = optBool(a, "confirm");
+  const cmdStarted = Date.now();
   const { t, tabs } = d.need();
   const tab = tabs.pick(session, optStr(a, "tab"));
   let text = given ?? "";
@@ -1074,7 +1077,7 @@ export async function fill(d: Daemon, a: Args, session: string): Promise<unknown
     tab,
     () =>
       withNotices(d, t, tab, async () => {
-        const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), () => fillOn(d, t, tab, ref, text, { trusted, secret, secretRef, counted }));
+        const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), () => fillOn(d, t, tab, ref, text, { trusted, secret, secretRef, counted }), { requests: requestWaitOf(d, a, cmdStarted, timeoutOf(a)) });
         return { ...result, wait, ...(await snapshotAfter(d, t, tab, a)) };
       }),
     { timeoutMs: timeoutOf(a) },
@@ -1185,6 +1188,7 @@ export async function typeText(d: Daemon, a: Args, session: string): Promise<unk
   if (delay !== null && !trusted) throw new TabcapError("usage", "--delay only applies to --trusted (per-key typing)", "Usage: tabcap type <text> --trusted --delay <ms>");
   if (delay !== null && (delay < 0 || delay > MAX_TYPE_DELAY_MS)) throw new TabcapError("usage", `--delay must be between 0 and ${MAX_TYPE_DELAY_MS} ms`, "Usage: tabcap type <text> --trusted --delay <ms>");
   const delayMs = delay ?? 0;
+  const cmdStarted = Date.now();
   const { t, tabs } = d.need();
   const tab = tabs.pick(session, optStr(a, "tab"));
   const submitSpec = optStr(a, "submitKey");
@@ -1212,6 +1216,7 @@ export async function typeText(d: Daemon, a: Args, session: string): Promise<unk
             }
             return out;
           }),
+          { requests: requestWaitOf(d, a, cmdStarted, timeoutOf(a)) },
         );
         return { ...result, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
       }),
@@ -1306,6 +1311,7 @@ export async function press(d: Daemon, a: Args, session: string): Promise<unknow
   const spec = reqStr(a, "key", "tabcap press-key <key>");
   const k = parseKey(spec);
   if (k === null) throw unknownKey(spec);
+  const cmdStarted = Date.now();
   const { t, tabs } = d.need();
   const tab = tabs.pick(session, optStr(a, "tab"));
   return tabs.run(
@@ -1317,6 +1323,7 @@ export async function press(d: Daemon, a: Args, session: string): Promise<unknow
             await pressKeyOn(t, tab.sessionId, k);
             return { tab: tab.id, level: 2, trusted: true, key: spec };
           }),
+          { requests: requestWaitOf(d, a, cmdStarted, timeoutOf(a)) },
         );
         return { ...result, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
       }),

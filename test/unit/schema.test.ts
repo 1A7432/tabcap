@@ -87,7 +87,7 @@ describe("generated docs (bun run gen:docs)", () => {
     expect(doc.startsWith("<!-- GENERATED from src/shared/config.ts")).toBe(true);
     expect(doc).toContain("| Key | Type | Default | Meaning | docs/04 |");
     const rows = doc.split("\n").filter((l) => l.startsWith("| `"));
-    expect(rows).toHaveLength(47);
+    expect(rows).toHaveLength(49);
     const cell = (s: string) => s.replace(/\|/g, "\\|");
     for (const [layer, keys] of Object.entries(CONFIG_KEYS)) {
       for (const [key, info] of Object.entries(keys)) {

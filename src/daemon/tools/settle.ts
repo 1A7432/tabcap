@@ -27,6 +27,7 @@ import type { CdpEvent, Transport } from "../transport/types.ts";
 import { networkMultiplier } from "./emulatespec.ts";
 import { deadline, initialState, postWaitConfig, report, stableDomExpression, step, type PostWaitConfig, type PostWaitEvent, type PostWaitReport } from "./postwait.ts";
 import { Waker } from "./wait.ts";
+import { trackRequests, type RequestsReport, type RequestWait } from "./reqwait.ts";
 
 /** Which post-wait event a CDP event of the tab's own session is, if any. */
 export function classify(e: CdpEvent, mainFrameId: string): PostWaitEvent | null {
@@ -62,8 +63,28 @@ export function configOf(tab: Tab): PostWaitConfig {
  * Run `action`, then wait as WaitForHelper.waitForEventsAfterAction does.
  * `skip` (--no-wait) runs the action alone and reports null.
  */
-export async function withPostWait<T>(t: Transport, tab: Tab, skip: boolean, action: () => Promise<T>, opts: { navigationDone?: boolean } = {}): Promise<{ result: T; wait: PostWaitReport | null }> {
+export async function withPostWait<T>(
+  t: Transport,
+  tab: Tab,
+  skip: boolean,
+  action: () => Promise<T>,
+  opts: { navigationDone?: boolean; requests?: RequestWait | null } = {},
+): Promise<{ result: T; wait: (PostWaitReport & { requests?: RequestsReport }) | null }> {
   if (skip) return { result: await action(), wait: null };
+  // docs/04 §53.7: --wait requests tracks the command's XHR / fetch from before the action.
+  const tracker = opts.requests === undefined || opts.requests === null ? null : await trackRequests(opts.requests, t, tab);
+  try {
+    const r = await postWait(t, tab, action, opts);
+    if (tracker === null || opts.requests === undefined || opts.requests === null) return r;
+    // A dialog pauses the page's script: its requests cannot end, so the wait stops at the report.
+    const requests = r.wait.dialog ? await tracker.idle(0) : await tracker.idle(opts.requests.until);
+    return { result: r.result, wait: { ...r.wait, requests } };
+  } finally {
+    await tracker?.stop();
+  }
+}
+
+async function postWait<T>(t: Transport, tab: Tab, action: () => Promise<T>, opts: { navigationDone?: boolean }): Promise<{ result: T; wait: PostWaitReport }> {
   const cfg = configOf(tab);
   const started = Date.now();
   let s = initialState(started);

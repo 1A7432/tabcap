@@ -20,6 +20,7 @@ import { confirmState, startReadyWait, type PageState } from "../transport/direc
 import type { Transport } from "../transport/types.ts";
 import { checkSessionName, optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { withPostWait } from "./settle.ts";
+import { requestWaitOf, type RequestWait } from "./reqwait.ts";
 import { NAV_DOWNLOAD_MS, NOT_RECORDING_NEXT, type NavDownload } from "../capture/downloads.ts";
 
 /** The `navigate` answer when the URL was a file download (docs/04 §48). */
@@ -95,7 +96,7 @@ export async function withNavStatus(
  * §41.3): `protection` lists the families identified at confidence ≥ 50, absent when
  * there are none.
  */
-async function settled(d: Daemon, t: Transport, tab: Tab, a: Args, nav: () => Promise<NavResult>): Promise<unknown> {
+async function settled(d: Daemon, t: Transport, tab: Tab, a: Args, nav: () => Promise<NavResult>, requests: RequestWait | null = null): Promise<unknown> {
   const { result, wait } = await withPostWait(
     t,
     tab,
@@ -106,7 +107,7 @@ async function settled(d: Daemon, t: Transport, tab: Tab, a: Args, nav: () => Pr
         confirm: () => confirmState(t, tab.sessionId, 2000),
         navOf: () => d.navOf(tab),
       }),
-    { navigationDone: true },
+    { navigationDone: true, requests },
   );
   return { ...result, wait, ...(await protectionField(d, t, tab)) };
 }
@@ -167,6 +168,8 @@ export async function navigate(d: Daemon, a: Args, session: string): Promise<unk
   const { t, tabs, downloads } = d.need();
   checkSessionName(session);
   const budget = timeoutOf(a);
+  // docs/04 §53.7: navigate takes --wait requests (go / reload keep the DOM wait).
+  const requests = requestWaitOf(d, a, Date.now(), budget);
   const s = tabs.ensureSession(session).session;
   const want = optStr(a, "tab");
   if (want !== null && optBool(a, "newTab")) throw new TabcapError("usage", "--tab and --new-tab exclude each other", `Usage: ${usage}`);
@@ -193,7 +196,7 @@ export async function navigate(d: Daemon, a: Args, session: string): Promise<unk
         } finally {
           watch.stop();
         }
-      }, () => d.navOf(tab)));
+      }, () => d.navOf(tab)), requests);
       return download === null ? answer : withNavDownload(answer, download);
     },
     { timeoutMs: budget, navigation: true },
