@@ -68,9 +68,9 @@
 | `ts` | number | 墙钟，epoch 毫秒；来自 CDP `wallTime` 的事件用它换算，其它用守护进程时钟 |
 | `mono` | number \| null | CDP 单调时钟（毫秒）；算时长只用它，不用 `ts` |
 | `kind` | string | 见 §4 |
-| `actor` | `"human"` \| `"ai"` \| `"system"` | 谁引起的。默认 `ai`；会话等人、且之后看到了人的输入（「人在操作」，§16、§37）期间录制器写的事件为 `human`，人的输入本身（`action {op:"input"}`）也是 `human`；守护进程自己的动作（cookie 快照、`guard`、`handoff`、`protection` 等）→ `system`。（P1 原规则「命令窗口内 `ai`、否则 `human`」已由 §16 作废，10-21 写入侧类型对齐时补改本行。） |
+| `actor` | `"human"` \| `"ai"` \| `"system"` \| `"external"` | 谁引起的。默认 `ai`；§52.1 起，标签上既不是本会话命令、也不是页面自己发起的导航及其纪元里的事件为 `external`；会话等人、且之后看到了人的输入（「人在操作」，§16、§37）期间录制器写的事件为 `human`，人的输入本身（`action {op:"input"}`）也是 `human`；守护进程自己的动作（cookie 快照、`guard`、`handoff`、`protection` 等）→ `system`。（P1 原规则「命令窗口内 `ai`、否则 `human`」已由 §16 作废，10-21 写入侧类型对齐时补改本行。） |
 | `tab` | string \| null | 包内标签 id，`t1`、`t2`…，按挂接顺序分配；与 Chrome 的 tabId 的对应关系在 `tab` 事件和 manifest 里 |
-| `cmd` | string \| null | 引起本事件的 AI 命令 id（`c-<seq>`），没有则 null。事件按它**发生**时打开的命令窗口记；`request` 写在请求结束时（§4.1），所以取它**开始**（`requestWillBeSent`）时打开的窗口，不取写入时的：正文晚到、写在下一条命令里、命令结束后或 `net stop` 时才收尾的，仍记开始时那条（与 §37 的 `actor` 同一做法；10-21 审查第三波起，此前取写入时的窗口）；`tabcap fetch` 发出的请求固定是发出它的命令（§5.1 `fetchId`）；WebSocket 握手（`type:"websocket"`）取握手写出时（响应到达）的窗口 |
+| `cmd` | string \| null | 引起本事件的 AI 命令 id（`c-<seq>`），没有则 null。事件按它**发生**时打开的、作用于同一标签的命令窗口记（§52.1 起按标签取；此前取整个会话最里层的窗口）；`request` 写在请求结束时（§4.1），所以取它**开始**（`requestWillBeSent`）时打开的窗口，不取写入时的：正文晚到、写在下一条命令里、命令结束后或 `net stop` 时才收尾的，仍记开始时那条（与 §37 的 `actor` 同一做法；10-21 审查第三波起，此前取写入时的窗口）；`tabcap fetch` 发出的请求固定是发出它的命令（§5.1 `fetchId`）；WebSocket 握手（`type:"websocket"`）取握手写出时（响应到达）的窗口 |
 
 读者规则：不认识的 `kind` 跳过；不认识的字段原样保留并透传。
 
@@ -81,7 +81,7 @@
 **`session`**：`{phase:"start"|"stop", name, mode:{capture:"passive"|"active"|"mixed", trace:false, raw:true}}`。`stop` 时把还没完成的请求按 §5.4 收尾。`stop` 的 `mode.trace` 等于 manifest 的 `mode.trace`（0.4-F：`false` 或追踪设置对象，见 §7）。
 
 **`tab`**：`{phase:"open"|"attach"|"detach"|"close"|"replace", tab, chromeTabId, targetId, owned:bool, url, title, reason}`（`targetId` 是标签的 CDP 目标 id；标签关闭写 `{phase:"close", reason:"closed", url}`）。
-`reason` 取值：`"ai-opened"`、`"borrowed"`、`"user-cancelled-debugging"`、`"closed"`、`"crashed"`、`"popup"`。
+`reason` 取值：`"ai-opened"`、`"borrowed"`、`"user-cancelled-debugging"`、`"closed"`、`"crashed"`、`"popup"`；§52.4 起加 `"taken"`（`phase:"detach"`，标签被别的会话接走，多 `by`）。
 子目标（跨源 iframe、Service Worker、worker）也用 `tab` 事件记：`{phase:"attach", tab:"t1", target:{id:"g3", type:"iframe"|"service_worker"|"worker", url, sessionId}}`，`tab` 仍是宿主标签。【实测 10-15 spike 1：`direct` 模式下 OOPIF 与 Service Worker 自动挂接成功，各自的 `Network.requestWillBeSent` 落在子会话上；弹窗见 NOTES；`ext` 模式的 `chrome.debugger` 支持阶段 2 再验】
 
 **`nav`**：`{tab, frame:"root"|<frameId>, nav:"n-<seq>", url, from, type:"navigation"|"history"|"reload"|"back_forward", loaderId, loadEvent:{domContentLoaded:mono, load:mono}|null}`。
@@ -438,7 +438,7 @@
 
 ## 16. 0.2-D 裁决（10-15，来自真实站点试用报告）
 
-- **`actor` 的默认值**：`direct` 模式下人只在交接时刻介入，所以一切事件默认 `actor:"ai"`；只有 `handoff` 进入「人在操作」状态期间才标 `human`。此前「命令窗口外即 human」的规则作废，它把 AI `navigate` 带出的后续请求错标成了 human。`ext` 模式接管用户自己的 Chrome 时再引入时间窗判定。
+- **`actor` 的默认值**（11-12 起由 §52.1 收窄：别人改了标签时记 `external`）：`direct` 模式下人只在交接时刻介入，所以一切事件默认 `actor:"ai"`；只有 `handoff` 进入「人在操作」状态期间才标 `human`。此前「命令窗口外即 human」的规则作废，它把 AI `navigate` 带出的后续请求错标成了 human。`ext` 模式接管用户自己的 Chrome 时再引入时间窗判定。
 - **`net wait` 的回看窗口**：默认回看到最近一条**动作类**命令（navigate / click / fill / type / press / go / reload / evaluate）的开始时刻，跳过只读命令（wait / snapshot / find / screenshot / console / net list / tabs）；另加 `--since <c-id>|start` 指定起点、`--fresh` 只等新的。超时的 `next` 要列出「更早已完成的匹配」。
 - **包内文件权限**：`events.jsonl`、`manifest.json`、`blobs/` 一律 0600，目录 0700，与 `raw/` 一致。
 - **弹窗归属**：opener 是本会话 owned 标签的弹窗也算 owned；`session stop` 关掉它们；借来的仍不关。
@@ -528,7 +528,7 @@
 - **`find` 搜帧**：根文档之后按帧树（0.4-I）顺序搜每个子帧的无障碍树，帧里的命中带 `frame`（帧路径）与帧路径 ref；有子帧时输出带 `frames`（搜了几个帧），读不到的帧计入 `framesSkipped`。可点的排前面跨所有文档算。`where` 用来判日期顺序的页面文字也取自根文档加全部子帧（隔离世界里读 `body.innerText`，合计至多 1000000 字符）。
 - **重定向丢请求体**：根因【实测 s49 的 raw/cdp.jsonl】：POST 的 `Network.requestWillBeSent` 带 `postData`；302 之后 Chrome 用同一 `requestId` 再发一条带 `redirectResponse` 的 `requestWillBeSent`（新的 GET，没有 `postData`），录制器在这里就地写出上一跳，写的时候没带请求体，于是 `postData:null`。现在上一跳按 §5.3 的同一规则存：能内联的照旧同步写出；要进 blob（> 64 KB）或只有 `hasPostData` 的，先存 / 先取再写，下一跳等它的 id 再写 `redirect.from`。Fetch 拦截路径（Response 阶段）不涉及请求体，没改。
 - **图片验证码提示**：作者原话「guard 识别图片验证码也不一定转交，模型能自己过就过吧。就告诉模型有个什么东西拦着，它自己判断要不要喊人」。在根文档与帧（至多 16 个）的隔离世界里扫可见的 `<img>` / `<canvas>` 与文本输入框（`browser/captcha.ts`，纯函数判定）：图片的 src / id / class / alt / title / 附近标签含 captcha / verify / 验证码 / 校验码，或输入框的 name / id / placeholder / 标签像 captcha / vcode / verifyCode / 验证码 / 校验码且在登录表单旁（所在表单有密码框；不在表单里时页面上有密码框）。图片与输入框在同一表单里配对。`snapshot` / `outline` 的头多一行 `challenge  image-captcha img [e12] → input [e13]; read the image (screenshot --ref e12) or hand over (ask the human to type it)`（帧里的加 `· in f2`），JSON 多 `challenge: {kind, image, input, advisory:true[, frame]}`；对该表单的 `fill` / `click` 输出带 `challenge: {kind, image, input}`；录制中每个页面（标签 + 文档身份）写一条 `guard` `{event:"challenge"}`（`guard` 事件的新 `event` 值，§4.2）。不进 `waiting`，不拦命令，原有的挑战（HTML 403 验证页）照旧转交。
-- **一账号一浏览器上下文**：`session start --site <s>`（带或不带 `--account`，含 `auto`）只要绑上账号，`direct` 模式就给它单独一个 `Target.createBrowserContext {disposeOnDetach:false}`（账号绑了池代理时再加 `proxyServer` / `proxyBypassList`，同 0.4-D）；cookie 照 0.4-D 恢复与回写（开始时 `Storage.setCookies`，cookie 状态快照、`session stop`、关浏览器前 `Storage.getCookies`；不走独立 context 的会话按 §26 的站点规则决定向 `Network.getCookies` 要哪些 URL）。没有账号的会话用默认 context。会话已有标签时绑账号报 `conflict`（与 0.4-D 对池账号的规则相同，现在对所有账号）。`ext` 模式只有一个 cookie 罐，没有 context，规则不变（`ext.no-context`）。
+- **一账号一浏览器上下文**（11-12 起由 §52.6 取代：默认用默认上下文，只有池代理或 `--isolate` 才单独建）：`session start --site <s>`（带或不带 `--account`，含 `auto`）只要绑上账号，`direct` 模式就给它单独一个 `Target.createBrowserContext {disposeOnDetach:false}`（账号绑了池代理时再加 `proxyServer` / `proxyBypassList`，同 0.4-D）；cookie 照 0.4-D 恢复与回写（开始时 `Storage.setCookies`，cookie 状态快照、`session stop`、关浏览器前 `Storage.getCookies`；不走独立 context 的会话按 §26 的站点规则决定向 `Network.getCookies` 要哪些 URL）。没有账号的会话用默认 context。会话已有标签时绑账号报 `conflict`（与 0.4-D 对池账号的规则相同，现在对所有账号）。`ext` 模式只有一个 cookie 罐，没有 context，规则不变（`ext.no-context`）。
 
 ## 28. 0.6-B 解码插件（10-16 作者定设计；字段按实现定案，作者 2026-10-21 批量签收）
 
@@ -1350,11 +1350,11 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 来源：作者在 tabcap 启动的浏览器里按 Cmd+T 开标签，AI 读不到：`Tabs` 只登记 tabcap 自己开的标签和已登记标签开出的弹窗（§16），`openerId` 为空的标签不属于任何会话，也没有命令能把它收进来。§4.1 的 `reason` 早有 `"borrowed"`，direct 模式一直没有实现。
 
-- **`tabcap tab list --all`**：回答多一个 `others: [{target, url, title}]`，是浏览器里不属于任何会话的 page target，每次用 `Target.getTargets` 现查。`target` 是完整 targetId 转小写。不列 `devtools://` 与 `chrome-extension://` 页面。`tabs` 与不带 `--all` 时相同（只有本会话的标签）；不带 `--all` 时没有 `others`。不会动任何页面，也不改当前标签。
+- **`tabcap tab list --all`**（11-12 起由 §52.3 扩大到别的会话的标签，多 `holder`）：回答多一个 `others: [{target, url, title}]`，是浏览器里不属于任何会话的 page target，每次用 `Target.getTargets` 现查。`target` 是完整 targetId 转小写。不列 `devtools://` 与 `chrome-extension://` 页面。`tabs` 与不带 `--all` 时相同（只有本会话的标签）；不带 `--all` 时没有 `others`。不会动任何页面，也不改当前标签。
 - **`tabcap tab adopt <target>`**：`<target>` 是 `others` 里的 `target`，或它至少 8 位的前缀（不分大小写）。把这个标签收进 `--session` 指定的会话（默认 `default`，没有就新建），成为该会话的**当前标签**。不激活标签、不动窗口、不碰 macOS 前台。
   - 回答：`{session, tab, current, url, title, owned:false, reason:"borrowed", recording, note}`。`recording` 是布尔值，`note` 说明录制从收编这一刻开始。
   - 找不到：`not-found`，`next` 指 `tab list --all`。前缀对上多个：`usage`，列出它们的 `target`。
-  - 已在本会话：幂等，照常回答，多 `alreadyAdopted:true`，同样设为当前标签。已在别的会话：`conflict`，说出会话名。
+  - 已在本会话：幂等，照常回答，多 `alreadyAdopted:true`，同样设为当前标签。已在别的会话：`conflict`，说出会话名（11-12 起由 §52.4 取代：可以接管，只通知原会话）。
   - **浏览器上下文必须一致**：绑了站点、有独立上下文的会话只能收该上下文里的标签；没有独立上下文的会话不能收别的会话独立上下文里的标签。不一致回 `conflict`。否则 `fill --secret` 会把一个账号的密码填进另一套 cookie 的页面。
   - 不算动页面的命令：会话 `waiting` 时也能收编（不进 `BLOCKED_WHILE_WAITING`）。
 - **收编之后**：
@@ -1367,3 +1367,82 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **录制**：会话正在录制时，收编这一刻开始录。写 `tab` 事件 `phase:"attach"`、`reason:"borrowed"`、`owned:false`，manifest `session.tabs[]` 记 `owned:false`。收编之前的请求拿不到，这是事实，不补。没在录制时收编、之后 `net start`，与其它标签一样从 `net start` 起录。人在这个标签里后面的操作（包括提交的密码）原样进包，§8 的导出打码照旧。
 - **其它面**：`tab adopt` 进 `tabcap mcp --all-tools`，不进核心工具集。`tab list` 的 help 改为说明 `--all`。
 - 验证：`05` s77（`test/e2e/v10a.e2e.test.ts`）；单测覆盖前缀匹配、上下文判定、`tab close` 拒绝、释放后可再收编。
+
+## 52. 浏览器里的全部标签：改动归因、全部可见、跨会话接管、上下文按需（11-12 作者定方向；字段与下列细节待作者审）
+
+来源：作者另一个项目在真实门户上用 0.9.1 的报告（11-11）。会话 `aisino` 的标签 t22 在 05:52:06Z 被导航到别的站，tabcap 没有任何提示；证据包把这次导航记成 `cmd:"c-1620"`、`actor:"ai"`，而 c-1620 是同一会话对**另一个标签** t26 的 `wait --idle`【实测：bundle `aisino-20261111-133720` 的 events.jsonl 与 raw/cdp.jsonl】。那次文档请求 `initiator.type:"other"`、`hasUserGesture:false`、requestId 等于 loaderId（GUID 形），请求头 `sec-fetch-site: none`、`sec-fetch-user: ?1`：是浏览器侧发起的导航（地址栏，或别的 CDP 客户端的 `Page.navigate`），不是页面脚本【实测】；是人还是 CDP 9333 上的别的工具分不出来【待验】。
+
+作者 11-12 的方向（原话）：「尽量不要新开窗口和浏览器。人不好找和交互。我本来设计初衷就是人能随时盯着和参与介入」；「就是要让 ai 知道浏览器内所有信息，包括别的 agent 开的和我自己手动开的，要能看到内容乃至接管，agent 自己之间能协作」；现有的「一账号一上下文」也改。作者按主循环的建议定了：上下文按需（§52.6）；接管别的会话的标签不要原会话同意、只通知（§52.4）；协作做到 §52.3–§52.5 的程度就够。
+
+总原则：人和所有 agent 共用一个浏览器、尽量一个窗口。tabcap 不靠隔离防别人，而是让每个会话**看得见**别人做了什么、**被告知**自己的标签被动过。tabcap 给的 `next` 提示一律原地恢复（同一标签里 `navigate` 回去、`tab select`），不建议新开标签或浏览器。
+
+### 52.1 改动归因（改 §3 `actor` / `cmd`，§16 的默认值规则收窄）
+
+- **`cmd` 按标签取**：事件记它**发生**时、作用于**同一标签**的命令窗口（作用于它所在的标签，或这条命令期间由该标签开出的弹窗），不再取整个会话最里层的窗口。命令作用于哪个标签：`--tab` 指定的，否则执行时的当前标签；不作用于标签的命令（`net start`、`session start` 这类）不给任何标签的事件开窗口。`tabcap fetch` 的请求照旧按 `fetchId` 归属（§5.1）。别的标签上、同一时刻发生的事件 `cmd:null`。
+- **`actor` 多一个值 `"external"`**：根帧的跨文档导航（`nav type:"navigation"|"reload"|"back_forward"`），同时满足下面两条时，记 `actor:"external"`、`cmd:null`：
+  1. 导航开始时，没有本会话的命令窗口作用于这个标签（按上一条）；
+  2. 文档请求是浏览器侧发起的：`initiator.type` 为 `"other"`，并且不是本标签上一个页面发起的重定向链的后续跳。
+  页面自己发起的导航（`initiator.type` 为 `script` / `parser`，如定时跳转、会话过期跳登录页）不算 external，按原规则记。
+- 这次导航开出的导航纪元（§4.1 `nav`）里的事件（请求、console、signal 等）也记 `external`，直到本会话下一条作用于这个标签的命令开始；之后回到 §16 / §37 的规则。
+- `external` 的含义是「既不是本会话，也不是页面自己」：人在地址栏里输入、书签、别的 CDP 客户端都在里面。tabcap 不再细分，因为从 CDP 上分不出来【待验：Page.navigate 与地址栏输入的 `sec-fetch-user` 是否不同，见 §52.8】。
+- 读者规则不变：不认识的 `actor` 值按原样透传。§8 打码不看 `actor`。
+
+### 52.2 标签被改过：`tab-changed`
+
+- 本会话的标签上一旦有一次 external 导航（§52.1）提交，这个标签就记下 `changed:{at, from, to, by:"external"}`：`from` 是本会话最后一条作用于它的命令结束时的 URL，`to` 是现在的 URL。
+- 之后本会话**动页面的命令**（`BLOCKED_WHILE_WAITING` 那一组，`navigate` 除外）作用于它时，回错误 `tab-changed`：`{tab, from, to, at, by}`，`next` 写「页面已从 <from> 变成 <to>，不是本会话做的。要在新页面上继续：`tabcap tab select <tab>`（确认）后重来；要回原页面：`tabcap navigate <from> --tab <tab>`」。命令不执行，页面不动。
+- `navigate` 与 `tab select` 作用于它就算确认，清掉 `changed`，照常执行。
+- 只读命令（`snapshot`、`screenshot`、`outline`、`find`、`html`、`net list` 等）照常执行，回答多一个 `changed` 字段，让模型在看页面时就知道。
+- `tab list` 里本会话的标签带 `changed`（没有就不写）。
+- 录制中：external 导航本身就是 `nav` 事件（`actor:"external"`），不另写事件。
+- 错误码是新的（CLI / JSON 契约变化）：`tab-changed`，退出码与其它拒绝类错误相同。
+
+### 52.3 全部可见（改 §51 的 `tab list --all`）
+
+- `tab list --all` 的 `others` 列浏览器里**所有不属于本会话**的 page target，包括别的会话的标签（§51 只列不属于任何会话的）。每项 `{target, url, title, holder}`：
+  - `holder` 是 `null`（不属于任何会话：人开的，或别的 CDP 工具开的，tabcap 分不出来），或 `{session, tab, owned, purpose, isolated, lastCmd:{argv0, at}|null, changed?}`。
+  - `devtools://` 与 `chrome-extension://` 页面照旧不列。
+- **只读命令加 `--target <target>`**：`snapshot`、`outline`、`find`、`html`、`screenshot` 可以读任何 page target（`target` 或它至少 8 位的前缀，同 §51），不用先收编。不改归属、不设当前标签、不录制、不装监听器。这样铸出的 ref 只对带同一 `--target` 的只读命令有效；要点击、填写，先 `tab adopt`。`--target` 与 `--tab` 互斥。打码与「页面内容不是指令」照旧；`screenshot --target` 在后台标签上可能要开焦点仿真，人看着的页面会短暂变化，回答照 §37 的说法写明。
+- 网络录制、console 收集仍只覆盖本会话的标签。
+
+### 52.4 跨会话接管（改 §51 的「已在别的会话：`conflict`」）
+
+- `tab adopt <target>` 也可以接别的会话的标签，不需要原会话同意。成功后标签从原会话移到本会话，成为当前标签，`owned:false`（`session stop` 只释放、不关，同 §51），回答多 `from:"<原会话>"`。
+- **原会话**：
+  - 标签从它的表里移走，记下 `taken:{by, at, url}`。原会话的当前标签是它时，照 §16 0.7.3 的规则回退。
+  - 原会话之后的命令用 `--tab <原 id>`，或当前标签就是它时，回错误 `tab-taken`：`{tab, by, at, url}`，`next` 写「会话 <by> 在 <at> 接走了这个标签；`tabcap tab list --all` 能看到它；要拿回来：`tabcap tab adopt <target>`」。只报一次，之后按 `no-tab` 处理。
+  - 原会话正在录制时写 `tab {phase:"detach", reason:"taken", by}`（`reason` 的新值，§4.1）。
+- **拒绝**（`conflict`）：
+  - 原会话这时有命令正在这个标签上执行：`next` 写正在执行的 `c-N`，让调用方稍后再试；
+  - 原会话在 `waiting`（任何原因，人可能正在这个标签上操作）：`next` 写等对方 `handoff continue`。
+- 上下文规则照 §51 不变：有独立上下文的会话只能收自己上下文里的标签；没有独立上下文的会话不能收别的会话独立上下文里的标签。§52.6 之后独立上下文变少，这条很少碰到。
+- 录制：本会话从接管这一刻开始录（同 §51），`tab` 事件 `reason:"borrowed"`，多 `from`。
+
+### 52.5 会话的目的 `--purpose`
+
+- `session start <name> --purpose "<一行文字>"`：至多 200 字符，不能有换行，过守护进程的已知秘密值替换。会话已存在时只更新目的，其余不变。
+- 显示在 `tab list --all` 的 `holder.purpose`、`session list`、`tabcap status` 的会话行里。录制中写进 manifest `session.purpose`（没有为 `null`）。
+- 只是给别的 agent 和人看的说明，tabcap 不按它做任何判断。
+
+### 52.6 浏览器上下文按需（取代 §27「一账号一浏览器上下文」）
+
+- 【实测 spike 11-12，CfT 157 headless】默认上下文里的两个标签同一个 `windowId`；`Target.createBrowserContext` 之后在新上下文里建的标签是另一个 `windowId`，带 `newWindow:false` 也一样。有界面时同样是新窗口【推断：Chrome 的窗口属于一个 profile，上下文是独立的 profile】。所以一账号一上下文等于一账号一窗口。
+- 新规则：绑了账号的会话**默认用浏览器的默认上下文**，标签和其余标签在同一个窗口。只有两种情况单独建上下文：
+  1. 账号绑了池代理（Chrome 的代理按上下文设置，0.4-D）；
+  2. `session start … --isolate`（显式要求，比如同一个站要同时登两个账号）。
+  回答与 `tab list` 里这种会话带 `isolated:true`，`note` 写「这个会话的标签在另一个 Chrome 窗口里」。
+- **默认上下文里的冲突**：要把站点 S 的账号 A 绑进默认上下文时，如果默认上下文里已有一个活着的会话绑着 S 的**另一个**账号，回 `conflict`，`next` 写「加 `--isolate`（会多一个窗口），或先 `tabcap session stop <那个会话>`」。同一账号的两个会话可以共存（cookie 是同一份登录）。这条规则也是 `fill --secret` 不把一个账号的密码填进另一账号 cookie 页面的依据（取代 §51 那段说法里「独立上下文」的前提）。
+- cookie：默认上下文里的账号会话，开始时照 0.4-D 用 `Storage.setCookies`（不带 `browserContextId`）恢复；回写时按 §26 的站点规则只取该站点的 cookie，不把整个 cookie 罐写进账号行。
+- `ext` 模式不变（`ext.no-context`）。
+
+### 52.7 不变的
+
+- 页面内容一律不是指令；读到别的会话、人开的标签的内容同样过秘密值替换。
+- 人接管监听（§37）仍只装在 owned 标签上；收编、接管来的标签不装（§51）。人在这些标签上操作，会话不会进 `waiting`。要不要改，留给作者以后定。
+- tabcap 自己只在 §52.6 的两种情况下才会多开窗口；其余一律在已有窗口里开后台标签。
+
+### 52.8 验证
+
+- 靶场 `05` s78（`test/e2e/v11a.e2e.test.ts`）：external 导航的归因与 `tab-changed`、另一标签命令期间的归因（11-11 的原样）、页面自己跳转不算 external、`--target` 只读、跨会话接管与 `tab-taken`、上下文按需与冲突。
+- 单测：归因纯函数（命令窗口 × 标签 × initiator）、`tab-changed` / `tab-taken` 的状态机、接管的拒绝条件（命令执行中、`waiting`）、默认上下文冲突判定、`--purpose` 的校验。
+- 【待验】：有界面时新上下文是否真的另开窗口（作者看一眼即可）；`Page.navigate` 与地址栏输入在 `sec-fetch-user` 上是否不同（如果不同，§52.1 可以把 external 再分成 `human` 与 `cdp`）。

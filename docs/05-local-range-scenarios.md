@@ -487,6 +487,22 @@
   10. **不动前台**（macOS）：`tab adopt` 前后 `osascript` 读到的最前应用不变。
 - 不在靶场里的【待验】：真 Cmd+T 开的标签（作者手动）；Cmd+T 在独立上下文窗口里是否留在同一上下文。
 
+## 20.2 浏览器里的全部标签（11-12，P1）
+
+### s78 tab-visibility（P1；`04` §52）
+- 靶场（`test/e2e/site.ts` 的新站点函数）：`/s78/a` 正文含 `S78_A`，有一个按钮，点击后 `fetch('/s78/api')`；`/s78/b` 正文含 `S78_B`；`/s78/self` 在加载 1 s 后由页面脚本 `location.href = '/s78/c'`；`/s78/c` 正文含 `S78_C`；`/s78/poll` 每 500 ms `fetch('/s78/ping')`，供「另一个标签上的命令」使用。靶场记下每个请求的路径与顺序，这份日志是 oracle；窗口归属以 CDP `Browser.getWindowForTarget` 的 `windowId` 为 oracle。
+- 怎么模拟「别人改了标签」：浏览器带 `--chrome-arg=--remote-debugging-port=<空闲端口>` 启动（同 s77），测试另开一条 CDP 连接，对目标标签发 `Page.navigate`。这是「别的 CDP 客户端」那一类；地址栏输入由作者手动验一次。
+- 走法与 expected（`test/e2e/v11a.e2e.test.ts`）：
+  1. **external 导航被报告**：会话 A `net start`，`navigate /s78/a`（标签 t1）。测试经端口把 t1 导航到 `/s78/b`。A 的 `click <按钮 ref>` → `tab-changed`，`from` 以 `/s78/a` 结尾、`to` 以 `/s78/b` 结尾；靶场日志里没有 `/s78/api`（命令没执行）。A 的 `snapshot` 成功、含 `S78_B`，回答带 `changed`。
+  2. **归因**：A 的 `events.jsonl` 里到 `/s78/b` 的 `nav` 事件 `actor:"external"`、`cmd:null`；`/s78/b` 文档请求同样 `actor:"external"`、`cmd:null`。
+  3. **确认后恢复**：A 的 `navigate /s78/a --tab t1` 成功（算确认）；之后 `click` 按钮，靶场日志出现 `/s78/api`，这条请求 `actor:"ai"`、`cmd` 是这条 click。
+  4. **另一标签的命令期间（11-11 的原样）**：A 再开 t2 到 `/s78/poll`，对 t2 发 `wait --idle 2500 --tab t2`（会因轮询超时）；这条命令执行期间测试经端口把 t1 导航到 `/s78/b`。到 `/s78/b` 的 `nav` 事件 `cmd:null`、`actor:"external"`，不是那条 `wait` 的 `c-N`。
+  5. **页面自己跳转不算**：A `navigate /s78/self --tab t1`，等到 `S78_C` 出现。到 `/s78/c` 的 `nav` 事件不是 `external`；之后对 t1 的 `click` 不报 `tab-changed`。
+  6. **全部可见**：会话 B `session start B --purpose "s78 reader"`。B 的 `tab list --all` 的 `others` 里有 A 的 t1 和 t2，`holder.session` 是 `A`；人的标签（测试经 `/json/new` 开到 `/s78/b`）`holder:null`。A 的 `tab list --all` 里 B 没有标签。B 的 `snapshot --target <A 的 t1 前 8 位>` 含 A 当前页面的标记；之后 A 的 `tab list` 里 t1 仍是 A 的、A 的当前标签不变。
+  7. **跨会话接管**：B `tab adopt <A 的 t1>` → 成功，`from:"A"`、`owned:false`、`current` 等于新的 `tab`。A 对 `--tab t1` 的 `click` → `tab-taken`，`by:"B"`；第二次 → `no-tab`。A 的 `events.jsonl` 有 `tab {phase:"detach", reason:"taken", by:"B"}`。A `tab adopt <同一 target>` 拿回来，B 之后对它的命令 → `tab-taken`。
+  8. **上下文按需**：靶场站点存两个账号 a1、a2。`session start X --site <站点> --account a1`：`isolated` 不为 true；X 开的标签与一个默认上下文标签 `windowId` 相同。`session start Y --site <站点> --account a2` → `conflict`，`next` 提到 `--isolate`。`session start Y --site <站点> --account a2 --isolate` → 成功、`isolated:true`；Y 开的标签 `windowId` 与 X 的不同。同账号 `session start Z --site <站点> --account a1` → 成功、不 isolated。
+- 不在靶场里的【待验】：地址栏输入是否同样被记成 `external`（作者手动）；有界面时 `--isolate` 是否另开窗口（作者看一眼）。
+
 ## 21. 场景索引
 
 10-21 建。场景编号 → 实现它的 `test/e2e/site.ts` 站点函数与主要路由 → 跑它的 e2e 文件。e2e 与单测两列是 grep 出来的：在 `test/e2e/*.e2e.test.ts`、`test/unit/*.ts` 里搜编号（前后不接字母数字，如 `s07`、`/s22/`、`S40_`），列出提到它的文件（省略目录与 `.e2e.test.ts` / `.test.ts` 后缀）；没有文件写编号的三个场景按路由搜（标「按路由」）。单测 `test/unit/scenario-index.test.ts` 读这张表：每个 `### sNN` 都要有一行，状态不是「未落地」「仅对照靶场」的，编号必须能在 `site.ts` 或某个测试文件里搜到；「未落地」的在 `site.ts` 里搜不到（落地了就要回来改表）；「仅对照靶场」的在 `docs/compare/range.ts` 里搜得到。
@@ -549,6 +565,7 @@
 | s75 | downloads | 已落地 | `startDownloadSite`：`/s75`、`/s75/{file,plain,big,nav}` | v09d | browser-downloads09d、downloads09d |
 | s76 | client-order | 已落地 | `startClientSite`：https 源 `/s76/{login,list,item,static.js}`，http 源 `/s76/plain` | v09e | replay-order |
 | s77 | tab-adopt | 已落地 | `startAdoptSite`：`/s77`、`/s77/before`、`/s77/api` | v10a | — |
+| s78 | tab-visibility | 未落地 | — | — | — |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。

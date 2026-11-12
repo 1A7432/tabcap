@@ -754,3 +754,8 @@
 - 做了什么：PR #45 的 `unit (macos-14)` / `native (macos-14)` 一启动就被取消（`The configuration 'macos-14-arm64-us-default' is not supported`），main 的 CI 因此不可能全绿。作者定换最新系统：`ci.yml` 两处、`release.yml` 一处换成 `macos-26`（arm64），PR #46 合入 deffdab，main CI 绿【实测】。wireprint 的 Zig target 写死 `aarch64-macos`，不受 runner 系统版本影响。
 - 卡在哪：e2e 矩阵只有 Linux 和 Windows，弹窗前台交还只在 macOS 上发生，s17 的交还 CI 验不到，只能本机跑。
 - 下一格从哪开始：release.yml 的 `macos-26` 要到下次发版才真正跑到。
+
+## 2026-11-12 · 浏览器里的全部标签：设计（主循环）
+- 做了什么：作者另一个项目 11-11 用 0.9.1 时标签 t22 被外部导航走，证据包把它记成同会话对另一标签的 `wait --idle`（c-1620，`actor:"ai"`）【实测：bundle aisino-20261111-133720】；文档请求 `initiator:"other"`、`sec-fetch-site: none`，是浏览器侧发起的。作者定方向：一个浏览器、尽量一个窗口，AI 看得见全部标签、能接管、会话之间能协作；上下文按需、接管只通知、协作到 v0。spike（CfT 157 headless）：新上下文的标签是另一个 `windowId`【实测】。写了 docs/04 §52（并在 §3、§4.1、§16、§27、§51 加指向）、docs/05 s78，AGENTS.md「浏览器」一条改措辞。
+- 卡在哪：§52 字段与细节待作者审；有界面时新上下文另开窗口、地址栏输入与 `Page.navigate` 能否区分都【待验】。报告里的另外几条（`fetch --like`、Element UI、带状态解码插件、`--grep` 反选、动作后等网络空闲）还没设计；其中「点击后 DOM 没变就提示 `--trusted`」0.6-D 已有（`effect:"none"` + `note`）。
+- 下一格从哪开始：作者审 §52 / s78 后按 52.1–52.2 → 52.3 → 52.4–52.5 → 52.6 实现。
