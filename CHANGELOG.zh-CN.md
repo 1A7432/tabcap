@@ -14,6 +14,17 @@
 - **账号会话回到同一个窗口；要独立用 `--isolate`。** 0.6-D 起每个账号会话都有自己的浏览器上下文，在有界面的 Chrome 里就是另一个窗口，人得去找。现在账号默认用浏览器的默认上下文，只有绑了池代理、或 `session start --isolate` 要求时才单独建（比如同一个站同时登两个账号）。默认上下文里同一个站的第二个账号会被拒绝（`conflict`，`next` 提到 `--isolate`）。`session start` 的回答用 `isolated: true|false` 代替 `browserContext: "own"`。没有账号的会话现在和同站的账号会话共用默认上下文的 cookie。CfT 157（headless）实测：新上下文里的标签是另一个 `windowId`。docs/04 §52.6（取代 §27 的规则）。
 - AGENTS.md：「浏览器」一条改为人和所有 agent 共用一个浏览器、尽量一个窗口，所有标签都可以读，动别人的标签要显式接管。靶场场景 s78（`test/e2e/v11a.e2e.test.ts`）。
 
+### 组件库页面上的操作（docs/04 §53）
+
+- **修复：`find` 把整个下拉列表当成选项文字的 ref，点它选错了项。** 一次 0.9.1 真实使用中（Vue 2 + Element UI），`find "1001 库存现金"` 返回的 `ref` 是下拉的 `ul`（最近一个有无障碍行的元素：Element 的 `li` 没有），`click --trusted` 把它滚到中间、按在中心，落在另一项上，回答却是成功。现在文字命中的 `ref` 是文字所在的元素。点击的目标自己不可点（没有控件标签或角色、没有 `onclick`、没有 `cursor: pointer`）而中心处是它里面另一个可点元素时，回新错误 `ambiguous-target`（不点；`landedOn` 说是哪个元素，`next` 说怎么拿它的 ref）。点击回答带 `landedOn: {tag, text}`。
+- **修复：大页面上开着的弹窗不进快照。** 浮层识别只看 `<body>` 下前 8000 个元素；挂在大表格页面末尾的弹窗（Element 的 `append-to-body`）永远看不到（`overlays none`），树在 12000 字符处截断也把它截掉。现在弹窗标记和 `<body>` 的直接子元素不论位置都看；最上层浮层的行排在树的最前面（`order     o1 first`）、最后才截；模态浮层后面的页面折成一行（`… N lines behind o1`，`snapshot --behind` 展开；回答字段 `first` / `behind`）。
+- **看不见的元素不出行、不给 ref。** 在 Chrome 无障碍树已排除的之外，快照（一次 `DOMSnapshot.captureSnapshot`）再排除没有布局盒、在 opacity 0 下、被 `overflow: hidden` 祖先完全裁掉的元素（`--verbose` 下出行并标 `invisible`）；`click` / `fill` / `hover` / `select` 的目标看不见时回新错误 `not-visible`。由 label 画出来的 checkbox / radio 仍算可见。只有图标的按钮从 `title`、内部 `<svg><title>` 或图标 class 取名（`button "(icon: close)"`）。
+- **新命令 `tabcap select <ref> <文字> [--exact] [--trusted]`。** 原生 `<select>`（input + change）、`aria-controls` 指向的列表、或打开点击新显示的浮层（Element 的 el-select 完全没有 ARIA）；按文字找选项，完全相等优先；选完回读控件的值，不一致回新错误 `not-selected`。从不按 Escape、不点空白处（会把 el-dialog 表单关掉）。
+- **动作回答带 `notices`。** `click`、`fill`、`type`、`press-key`、`select` 列出从命令开始到等待结束期间出现的 alert、status、live 区域文字和新出现的短文字（Element 的 `el-message` 约 3 s 后就没了）。
+- **表格行有名字；`find --within`。** 没有名字的行用单元格文字命名；拆成几张 `<table>` 的表（固定列）按行合并（`row "A01 2026 甲公司 删除" (same row as e37)`）；`find 删除 --within 甲公司` 只留祖先行名字含这段文字的命中；容器与里面的命中同文字时只留里面的。
+- **新参数 `--wait requests`**（`click`、`fill`、`type`、`press-key`、`select`、`navigate`）：常规等待之后，再等这条命令发出的 XHR / fetch 请求结束（上限 `--timeout`，超时不算错）：`wait.requests {finished, pending?, ids?}`。`config.json` 的 `actions.wait` 设默认。
+- **新参数 `tabcap fetch --like r-N`**：从一个标签把已录的请求再发一次，鉴权头取这个标签最近一条发往该 host 的已录请求（`auth: {from, tab}`）；`--query k=v`、`--header`、新请求体，以及 `--header-from-storage 'Authorization=Bearer {local:@session:key}'`（在标签里读存储拼头，值不出现在任何输出里）。所有 `fetch` 回答在有解码插件明文时默认给明文（`decoded: "plugin:<名>"`；`--raw` 给原文）。靶场场景 s79（`test/e2e/v11b.e2e.test.ts`）。
+
 ## 0.9.1（2026-11-09）
 
 - **修复：macOS 上你在 tabcap 浏览器里打字时，焦点被拉回终端。** 页面开新窗口或新标签时（`target=_blank` 链接、弹窗、Cmd+T），弹窗前台守卫会把前台交给上一条 tabcap 命令后记下的应用，最多四次，哪怕是你自己切到 tabcap 浏览器的，按键于是打进终端。现在只有在动页面的命令（click、press、evaluate、navigate …）执行中或结束后 1.5 s 内出现的窗口才交还，这类命令开始时重读一次最前应用；别的窗口、以及从等人会话的标签开出的窗口一概不碰，计入 `browser status` 的 `popupFocus.human`。`config.json` 新键 `chrome.restoreFront`（默认 `true`；`false` 关掉启动和弹窗两处交还，`browser start` 时读）。docs/07 §1.1。

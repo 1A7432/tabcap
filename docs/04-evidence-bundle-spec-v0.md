@@ -1449,7 +1449,7 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - 随之改的旧 e2e：v06d D6（第二个账号要 `--isolate`；没有账号的会话现在和账号会话共用 cookie）、v04d（池代理账号自动独立，`isolated:true`）、v06f（没有账号的会话现在看得到同站账号会话的 localStorage）、v09b / v09d / v10a 第 9 步（要独立上下文的场景加 `--isolate`）、v10a 第 5、6 步（别的会话接走再接回，包里两条 borrowed attach、一条 taken detach）。11-12 本机全量 e2e（除 v02d，它会抢前台）49 个文件全过【实测】。
 - 【待验】：有界面时新上下文是否真的另开窗口（作者看一眼即可）；`Page.navigate` 与地址栏输入在 `sec-fetch-user` 上是否不同（如果不同，§52.1 可以把 external 再分成 `human` 与 `cdp`）。
 
-## 53. 0.9.1 报告的其余几条：选错不报、看不见的弹窗、下拉选择、临时提示、表格行、命令触发的请求、`fetch --like`（11-12 作者定：先修两个 bug，其余一次写完一起审；字段与下列细节待作者审）
+## 53. 0.9.1 报告的其余几条：选错不报、看不见的弹窗、下拉选择、临时提示、表格行、命令触发的请求、`fetch --like`（11-12 作者审过同意；已实现，分支 `0.9.3-page-ops`，下文按实现修订）
 
 来源：§52 的同一份真实门户报告（Vue 2 + Element UI 2 的代账门户，11-11），以及报告者 11-12 对每条的回复。这次会话里 tabcap 调用最多的是 `evaluate`（131 次），其中在页面里调接口 31 次、DOM 操作 65 次、直接改 Vue 组件 23 次，都是现有命令不够用时的绕路。复现用的是 scratchpad 里的真 Vue 2.7.16 + Element UI 2.15.14 页面（只用来对照，不进仓库；靶场页面照 AGENTS.md 手写，见 `05` s79）。
 
@@ -1473,14 +1473,15 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - **修法（兜底，两件都做）**：
   1. **浮层在前**：页面上有 overlay（§33 的 overlays 行认出的，或 §53.3 的「最上层」）时，快照先输出最上层浮层的子树，再输出其余部分；截断从其余部分截。头部多一行 `order  o1 first`。这样弹窗永远不会被表格挤出去。
   2. **识别不依赖名称和遮罩**：overlay 识别再加一条 DOM 证据：可见的 `[role=dialog]` / `[aria-modal=true]` / `<dialog open>`，层叠在最上（`elementFromPoint` 取弹窗盒子中心落在它里面），面积占视口至少 15%。有它就算 overlay，不要求可访问名称、遮罩或铺满视口的外层；名称取不到时用标题区第一行文字（`[class*=title]` / 第一个 heading），再取不到写 `(unnamed)`。
-- 【待验】门户上 `overlays none` 的真实原因：报告者下次遇到时存整份 `snapshot -i --file-path` 和 `html --css '[role=dialog]' --attrs`。
+- **实现时查到的根因**【实测 spike 11-12】：浮层识别脚本（overlay 适配器 `collect()`）只看 `body` 下的前 8000 个元素。弹窗前面有 9000 个元素时 `overlays` 为空，3000 个时能认出。门户的大表格（三份拆表）加侧边菜单很容易超过 8000，而 `append-to-body` 的弹窗正好在最后，所以 `overlays none` 和「树里搜不到」两半都能解释【推断：门户本身未复测】。修法：页面超过 8000 个元素时，`[role=dialog]` / `[role=alertdialog]` / `[aria-modal=true]` / `<dialog>` 和 `body` 的直接子元素不论位置都看（至多再加 400 个）。上面第 2 条（DOM 证据不依赖名称与遮罩）原本就满足：带 `role=dialog` 的可见元素就是候选，名称取不到时写 `(unnamed)`。
+- 【待验】门户上的真实情况：报告者下次遇到时存整份 `snapshot -i --file-path` 和 `html --css '[role=dialog]' --attrs`。
 
 ### 53.3 看不见的不出 ref，点看不见的拒绝；只给最上层
 
-- **不出 ref 的元素**：Chrome 的无障碍树已经排除 `display:none` / `visibility:hidden` / `hidden`。再排除：`getClientRects()` 为空；自身或祖先 `opacity:0`；被 `overflow:hidden|clip` 的祖先完全裁掉（不含可滚动的祖先：滚过去就看得见）；宽或高小于 1 px。这些节点在快照里不出行（`--verbose` 下出行，带 `invisible` 标记、没有 ref）；`find` 不返回它们。判定在隔离世界里按 `backendNodeId` 批量做，一次快照一次。
-- **点击不可见的目标**：`click` / `fill` / `type` / `hover` / `select` 的目标在执行时不可见（同上判据）回新错误 `not-visible`，命令不执行。旧 ref（可见时铸的，之后被隐藏）也走这一条。DOM 点击不再能点到隐藏的同名按钮（报告者那次是 `evaluate` 点的，但同样的 ref 用 `click` 也会点进去）。
+- **不出 ref 的元素**：Chrome 的无障碍树已经排除 `display:none` / `visibility:hidden` / `hidden`。再排除：没有布局盒或宽高小于 1 px；自身或祖先 `opacity:0`；被 `overflow:hidden|clip` 的祖先完全裁掉（不含可滚动的祖先：滚过去就看得见）。这些节点在快照里不出行（`--verbose` 下出行，带 `invisible` 标记、没有 ref）；`find` 不返回它们。判定用每次快照一次的 `DOMSnapshot.captureSnapshot`（布局盒、`opacity` / `overflow` / `position` 计算样式、父子关系，按 `backendNodeId` 对上无障碍树；`browser/layout.ts`），失败时不过滤。保守处：没有盒但下面有可见内容的包装节点保留；`position:absolute|fixed` 的节点不拿它上面祖先的 `overflow` 判裁切；有 `<label>` 的 checkbox / radio（常见画法是 `opacity:0` 的原生框加样式化的 label）算可见，否则快照里看不到它的勾选状态。
+- **点击不可见的目标**：`click` / `fill` / `hover` / `select` 的目标在执行时（滚到可见位置之后）不可见（同上判据，在页面里现算）回新错误 `not-visible`（`error.why` 说哪一条），命令不执行；`type` 没有 ref，不查。浮层头部列出的按钮也跳过祖先 `opacity:0` 的。旧 ref（可见时铸的，之后被隐藏）也走这一条。DOM 点击不再能点到隐藏的同名按钮（报告者那次是 `evaluate` 点的，但同样的 ref 用 `click` 也会点进去）。
 - **只给最上层**：页面上有模态的 overlay（`aria-modal=true`，或有遮罩、或铺满视口的外层）时，快照的其余部分默认折成一行 `… <n> lines behind o1 (--behind to show)`，`--behind` 才展开；有非模态 overlay 时照常展开。点被挡住的元素本来就回 `covered`（0.7.3），这里只是让模型一开始就看不到它们。
-- **只有图标的按钮**：没有可访问名称的 `button` / `role=button` / 带点击监听的元素，名称依次取 `title`、`aria-label`、内部 `<svg><title>`、class 里的提示词（`close`、`delete`、`edit`、`search`、`more`、`add`、`refresh`、`download`、`upload`），写成 `button "(icon: close)"`。只影响快照显示与 `find`，不改页面。
+- **只有图标的按钮**：名称为空或只有空白的 `button` / `link` / `menuitem` / `tab`，名称依次取 `title`、内部 `<svg><title>`、自身及后代 class 里的提示词（`close|times`、`delete|trash`、`edit|pencil`、`search`、`more|ellipsis`、`add|plus`、`refresh|reload`、`download`、`upload`），写成 `button "(icon: close)"`（`aria-label` 已是可访问名称，不另取；带点击监听的通用元素不在此列）。只影响快照显示与 `find`，不改页面。
 
 ### 53.4 新命令 `tabcap select <ref> <文字>`
 
@@ -1491,8 +1492,8 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   2. 找选项层：先 ARIA：`<ref>` 或它的输入框的 `aria-controls` / `aria-owns` 指向的元素，里面 `role=option`。【实测 spike】Element 2.15.14 的 el-select 输入框没有任何 ARIA 属性，选项 `li` 没有 role；el-autocomplete 的 `aria-controls` 是字面量 `"id"`。所以退到：**这次打开后变成可见的浮层**：点击前记下页面上可见的定位元素（`position: fixed|absolute`，`z-index` 不为 auto，或挂在 `body` 直下），点击后再看一次，新出现或由不可见变可见的、含文字的就是候选浮层；有多个取最上层（z-index 大、后加入的）。
   3. 在浮层里按文字找选项：可见文字匹配的最小元素，往上取到最近的可点元素（同 §53.1 判据）为选项。完全相等优先；多个包含匹配又没有完全相等的回 `ambiguous-target`，列出至多 10 个候选文字；一个都没有回 `not-found`，列出浮层里至多 10 个选项文字；找不到任何浮层也回 `not-found`，`next` 建议先 `click <ref>` 再 `snapshot` 看看。在浮层的滚动容器里把它滚到可见，确认落点就是它（§53.1 的检查），再点。
   4. **回读校验**：等动作的常规等待结束后，读 `<ref>` 所在控件显示的值（输入框的 `value`；不是输入框时取它的可见文字；有 `aria-activedescendant` 时取那个元素的文字），与目标文字比较（`--exact` 时相等，否则包含）。不一致回新错误 `not-selected`：`{wanted, got}`，`next` 写「下拉显示的是 <got>；`snapshot` 看看，必要时换 `--exact` 或 `--trusted` 再试」。命令已经点过了，所以 `not-selected` 的 `error.result` 带点击的回答（同 §18 `waiting` 的做法）。
-  5. 选完浮层还开着（自动补全一般会自己关）就留着，回答带 `layerOpen:true`。**不按 Escape、不点空白处**：报告者指出 Element 的 el-dialog 默认按 Esc 关闭、点遮罩也可能关闭，会把整个表单弹窗关掉。
-- 回答：`{tab, ref, selected:{text, option:"<浮层里那一项的 ref>"}, via:"native"|"aria"|"layer", value:"<回读到的值>", landedOn, effect, notices?, wait}`。
+  5. 选完浮层还开着（自动补全一般会自己关）就留着，回答带 `layerOpen:true`。上一次没选成、浮层还开着时，这次的打开点击会把它关上（el-select 是开关式）：识别到「点击前可见的浮层被关掉了」就重新记一次、再点一次。找新浮层按广度优先、先看控件附近再看 `body` 的子树（至多 6000 次查看），大菜单不会把挂在 `body` 末尾的浮层挤出查看范围。**不按 Escape、不点空白处**：报告者指出 Element 的 el-dialog 默认按 Esc 关闭、点遮罩也可能关闭，会把整个表单弹窗关掉。
+- 回答：`{tab, ref, selected:{text, option:"<浮层里那一项的 ref>"}, via:"native"|"aria"|"layer", value:"<回读到的值>", landedOn, layerOpen?, notices?, wait}`（没有 `effect`：选没选上由回读判断；原生 `<select>` 的 `option` 为 null）。
 - 不做：多选、带搜索的远程选项（输入文字后等接口返回再选：先 `type` 再 `select` 能覆盖，不另做）、级联选择器（多级浮层）。都进 backlog。
 
 ### 53.5 动作回答带上命令期间出现的提示文字 `notices`
@@ -1509,13 +1510,14 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - **行名**：快照里 `row` 没有可访问名称时，名称取这一行可见单元格文字的拼接（空格分隔，至多 80 字符）。
 - **固定列拆成几张表**：【实测 spike，Element 2.15.14】有固定列时，表头、主体、左固定、右固定各是一张 `<table>`，同一行的单元格分散在三张表里：右固定表那一行只有「进入账套 删除」，名称在左固定表、编码在主表，其余单元格是空的（被隐藏）。规则：同一个最近公共祖先下、行数相同的几张 `<table>`，下标相同的行视为同一行，行名取它们可见单元格文字的并集（按表在 DOM 里的顺序）。这样右固定表里「删除」所在的行名是「甲公司 A01 2026」。
-- **重复的行**：同一组里的几份行，快照里第一份照常出，其余的行名后加 ` (same row as e37)`，`find` 的文字命中只返回第一份。
+- **重复的行**：同一组里的几份行，快照里第一份照常出，其余的行名后加 ` (same row as e37)`，`find` 不把副本行本身当命中。行名的拼接顺序是表在 DOM 里的顺序（Element 是主表、左固定、右固定：`A01 2026 甲公司 删除`）。
+- **容器与内容同名**：`find` 的命中里，一个节点下面另有同文字的命中时（`cell "删除"` 里的 `button "删除"`），只留下面那个。
 - **按行定位**：`find <文字> --within <文字>`：只在祖先行（任意祖先行的名称）包含 `--within` 文字的子树里找。例：`find 删除 --within 甲公司`。`--within` 不限于表格行：任何祖先行名称包含它都算（列表项、卡片同样适用）。
 
 ### 53.7 `--wait requests`：等这条命令发出的请求结束
 
 - 动作命令（`click`、`fill`、`type`、`press`、`select`、`navigate`）新增 `--wait requests`：常规等待（导航 + DOM 安静）之后，再等**这条命令开始以后、在这个标签上发起的 XHR / fetch 请求**全部结束（`loadingFinished` / `loadingFailed`）。不算 WebSocket、EventSource、worker 发的请求，也不算 `type` 为 `Ping` 的上报。上限是命令的 `--timeout`；超时**不是错误**：回答照常，`wait.requests: {finished, pending:[url…至多 5 个]}`。没在录制时，为这次等待临时开 Network（同 `wait --idle` 的引用计数开关）。
-- 回答里 `wait.requests` 写等到的数目；录制中同时给出这些请求的 `r-N`（`requests:[…]`），省掉报告者「每个动作后 `net list --since $C`」那一步。
+- 回答里 `wait.requests: {finished, pending?, ids?}`：等到的数目、还没结束的 URL（至多 5 个）；录制中 `ids` 是这些请求的 `r-N`，省掉报告者「每个动作后 `net list --since $C`」那一步。`navigate` 也接受 `--wait requests`；`go` / `reload` 不变。
 - `config.json` 新键 `actions.wait`：`"dom"`（默认，现在的行为）或 `"requests"`，命令行的 `--wait` 覆盖它。不做「全局网络空闲」的默认：长连接页面永远不空闲（报告者那次 `wait --idle` 就被一个 worker.js 请求拖到超时）。
 
 ### 53.8 `tabcap fetch --like r-N`：照一条已录请求重发，鉴权头现取
@@ -1525,7 +1527,8 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
   - **鉴权头默认现取**（报告者：同一会话几个标签各开一个账套，token 按账套发，录下的那条可能属于别的账套，会被服务端拒绝）：鉴权头（`isSensitiveHeaderName` 认出的，`cookie` 除外）取**发送它的标签**最近一条发往同一 host 的已录请求里的值；那个标签没有发往这个 host 的请求时才用 `r-N` 自己的，回答带 `auth:{from:"r-31", tab:"t3"}` 或 `auth:{from:"r-12", note:"no request of this tab to the host; used r-12's own"}`。`Cookie` 不手设，照旧由浏览器按 `--credentials` 带。
   - **`--header-from-storage`** 兜底：在发送它的标签里读存储拼一个头。模板里 `{local:<key>}` 取 `localStorage[key]`，`{session:<key>}` 取 `sessionStorage[key]`，`{local:@session:<key>}` 先从 `sessionStorage` 取 key 再读 `localStorage`（报告者的 `localStorage[sessionStorage.singleId]`）。例：`--header-from-storage 'Authorization=Bearer {local:@session:singleId}'`。读在 tabcap 的隔离世界里做（存储按源共享），值不进命令行、不进输出（`<redacted:authorization>`）、不进 `cmd` 事件。键不存在回 `not-found`，说出是哪个键。
   - 其余与 `fetch` 相同：停手规则、结束规则、3 s / host 的节流、`--out`、打码、`fetchId` 归属。
-- **响应过解码插件**：`fetch` 的回答在有解码插件给出明文时（§28 的 `decoded` 视图），默认给明文，加 `decoded:"plugin:<名>"`；`--raw-body`（已有）给原文。不限于 `--like`，所有 `fetch` 都这样。
+- **响应过解码插件**：`fetch` 的回答在有解码插件给出明文时（§28 的 `decoded` 视图），默认给明文，加 `decoded:"plugin:<名>"`；`--raw`（已有，`bodyBase64`）给原文。不限于 `--like`，所有 `fetch` 都这样。
+- 实现细节：重发的请求头去掉 fetch() 不能设的（`Cookie`、`Origin`、`Referer`、`User-Agent`、`Content-Length`、`sec-*`、HTTP/2 伪头等）；「最近一条」在发送标签的已录请求里从新往旧找、跳过 `tabcap fetch` 自己发的，取第一条带鉴权头的；`--header-from-storage` 读到的值加入已知秘密值（之后所有输出都替换）。回答另带 `like: "r-N"`、有存储头时 `fromStorage: [头名]`。请求事件照常记录实际发出的请求头（同页面自己的请求），`cmd` 事件只记模板。
 - 不做（backlog）：请求体加密钩子（encode 插件：报告者门户侧的 `{"p":AES}` 请求体，这次用不上）。
 
 ### 53.9 不做 / backlog
@@ -1537,8 +1540,8 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 ### 53.10 新错误码与契约变化（一览）
 
 - 新错误码：`ambiguous-target`（§53.1、§53.4）、`not-visible`（§53.3）、`not-selected`（§53.4）。
-- 新命令：`select`。新参数：`snapshot --behind`、`find --within`、动作命令的 `--wait requests`、`fetch --like` / `--query` / `--header-from-storage`。新回答字段：`landedOn`、`notices`、`wait.requests`、`fetch` 的 `decoded` / `auth`。新配置键：`actions.wait`。
-- 快照显示的变化：不可见元素不出行；有模态浮层时其余部分折叠、浮层在前；表格行有名称；只有图标的按钮有名称；`find` 的文字命中 `ref` 换成文字所在元素。
+- 新命令：`select`。新参数：`snapshot --behind`、`find --within`、动作命令的 `--wait requests`、`fetch --like` / `--query` / `--header-from-storage`。新回答字段：`landedOn`、`notices`、`wait.requests`、快照的 `first` / `behind`、`fetch` 的 `decoded` / `like` / `auth` / `fromStorage`。新配置键：`actions.wait`。
+- 快照显示的变化：不可见元素不出行；有浮层时最上层浮层的行在前（头部 `order     o1 first`），模态时其余部分折叠；ref 先铸头部（浮层与关闭按钮），再铸树；表格行有名称；只有图标的按钮有名称；`find` 的文字命中 `ref` 换成文字所在元素，容器与内容同名时只留内容。
 
 ### 53.11 验证
 

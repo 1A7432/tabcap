@@ -105,7 +105,7 @@ describe.skipIf(!enabled)("tabcap 0.3-D L2 (overlay adapter)", () => {
 
   test("fill on a covered field is refused too", async () => {
     await ok("navigate", `${site.origin}/ov/modal`, ...S);
-    const tree = s((await ok("snapshot", "--interactive", ...S))["tree"]);
+    const tree = s((await ok("snapshot", "--interactive", "--behind", ...S))["tree"]);
     const q = /textbox "搜索" \[(e\d+)\]/.exec(tree)?.[1] ?? "";
     const f = await tabcap("fill", q, "abc", ...S);
     expect(f.error?.["code"]).toBe("covered");

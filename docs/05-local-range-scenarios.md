@@ -511,19 +511,19 @@
     - **大列表下拉**：一个没有任何 ARIA 的输入框（同 el-select），点击后在 `body` 直下显示一个 `position:fixed` 的浮层，里面是一个可滚动的 `ul`（高 274 px），40 个没有 role 的 `li`，第 26 项文字 `S79_TARGET 1001`、第 4 项 `S79_DECOY 222123`；点 `li` 写回输入框并记 `__s79.push("pick:<文字>")`。
     - **ARIA 下拉**：`role=combobox` + `aria-controls` → `role=listbox` / `role=option`；另一个原生 `<select>`。
     - **弹窗**：`role=dialog aria-modal=true`，标题写在内部元素里、没有 `aria-label`，没有遮罩，挂在 `body` 末尾（同 `append-to-body` + `slot="title"` + `:modal="false"`）；里面有「S79 建账」按钮，另有一个 `display:none` 的子层和一个 `opacity:0` 的子层，各有同名「S79 建账」按钮，点到它们记 `hidden-build`；右上角关闭按钮只有一个图标（class 含 `close`，没有名字）。
-    - **大表格**：30 行 × 12 列，左右固定列各一张 `<table>`（同 Element 的拆分），右固定表每行有「S79 删除」按钮，点了记 `del:<行名>`；整页 `snapshot -i` 的树超过 12000 字符，弹窗在最后。
+    - **大表格**：30 行 × 12 列，左右固定列各一张 `<table>`（同 Element 的拆分），右固定表每行有「S79 删除」按钮，点了记 `del:<行名>`；另有 2400 项的菜单，整页超过 8000 个元素、`snapshot -i` 的树超过 12000 字符，弹窗在 `body` 最后。
     - **提示**：「S79 保存」按钮：表单为空时加一个 `role=alert` 的提示「S79 科目为空」（1.5 s 后删掉）和一个没有 role 的字段错误「S79 名称不能为空」。
     - **鉴权**：页面加载时 `sessionStorage.s79key = "acct-A"`、`localStorage["acct-A"] = "tok-A"`；按钮「S79 查询」发 `POST /s79/api/list`，带 `Authorization: Bearer <localStorage[sessionStorage.s79key]>`；另一个标签里打开的 `/s79?acct=B` 用 `acct-B` / `tok-B`。`/s79/api/list` 在 token 与请求体里的 `acct` 不一致时回 `{code:290102}`，一致时回列表；响应体整体 base64（给解码插件用：靶场带一个测试用解码插件，base64 解成 JSON）。
     - **命令触发的请求**：「S79 慢请求」按钮发一个 800 ms 才回的 `fetch('/s79/api/slow')`；页面另有一个一直挂着的 `/s79/api/longpoll`。
 - 走法与 expected（`test/e2e/v11b.e2e.test.ts`）：
   1. **文字命中的 ref**（§53.1）：打开大列表下拉，`find "S79_TARGET 1001"` 的 `ref` 解析成 `li` 内的元素（`html <ref>` 的 tag 不是 `ul`）；`click <ref> --trusted` 后 `__s79` 末项是 `pick:S79_TARGET 1001`，回答 `landedOn.text` 含 `S79_TARGET`。对旧式的列表 ref（`snapshot` 里 `list` 那一行的 ref）`click` → `ambiguous-target`，`__s79` 没有新的 `pick:`。
-  2. **浮层在前、截断不丢弹窗**（§53.2）：打开弹窗（用 `evaluate` 点，不走 `click`）；`snapshot -i`（默认 `--max-chars`）的头有 `overlays  o1 dialog` 与 `order  o1 first`，树里有「S79 建账」；背景折成 `… lines behind o1`；`--behind` 展开后背景的行出现。
+  2. **浮层在前、截断不丢弹窗**（§53.2）：页面元素超过 8000 个；打开弹窗（用 `evaluate` 点，不走 `click`）；`snapshot -i`（默认 `--max-chars`）的头有 `overlays  o1 dialog` 与 `order  o1 first`，树里有「S79 建账」；背景折成 `… lines behind o1`；`--behind` 展开后背景的行出现。
   3. **看不见的不出 ref**（§53.3）：快照与 `find "S79 建账"` 里只有一个「S79 建账」；用 `snapshot --css` 给隐藏子层的按钮铸的 DOM ref 去 `click` → `not-visible`，`__s79` 没有 `hidden-build`。图标关闭按钮的行是 `button "(icon: close)"`。
   4. **select**（§53.4）：`select <大列表输入框> "S79_TARGET 1001"` → `via:"layer"`、`value` 含 `S79_TARGET`，`__s79` 末项是 `pick:S79_TARGET 1001`；ARIA 下拉 `via:"aria"`；原生 `<select>` `via:"native"`，`change` 事件触发了一次；`select … "不存在的项"` → `not-found` 并列出候选；页面被改成点任何项都写回 `S79_DECOY`（测试用 `evaluate` 打开这个开关）时 → `not-selected`，`got` 含 `S79_DECOY`。
   5. **notices**（§53.5）：清空表单，`click "S79 保存"` 的回答 `notices` 含 `{kind:"alert", text:"S79 科目为空"}` 与 `{kind:"text", text:"S79 名称不能为空"}`；3 s 后 `snapshot` 里已经没有那条 alert（说明只有回答里抓得到）。
   6. **表格行**（§53.6）：快照里右固定表第 3 行的 `row` 名称含第 3 行的名称列与编码列文字，其余两份带 `(same row as …)`；`find "S79 删除" --within <第 3 行名称>` 只返回一个命中，点它后 `__s79` 末项是 `del:<第 3 行名称>`。
-  7. **`--wait requests`**（§53.7）：`click "S79 慢请求" --wait requests`：回答的 `wait.requests.finished` 为 1、没有 `pending`，录制中 `requests` 里是 `/s79/api/slow` 的 `r-N`；长轮询不在里面，命令不超时。不带 `--wait` 时回答在慢请求返回前就回来（`wait.ms` < 800）。
-  8. **`fetch --like`**（§53.8）：`net start`，标签 A 点「S79 查询」得到 `r-A`；另开标签 B（`/s79?acct=B`）点一次查询。在 B 上 `fetch --like <r-A> --json '{"acct":"B"}' --tab <B>`：服务端收到 `Bearer tok-B`（靶场日志），回答 `auth.tab` 是 B、响应不是 290102；`--header-from-storage 'Authorization=Bearer {local:@session:s79key}'` 同样拿到 `tok-B`，输出与 `events.jsonl` 里都没有 `tok-B` 字样；装了测试解码插件时回答是 JSON 明文、`decoded:"plugin:s79"`，`--raw-body` 给 base64 原文。
+  7. **`--wait requests`**（§53.7）：`click "S79 慢请求" --wait requests`：回答的 `wait.requests.finished` 为 1、没有 `pending`，录制中 `wait.requests.ids` 里是 `/s79/api/slow` 的 `r-N`；长轮询不在里面，命令不超时。不带 `--wait` 时回答在慢请求返回前就回来（`wait.ms` < 800）。
+  8. **`fetch --like`**（§53.8）：`net start`，标签 A 点「S79 查询」得到 `r-A`；另开标签 B（`/s79?acct=B`）点一次查询。在 B 上 `fetch --like <r-A> --json '{"acct":"B"}' --tab <B>`：服务端收到 `Bearer tok-B`（靶场日志），回答 `auth.tab` 是 B、响应不是 290102；`--header-from-storage 'Authorization=Bearer {local:@session:s79key}'` 同样拿到 `tok-B`，输出与 `events.jsonl` 的 `cmd` 事件里都没有 `tok-B` 字样（请求事件照常记录实际发出的请求头，页面自己的请求也一样）；装了测试解码插件时回答是 JSON 明文、`decoded:"plugin:s79"`，`--raw` 给 base64 原文。
 - 不在靶场里的【待验】：门户上 `overlays none` 的真实原因（§53.2）；qiankun 微前端下的样式与弹窗挂载。
 
 ## 21. 场景索引
