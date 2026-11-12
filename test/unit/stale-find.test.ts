@@ -26,8 +26,8 @@ describe("stale-ref guard in the page functions (docs/05 s18)", () => {
 
   test("CLICK_FN on a connected element clicks it", () => {
     let clicked = 0;
-    const el = { nodeType: 1, isConnected: true, tagName: "SPAN", scrollIntoView: () => undefined, click: () => clicked++ };
-    expect(pageFn(CLICK_FN).call(el)).toEqual({ ok: true, tag: "span" });
+    const el = { nodeType: 1, isConnected: true, tagName: "SPAN", innerText: " 1001  库存现金 ", scrollIntoView: () => undefined, click: () => clicked++ };
+    expect(pageFn(CLICK_FN).call(el)).toEqual({ ok: true, tag: "span", text: "1001 库存现金" });
     expect(clicked).toBe(1);
   });
 

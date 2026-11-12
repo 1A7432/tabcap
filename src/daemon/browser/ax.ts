@@ -15,6 +15,7 @@
 
 import { isRecord } from "../../shared/json.ts";
 import { booleanPropertyMap } from "../tools/formatters.ts";
+import { iconName, inside, type PageLayout } from "./layout.ts";
 
 export type AxNode = {
   role: string;
@@ -27,6 +28,8 @@ export type AxNode = {
   children: AxNode[];
   /** 0.6-J, snapshot --interactive: a click on this control lands on a descendant (tools/landing.ts). */
   landing?: "child";
+  /** docs/04 §53.3: not visible (only kept by --verbose; never gets a ref). */
+  invisible?: true;
 };
 
 type Raw = {
@@ -191,6 +194,26 @@ export function buildAxTree(rawResult: unknown, passwordIds: ReadonlySet<number>
   return { role: "RootWebArea", name: "", value: null, description: "", backendId: null, password: false, flags: [], children: out };
 }
 
+const BUTTON_ROLES = new Set(["button", "link", "menuitem", "tab"]);
+
+/**
+ * docs/04 §53.3: drop what is not visible (browser/layout.ts): a transparent or
+ * clipped node with its subtree; a node without a box only when nothing under
+ * it is visible (a zero-size wrapper of visible content stays). `verbose`
+ * keeps them, marked `invisible` (no ref). Nameless buttons get an icon name.
+ * The root is always kept.
+ */
+export function applyLayout(n: AxNode, l: PageLayout, verbose: boolean, isRoot = true): AxNode | null {
+  const vis = n.backendId === null ? "visible" : (l.get(n.backendId)?.vis ?? "visible");
+  const kids = n.children.map((c) => applyLayout(c, l, verbose, false)).filter((c): c is AxNode => c !== null);
+  let name = n.name;
+  if (name === "" && n.backendId !== null && BUTTON_ROLES.has(n.role)) name = iconName(l, n.backendId);
+  const out: AxNode = { ...n, name, children: kids };
+  if (isRoot || vis === "visible") return out;
+  if (vis === "nobox" && kids.some((k) => k.invisible !== true)) return out;
+  return verbose ? { ...out, invisible: true } : null;
+}
+
 /** Keep interactive nodes and their ancestors. */
 export function interactiveOnly(n: AxNode, isRoot = true): AxNode | null {
   const kids = n.children.map((c) => interactiveOnly(c, false)).filter((c): c is AxNode => c !== null);
@@ -228,6 +251,7 @@ export function lineOf(n: AxNode, ref: string | null): string {
     s += eq < 0 ? ` ${f}` : ` ${f.slice(0, eq)}=${JSON.stringify(f.slice(eq + 1))}`;
   }
   if (n.landing !== undefined) s += ` landing=${JSON.stringify(n.landing)}`;
+  if (n.invisible === true) s += " invisible";
   if (n.description !== "" && n.role !== "text") {
     const d = n.description.length > MAX_VALUE ? n.description.slice(0, MAX_VALUE) + "…" : n.description;
     s += ` description=${JSON.stringify(d)}`;
@@ -237,7 +261,7 @@ export function lineOf(n: AxNode, ref: string | null): string {
 
 /** Refs go to element nodes (not text, not the document root). */
 export function wantsRef(n: AxNode): boolean {
-  return n.backendId !== null && n.role !== "text" && n.role !== "RootWebArea";
+  return n.backendId !== null && n.role !== "text" && n.role !== "RootWebArea" && n.invisible !== true;
 }
 
 export type Rendered = { text: string; truncated: boolean; chars: number; refs: number };
@@ -301,7 +325,7 @@ export function findCandidates(root: AxNode, query: string, cap: number): { cand
     if (n.name.toLowerCase().includes(q)) [field, match] = ["name", n.name];
     else if (!n.password && n.value !== null && n.value.toLowerCase().includes(q)) [field, match] = ["value", n.value];
     else if (n.description.toLowerCase().includes(q)) [field, match] = ["description", n.description];
-    if (field !== null) {
+    if (field !== null && n.invisible !== true) {
       total++;
       if (cands.length < cap) {
         const chain = [...anc, n].reverse();
@@ -347,4 +371,28 @@ export function hitOf(c: FindCandidate, refFor: RefFor, dom: { backendId: number
 export function findInTree(root: AxNode, query: string, refFor: RefFor, limit = 20): { hits: FindHit[]; total: number } {
   const { cands, total } = findCandidates(root, query, limit);
   return { hits: cands.map((c) => hitOf(c, refFor)), total };
+}
+
+/**
+ * docs/04 §53.2: split the tree into the subtrees inside the overlay element
+ * `layerId` (DOM containment, browser/layout.ts) and the rest. `layer` is empty
+ * when no accessible node is inside it.
+ */
+export function splitLayer(root: AxNode, l: PageLayout, layerId: number): { layer: AxNode[]; rest: AxNode } {
+  const layer: AxNode[] = [];
+  const walk = (n: AxNode): AxNode | null => {
+    if (n.backendId !== null && inside(l, n.backendId, layerId)) {
+      layer.push(n);
+      return null;
+    }
+    const kids = n.children.map(walk).filter((c): c is AxNode => c !== null);
+    return kids.length === n.children.length && kids.every((k, i) => k === n.children[i]) ? n : { ...n, children: kids };
+  };
+  const rest = walk(root) ?? { ...root, children: [] };
+  return { layer, rest };
+}
+
+/** Lines a tree would render to (no refs minted). */
+export function countLines(n: AxNode): number {
+  return 1 + n.children.reduce((s, c) => s + countLines(c), 0);
 }

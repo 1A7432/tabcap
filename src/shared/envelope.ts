@@ -21,6 +21,9 @@ export type ErrorCode =
   | "move-timeout" // click --trusted: a mouse move got no answer in time; nothing was pressed, no retry
   | "not-painted" // hover: the tab is not confirmed painted, so no mouse move was sent
   | "covered" // an overlay (dialog, mask, layer, consent, timeout prompt) covers the target; `overlay` names it and its close-button refs
+  | "ambiguous-target" // docs/04 §53.1 / §53.4: the target is a container whose centre is another clickable element, or several options match; nothing was clicked
+  | "not-visible" // docs/04 §53.3: the target is not visible (no box, opacity 0, clipped away); nothing was done
+  | "not-selected" // docs/04 §53.4: `select` clicked an option but the control shows another value; `error.result` has the click's answer
   | "waiting" // the session is handed to the human (guard / handoff); run `tabcap handoff continue` after they finish
   | "tab-changed" // docs/04 §52.2: someone else (another tool, a person) navigated this session's tab; `tab select` acknowledges, `navigate` goes back
   | "tab-taken" // docs/04 §52.4: another session took this tab with `tab adopt`; `tab adopt` takes it back
