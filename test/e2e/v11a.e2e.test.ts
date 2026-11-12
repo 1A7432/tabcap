@@ -166,6 +166,27 @@ describe.skipIf(!enabled)("tabcap browser-wide tabs L2 (s78)", () => {
     expect(listed?.["purpose"]).toBe("s78 reader");
   });
 
+  test("7. cross-session take: b adopts a's t1 without asking; a hears tab-taken once; a takes it back", async () => {
+    const aRef = await refOf("s78 send", "--tab", "t1", ...A);
+    const took = await ok("tab", "adopt", t1Target.slice(0, 8).toLowerCase(), "--session", "b");
+    expect(took).toMatchObject({ session: "b", owned: false, reason: "borrowed", from: "a" });
+    const bTab = s(took["tab"]);
+    expect(took["current"]).toBe(bTab);
+    const first = await tabcap(["click", aRef, "--tab", "t1", ...A]);
+    expect(first.error?.["code"]).toBe("tab-taken");
+    expect(first.error?.["by"]).toBe("b");
+    expect(s(first.error?.["next"])).toContain("tab adopt");
+    expect((await tabcap(["click", aRef, "--tab", "t1", ...A])).error?.["code"]).toBe("no-tab");
+    // b reads and acts on it
+    expect(s((await ok("snapshot", "--session", "b"))["tree"])).toContain("S78_C");
+    const back = await ok("tab", "adopt", t1Target, ...A);
+    expect(back).toMatchObject({ session: "a", from: "b" });
+    expect((await tabcap(["snapshot", "--session", "b"])).error?.["code"]).toBe("tab-taken");
+    const from = site.hits.length;
+    await ok("click", await refOf("s78 send", ...A), ...A);
+    await waitHit("/s78/api", from);
+  });
+
   test("9. stop: the bundle is finished", async () => {
     bundle = s((await ok("session", "stop", "a"))["bundle"]);
     expect(bundle).not.toBe("");
@@ -188,7 +209,10 @@ describe.skipIf(!enabled)("tabcap browser-wide tabs L2 (s78)", () => {
     const ownA = navs.find((e) => s(e["url"]).endsWith("/s78/a"));
     expect(s(ownA?.["cmd"])).toMatch(/^c-\d+$/);
     const api = events.filter((e) => e["kind"] === "request" && s(e["url"]).endsWith("/s78/api"));
-    expect(api.length).toBe(3);
+    expect(api.length).toBe(4);
     for (const e of api) expect(e).toMatchObject({ actor: "ai", cmd: expect.stringMatching(/^c-\d+$/) });
+    // 7: the take is in a's bundle; the tab came back as a borrowed tab from b
+    expect(events.filter((e) => e["kind"] === "tab" && e["reason"] === "taken")).toMatchObject([{ phase: "detach", by: "b" }]);
+    expect(events.filter((e) => e["kind"] === "tab" && e["from"] === "b")).toMatchObject([{ phase: "attach", reason: "borrowed", owned: false }]);
   });
 });
