@@ -67,6 +67,7 @@ exports[`tools/list --all-tools: generated from the command table tool names (sn
   "tabcap_find",
   "tabcap_html",
   "tabcap_click",
+  "tabcap_select",
   "tabcap_hover",
   "tabcap_fill",
   "tabcap_type",

@@ -35,10 +35,10 @@ describe("action metadata table", () => {
     }
   });
 
-  test("derived sets equal the hand-kept ones of 1ec64b6, except wire.profile / wire.probe now wait (owner 10-21) and permission waits like emulate (docs/04 §46)", () => {
-    expect(sorted(ACTION_COMMANDS)).toEqual(sorted(OLD_ACTION_COMMANDS));
+  test("derived sets equal the hand-kept ones of 1ec64b6, except wire.profile / wire.probe now wait (owner 10-21), permission waits like emulate (docs/04 §46) and select is an action like click (docs/04 §53.4)", () => {
+    expect(sorted(ACTION_COMMANDS)).toEqual(sorted([...OLD_ACTION_COMMANDS, "select"]));
     expect(sorted(TEXT_ACTIONS)).toEqual(sorted(OLD_TEXT_ACTIONS));
-    expect(sorted(BLOCKED_WHILE_WAITING)).toEqual(sorted([...OLD_BLOCKED, "wire.profile", "wire.probe", "permission"]));
+    expect(sorted(BLOCKED_WHILE_WAITING)).toEqual(sorted([...OLD_BLOCKED, "wire.profile", "wire.probe", "permission", "select"]));
     expect(sorted(actionsWhere("cmdWindow"))).toEqual(sorted(ACTION_COMMANDS));
   });
 

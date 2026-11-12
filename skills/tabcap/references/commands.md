@@ -1526,6 +1526,24 @@ Example: `tabcap html e12 --inner`
 | `--attrs` |  | only the element's attributes, as an object |
 | `--max-chars <n>` | `4000` | cut the markup / text (each attribute value with --attrs); `truncated` and `chars` (the whole length) say so |
 
+### `tabcap select`
+
+pick a dropdown option by its text: a native <select> directly (input + change); otherwise click <ref> open, find the option in its aria-controls list or in the layer the click showed (Element UI-style dropdowns without ARIA), click it, and read the control back (not-selected when it shows another value); never presses Escape or clicks outside → {via: native|aria|layer, selected {text, option}, value, landedOn, layerOpen?}
+
+```
+tabcap select <ref> <text> [--session name] [--timeout ms] [--tab t2] [--exact] [--trusted] [--no-wait] [--snapshot]
+```
+
+Example: `tabcap select e14 "1001 库存现金"`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--exact` |  | the option's whole text must equal <text> (default: an option that equals it, else the one that contains it) |
+| `--trusted` |  | open the dropdown and click the option with trusted input (as click --trusted) |
+| `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
+| `--snapshot` |  | also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait |
+
 ### `tabcap record`
 
 record the HTTP(S) requests of any command (a Python requests / httpx script, curl, node …) into a bundle: tabcap runs it behind its own proxy on 127.0.0.1 with a CA made for this run (both cases of HTTP(S)_PROXY set, NO_PROXY emptied, SSL_CERT_FILE / REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE / NODE_EXTRA_CA_CERTS pointed at it); HTTP/1.1 only, WebSocket frames not recorded; requests in the order the command sent them; exit 0, the command's exit code in exitCode

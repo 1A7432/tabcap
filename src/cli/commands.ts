@@ -463,6 +463,20 @@ export const COMMANDS: CommandSpec[] = [
     action: "click",
   },
   {
+    path: ["select"],
+    pos: ["ref", "text"],
+    flags: [
+      ...TT,
+      { flag: "--exact", key: "exact", kind: "bool", help: "the option's whole text must equal <text> (default: an option that equals it, else the one that contains it)" },
+      { flag: "--trusted", key: "trusted", kind: "bool", help: "open the dropdown and click the option with trusted input (as click --trusted)" },
+      ...INTERACT,
+    ],
+    summary:
+      "pick a dropdown option by its text: a native <select> directly (input + change); otherwise click <ref> open, find the option in its aria-controls list or in the layer the click showed (Element UI-style dropdowns without ARIA), click it, and read the control back (not-selected when it shows another value); never presses Escape or clicks outside → {via: native|aria|layer, selected {text, option}, value, landedOn, layerOpen?}",
+    example: 'tabcap select e14 "1001 库存现金"',
+    action: "select",
+  },
+  {
     path: ["hover"],
     pos: ["ref"],
     flags: [...TT, ...INTERACT],

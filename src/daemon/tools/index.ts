@@ -6,6 +6,7 @@ import { browserStart, browserStatus, browserStop } from "./browser.ts";
 import { consoleList, consoleShow } from "./console.ts";
 import { emulate, resize } from "./device.ts";
 import { click, fill, hover, press, typeText, upload } from "./input.ts";
+import { select } from "./select.ts";
 import { e2eHumanInput, guardResume, handoffContinue, handoffStatus } from "./handoff.ts";
 import { handoffWait } from "./handoffwait.ts";
 import { fetchTool, type ToolCtx } from "./fetch.ts";
@@ -51,6 +52,7 @@ const TABLE: Record<ToolAction, Tool> = {
   find,
   html,
   click,
+  select,
   hover,
   fill,
   type: typeText,
