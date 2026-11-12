@@ -2,6 +2,18 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### 浏览器里的每个标签：谁改的、谁拿着、一个窗口（docs/04 §52）
+
+- **修复：别的工具或人导航了会话的标签，tabcap 毫无察觉，证据包还记在 AI 头上。** 一次 0.9.1 真实使用中，标签被会话以外的东西（浏览器端口上的另一个 CDP 客户端，或人）导航到别的站；下一条命令照常在上面执行，证据包把这次导航记成 `cmd: "c-1620"`、`actor: "ai"`，而那是会话对**另一个**标签的 `wait --idle`。现在，会话标签上的根帧导航，如果没有本会话的命令作用于这个标签、页面没有要求（没有 `Page.frameRequestedNavigation`；CfT 157 实测：页面自己的脚本跳转、reload、meta refresh 都会发，另一个客户端的 `Page.navigate` 不发）、也不是在会话等人期间，就是 `external`：标签记下 `changed: {at, from, to, by}`，作用于它的动页面命令回新错误 `tab-changed`（命令不执行；`next` 提示 `tab select <tab>` 在新页面上继续，或 `navigate <from> --tab <tab>` 回去，不提示开新标签），只读命令的回答带 `changed`，`tab list` 也显示。对这个标签 `navigate` 或 `tab select` 就算确认。已知盲区：没有命令在跑时，页面自己的 `history.back()` 看起来一样，也会被报告。
+- **证据包的 `cmd` 按标签算，`actor` 多了 `external`。** 事件取作用于**它所在标签**的最里层命令窗口（命令作用的标签，或命令期间新加入会话的标签），不再是会话里随便哪条开着的命令；external 导航的事件（以及它开出的导航纪元，直到本会话有命令作用于这个标签）记 `actor: "external"`、`cmd: null`。docs/04 §3、§52.1。
+- **`tab list --all` 列出浏览器里的所有标签。** `others` 现在也包括别的会话的标签，每项带 `holder`：`{session, tab, owned, purpose, isolated, lastAction, changed?}`（你或别的工具开的标签为 `null`）。`snapshot`、`outline`、`find`、`html`、`screenshot` 新增 `--target <target>`，可以读其中任何一个而不接管：不录制、不算会话的标签、ref 自成一套（别的会话在这个标签上的 ref 不受影响）。docs/04 §52.3。
+- **`tab adopt` 能接别的会话的标签。** 不需要对方同意；原会话下一条作用于它的命令收到新错误 `tab-taken`，只报一次（谁、何时、当时的 URL；`next` 说怎么拿回来），它的当前标签也不会被悄悄换成别的标签。对方正有命令在这个标签上执行、或在等人时拒绝。原会话的录制写 `tab {phase: "detach", reason: "taken", by}`，新会话的 tab 事件带 `from`。docs/04 §52.4。
+- **新增 `session start --purpose "<一行>"`。** 在 `tab list --all`、`session list`、`status`（含 `--text`）里给别的 agent 和你看，写进 manifest 的 `session.purpose`。docs/04 §52.5。
+- **账号会话回到同一个窗口；要独立用 `--isolate`。** 0.6-D 起每个账号会话都有自己的浏览器上下文，在有界面的 Chrome 里就是另一个窗口，人得去找。现在账号默认用浏览器的默认上下文，只有绑了池代理、或 `session start --isolate` 要求时才单独建（比如同一个站同时登两个账号）。默认上下文里同一个站的第二个账号会被拒绝（`conflict`，`next` 提到 `--isolate`）。`session start` 的回答用 `isolated: true|false` 代替 `browserContext: "own"`。没有账号的会话现在和同站的账号会话共用默认上下文的 cookie。CfT 157（headless）实测：新上下文里的标签是另一个 `windowId`。docs/04 §52.6（取代 §27 的规则）。
+- AGENTS.md：「浏览器」一条改为人和所有 agent 共用一个浏览器、尽量一个窗口，所有标签都可以读，动别人的标签要显式接管。靶场场景 s78（`test/e2e/v11a.e2e.test.ts`）。
+
 ## 0.9.1（2026-11-09）
 
 - **修复：macOS 上你在 tabcap 浏览器里打字时，焦点被拉回终端。** 页面开新窗口或新标签时（`target=_blank` 链接、弹窗、Cmd+T），弹窗前台守卫会把前台交给上一条 tabcap 命令后记下的应用，最多四次，哪怕是你自己切到 tabcap 浏览器的，按键于是打进终端。现在只有在动页面的命令（click、press、evaluate、navigate …）执行中或结束后 1.5 s 内出现的窗口才交还，这类命令开始时重读一次最前应用；别的窗口、以及从等人会话的标签开出的窗口一概不碰，计入 `browser status` 的 `popupFocus.human`。`config.json` 新键 `chrome.restoreFront`（默认 `true`；`false` 关掉启动和弹窗两处交还，`browser start` 时读）。docs/07 §1.1。

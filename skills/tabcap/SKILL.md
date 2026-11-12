@@ -15,6 +15,7 @@ Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--p
 
 ## Rules
 
+- **The browser is shared** with the user and other agents. Use your own `--session` (or `TABCAP_SESSION`) with `--purpose`; no extra windows or browsers. `tab list --all`: every tab and its holder; `snapshot --target <t>` reads one; `tab adopt <t>` takes it.
 - **Never bring the browser to the front on your own.** tabcap works in background tabs and refuses focus-stealing CDP calls; `tab select --bring-to-front` only when the user wants to look. Don't activate windows with other tools either.
 - **Credentials are stored once, then only referenced** (below). Never pass a password as an argument, and never repeat one in your replies.
 - **Slider / SMS / 2FA / verify pages are the human's job.** On `waiting`, hand over (below); never solve or bypass. Image `challenge` lines: your call.
@@ -74,4 +75,4 @@ tabcap where e12                            # which response carries this value
 tabcap analyze deps <bundle> --select unresolved
 ```
 
-Errors: `waiting` (hand over) · `guard.login-limit` (ask, then `--confirm`) · `not-running` · `daemon-version` (`tabcap daemon stop && tabcap daemon start`) · `no-tab` (navigate, or `tab list`) · `stale-ref` (snapshot again) · `needs-await` · `dialog` (`dialog accept|dismiss`) · `timeout` · `covered` (an overlay is in front; never close consent or timeout prompts without the user) · `not-delivered` / `move-timeout` (look before clicking again) · `usage`.
+Errors: `waiting` (hand over) · `tab-changed` (someone else moved your tab: `snapshot`, then do what `next` says) · `tab-taken` (another session took it) · `guard.login-limit` (ask, then `--confirm`) · `not-running` · `daemon-version` (`tabcap daemon stop && tabcap daemon start`) · `no-tab` (navigate, or `tab list`) · `stale-ref` (snapshot again) · `needs-await` · `dialog` (`dialog accept|dismiss`) · `timeout` · `covered` (an overlay is in front; never close consent or timeout prompts without the user) · `not-delivered` / `move-timeout` (look before clicking again) · `usage`.

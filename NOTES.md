@@ -759,3 +759,8 @@
 - 做了什么：作者另一个项目 11-11 用 0.9.1 时标签 t22 被外部导航走，证据包把它记成同会话对另一标签的 `wait --idle`（c-1620，`actor:"ai"`）【实测：bundle aisino-20261111-133720】；文档请求 `initiator:"other"`、`sec-fetch-site: none`，是浏览器侧发起的。作者定方向：一个浏览器、尽量一个窗口，AI 看得见全部标签、能接管、会话之间能协作；上下文按需、接管只通知、协作到 v0。spike（CfT 157 headless）：新上下文的标签是另一个 `windowId`【实测】。写了 docs/04 §52（并在 §3、§4.1、§16、§27、§51 加指向）、docs/05 s78，AGENTS.md「浏览器」一条改措辞。
 - 卡在哪：§52 字段与细节待作者审；有界面时新上下文另开窗口、地址栏输入与 `Page.navigate` 能否区分都【待验】。报告里的另外几条（`fetch --like`、Element UI、带状态解码插件、`--grep` 反选、动作后等网络空闲）还没设计；其中「点击后 DOM 没变就提示 `--trusted`」0.6-D 已有（`effect:"none"` + `note`）。
 - 下一格从哪开始：作者审 §52 / s78 后按 52.1–52.2 → 52.3 → 52.4–52.5 → 52.6 实现。
+
+## 2026-11-12 · 浏览器里的全部标签：实现（主循环）
+- 做了什么：作者 11-12 审过 docs/04 §52。按 52.1–52.2 → 52.3 → 52.5 → 52.4 → 52.6 实现：Tabs 记命令窗口（录不录都记，单调计数比先后）与漂移状态，external 判据改用 `Page.frameRequestedNavigation`（spike：页面自己的跳转都先发它，另一 CDP 客户端的 `Page.navigate` 不发，meta refresh 第二跳 initiator 也是 other，所以不用 initiator）；recorder 的 `cmd` / `actor` 按标签算；`tab-changed`、`tab-taken` 两个新错误码；`tab list --all` 带 `holder`；只读命令 `--target`（独立 ref 表）；`session start --purpose`、`--isolate`；账号默认进默认上下文，同站第二个账号拒绝。§52 按实现改了几处（判据、`from` 取导航前的 URL、`lastAction`、接管后原会话不回退、`isolated` 取代 `browserContext:"own"`）。单测 `bun test test/unit` 全过【实测】；e2e s78（v11a）9 条本机通过【实测】；改了 v04d / v06d / v09b / v09d / v10a 的预期。
+- 卡在哪：页面脚本的 `history.back()` 不发 `frameRequestedNavigation`，没有命令窗口时会误报 external（已写进 §52.1）；有界面时新上下文另开窗口、地址栏输入是否同样记 external，都要作者手动看一眼【待验】。全量单测里 `replay-order` 的 CLI 测试偶发失败一次，单跑 3 次都过，与本格无关。
+- 下一格从哪开始：作者看本机 e2e 全量结果后决定开 PR；之后回到 0.9.1 报告的其余几条（`fetch --like`、Element UI、带状态解码插件、`--grep` 反选、动作后等网络空闲）。
