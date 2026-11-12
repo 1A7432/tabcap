@@ -70,7 +70,7 @@ function toStored(seq: number, body: Record<string, unknown>): RawEvent {
   if (typeof ts !== "number" || !Number.isFinite(ts)) throw bad("ts must be a finite number");
   if (mono !== null && (typeof mono !== "number" || !Number.isFinite(mono))) throw bad("mono must be a number or null");
   if (typeof kind !== "string" || kind === "") throw bad("kind must be a non-empty string");
-  if (!isActor(actor)) throw bad("actor must be human|ai|system");
+  if (!isActor(actor)) throw bad("actor must be human|ai|system|external");
   if (tab !== null && typeof tab !== "string") throw bad("tab must be a string or null");
   if (cmd !== null && typeof cmd !== "string") throw bad("cmd must be a string or null");
   return { seq, ts, mono, kind, actor, tab, cmd, ...rest };

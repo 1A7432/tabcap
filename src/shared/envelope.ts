@@ -22,6 +22,8 @@ export type ErrorCode =
   | "not-painted" // hover: the tab is not confirmed painted, so no mouse move was sent
   | "covered" // an overlay (dialog, mask, layer, consent, timeout prompt) covers the target; `overlay` names it and its close-button refs
   | "waiting" // the session is handed to the human (guard / handoff); run `tabcap handoff continue` after they finish
+  | "tab-changed" // docs/04 §52.2: someone else (another tool, a person) navigated this session's tab; `tab select` acknowledges, `navigate` goes back
+  | "tab-taken" // docs/04 §52.4: another session took this tab with `tab adopt`; `tab adopt` takes it back
   | "guard.login-limit" // a second login attempt in the same session (docs/06 A6.2); --confirm overrides
   | "guard.budget" // the account used its configured hourly request budget (config.json pool.budget); page commands wait for the next hour
   | "guard.stopped" // a `tabcap fetch` stop rule fired on this site; further fetches wait for `tabcap guard resume --site <s>`

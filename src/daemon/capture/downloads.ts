@@ -27,7 +27,7 @@
 
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { DownloadFields } from "../../bundle/types.ts";
+import type { Actor, DownloadFields } from "../../bundle/types.ts";
 import { storeDownload } from "../../bundle/downloads.ts";
 import { num, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
@@ -63,7 +63,7 @@ export type NavDownload = { url: string; urlTruncated?: true; suggestedFilename:
 /** A recorded download still running (`download list`). */
 export type InProgressRow = { guid: string; tab: string; url: string; suggestedFilename: string; state: "in-progress"; receivedBytes: number; totalBytes: number | null };
 
-type Start = { cmd: string | null; actor: "human" | "ai" | "system"; nav: string | null };
+type Start = { cmd: string | null; actor: Actor; nav: string | null };
 
 type Live = {
   guid: string;

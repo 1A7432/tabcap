@@ -9,7 +9,11 @@
 //   the browser was started with --foreground;
 // - nav epochs live in the evidence bundle only (`n-<seq>`, docs/04 §14): the
 //   daemon keeps no numbering of its own, it only tracks the navigation type;
-// - per-tab command queue with a command timeout, and the dialog lock.
+// - per-tab command queue with a command timeout, and the dialog lock;
+// - docs/04 §52.1–52.2 (11-12): command windows per session and tab (with or
+//   without a recording), and a root navigation nobody of the session made — no
+//   window acts on the tab, the page did not ask for it (`Page.frameRequestedNavigation`),
+//   the session is not waiting for the human — marks the tab `changed`.
 
 import { TabcapError } from "../../shared/envelope.ts";
 import { isRecord, str } from "../../shared/json.ts";
@@ -65,6 +69,54 @@ export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 /** A page target as `Target.getTargets` reports it; `browserContextId` null when Chrome names none. */
 type PageTarget = { targetId: string; url: string; title: string; browserContextId: string | null };
 
+/** docs/04 §52.2: a root navigation of a session tab that neither the session nor the page made. */
+export type TabChange = { at: number; from: string; to: string; by: "external" };
+
+/**
+ * docs/04 §52.1: `Page.frameStartedNavigating` types that load another document
+ * (same-document ones never reach `Page.frameNavigated`). Measured 11-12 (CfT 157):
+ * a page's own navigation (script, reload, meta refresh) sends
+ * `Page.frameRequestedNavigation` first; `Page.navigate` / `Page.reload` /
+ * `Page.navigateToHistoryEntry` from another CDP client does not, and neither does
+ * a page's `history.back()` (known gap).
+ */
+const DOCUMENT_NAV_TYPES: ReadonlySet<string> = new Set(["differentDocument", "historyDifferentDocument", "reload", "reloadBypassingCache", "restore", "restoreWithPost"]);
+
+/** A command window as Tabs sees it: which session, which tab it acts on (null: none at its start), its `tick()` at the start. */
+type CmdWindow = { session: string; tab: string | null; started: number };
+
+/**
+ * docs/04 §52.1: does a command window act on tab `tabId`? Its own tab, or any tab
+ * that joined the session after it began (the tab it opens, a popup it causes).
+ * `started` and `joinedAt` are `Tabs.tick()` stamps (a counter: two things in the
+ * same millisecond still have an order).
+ */
+export function windowCovers(w: { session: string; tab: string | null; started: number }, tab: { id: string; session: string }, joinedAt: number): boolean {
+  if (w.session !== tab.session) return false;
+  return (w.tab !== null && w.tab === tab.id) || joinedAt > w.started;
+}
+
+/**
+ * docs/04 §52.1: is a root navigation starting now external? Not when the page asked
+ * for it, a window of the session acts on the tab, or the session waits for the human
+ * (their own navigation then, §37).
+ */
+export function isExternalStart(o: { pageRequested: boolean; covered: boolean; waiting: boolean; navigationType: string }): boolean {
+  if (!DOCUMENT_NAV_TYPES.has(o.navigationType)) return false;
+  return !o.pageRequested && !o.covered && !o.waiting;
+}
+
+/** Per-tab state of §52.1–52.2. */
+type Drift = {
+  /** A `Page.frameRequestedNavigation` for the root frame since the last navigation start. */
+  requested: boolean;
+  /** An external navigation has started and not committed yet. */
+  pending: { from: string; at: number } | null;
+  /** The tab is in a nav epoch an external navigation opened (until a command of the session acts on it). */
+  epoch: boolean;
+  changed: TabChange | null;
+};
+
 /** Least length of a `tab adopt` prefix (docs/04 §51). */
 export const ADOPT_MIN_PREFIX = 8;
 
@@ -86,6 +138,15 @@ export class Tabs {
   private tabSeq = 0;
   /** Commands running on a tab right now (inside `run`), by daemon tab id (0.9-D: a download that begins then is that command's). */
   private running = new Map<string, number>();
+  /** docs/04 §52.1: open command windows (every session, recorded or not), by window id. */
+  private windows = new Map<number, CmdWindow>();
+  private windowSeq = 0;
+  /** docs/04 §52.1: `tick()` when each tab joined its session. */
+  private joined = new Map<string, number>();
+  private clock = 0;
+  private drift = new Map<string, Drift>();
+  /** docs/04 §52.1: is the session waiting for the human? The daemon sets it (guard); navigations then are the human's. */
+  waitingOf: (session: string) => boolean = () => false;
   private addedListeners = new Set<(tab: Tab) => Promise<void>>();
   private navListeners = new Set<(tab: Tab, e: CdpEvent) => void>();
   private offs: Array<() => void> = [];
@@ -294,6 +355,7 @@ export class Tabs {
       emulation: {},
     };
     this.tabs.set(tab.id, tab);
+    this.joined.set(tab.id, this.tick());
     session.tabs.push(tab.id);
     log.info("tab registered", { tab: tab.id, session: session.name, owned, opener });
     return tab;
@@ -309,6 +371,8 @@ export class Tabs {
   markClosed(tab: Tab): void {
     if (tab.closed) return;
     tab.closed = true;
+    this.drift.delete(tab.id);
+    this.joined.delete(tab.id);
     const s = this.sessions.get(tab.session);
     if (s !== undefined) {
       s.tabs = s.tabs.filter((id) => id !== tab.id);
@@ -364,6 +428,74 @@ export class Tabs {
     tab.loading = false;
     log.warn("stopped a pending page load after a timeout", { tab: tab.id, ok });
     return ok ? "; the pending page load was stopped so the tab stays usable" : "; stopping the pending page load failed too";
+  }
+
+  /**
+   * docs/04 §52.1: a command of `session` begins; `tab` is the daemon tab it acts on
+   * (`--tab`, else the current tab; null when the session has none). The tab's
+   * external nav epoch ends here. Returns the window id for `closeWindow`.
+   */
+  openWindow(session: string, tab: string | null): number {
+    const id = ++this.windowSeq;
+    this.windows.set(id, { session, tab, started: this.tick() });
+    if (tab !== null) {
+      const d = this.drift.get(tab);
+      if (d !== undefined) {
+        d.epoch = false;
+        d.pending = null;
+      }
+    }
+    return id;
+  }
+
+  closeWindow(id: number): void {
+    this.windows.delete(id);
+  }
+
+  /** docs/04 §52.1: an ordering stamp for windows and tab joins (the recorder stamps its command windows with it too). */
+  tick(): number {
+    return ++this.clock;
+  }
+
+  /** The tab's `tick()` stamp when it joined its session; 0 when unknown. */
+  joinedAt(tabId: string): number {
+    return this.joined.get(tabId) ?? 0;
+  }
+
+  /** docs/04 §52.1: does an open command window of the tab's session act on it? */
+  covered(tab: Tab): boolean {
+    const at = this.joinedAt(tab.id);
+    for (const w of this.windows.values()) if (windowCovers(w, tab, at)) return true;
+    return false;
+  }
+
+  /** docs/04 §52.1: events on this tab are `actor:"external"` now (an external navigation started, or its epoch). */
+  external(tabId: string): boolean {
+    const d = this.drift.get(tabId);
+    return d !== undefined && (d.pending !== null || d.epoch);
+  }
+
+  /** docs/04 §52.2: the tab's unacknowledged external change, or null. */
+  changedOf(tabId: string): TabChange | null {
+    return this.drift.get(tabId)?.changed ?? null;
+  }
+
+  /** docs/04 §52.2: `navigate` / `tab select` on the tab acknowledge the change. */
+  acknowledge(tabId: string): void {
+    const d = this.drift.get(tabId);
+    if (d === undefined) return;
+    d.changed = null;
+    d.epoch = false;
+    d.pending = null;
+  }
+
+  private driftOf(tabId: string): Drift {
+    let d = this.drift.get(tabId);
+    if (d === undefined) {
+      d = { requested: false, pending: null, epoch: false, changed: null };
+      this.drift.set(tabId, d);
+    }
+    return d;
   }
 
   /** 0.9-D (docs/04 §48): a command is running on the tab now (its `run` job has started and not ended). */
@@ -468,6 +600,20 @@ export class Tabs {
     const tab = this.bySession(e.sessionId);
     if (tab === undefined) return;
     switch (e.method) {
+      case "Page.frameRequestedNavigation":
+        if (str(e.params, "frameId") === tab.targetId) this.driftOf(tab.id).requested = true;
+        return;
+      case "Page.frameStartedNavigating": {
+        if (str(e.params, "frameId") !== tab.targetId) return;
+        const d = this.driftOf(tab.id);
+        const navigationType = str(e.params, "navigationType") ?? "";
+        if (!DOCUMENT_NAV_TYPES.has(navigationType)) return;
+        const ext = isExternalStart({ pageRequested: d.requested, covered: this.covered(tab), waiting: this.waitingOf(tab.session), navigationType });
+        d.requested = false;
+        d.pending = ext ? { from: tab.url, at: Date.now() } : null;
+        if (ext) log.info("external navigation started", { tab: tab.id, session: tab.session });
+        return;
+      }
       case "Page.frameNavigated": {
         const f = isRecord(e.params["frame"]) ? e.params["frame"] : null;
         if (f === null || str(f, "parentId") !== null) return;
@@ -475,6 +621,13 @@ export class Tabs {
         tab.pointer = null; // a new document: the next trusted path starts at 0,0 again
         this.newNav(tab, tab.pendingNavType ?? "navigation");
         tab.pendingNavType = null;
+        // docs/04 §52.2: before the listeners, so the recorder's `nav` event is already `external`.
+        const d = this.drift.get(tab.id);
+        if (d !== undefined && d.pending !== null) {
+          d.changed = { at: d.pending.at, from: d.pending.from, to: tab.url, by: "external" };
+          d.epoch = true;
+          d.pending = null;
+        }
         for (const fn of [...this.navListeners]) fn(tab, e);
         return;
       }

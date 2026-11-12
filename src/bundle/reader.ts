@@ -64,7 +64,7 @@ export function toRawEvent(obj: unknown): RawEvent | string {
   if (typeof ts !== "number" || !Number.isFinite(ts)) return "ts must be a number";
   if (mono !== null && (typeof mono !== "number" || !Number.isFinite(mono))) return "mono must be a number or null";
   if (typeof kind !== "string" || kind === "") return "kind must be a non-empty string";
-  if (!isActor(actor)) return "actor must be human|ai|system";
+  if (!isActor(actor)) return "actor must be human|ai|system|external";
   if (tab !== null && typeof tab !== "string") return "tab must be a string or null";
   if (cmd !== null && typeof cmd !== "string") return "cmd must be a string or null";
   // Spread first keeps the original key order; values are identical.

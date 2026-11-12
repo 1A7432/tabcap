@@ -68,7 +68,7 @@ import type {
 import { isRecord, num, str } from "../../shared/json.ts";
 import { log } from "../../shared/log.ts";
 import { monotonicToMono, nowMs, wallTimeToTs } from "../../shared/time.ts";
-import type { Tab, Tabs } from "../browser/targets.ts";
+import { windowCovers, type Tab, type Tabs } from "../browser/targets.ts";
 import type { AttachedTarget, CdpEvent, Transport } from "../transport/types.ts";
 import type { ConsoleEntry, ConsoleLog } from "./console.ts";
 import {
@@ -427,7 +427,7 @@ export class Recorder {
     }
     const put = await this.writer.putBlob(JSON.stringify(cookies));
     if (put.outcome !== "stored" || this.writerClosed) return;
-    this.put({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: bt, cmd: this.cmdRef(), ...cookieStateFields(stateOrigin(url), put.ref, cookies.length, reason) });
+    this.put({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: bt, cmd: this.cmdRef(tab.id), ...cookieStateFields(stateOrigin(url), put.ref, cookies.length, reason) });
     this.stateCount++;
     try {
       this.opts.onCookieState?.();
@@ -444,8 +444,10 @@ export class Recorder {
    * navigate leaves running. The `cmd` field still says which command window
    * an event fell into.
    */
-  private actor(): Actor {
-    return this.opts.humanActive?.() === true ? "human" : "ai";
+  private actor(tabId: string | null): Actor {
+    if (this.opts.humanActive?.() === true) return "human";
+    // docs/04 §52.1 (11-12): a navigation on this tab that neither the session nor the page made, and its nav epoch.
+    return tabId !== null && this.opts.tabs.external(tabId) ? "external" : "ai";
   }
 
   private async enableOn(x: { sessionId: string; type: string }): Promise<void> {
@@ -468,7 +470,7 @@ export class Recorder {
       kind: "tab",
       actor: "system",
       tab: bt,
-      cmd: this.cmdRef(),
+      cmd: this.cmdRef(tab.id),
       phase,
       chromeTabId: null,
       targetId: tab.targetId,
@@ -496,7 +498,7 @@ export class Recorder {
       kind: "tab",
       actor: "system",
       tab: this.bundleTab.get(host.id) ?? null,
-      cmd: this.cmdRef(),
+      cmd: this.cmdRef(host.id),
       phase: "attach",
       target: { id: x.targetId, type, url: x.url, sessionId: x.sessionId },
     });
@@ -509,7 +511,7 @@ export class Recorder {
     this.flush((p) => p.sessionId === x.sessionId, "detached");
     this.sessions.delete(x.sessionId);
     if (x.sessionId === host.sessionId) {
-      this.put({ ts: nowMs(), mono: null, kind: "tab", actor: "system", tab: this.bundleTab.get(host.id) ?? null, cmd: this.cmdRef(), phase: "close", reason: "closed", url: host.url });
+      this.put({ ts: nowMs(), mono: null, kind: "tab", actor: "system", tab: this.bundleTab.get(host.id) ?? null, cmd: this.cmdRef(host.id), phase: "close", reason: "closed", url: host.url });
     }
   }
 
@@ -520,9 +522,9 @@ export class Recorder {
       ts: nowMs(),
       mono: null,
       kind: "nav",
-      actor: this.actor(),
+      actor: this.actor(tab.id),
       tab: bt,
-      cmd: this.cmdRef(),
+      cmd: this.cmdRef(tab.id),
       frame: "root",
       nav: `n-${seq}`,
       url,
@@ -698,8 +700,8 @@ export class Recorder {
       fetchId: null,
       fetchCmd: null,
       fetchCredentials: null,
-      actor: this.actor(),
-      cmd: this.cmdRef(),
+      actor: this.actor(tab.id),
+      cmd: this.cmdRef(tab.id),
     };
     const missing: { reason: BodyMissingReason; detail: string | null } =
       missingReason !== null
@@ -751,8 +753,8 @@ export class Recorder {
       | { phase: "close" | "error"; direction: null; opcode: null }
     ),
   ): void {
-    const actor = this.actor();
-    const cmd = this.cmdRef();
+    const actor = this.actor(tab.id);
+    const cmd = this.cmdRef(tab.id);
     const bt = this.bundleTab.get(tab.id) ?? null;
     this.wsChain = this.wsChain
       .then(async () => {
@@ -876,8 +878,8 @@ export class Recorder {
       fetchId: fetch?.fetchId ?? null,
       fetchCmd: fetch?.cmd ?? null,
       fetchCredentials: fetch?.credentials ?? null,
-      actor: this.actor(),
-      cmd: this.cmdRef(),
+      actor: this.actor(tab.id),
+      cmd: this.cmdRef(tab.id),
     });
   }
 
@@ -1237,7 +1239,7 @@ export class Recorder {
   /** A `note` event from the daemon (decode plugin disabled …); written while the bundle is open, also during stop. */
   note(text: string, fields: Pick<NoteFields, "plugin"> = {}): number | null {
     if (this.writerClosed) return null;
-    return this.put({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(), text, refs: [], ...fields }).seq;
+    return this.put({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(null), text, refs: [], ...fields }).seq;
   }
 
   private writerClosed = false;
@@ -1564,9 +1566,9 @@ export class Recorder {
       ts: en.ts,
       mono: null,
       kind: "console",
-      actor: this.actor(),
+      actor: this.actor(tabId),
       tab: bt,
-      cmd: this.cmdRef(),
+      cmd: this.cmdRef(tabId),
       level: en.level,
       source: en.source,
       text: scrub(en.text),
@@ -1582,12 +1584,27 @@ export class Recorder {
 
   consoleCount = 0;
 
-  /** Open AI command windows, oldest first (docs/04 §4.1 cmd, §14). */
-  private activeCmds: Array<{ id: string; started: number }> = [];
+  /** Open AI command windows, oldest first (docs/04 §4.1 cmd, §14); `tab` is the daemon tab the command acts on. */
+  private activeCmds: Array<{ id: string; started: number; tick: number; tab: string | null }> = [];
 
-  /** The `cmd` envelope field: the innermost open command window, or null. */
-  private cmdRef(): string | null {
-    return this.activeCmds[this.activeCmds.length - 1]?.id ?? null;
+  /**
+   * The `cmd` envelope field of an event on daemon tab `tabId` (docs/04 §3, §52.1):
+   * the innermost open window that acts on that tab (its own tab, or a tab that
+   * joined the session after it began), or null. Events of no tab take the
+   * innermost window; an external navigation's events take none.
+   */
+  private cmdRef(tabId: string | null): string | null {
+    if (tabId === null) return this.activeCmds[this.activeCmds.length - 1]?.id ?? null;
+    if (this.opts.tabs.external(tabId)) return null;
+    const tab = this.opts.tabs.tabs.get(tabId);
+    const joinedAt = this.opts.tabs.joinedAt(tabId);
+    for (let i = this.activeCmds.length - 1; i >= 0; i--) {
+      const w = this.activeCmds[i];
+      if (w === undefined) continue;
+      // A tab the daemon no longer knows: the innermost window, as before §52.1.
+      if (tab === undefined || windowCovers({ session: tab.session, tab: w.tab, started: w.tick }, tab, joinedAt)) return w.id;
+    }
+    return null;
   }
 
   /** The bundle's current nav epoch (`n-<seq>`) of a daemon tab, or null. */
@@ -1603,7 +1620,7 @@ export class Recorder {
    */
   downloadStart(tabId: string): { cmd: string | null; actor: Actor; nav: string | null } | null {
     if (this.writerClosed || this.stopping || !this.bundleTab.has(tabId)) return null;
-    return { cmd: this.cmdRef(), actor: this.actor(), nav: this.navOf.get(tabId) ?? null };
+    return { cmd: this.cmdRef(tabId), actor: this.actor(tabId), nav: this.navOf.get(tabId) ?? null };
   }
 
   /**
@@ -1675,7 +1692,7 @@ export class Recorder {
       actor: o.actor ?? "system",
       tab: o.tab === undefined || o.tab === null ? null : (this.bundleTab.get(o.tab) ?? null),
       // 0.7.1-A: a human's input is no AI command's doing, whatever command window is open (cmd: null).
-      cmd: o.cmd === null ? null : this.cmdRef(),
+      cmd: o.cmd === null ? null : this.cmdRef(o.tab ?? null),
       ...fields,
     });
     return ev.seq;
@@ -1688,7 +1705,7 @@ export class Recorder {
    */
   signal(tabId: string, fields: SignalFields, mono: number | null): number | null {
     if (this.writerClosed) return null;
-    const ev = this.put({ ts: nowMs(), mono, kind: "signal", actor: this.actor(), tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(), ...fields });
+    const ev = this.put({ ts: nowMs(), mono, kind: "signal", actor: this.actor(tabId), tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(tabId), ...fields });
     this.signalCount++;
     return ev.seq;
   }
@@ -1703,7 +1720,7 @@ export class Recorder {
    */
   envState(tabId: string, fields: EnvStateFields): number | null {
     if (this.writerClosed || this.stopping) return null;
-    const ev = this.put({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(), ...fields });
+    const ev = this.put({ ts: nowMs(), mono: null, kind: "state", actor: "system", tab: this.bundleTab.get(tabId) ?? null, cmd: this.cmdRef(tabId), ...fields });
     this.stateCount++;
     return ev.seq;
   }
@@ -1761,7 +1778,7 @@ export class Recorder {
     if (this.writerClosed || this.traceOpenSeq === null) return;
     const from = this.traceOpenSeq;
     this.traceOpenSeq = null;
-    const ev = this.put({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(), text, refs: [] });
+    const ev = this.put({ ts: nowMs(), mono: null, kind: "note", actor: "system", tab: null, cmd: this.cmdRef(null), text, refs: [] });
     this.writer.updateManifest((m) => {
       m.traceWindows = (m.traceWindows ?? []).map((w) => (w.fromSeq === from ? { ...w, toSeq: ev.seq } : w));
     });
@@ -1795,7 +1812,7 @@ export class Recorder {
       input: c.input,
     }));
     const id = `c-${ev.seq}`;
-    this.activeCmds.push({ id, started: Date.now() });
+    this.activeCmds.push({ id, started: Date.now(), tick: this.opts.tabs.tick(), tab: c.tab });
     this.cmdStarts.set(id, Date.now());
     return id;
   }

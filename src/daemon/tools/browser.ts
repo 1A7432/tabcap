@@ -160,6 +160,8 @@ export async function browserStart(d: Daemon, a: Args): Promise<unknown> {
     throw new TabcapError("cdp", `the browser did not take tabcap's download behaviour: ${e instanceof Error ? e.message : String(e)}`, "Retry `tabcap browser start`; without it downloads would land in the user's own Downloads folder, so the browser was stopped.");
   }
   const tabs = new Tabs(t, foreground);
+  // docs/04 §52.1: a navigation while the session waits for the human is theirs, not external.
+  tabs.waitingOf = (s) => d.guard.get(s)?.state === "waiting";
   const downloads = new Downloads({ t, tabs, staging, recorder: (s) => d.recorders.get(s), scrub: (s) => d.secrets.scrub(s) });
   // Review 10-21 (docs/04 §41.1): the live probe's families are read and compiled once per browser start.
   const liveFamilies = protection.live ? readLiveFamilies(d.paths.config) : null;

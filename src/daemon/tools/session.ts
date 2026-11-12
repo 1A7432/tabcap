@@ -10,6 +10,8 @@ import { checkSiteName, type Store } from "../store/db.ts";
 import type { Transport } from "../transport/types.ts";
 import { checkSessionName, optBool, optStr, reqStr, type Args } from "./args.ts";
 import { stopTrace } from "./trace.ts";
+import { changeField } from "./drift.ts";
+import type { TabChange } from "../browser/targets.ts";
 
 const START_USAGE = "tabcap session start <name> [--site <site>] [--account <user>|auto]";
 
@@ -234,6 +236,9 @@ export async function refreshTabInfo(d: Daemon, session: string): Promise<void> 
   }
 }
 
+/** docs/04 §52.2: a `tab list` row carries `changed` only when the tab has an unacknowledged change. */
+const changedRow = (c: TabChange | null) => (c === null ? {} : { changed: changeField(c) });
+
 export async function tabsList(d: Daemon, a: Args, session: string): Promise<unknown> {
   const { tabs } = d.need();
   const s = tabs.session(session);
@@ -251,6 +256,7 @@ export async function tabsList(d: Daemon, a: Args, session: string): Promise<unk
       current: s?.current === x.id,
       nav: d.navOf(x),
       dialog: x.dialog === null ? null : x.dialog.type,
+      ...changedRow(tabs.changedOf(x.id)),
     })),
     ...(optBool(a, "all") ? { others: await tabs.others() } : {}),
   };
