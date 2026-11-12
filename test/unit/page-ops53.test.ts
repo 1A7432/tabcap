@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { applyLayout, countLines, splitLayer, wantsRef, lineOf, type AxNode } from "../../src/daemon/browser/ax.ts";
 import { iconName, inside, LAYOUT_STYLES, parseLayout } from "../../src/daemon/browser/layout.ts";
 import { ambiguousError, notVisibleError } from "../../src/daemon/tools/input.ts";
+import { noticesOf } from "../../src/daemon/tools/notices.ts";
 import { ambiguousOptions, noOption, notSelected, pickOption, selectedMatches } from "../../src/daemon/tools/select.ts";
 
 type N = { id: number; parent: number; name: string; type?: number; value?: string; attrs?: Record<string, string>; box?: [number, number, number, number]; style?: Partial<Record<(typeof LAYOUT_STYLES)[number], string>> };
@@ -200,5 +201,27 @@ describe("select: picking and reading back (docs/04 §53.4)", () => {
     const e = notSelected("e3", "S79_TARGET", "S79_DECOY 222123", { via: "layer" });
     expect(e.code).toBe("not-selected");
     expect(e.extra).toEqual({ wanted: "S79_TARGET", got: "S79_DECOY 222123", result: { via: "layer" } });
+  });
+});
+
+describe("notices (docs/04 §53.5)", () => {
+  test("alerts and short new text; a text already an alert is not repeated; scrubbed; at most 10", () => {
+    const seen = [
+      { kind: "text" as const, text: "S79 名称不能为空" },
+      { kind: "alert" as const, text: "  S79 科目为空 " },
+      { kind: "text" as const, text: "S79 科目为空" },
+      { kind: "alert" as const, text: "S79 科目为空" },
+      { kind: "status" as const, text: "token=hunter2" },
+    ];
+    expect(noticesOf(seen, 2, (s) => s.replace("hunter2", "<secret>"))).toEqual([
+      { kind: "alert", text: "S79 科目为空" },
+      { kind: "status", text: "token=<secret>" },
+      { kind: "text", text: "S79 名称不能为空" },
+    ]);
+    const many = Array.from({ length: 30 }, (_, i) => ({ kind: "alert" as const, text: `a${i}` }));
+    expect(noticesOf(many, 0)).toHaveLength(10);
+  });
+  test("more than 20 new text elements is a page change, not a notice: only live kinds stay", () => {
+    expect(noticesOf([{ kind: "text", text: "row 1" }, { kind: "live", text: "3 results" }], 21)).toEqual([{ kind: "live", text: "3 results" }]);
   });
 });

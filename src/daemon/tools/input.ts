@@ -24,6 +24,7 @@ import { optBool, optNum, optStr, reqStr, type Args } from "./args.ts";
 import { timeoutOf } from "./navigate.ts";
 import { callResult, docIdentity, resolveRef } from "../browser/doc.ts";
 import { snapshotAfter } from "./snapshot.ts";
+import { withNotices } from "./notices.ts";
 import { withPostWait } from "./settle.ts";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
@@ -833,75 +834,76 @@ export async function click(d: Daemon, a: Args, session: string): Promise<unknow
   const noWait = optBool(a, "noWait");
   return tabs.run(
     tab,
-    async () => {
-      // 0.6-D: the default DOM click is watched for an effect until the post-action wait ends (tools/effect.ts).
-      const watched: { w: EffectWatch | null } = { w: null };
-      const clicked = withPostWait(t, tab, noWait, async (): Promise<Record<string, unknown>> => {
-        const node = await resolveRef(t, tab, ref);
-        const overlayCheck = await overlayGate(t, tab, node, ref, !trusted);
-        // 0.6-D: an image captcha on the target's form is an advisory in the output (looked at before the click).
-        const challenge = await actionChallenge(d, t, tab, node);
-        // 0.6-J: land on the element that listens (browser/landing.ts); read only, the same choice for --trusted.
-        const landing = await inspectLanding(t, tab, node, (id) => tab.refs.refFor(id, node.frame));
-        const aim: InputNode = landing.kind === "descendant" ? { objectId: landing.node.objectId, backendNodeId: landing.node.backendNodeId, sessionId: node.sessionId, frame: node.frame } : node;
-        const landed = landingFields(ref, landing);
-        if (!trusted) {
-          if (!noWait) watched.w = await watchEffect(d, t, tabs, tab, node);
-          const v = liveOrStale(rec(callResult(await call(t, node.sessionId, aim.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
-          return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), landedOn: landedOf(v), ...dbl, overlayCheck, ...landed, ...challenge };
-        }
-        const r = await trustedClickOn(t, tab, aim, ref, DEFAULT_DEPS, clicks);
-        if (r.kind === "degraded") {
+    () =>
+      withNotices(d, t, tab, async () => {
+        // 0.6-D: the default DOM click is watched for an effect until the post-action wait ends (tools/effect.ts).
+        const watched: { w: EffectWatch | null } = { w: null };
+        const clicked = withPostWait(t, tab, noWait, async (): Promise<Record<string, unknown>> => {
+          const node = await resolveRef(t, tab, ref);
+          const overlayCheck = await overlayGate(t, tab, node, ref, !trusted);
+          // 0.6-D: an image captcha on the target's form is an advisory in the output (looked at before the click).
+          const challenge = await actionChallenge(d, t, tab, node);
+          // 0.6-J: land on the element that listens (browser/landing.ts); read only, the same choice for --trusted.
+          const landing = await inspectLanding(t, tab, node, (id) => tab.refs.refFor(id, node.frame));
+          const aim: InputNode = landing.kind === "descendant" ? { objectId: landing.node.objectId, backendNodeId: landing.node.backendNodeId, sessionId: node.sessionId, frame: node.frame } : node;
+          const landed = landingFields(ref, landing);
+          if (!trusted) {
+            if (!noWait) watched.w = await watchEffect(d, t, tabs, tab, node);
+            const v = liveOrStale(rec(callResult(await call(t, node.sessionId, aim.objectId, clicks === 2 ? DBLCLICK_FN : CLICK_FN))), ref);
+            return { tab: tab.id, ref, ...frameField(node), level: 1, trusted: false, eventShape: "incomplete", warning: DOM_CLICK_WARNING, tag: str(v, "tag"), landedOn: landedOf(v), ...dbl, overlayCheck, ...landed, ...challenge };
+          }
+          const r = await trustedClickOn(t, tab, aim, ref, DEFAULT_DEPS, clicks);
+          if (r.kind === "degraded") {
+            return {
+              ...challenge,
+              ...landed,
+              tab: tab.id,
+              ref,
+              ...frameField(node),
+              level: 1,
+              trusted: false,
+              eventShape: "incomplete",
+              degraded: "not-painted",
+              warning: `${DOM_CLICK_WARNING} (--trusted degraded: the tab was not confirmed to paint, so no mouse move was sent)`,
+              paint: { raf: r.paint.raf, visibility: r.paint.visibility },
+              tag: r.tag,
+              landedOn: r.landed,
+              ...dbl,
+              overlayCheck,
+            };
+          }
+          const xy = (p: Point) => ({ x: Math.round(p.x), y: Math.round(p.y) });
           return {
-            ...challenge,
-            ...landed,
             tab: tab.id,
             ref,
             ...frameField(node),
-            level: 1,
-            trusted: false,
-            eventShape: "incomplete",
-            degraded: "not-painted",
-            warning: `${DOM_CLICK_WARNING} (--trusted degraded: the tab was not confirmed to paint, so no mouse move was sent)`,
-            paint: { raf: r.paint.raf, visibility: r.paint.visibility },
-            tag: r.tag,
+            level: 2,
+            trusted: true,
+            eventShape: "full",
+            at: xy(r.to),
+            trajectory: { from: xy(r.from), to: xy(r.to), points: r.result.plan.points.length, plannedMs: r.result.plan.durationMs, actualMs: r.result.actualMs },
+            pressGapMs: r.result.plan.pressGapMs,
+            delivered: r.result.delivered,
             landedOn: r.landed,
+            ...(r.held === null ? {} : { paint: r.held }),
             ...dbl,
             overlayCheck,
+            ...landed,
+            ...challenge,
           };
-        }
-        const xy = (p: Point) => ({ x: Math.round(p.x), y: Math.round(p.y) });
-        return {
-          tab: tab.id,
-          ref,
-          ...frameField(node),
-          level: 2,
-          trusted: true,
-          eventShape: "full",
-          at: xy(r.to),
-          trajectory: { from: xy(r.from), to: xy(r.to), points: r.result.plan.points.length, plannedMs: r.result.plan.durationMs, actualMs: r.result.actualMs },
-          pressGapMs: r.result.plan.pressGapMs,
-          delivered: r.result.delivered,
-          landedOn: r.landed,
-          ...(r.held === null ? {} : { paint: r.held }),
-          ...dbl,
-          overlayCheck,
-          ...landed,
-          ...challenge,
-        };
-      });
-      const { result, wait } = await clicked.catch(async (e: unknown) => {
-        await watched.w?.stop(true);
-        throw e;
-      });
-      const w = watched.w;
-      // 0.7.3: a trusted click that navigated reports the navigation even though
-      // the trusted path has no DOM effect watch (the probe can be lost to it).
-      const probeNavigated = isRecord(result["delivered"]) && result["delivered"]["reason"] === "navigated";
-      const effect = w !== null ? classifyEffect(await w.stop(wait?.dialog === true)) : !noWait && (wait?.navigated === true || probeNavigated) ? ({ effect: "navigation" } as const) : {};
-      // url / nav read after the wait: the click may have navigated.
-      return { ...result, ...effect, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
-    },
+        });
+        const { result, wait } = await clicked.catch(async (e: unknown) => {
+          await watched.w?.stop(true);
+          throw e;
+        });
+        const w = watched.w;
+        // 0.7.3: a trusted click that navigated reports the navigation even though
+        // the trusted path has no DOM effect watch (the probe can be lost to it).
+        const probeNavigated = isRecord(result["delivered"]) && result["delivered"]["reason"] === "navigated";
+        const effect = w !== null ? classifyEffect(await w.stop(wait?.dialog === true)) : !noWait && (wait?.navigated === true || probeNavigated) ? ({ effect: "navigation" } as const) : {};
+        // url / nav read after the wait: the click may have navigated.
+        return { ...result, ...effect, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
+      }),
     { timeoutMs: timeoutOf(a) },
   );
 }
@@ -1070,10 +1072,11 @@ export async function fill(d: Daemon, a: Args, session: string): Promise<unknown
   }
   return tabs.run(
     tab,
-    async () => {
-      const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), () => fillOn(d, t, tab, ref, text, { trusted, secret, secretRef, counted }));
-      return { ...result, wait, ...(await snapshotAfter(d, t, tab, a)) };
-    },
+    () =>
+      withNotices(d, t, tab, async () => {
+        const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), () => fillOn(d, t, tab, ref, text, { trusted, secret, secretRef, counted }));
+        return { ...result, wait, ...(await snapshotAfter(d, t, tab, a)) };
+      }),
     { timeoutMs: timeoutOf(a) },
   );
 }
@@ -1189,28 +1192,29 @@ export async function typeText(d: Daemon, a: Args, session: string): Promise<unk
   if (submitSpec !== null && submit === null) throw unknownKey(submitSpec);
   return tabs.run(
     tab,
-    async () => {
-      const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), () =>
-        withFocusEmulation(t, tab.sessionId, async (): Promise<Record<string, unknown>> => {
-          const masked = await activeIsSensitive(t, tab);
-          if (masked) d.secrets.add(text);
-          let out: Record<string, unknown>;
-          if (!trusted) {
-            await t.send("Input.insertText", { text }, tab.sessionId, 10_000);
-            out = { tab: tab.id, level: 2, trusted: true, eventShape: "insert", warning: INSERT_WARNING, length: text.length, masked };
-          } else {
-            const r = await typeKeys(t, tab.sessionId, text, delayMs);
-            out = { tab: tab.id, level: 2, trusted: true, eventShape: "keys", keys: r.keys, inserted: r.inserted, delayMs, length: text.length, masked };
-          }
-          if (submit !== null) {
-            await pressKeyOn(t, tab.sessionId, submit);
-            out["submitKey"] = submitSpec;
-          }
-          return out;
-        }),
-      );
-      return { ...result, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
-    },
+    () =>
+      withNotices(d, t, tab, async () => {
+        const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), () =>
+          withFocusEmulation(t, tab.sessionId, async (): Promise<Record<string, unknown>> => {
+            const masked = await activeIsSensitive(t, tab);
+            if (masked) d.secrets.add(text);
+            let out: Record<string, unknown>;
+            if (!trusted) {
+              await t.send("Input.insertText", { text }, tab.sessionId, 10_000);
+              out = { tab: tab.id, level: 2, trusted: true, eventShape: "insert", warning: INSERT_WARNING, length: text.length, masked };
+            } else {
+              const r = await typeKeys(t, tab.sessionId, text, delayMs);
+              out = { tab: tab.id, level: 2, trusted: true, eventShape: "keys", keys: r.keys, inserted: r.inserted, delayMs, length: text.length, masked };
+            }
+            if (submit !== null) {
+              await pressKeyOn(t, tab.sessionId, submit);
+              out["submitKey"] = submitSpec;
+            }
+            return out;
+          }),
+        );
+        return { ...result, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
+      }),
     { timeoutMs: timeoutOf(a) },
   );
 }
@@ -1306,15 +1310,16 @@ export async function press(d: Daemon, a: Args, session: string): Promise<unknow
   const tab = tabs.pick(session, optStr(a, "tab"));
   return tabs.run(
     tab,
-    async () => {
-      const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), () =>
-        withFocusEmulation(t, tab.sessionId, async () => {
-          await pressKeyOn(t, tab.sessionId, k);
-          return { tab: tab.id, level: 2, trusted: true, key: spec };
-        }),
-      );
-      return { ...result, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
-    },
+    () =>
+      withNotices(d, t, tab, async () => {
+        const { result, wait } = await withPostWait(t, tab, optBool(a, "noWait"), () =>
+          withFocusEmulation(t, tab.sessionId, async () => {
+            await pressKeyOn(t, tab.sessionId, k);
+            return { tab: tab.id, level: 2, trusted: true, key: spec };
+          }),
+        );
+        return { ...result, url: tab.url, nav: d.navOf(tab), wait, ...(await snapshotAfter(d, t, tab, a)) };
+      }),
     { timeoutMs: timeoutOf(a) },
   );
 }

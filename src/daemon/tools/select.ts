@@ -25,6 +25,7 @@ import { CLICK_FN, liveOrStale, overlayGate, trustedClickOn, type InputNode, typ
 import { timeoutOf } from "./navigate.ts";
 import { withPostWait } from "./settle.ts";
 import { snapshotAfter } from "./snapshot.ts";
+import { withNotices } from "./notices.ts";
 
 const USAGE = "tabcap select <ref> <text> [--exact] [--trusted]";
 const GROUP = "tabcap-select-option";
@@ -296,76 +297,77 @@ export async function select(d: Daemon, a: Args, session: string): Promise<unkno
   const tab = tabs.pick(session, optStr(a, "tab"));
   return tabs.run(
     tab,
-    async () => {
-      let control: InputNode | null = null;
-      let layerId: string | null = null;
-      const { result, wait } = await withPostWait(t, tab, noWait, async (): Promise<Record<string, unknown>> => {
-        const node = await resolveRef(t, tab, ref);
-        control = node;
-        const sid = node.sessionId;
-        try {
-          const nat = callResult(await callOn(t, sid, node.objectId, NATIVE_FN, [wanted, exact], true));
-          const nv = liveOrStale(isRecord(nat) ? nat : {}, ref);
-          if (nv["native"] === true) {
-            await overlayGate(t, tab, node, ref);
-            if (Array.isArray(nv["ambiguous"])) throw ambiguousOptions(ref, wanted, nv["ambiguous"].filter((x): x is string => typeof x === "string"));
-            if (Array.isArray(nv["none"])) throw noOption(ref, wanted, nv["none"].filter((x): x is string => typeof x === "string"));
-            if (nv["disabled"] === true) throw new TabcapError("page", `${ref} or the option is disabled`, "Nothing was picked; check the form with `tabcap snapshot`.");
-            return { tab: tab.id, ref, via: "native", selected: { text: str(nv, "text") ?? "", option: null }, landedOn: null };
+    () =>
+      withNotices(d, t, tab, async () => {
+        let control: InputNode | null = null;
+        let layerId: string | null = null;
+        const { result, wait } = await withPostWait(t, tab, noWait, async (): Promise<Record<string, unknown>> => {
+          const node = await resolveRef(t, tab, ref);
+          control = node;
+          const sid = node.sessionId;
+          try {
+            const nat = callResult(await callOn(t, sid, node.objectId, NATIVE_FN, [wanted, exact], true));
+            const nv = liveOrStale(isRecord(nat) ? nat : {}, ref);
+            if (nv["native"] === true) {
+              await overlayGate(t, tab, node, ref);
+              if (Array.isArray(nv["ambiguous"])) throw ambiguousOptions(ref, wanted, nv["ambiguous"].filter((x): x is string => typeof x === "string"));
+              if (Array.isArray(nv["none"])) throw noOption(ref, wanted, nv["none"].filter((x): x is string => typeof x === "string"));
+              if (nv["disabled"] === true) throw new TabcapError("page", `${ref} or the option is disabled`, "Nothing was picked; check the form with `tabcap snapshot`.");
+              return { tab: tab.id, ref, via: "native", selected: { text: str(nv, "text") ?? "", option: null }, landedOn: null };
+            }
+            // Remember the layers before opening, click the control open, wait for the list.
+            const b = await callOn(t, sid, node.objectId, BEFORE_FN, [], false);
+            const beforeId = isRecord(b["result"]) ? str(b["result"], "objectId") : null;
+            await clickOnce(t, tab, node, ref, trusted);
+            const until = Date.now() + LAYER_WAIT_MS;
+            let found: Found = { via: null, layer: -1, options: [] };
+            let ids: Array<string | null> = [];
+            for (;;) {
+              const r = await callOn(t, sid, node.objectId, FIND_FN, [beforeId === null ? [] : { objectId: beforeId }, wanted, exact], false);
+              const u = await unpackNodes(t, sid, r);
+              found = foundOf(u.data);
+              ids = u.ids;
+              if (found.stale === true) liveOrStale({ stale: true }, ref);
+              if (found.via !== null || Date.now() >= until) break;
+              await Bun.sleep(100);
+            }
+            if (found.via === null) throw noOption(ref, wanted, null);
+            if (found.options.length === 0) throw noOption(ref, wanted, found.listed ?? []);
+            const pick = pickOption(found.options.map((o) => o.text), wanted, exact);
+            if ("none" in pick) throw noOption(ref, wanted, found.options.map((o) => o.text));
+            if ("ambiguous" in pick) throw ambiguousOptions(ref, wanted, pick.ambiguous.map((i) => found.options[i]?.text ?? ""));
+            const opt = found.options[pick.index];
+            const optObj = opt === undefined ? null : (ids[opt.n] ?? null);
+            if (opt === undefined || optObj === null) throw new TabcapError("stale-ref", "the option disappeared before it was clicked", "Run the select again.");
+            layerId = found.layer >= 0 ? (ids[found.layer] ?? null) : null;
+            const optNode = await inputNodeOf(t, node, optObj);
+            const optRef = tab.refs.refFor(optNode.backendNodeId, node.frame);
+            await callOn(t, sid, optObj, "function () { this.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }", [], true);
+            const landedOn = await clickOnce(t, tab, optNode, optRef, trusted);
+            return { tab: tab.id, ref, via: found.via, selected: { text: opt.text, option: optRef }, landedOn, trusted };
+          } finally {
+            // The layer's object stays alive until the read-back below.
+            if (layerId === null) await t.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }, sid, 3000).catch(() => undefined);
           }
-          // Remember the layers before opening, click the control open, wait for the list.
-          const b = await callOn(t, sid, node.objectId, BEFORE_FN, [], false);
-          const beforeId = isRecord(b["result"]) ? str(b["result"], "objectId") : null;
-          await clickOnce(t, tab, node, ref, trusted);
-          const until = Date.now() + LAYER_WAIT_MS;
-          let found: Found = { via: null, layer: -1, options: [] };
-          let ids: Array<string | null> = [];
-          for (;;) {
-            const r = await callOn(t, sid, node.objectId, FIND_FN, [beforeId === null ? [] : { objectId: beforeId }, wanted, exact], false);
-            const u = await unpackNodes(t, sid, r);
-            found = foundOf(u.data);
-            ids = u.ids;
-            if (found.stale === true) liveOrStale({ stale: true }, ref);
-            if (found.via !== null || Date.now() >= until) break;
-            await Bun.sleep(100);
+        });
+        const c = control as InputNode | null;
+        let got = "";
+        let layerOpen = false;
+        if (c !== null) {
+          const sid = c.sessionId ?? tab.sessionId;
+          const v = await callOn(t, sid, c.objectId, READ_FN, [], true).then((r) => callResult(r)).catch(() => null);
+          got = isRecord(v) ? (str(v, "got") ?? "") : "";
+          const lid = layerId as string | null;
+          if (lid !== null) {
+            const s = await callOn(t, sid, lid, SHOWN_FN, [], true).then((r) => callResult(r)).catch(() => false);
+            layerOpen = s === true;
+            await t.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }, sid, 3000).catch(() => undefined);
           }
-          if (found.via === null) throw noOption(ref, wanted, null);
-          if (found.options.length === 0) throw noOption(ref, wanted, found.listed ?? []);
-          const pick = pickOption(found.options.map((o) => o.text), wanted, exact);
-          if ("none" in pick) throw noOption(ref, wanted, found.options.map((o) => o.text));
-          if ("ambiguous" in pick) throw ambiguousOptions(ref, wanted, pick.ambiguous.map((i) => found.options[i]?.text ?? ""));
-          const opt = found.options[pick.index];
-          const optObj = opt === undefined ? null : (ids[opt.n] ?? null);
-          if (opt === undefined || optObj === null) throw new TabcapError("stale-ref", "the option disappeared before it was clicked", "Run the select again.");
-          layerId = found.layer >= 0 ? (ids[found.layer] ?? null) : null;
-          const optNode = await inputNodeOf(t, node, optObj);
-          const optRef = tab.refs.refFor(optNode.backendNodeId, node.frame);
-          await callOn(t, sid, optObj, "function () { this.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }", [], true);
-          const landedOn = await clickOnce(t, tab, optNode, optRef, trusted);
-          return { tab: tab.id, ref, via: found.via, selected: { text: opt.text, option: optRef }, landedOn, trusted };
-        } finally {
-          // The layer's object stays alive until the read-back below.
-          if (layerId === null) await t.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }, sid, 3000).catch(() => undefined);
         }
-      });
-      const c = control as InputNode | null;
-      let got = "";
-      let layerOpen = false;
-      if (c !== null) {
-        const sid = c.sessionId ?? tab.sessionId;
-        const v = await callOn(t, sid, c.objectId, READ_FN, [], true).then((r) => callResult(r)).catch(() => null);
-        got = isRecord(v) ? (str(v, "got") ?? "") : "";
-        const lid = layerId as string | null;
-        if (lid !== null) {
-          const s = await callOn(t, sid, lid, SHOWN_FN, [], true).then((r) => callResult(r)).catch(() => false);
-          layerOpen = s === true;
-          await t.send("Runtime.releaseObjectGroup", { objectGroup: GROUP }, sid, 3000).catch(() => undefined);
-        }
-      }
-      const out = { ...result, value: d.secrets.scrub(got), ...(layerOpen ? { layerOpen: true } : {}), url: tab.url, nav: d.navOf(tab), wait };
-      if (!selectedMatches(got, wanted, exact)) throw notSelected(ref, wanted, d.secrets.scrub(got), out);
-      return { ...out, ...(await snapshotAfter(d, t, tab, a)) };
-    },
+        const out = { ...result, value: d.secrets.scrub(got), ...(layerOpen ? { layerOpen: true } : {}), url: tab.url, nav: d.navOf(tab), wait };
+        if (!selectedMatches(got, wanted, exact)) throw notSelected(ref, wanted, d.secrets.scrub(got), out);
+        return { ...out, ...(await snapshotAfter(d, t, tab, a)) };
+      }),
     { timeoutMs: timeoutOf(a) },
   );
 }
