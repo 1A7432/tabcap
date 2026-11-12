@@ -30,6 +30,8 @@ export type AxNode = {
   landing?: "child";
   /** docs/04 §53.3: not visible (only kept by --verbose; never gets a ref). */
   invisible?: true;
+  /** docs/04 §53.6: a copy of another row (a fixed-column table): the backend id of the first copy. */
+  sameRow?: number;
 };
 
 type Raw = {
@@ -237,9 +239,10 @@ export type RefFor = (backendNodeId: number) => string;
 const MAX_VALUE = 200;
 
 /** One snapshot line without its indentation and "- " (exported for the 0.5-F filters). */
-export function lineOf(n: AxNode, ref: string | null): string {
+export function lineOf(n: AxNode, ref: string | null, sameRef: string | null = null): string {
   let s = n.role === "text" ? `text ${JSON.stringify(n.name)}` : n.role;
   if (n.role !== "text" && n.name !== "") s += ` ${JSON.stringify(n.name)}`;
+  if (sameRef !== null) s += ` (same row as ${sameRef})`;
   if (ref !== null) s += ` [${ref}]`;
   if (n.password) s += " [password]";
   if (n.value !== null && n.value !== "") {
@@ -273,7 +276,7 @@ export function renderAxTree(root: AxNode, refFor: RefFor, maxChars: number): Re
   const walk = (n: AxNode, depth: number) => {
     const ref = wantsRef(n) && n.backendId !== null ? refFor(n.backendId) : null;
     if (ref !== null) refs++;
-    lines.push(`${"  ".repeat(depth)}- ${lineOf(n, ref)}`);
+    lines.push(`${"  ".repeat(depth)}- ${lineOf(n, ref, n.sameRow === undefined ? null : refFor(n.sameRow))}`);
     for (const c of n.children) walk(c, depth + 1);
   };
   walk(root, 0);
@@ -314,8 +317,9 @@ export type FindCandidate = {
 };
 
 /** Case-insensitive substring search: name → value → description, document order; at most `cap` candidates. */
-export function findCandidates(root: AxNode, query: string, cap: number): { cands: FindCandidate[]; total: number } {
+export function findCandidates(root: AxNode, query: string, cap: number, within: string | null = null): { cands: FindCandidate[]; total: number } {
   const q = query.toLowerCase();
+  const w = within === null ? null : within.toLowerCase();
   const cands: FindCandidate[] = [];
   let total = 0;
   const label = (n: AxNode) => (n.name === "" ? n.role : `${n.role} ${JSON.stringify(n.name)}`);
@@ -325,7 +329,9 @@ export function findCandidates(root: AxNode, query: string, cap: number): { cand
     if (n.name.toLowerCase().includes(q)) [field, match] = ["name", n.name];
     else if (!n.password && n.value !== null && n.value.toLowerCase().includes(q)) [field, match] = ["value", n.value];
     else if (n.description.toLowerCase().includes(q)) [field, match] = ["description", n.description];
-    if (field !== null && n.invisible !== true) {
+    // docs/04 §53.6: a row copy is not a hit of its own; --within keeps hits under a line whose name has that text.
+    const scoped = w === null || anc.some((a) => a.name.toLowerCase().includes(w));
+    if (field !== null && n.invisible !== true && n.sameRow === undefined && scoped) {
       total++;
       if (cands.length < cap) {
         const chain = [...anc, n].reverse();
@@ -395,4 +401,90 @@ export function splitLayer(root: AxNode, l: PageLayout, layerId: number): { laye
 /** Lines a tree would render to (no refs minted). */
 export function countLines(n: AxNode): number {
   return 1 + n.children.reduce((s, c) => s + countLines(c), 0);
+}
+
+const TABLE_ROLES = new Set(["table", "grid", "treegrid"]);
+const CELL_ROLES = new Set(["cell", "gridcell", "columnheader", "rowheader"]);
+export const ROW_NAME_MAX = 80;
+/** Levels above a table where another table of the same group may hang (Element: el-table > fixed > body-wrapper > table). */
+const TABLE_GROUP_UP = 3;
+
+/** The visible text of a cell: its name, else its text lines. */
+function cellText(n: AxNode): string {
+  if (n.name.trim() !== "") return n.name.trim();
+  const parts: string[] = [];
+  const walk = (x: AxNode) => {
+    if (x.role === "text" || (x.name !== "" && x !== n)) {
+      parts.push(x.name.trim());
+      return;
+    }
+    for (const c of x.children) walk(c);
+  };
+  walk(n);
+  return parts.filter((p) => p !== "").join(" ");
+}
+
+const cut = (s: string) => (s.length > ROW_NAME_MAX ? `${s.slice(0, ROW_NAME_MAX - 1)}…` : s);
+
+/**
+ * docs/04 §53.6: rows without a name get their cells' text (at most 80 chars).
+ * Tables of one group (same row count, a common DOM ancestor at most 3 levels
+ * up: a fixed-column table drawn as several <table>s) are one table: rows with
+ * the same index are one row, named by the union of their cells' text in
+ * document order; every copy but the first carries `sameRow`. In place.
+ */
+export function nameRows(root: AxNode, l: PageLayout): void {
+  const tables: Array<{ node: AxNode; rows: AxNode[]; up: number[] }> = [];
+  const rowsOf = (t: AxNode): AxNode[] => {
+    const out: AxNode[] = [];
+    const walk = (x: AxNode) => {
+      for (const c of x.children) {
+        if (TABLE_ROLES.has(c.role)) continue;
+        if (c.role === "row") out.push(c);
+        else walk(c);
+      }
+    };
+    walk(t);
+    return out;
+  };
+  const visit = (x: AxNode) => {
+    if (TABLE_ROLES.has(x.role)) {
+      const up: number[] = [];
+      let p = x.backendId === null ? null : (l.get(x.backendId)?.parent ?? null);
+      for (let k = 0; p !== null && k < TABLE_GROUP_UP; k++) {
+        up.push(p);
+        p = l.get(p)?.parent ?? null;
+      }
+      tables.push({ node: x, rows: rowsOf(x), up });
+    }
+    for (const c of x.children) visit(c);
+  };
+  visit(root);
+  const textOf = (r: AxNode) => r.children.filter((c) => CELL_ROLES.has(c.role)).map(cellText).filter((x) => x !== "").join(" ");
+  const done = new Set<number>();
+  for (let i = 0; i < tables.length; i++) {
+    if (done.has(i)) continue;
+    const t = tables[i];
+    if (t === undefined) continue;
+    const group = [i];
+    for (let j = i + 1; j < tables.length; j++) {
+      const u = tables[j];
+      if (u === undefined || done.has(j) || u.rows.length !== t.rows.length || t.rows.length === 0) continue;
+      if (u.up.some((a) => t.up.includes(a))) group.push(j);
+    }
+    for (const g of group) done.add(g);
+    if (group.length === 1) {
+      for (const r of t.rows) if (r.name.trim() === "") r.name = cut(textOf(r));
+      continue;
+    }
+    for (let k = 0; k < t.rows.length; k++) {
+      const copies = group.map((g) => tables[g]?.rows[k]).filter((r): r is AxNode => r !== undefined);
+      const name = cut(copies.map(textOf).filter((x) => x !== "").join(" "));
+      const first = copies[0];
+      for (const r of copies) {
+        if (name !== "") r.name = name;
+        if (r !== first && first?.backendId !== null && first?.backendId !== undefined) r.sameRow = first.backendId;
+      }
+    }
+  }
 }
