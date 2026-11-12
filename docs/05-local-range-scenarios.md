@@ -589,7 +589,7 @@
 | s76 | client-order | 已落地 | `startClientSite`：https 源 `/s76/{login,list,item,static.js}`，http 源 `/s76/plain` | v09e | replay-order |
 | s77 | tab-adopt | 已落地 | `startAdoptSite`：`/s77`、`/s77/before`、`/s77/api` | v10a | — |
 | s78 | tab-visibility | 已落地 | `startVisibilitySite`：`/s78/{a,b,self,c,poll,api,ping}` | v11a | tab-drift52 |
-| s79 | ui-library-patterns | 未落地 | — | — | — |
+| s79 | ui-library-patterns | 已落地 | `startPageOpsSite`：`/s79`、`/s79/api/{list,slow,longpoll}`；解码插件 `test/e2e/plugins/b64-decode` | v11b | page-ops53, fetch-like53 |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。

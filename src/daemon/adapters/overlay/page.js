@@ -32,6 +32,8 @@
       const a = parseFloat(p[3]);
       return Number.isFinite(a) ? (p[3].endsWith("%") ? a / 100 : a) : 1;
     };
+    // docs/04 §53.3: opacity 0 on an ancestor hides a button as well as on itself.
+    const faded = (el) => { for (let x = el.parentElement; x && x !== document.body; x = x.parentElement) if (Number(getComputedStyle(x).opacity) === 0) return true; return false; };
     const box = (el, cs) => {
       if (cs.display === "none" || cs.visibility === "hidden" || cs.visibility === "collapse" || Number(cs.opacity) === 0) return null;
       const r = el.getBoundingClientRect();
@@ -123,7 +125,7 @@
       const buttons = [];
       for (const b of el.querySelectorAll(BTN)) {
         if (buttons.length >= 24) break;
-        if (!box(b, getComputedStyle(b))) continue;
+        if (!box(b, getComputedStyle(b)) || faded(b)) continue;
         buttons.push({ n: idx(b), tag: b.localName, text: clean(b.innerText || b.value || "", 40), label: clean(b.getAttribute("aria-label") || b.getAttribute("title") || "", 40), cls: clean(b.getAttribute("class"), 80) });
       }
       const inner = el.innerText || "";

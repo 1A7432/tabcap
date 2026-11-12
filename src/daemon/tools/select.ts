@@ -91,17 +91,29 @@ const LAYERS_JS = `
   const shown = (x) => { const cs = view.getComputedStyle(x); if (cs.display === "none" || cs.visibility !== "visible" || Number(cs.opacity) === 0) return false; const r = x.getBoundingClientRect(); return r.width >= 1 && r.height >= 1; };
   const positioned = (x) => { const cs = view.getComputedStyle(x); return cs.position === "fixed" || cs.position === "absolute"; };
   const layers = () => {
+    // Breadth first, near the control first: a big menu or table under <body> must not use up
+    // the looks before the layer appended at the end of <body> is reached (Element: body > div.el-popper).
     const out = [];
     const seen = new Set();
     let looks = 0;
-    const walk = (x, depth) => {
-      if (!x || x.nodeType !== 1 || depth < 0 || looks > 4000 || seen.has(x)) return;
+    const take = (x) => {
+      if (!x || x.nodeType !== 1 || seen.has(x) || looks > 6000) return false;
       seen.add(x); looks++;
-      if (x !== document.body && positioned(x) && shown(x) && String(x.innerText || "").trim() !== "") { out.push(x); return; }
-      for (const c of x.children) walk(c, depth - 1);
+      if (x !== document.body && positioned(x) && shown(x) && String(x.innerText || "").trim() !== "") { out.push(x); return false; }
+      return true;
     };
-    for (const c of document.body.children) walk(c, 4);
-    for (let up = el.parentElement, k = 0; up && k < 4 && up !== document.body; up = up.parentElement, k++) for (const c of up.children) walk(c, 6);
+    const bfs = (roots, depth) => {
+      let level = roots;
+      for (let k = 0; k <= depth && level.length > 0; k++) {
+        const next = [];
+        for (const x of level) if (take(x)) for (const c of x.children) next.push(c);
+        level = next;
+      }
+    };
+    const near = [];
+    for (let up = el.parentElement, k = 0; up && k < 4 && up !== document.body; up = up.parentElement, k++) near.push(...up.children);
+    bfs(near, 6);
+    bfs(Array.from(document.body.children), 4);
     return out;
   };`;
 
@@ -159,7 +171,8 @@ const FIND_FN = `function (before, wanted, exact) {
       }
     }
   }
-  if (box === null) return [JSON.stringify({ via: null, layer: -1, options: [] })];
+  // The control's list was open already and this click closed it (a toggle): say so, the caller opens it again.
+  if (box === null) return [JSON.stringify({ via: null, layer: -1, options: [], closed: (Array.isArray(before) ? before : []).some((x) => !shown(x)) })];
   if (via === "aria") {
     const w = n(wanted);
     const m = opts.filter((x) => (exact ? n(x.innerText || x.textContent) === w : n(x.innerText || x.textContent).includes(w)));
@@ -187,7 +200,7 @@ const READ_FN = `function () {
 
 const SHOWN_FN = `function () { const cs = getComputedStyle(this); const r = this.getBoundingClientRect(); return this.isConnected && cs.display !== "none" && cs.visibility === "visible" && r.width >= 1 && r.height >= 1; }`;
 
-type Found = { via: "aria" | "layer" | null; layer: number; options: Array<{ n: number; text: string }>; listed?: string[]; stale?: boolean };
+type Found = { via: "aria" | "layer" | null; layer: number; options: Array<{ n: number; text: string }>; listed?: string[]; stale?: boolean; closed?: boolean };
 
 async function callOn(t: Transport, sessionId: string, objectId: string, fn: string, args: unknown[], byValue: boolean): Promise<Record<string, unknown>> {
   return t.send(
@@ -229,7 +242,7 @@ const foundOf = (v: unknown): Found => {
   const via = r["via"] === "aria" || r["via"] === "layer" ? r["via"] : null;
   const options = Array.isArray(r["options"]) ? r["options"].filter(isRecord).map((o) => ({ n: typeof o["n"] === "number" ? o["n"] : -1, text: str(o, "text") ?? "" })) : [];
   const listed = Array.isArray(r["listed"]) ? r["listed"].filter((x): x is string => typeof x === "string") : undefined;
-  return { via, layer: typeof r["layer"] === "number" ? r["layer"] : -1, options, ...(listed === undefined ? {} : { listed }), ...(r["stale"] === true ? { stale: true } : {}) };
+  return { via, layer: typeof r["layer"] === "number" ? r["layer"] : -1, options, ...(listed === undefined ? {} : { listed }), ...(r["stale"] === true ? { stale: true } : {}), ...(r["closed"] === true ? { closed: true } : {}) };
 };
 
 /** docs/04 §53.4: candidates the text matched more than one of. */
@@ -318,20 +331,24 @@ export async function select(d: Daemon, a: Args, session: string): Promise<unkno
               return { tab: tab.id, ref, via: "native", selected: { text: str(nv, "text") ?? "", option: null }, landedOn: null };
             }
             // Remember the layers before opening, click the control open, wait for the list.
-            const b = await callOn(t, sid, node.objectId, BEFORE_FN, [], false);
-            const beforeId = isRecord(b["result"]) ? str(b["result"], "objectId") : null;
-            await clickOnce(t, tab, node, ref, trusted);
-            const until = Date.now() + LAYER_WAIT_MS;
             let found: Found = { via: null, layer: -1, options: [] };
             let ids: Array<string | null> = [];
-            for (;;) {
-              const r = await callOn(t, sid, node.objectId, FIND_FN, [beforeId === null ? [] : { objectId: beforeId }, wanted, exact], false);
-              const u = await unpackNodes(t, sid, r);
-              found = foundOf(u.data);
-              ids = u.ids;
-              if (found.stale === true) liveOrStale({ stale: true }, ref);
-              if (found.via !== null || Date.now() >= until) break;
-              await Bun.sleep(100);
+            // A list left open (an earlier select that found nothing) is closed by the click: open it once more.
+            for (let attempt = 0; attempt < 2; attempt++) {
+              const b = await callOn(t, sid, node.objectId, BEFORE_FN, [], false);
+              const beforeId = isRecord(b["result"]) ? str(b["result"], "objectId") : null;
+              await clickOnce(t, tab, node, ref, trusted);
+              const until = Date.now() + LAYER_WAIT_MS;
+              for (;;) {
+                const r = await callOn(t, sid, node.objectId, FIND_FN, [beforeId === null ? [] : { objectId: beforeId }, wanted, exact], false);
+                const u = await unpackNodes(t, sid, r);
+                found = foundOf(u.data);
+                ids = u.ids;
+                if (found.stale === true) liveOrStale({ stale: true }, ref);
+                if (found.via !== null || found.closed === true || Date.now() >= until) break;
+                await Bun.sleep(100);
+              }
+              if (found.via !== null || found.closed !== true) break;
             }
             if (found.via === null) throw noOption(ref, wanted, null);
             if (found.options.length === 0) throw noOption(ref, wanted, found.listed ?? []);
