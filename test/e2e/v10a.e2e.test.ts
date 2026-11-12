@@ -137,11 +137,14 @@ describe.skipIf(!enabled)("tabcap tab adopt L2 (s77)", () => {
     expect(urls.some((u) => u.endsWith("/s77/before"))).toBe(false);
   });
 
-  test("6. again in the session is idempotent; another session is conflict", async () => {
+  test("6. again in the session is idempotent; another session takes it (docs/04 §52.4) and a takes it back", async () => {
     expect(await ok("tab", "adopt", human, ...A)).toMatchObject({ tab: tabId, alreadyAdopted: true });
-    const other = await tabcap(["tab", "adopt", human, "--session", "other"]);
-    expect(other.error?.["code"]).toBe("conflict");
-    expect(s(other.error?.["message"])).toContain('"a"');
+    const other = await ok("tab", "adopt", human, "--session", "other");
+    expect(other).toMatchObject({ session: "other", from: "a", owned: false });
+    expect((await tabcap(["snapshot", "--tab", tabId, ...A])).error?.["code"]).toBe("tab-taken");
+    const back = await ok("tab", "adopt", human, ...A);
+    expect(back).toMatchObject({ session: "a", from: "other" });
+    tabId = s(back["tab"]);
   });
 
   test("7. tab close refuses; the tab is still there", async () => {
@@ -167,9 +170,14 @@ describe.skipIf(!enabled)("tabcap tab adopt L2 (s77)", () => {
       .split("\n")
       .filter((l) => l !== "")
       .map((l): unknown => JSON.parse(l));
-    expect(events.filter(isRecord).filter((e) => e["kind"] === "tab" && e["reason"] === "borrowed")).toMatchObject([{ phase: "attach", owned: false, tab: expect.any(String) }]);
+    // Step 6 took it to "other" and back: a second borrowed attach (from "other") after a taken detach (docs/04 §52.4).
+    expect(events.filter(isRecord).filter((e) => e["kind"] === "tab" && e["reason"] === "borrowed")).toMatchObject([
+      { phase: "attach", owned: false, tab: expect.any(String) },
+      { phase: "attach", owned: false, from: "other" },
+    ]);
+    expect(events.filter(isRecord).filter((e) => e["kind"] === "tab" && e["reason"] === "taken")).toMatchObject([{ phase: "detach", by: "other" }]);
     const manifest: unknown = JSON.parse(readFileSync(join(bundle, "manifest.json"), "utf8"));
-    expect(recs(rec(rec(manifest)["session"])["tabs"]).filter((x) => x["owned"] === false)).toHaveLength(1);
+    expect(recs(rec(rec(manifest)["session"])["tabs"]).filter((x) => x["owned"] === false)).toHaveLength(2);
   });
 
   test("9. a session with its own browser context does not take a default-context tab", async () => {
