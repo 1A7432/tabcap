@@ -541,6 +541,20 @@
   8. **`lastUrl`**：关掉会话唯一的标签后，`snapshot` → `no-tab`，`error.lastUrl` 是 `/s80` 的 URL，`tab list` 为空（没有被自动重开）；`navigate <lastUrl>` 后标题回来。
 - 不在靶场里的【待验】：Windows PowerShell 5.1 里 `--ascii` 的实际显示（本机没有 Windows）；接管提示的文字只有单测（接管本身是 s62 / v071a）。
 
+### s81 page-hung（P1；`04` §55；提案，待作者审，未落地）
+- 靶场（拟：`test/e2e/site.ts` 的 `startHungSite`）：`/s81` 一页，两个函数：`loop()` 是 `for(;;){}`；`block()` 对 `/s81/hang` 发同步 XHR，靶场把这个请求一直挂着（测试结束时放开）。另有 `/s81/form`：一个 POST 表单的结果页（靶场记 POST 次数）。oracle：靶场的请求日志（`hits`，含 `/s81/form` 的 POST 次数）、页面自己（标题、`window.__s81` 里页面加载时写的随机数：没变说明文档没换）。
+- 走法与 expected（拟 `test/e2e/v12b.e2e.test.ts`）：
+  1. **自己的表达式**：`evaluate 'for(;;){}' --timeout 1500` → `timeout`，消息说明表达式被终止；紧接着 `evaluate '1+1'` 在 1 s 内回 2。
+  2. **认出卡死**：页面自己进 `loop()`（`setTimeout(loop)`）后，`evaluate '1+1' --timeout 2000` → `page-busy`；`tab list` 的这一行有 `unresponsive`。
+  3. **快速失败**：再来一条 `snapshot`（默认 30 s 超时）在 2 s 内回 `page-busy`。
+  4. **不送进死路**：`reload` → `page-busy`，靶场日志里没有新的 `/s81` 请求；`navigate <别的 URL>` 同样。
+  5. **`recover`，JS 死循环**：`recover` → `how: "terminated"`；`__s81` 的随机数没变；之后 `evaluate` 正常，`tab list` 没有 `unresponsive`。
+  6. **`recover`，同步阻塞**：页面进 `block()` 后 `recover --keep-page` → `page-busy`（终止不了）；`recover` → `how: "reloaded"`、`stateLost: true`，标签 id 不变，`__s81` 变了，靶场多一次 `GET /s81`。
+  7. **不重复提交**：在 `/s81/form` 的 POST 结果页上卡死后 `recover` → 靶场的 POST 次数不变（回到的是 GET）。
+  8. **已经被弄坏的标签**：经调试端口对卡死的标签直接发 `Page.reload`（模拟老版本 / 别的客户端）后 `recover` → `how: "reopened"`，回答有新旧标签 id，`tab list` 只有新标签，窗口数不变。
+  9. **没卡**：正常页面上 `recover` → `how: "none"`，靶场没有新请求。
+- 不在靶场里的【待验】：真实安全控件卡死属于哪一种；有界面时 Chrome 的「页面无响应」对话框与本流程的相互影响（需作者本机）。
+
 ## 21. 场景索引
 
 10-21 建。场景编号 → 实现它的 `test/e2e/site.ts` 站点函数与主要路由 → 跑它的 e2e 文件。e2e 与单测两列是 grep 出来的：在 `test/e2e/*.e2e.test.ts`、`test/unit/*.ts` 里搜编号（前后不接字母数字，如 `s07`、`/s22/`、`S40_`），列出提到它的文件（省略目录与 `.e2e.test.ts` / `.test.ts` 后缀）；没有文件写编号的三个场景按路由搜（标「按路由」）。单测 `test/unit/scenario-index.test.ts` 读这张表：每个 `### sNN` 都要有一行，状态不是「未落地」「仅对照靶场」的，编号必须能在 `site.ts` 或某个测试文件里搜到；「未落地」的在 `site.ts` 里搜不到（落地了就要回来改表）；「仅对照靶场」的在 `docs/compare/range.ts` 里搜得到。
@@ -606,9 +620,10 @@
 | s78 | tab-visibility | 已落地 | `startVisibilitySite`：`/s78/{a,b,self,c,poll,api,ping}` | v11a | tab-drift52 |
 | s79 | ui-library-patterns | 已落地 | `startPageOpsSite`：`/s79`、`/s79/api/{list,slow,longpoll}`；解码插件 `test/e2e/plugins/b64-decode` | v11b | page-ops53, fetch-like53 |
 | s80 | gaps-small | 已落地 | `startGapsSite`：`/s80`、`/s80/big`、`/s80/login` | v12a | gaps54 |
+| s81 | page-hung | 未落地 | —（提案，`04` §55 待作者审） | — | — |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。
 - s57、s58：`09` §12 的规划编号（10-21 由 `09` 原来的 s41 chart-instance、s42 report-viewer 改号而来，那两个号与本文已落地的 s41、s42 撞了）。
 - s61：没有用过（docs、NOTES、代码里都搜不到）。
-- s81 起：未分配。
+- s82 起：未分配。

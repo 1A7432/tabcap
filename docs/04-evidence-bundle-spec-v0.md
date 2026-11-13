@@ -1588,3 +1588,49 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - 新参数：`evaluate --file`、`screenshot --scale`、输出标志 `--ascii`。新环境变量：`TABCAP_OUTPUT_ASCII`。新回答字段：`screenshot` 的 `scale`、`net body` 的 `previewHint`、`net show` 的 `redactedHint`、`no-tab` 的 `lastUrl`。没有新错误码，没有删改已有字段。
 - 靶场 `05` s80；e2e `test/e2e/v12a.e2e.test.ts`；单测 `test/unit/gaps54.test.ts`、`targets-markclosed.test.ts`（`lastUrl`）。
+
+## 55. 页面卡死：认出来、快速失败、救回来（提案，待作者审；11-13 作者定「做」，下列设计未审，未写代码）
+
+来源同 §54：安全控件卡住时，页面上的 `evaluate` 一条接一条等满 30 s。本节先记 11-13 的 spike 实测（Chrome for Testing 157.0.8103.38，macOS arm64；脚本在会话 scratchpad，不入库），再给设计。卡死用两种页面模拟：**JS 死循环**（`for(;;){}`）与**同步阻塞**（对一个永不应答的地址发同步 XHR，近似「控件里的同步调用不返回」）。
+
+### 55.1 实测
+
+| 做什么 | JS 死循环 | 同步阻塞 |
+|---|---|---|
+| 渲染进程侧命令：`Runtime.evaluate`、`Page.captureScreenshot`、`DOM.getDocument`、`Page.getLayoutMetrics`、`Input.dispatchMouseEvent` | 无应答 | 无应答 |
+| 浏览器进程侧命令：`Target.getTargetInfo`、`Page.getNavigationHistory` | 0–1 ms 应答 | 0–1 ms 应答 |
+| `Runtime.terminateExecution` | 立即应答，页面恢复，文档与状态都在 | 无应答，页面仍卡 |
+| `Page.reload` / `Page.navigate`（同源、异源都试了） | **命令立即应答，但导航 20 s 内不提交**；目标的 URL 读成空串。之后同一目标上 `Page.stopLoading` / `Page.reload` 回 `Not attached to an active page`，`Page.crash` 不再生效，新开一条调试会话也一样 | 同左 |
+| `Page.crash` | 命令本身无应答；约 210 ms 后收到 `Inspector.targetCrashed`。之后 `Page.reload` 或 `Page.navigate` 正常提交（`Inspector.targetReloadedAfterCrash`），目标 id 不变 | 同左（约 230 ms） |
+| `Target.closeTarget`（浏览器级） | 立即成功，目标消失；已被 reload / navigate 弄成上一行那种状态的标签同样能关掉，随后新开标签正常 | 同左 |
+| 我们自己的 `Runtime.evaluate` 带 `timeout: 1000` | 到点回 `Execution was terminated`，页面随即可用 | 无应答（同步阻塞打不断），页面仍卡 |
+
+- 牵连范围：`Page.crash` 杀的是渲染进程。被卡标签用 `window.open` 开出的同源弹窗本来就跟着卡（同一条主线程），crash 后它也收到 `Inspector.targetCrashed`；另行打开的同源标签不受影响（卡的时候能应答，crash 后也能）。
+- 现状（1.0.0）：卡死的标签上 `tabcap evaluate --timeout 2000` 与 `snapshot --timeout 2000` 各等满 2 s 回 `timeout`，下一条照样等满；`tabcap reload` / `navigate` 会把标签送进「应答了但永不提交」的状态，之后只能关掉。
+
+### 55.2 设计
+
+1. **自己的表达式自己收场。** `evaluate <expr>` / `--file` 的 `Runtime.evaluate` 带 `timeout` = 命令的 `--timeout`：自己的同步死循环到点被 V8 终止，页面不留后患；错误仍是 `timeout`，消息写明「表达式被终止」。`--function`（`Runtime.callFunctionOn` 没有这个参数）不变。
+2. **认出卡死：新错误码 `page-busy`。** 一条命令超时、且没有在途导航时，守护进程补一次探测：`Runtime.evaluate "1"`，上限 1500 ms。没应答 → 这条命令的错误码是 `page-busy`（不是 `timeout`），标签记 `unresponsive: {since}`；有应答 → 照旧 `timeout`。
+3. **快速失败。** 标签带着 `unresponsive` 时，需要渲染进程的命令先探测（上限 1000 ms）：应答了就清掉标记照常执行；没应答直接 `page-busy`，不再等 `--timeout`。`tab list`、`status` 这类只问浏览器进程的命令照常，并显示 `unresponsive`。
+4. **不把卡死的标签送进死路。** `navigate`、`reload`、`go` 在发 `Page.navigate` / `Page.reload` 之前先探测一次（上限 2000 ms；正常页面只多一次往返）。没应答 → `page-busy`，不发导航命令，`next` 指向 `recover`。理由见 55.1 第 4 行：发了就救不回来。
+5. **新命令 `tabcap recover [--tab t2] [--keep-page]`**，按代价从小到大：
+   - 第一步 `Runtime.terminateExecution`，再探测。应答了 → `how: "terminated"`，页面与状态都在。`--keep-page` 到此为止（没救回来就回 `page-busy`）。
+   - 第二步 `Page.crash`（等 `Inspector.targetCrashed`，上限 3 s）→ `Page.navigate <最后提交的 URL>` → 等就绪。`how: "reloaded"`，`stateLost: true`，标签 id 不变。用 navigate 不用 reload：reload 会把表单 POST 再提交一次。连带崩掉的同进程标签（弹窗 / 开启者）列在 `alsoCrashed`。
+   - 第三步（标签已处于 55.1 第 4 行的状态，例如老版本或别的 CDP 客户端对它发过 reload）：关掉这个标签，在同一个窗口新开一个到最后提交的 URL，成为会话的当前标签。`how: "reopened"`，`stateLost: true`，回答给出新旧标签 id。
+   - 标签没卡（探测有应答）：`how: "none"`，什么都不做。
+   - 与别的动作命令一样受 guard 约束（会话 `waiting` 时拒绝）；证据包记 `cmd` 事件，另记一条 `tab` 事件 `{phase: "recover", how, …}`。
+6. **不做**：超时后自动终止页面自己的脚本（分不清在跑的是谁的脚本，会无声改变页面行为）；自动 recover（丢页面状态必须是显式的一步）；杀渲染进程以外的手段。
+
+### 55.3 待作者定
+
+1. `recover` 默认走完三步（我的建议：调用它就是要标签回来，回答里写明 `how` 与 `stateLost`），还是默认只做第一步、后两步要 `--reload`？
+2. 第三步「关掉重开」是否接受（标签 id 会变，窗口不变）？不接受的话，这种标签只报 `page-busy` 并提示人手关。
+3. 第 4 条的导航前探测：每次 `navigate` / `reload` / `go` 多一次往返（正常页面约 1 ms），换来不把卡死的标签弄坏。同意默认开吗？
+4. 探测上限（1500 / 1000 / 2000 ms）是我取的值；页面只是忙（长任务）而不是死的时候，会被误报成 `page-busy`，重试即可。要不要进 `config.json`？我的建议是先不进。
+5. 新错误码 `page-busy`、新命令 `recover`、`tab list` / `status` 的 `unresponsive` 字段是契约变化，请确认命名。
+
+### 55.4 验证（实现时）
+
+- 靶场 `05` s81（先成文）；e2e `v12b`；单测覆盖探测判定、`recover` 的阶梯选择（假 transport）。
+- 【待验】Windows / Linux 上 `Page.crash` 与 `Inspector.targetCrashed` 的时序（上表只在 macOS 测过；CI 的 e2e 会跑到）；真实安全控件卡死时属于哪一种（需作者本机）。
