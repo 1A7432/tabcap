@@ -799,3 +799,8 @@
 - 做了什么：五轮 spike（CfT 157.0.8103.38，macOS arm64，脚本在会话 scratchpad，不入库），结论进 docs/04 §55.1【实测】：卡死时渲染进程侧命令全无应答、浏览器进程侧照常；`Runtime.terminateExecution` 只救得了 JS 死循环，同步阻塞打不断；对卡死的标签发 `Page.reload` / `Page.navigate` 会「应答但永不提交」，之后 crash、stopLoading、新调试会话都救不回，只能 `Target.closeTarget`；`Page.crash` → `Page.navigate` 两种卡法都救得回，标签 id 不变；`Runtime.evaluate` 的 `timeout` 参数能终止我们自己的死循环。据此写了 §55.2 设计（`page-busy`、快速失败、导航前探测、`recover` 三步）与 docs/05 s81，都标「提案，待作者审」，没写代码。
 - 卡在哪：§55.3 五个决定点等作者（`recover` 默认走几步、关掉重开是否接受、导航前探测默认开否、探测上限、命名）。1.0.0 现状有一个实害：卡死的标签上跑 `tabcap reload` / `navigate` 会把它弄到只能关掉【实测】。只在 macOS 测过。
 - 下一格从哪开始：作者审 §55 → 按定下来的写 s81 的站点与 v12b，再实现。
+
+## 2026-11-13 · 格 C：OS 级输入，提案（主循环，分支 `1.1-c-os-input`，只有文档）
+- 做了什么：写了 `docs/16-os-level-input-proposal.md`：现有 `click` / `type` / `press-key` 加第三档 `--os`（Windows `SendInput`，`bun:ffi` 直调 user32，不加原生组件）；每键前确认前台窗口属于 tabcap 的 Chrome，焦点一变就停；点击用「移指针 → 页面读回坐标 → 再按」的闭环；密码只走 `type --os --secret`；靶场 oracle 是「页面收到 trusted 事件且 `raw/cdp.jsonl` 该命令窗口内没有 `Input.*`」。`bun:ffi` 在 `bun build --compile` 的单文件里能调系统库【实测：macOS arm64，Bun 1.4.4，三个只读调用】；带 ffi 的代码能交叉编译出 windows-x64 的 exe【实测：只编译，没运行】。没写产品代码。
+- 卡在哪：`docs/16` §9 七个决定点等作者。Windows 上的一切（user32 的 ffi、前台锁、CI runner 有没有可交互桌面、输入法状态）都【待验】，本机没有 Windows；真实控件认不认只能在那台 Windows 上【人确认】。反馈原文的命令示例里带了一串像真实密码的值，没有写进任何文件。
+- 下一格从哪开始：作者审 `docs/16` → 先做 CI 探针（§8 第 1 步），再按顺序实现。
