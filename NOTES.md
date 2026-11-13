@@ -794,3 +794,8 @@
 - 做了什么：作者贴来一份 Windows 上（老版本）的使用反馈，逐条对照 1.0.0 后说「先做没有的吧，格 ABC 三个都做」【人确认】。格 A = docs/04 §54：`evaluate --file`（按块执行，UTF-8 / 带 BOM 的 UTF-16）、`screenshot --scale`、输出标志 `--ascii`（`TABCAP_OUTPUT_ASCII=1`）、四处提示（接管的 `next`、`net body` 的 `previewHint`、`net show` 的 `redactedHint`、`no-tab` 的 `lastUrl`）。靶场 s80、`test/e2e/v12a.e2e.test.ts` 8 步本机全过（CfT 157.0.8103.38，macOS arm64）【实测】；单测全过、tsc、validate:skill 过【实测】。
 - 卡在哪：`--file` 第一版照原样发脚本，同一页面第二次运行报 `Identifier 't' has already been declared`【实测】，改为包成一个块语句；这是我定的语义（顶层 `let` / `const` 不留在页面上），请作者确认。为新增的标志更新了两处契约断言：`aliases.test.ts` 的 schema 快照（只多了三个标志和两行 summary / usage）、`context-budget.test.ts` 的 sharedFlags 列表（多 `--ascii`），都是加法。`--ascii` 在 Windows PowerShell 5.1 里的实际显示【待验】（本机没有 Windows；CI 的 Windows 单测只验证输出是 ASCII）。SKILL.md 离 8192 字节上限只剩几十字节，细节放进了 references/recording.md。
 - 下一格从哪开始：格 B（页面卡死：超时后终止执行、`page-busy` 快速失败、`recover`）先做 spike 再写 §55 与 s81；格 C（OS 级输入）先写提案给作者审。
+
+## 2026-11-13 · 格 B：页面卡死，spike 与提案（主循环，分支 `1.1-b-page-busy`，只有文档）
+- 做了什么：五轮 spike（CfT 157.0.8103.38，macOS arm64，脚本在会话 scratchpad，不入库），结论进 docs/04 §55.1【实测】：卡死时渲染进程侧命令全无应答、浏览器进程侧照常；`Runtime.terminateExecution` 只救得了 JS 死循环，同步阻塞打不断；对卡死的标签发 `Page.reload` / `Page.navigate` 会「应答但永不提交」，之后 crash、stopLoading、新调试会话都救不回，只能 `Target.closeTarget`；`Page.crash` → `Page.navigate` 两种卡法都救得回，标签 id 不变；`Runtime.evaluate` 的 `timeout` 参数能终止我们自己的死循环。据此写了 §55.2 设计（`page-busy`、快速失败、导航前探测、`recover` 三步）与 docs/05 s81，都标「提案，待作者审」，没写代码。
+- 卡在哪：§55.3 五个决定点等作者（`recover` 默认走几步、关掉重开是否接受、导航前探测默认开否、探测上限、命名）。1.0.0 现状有一个实害：卡死的标签上跑 `tabcap reload` / `navigate` 会把它弄到只能关掉【实测】。只在 macOS 测过。
+- 下一格从哪开始：作者审 §55 → 按定下来的写 s81 的站点与 v12b，再实现。
