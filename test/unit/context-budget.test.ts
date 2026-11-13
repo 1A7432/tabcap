@@ -229,7 +229,7 @@ describe("output flags in the CLI", () => {
 
   test("schema lists them once as sharedFlags (screenshot is not on --full), not per command", () => {
     const s = schema();
-    expect(s.sharedFlags.map((f) => f.flag)).toEqual(["--select", "--grep", "--context", "--max-matches", "--fields", "--full"]);
+    expect(s.sharedFlags.map((f) => f.flag)).toEqual(["--select", "--grep", "--context", "--max-matches", "--fields", "--full", "--ascii"]);
     expect(s.sharedFlags.find((f) => f.flag === "--full")?.notOn).toEqual(["screenshot"]);
     // a command may carry a shared flag name only where OUTPUT_FLAGS_NOT_ON hands that flag to the command (0.5-F in-command search)
     for (const c of s.commands) for (const f of c.flags) if (["--select", "--grep", "--fields", "--full", "--context", "--max-matches"].includes(f.flag)) expect(OUTPUT_FLAGS_NOT_ON[f.flag] ?? []).toContain(c.path.join(" "));

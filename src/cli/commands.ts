@@ -96,6 +96,7 @@ export const OUTPUT_FLAGS: readonly FlagSpec[] = [
   { flag: "--max-matches", key: "maxMatches", kind: "number", help: "with --grep: keep at most this many matches (max 1000)", default: 50, metavar: "n" },
   { flag: "--fields", key: "fields", kind: "string", help: "project each array element to these keys", metavar: "a,b,c" },
   { flag: "--full", key: "full", kind: "bool", help: "print data whole even above TABCAP_OUTPUT_LIMIT (default 16384 bytes; above it data becomes {summary, file, bytes, truncated})" },
+  { flag: "--ascii", key: "ascii", kind: "bool", help: "print the JSON envelope in ASCII only: every other character as a \\uXXXX escape (the same JSON; for consoles that do not decode UTF-8, e.g. Windows PowerShell 5.1); also TABCAP_OUTPUT_ASCII=1; --text output is not changed" },
 ];
 /** Commands that do not take an output flag: `screenshot --full` was renamed `--full-page` in 0.4 and stays an unknown option. */
 export const OUTPUT_FLAGS_NOT_ON: Readonly<Record<string, readonly string[]>> = {
@@ -557,10 +558,12 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--await", key: "await", kind: "bool", help: "await a returned promise" },
       { flag: "--function", key: "function", kind: "string", help: "a function declaration to call instead of an expression, e.g. '(a, b) => a + b' or 'el => el.innerText' (promises are awaited)", metavar: "js" },
       { flag: "--args", key: "args", kind: "string", help: "with --function: JSON array of arguments; {\"ref\":\"e12\"} passes that element", metavar: "json" },
+      { flag: "--file", key: "file", kind: "string", help: "read the expression from this file instead of the command line (no shell quoting): a script whose value is its last expression statement's, run as one block (its top-level let / const / class do not stay on the page, so it can run again; use var or window.x to keep something); UTF-8, or UTF-16 with a byte order mark; at most 8 MiB; not with an expression or --function", metavar: "path" },
     ],
-    summary: "run JavaScript in the page (an expression, or --function with --args) and return a JSON value (truncated at 60000 chars)",
+    summary: "run JavaScript in the page (an expression, --file with a script, or --function with --args) and return a JSON value (truncated at 60000 chars)",
     example: "tabcap evaluate 'document.title'",
     action: "evaluate",
+    localPaths: ["file"],
   },
   {
     path: ["screenshot"],
@@ -572,6 +575,7 @@ export const COMMANDS: CommandSpec[] = [
       { flag: "--format", key: "format", kind: "string", help: "png | jpeg | webp", default: "png", metavar: "png|jpeg|webp" },
       { flag: "--quality", key: "quality", kind: "number", help: "jpeg / webp quality 0–100 (ignored for png)", metavar: "0-100" },
       { flag: "--ref", key: "ref", kind: "string", help: "only this element (a ref from snapshot)", metavar: "e12" },
+      { flag: "--scale", key: "scale", kind: "number", help: "shrink the image by this factor, 0.1–1 (0.5: half the width and height, a quarter of the pixels); goes with --full-page and --ref", metavar: "0.1-1" },
     ],
     summary: "save an image of the tab, the full page or one element (works on background tabs) → path, width, height (never the image itself)",
     example: "tabcap screenshot --full-page",

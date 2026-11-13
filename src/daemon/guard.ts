@@ -91,9 +91,17 @@ export const CONTINUE_NEXT = (session: string): string =>
 export const STOP_RULE_NEXT = (h: { session: string; site: string | null; request: string | null }) =>
   `A site stop rule fired; look at the response first (\`tabcap net body ${h.request ?? "<r-N>"}${sessionFlag(h.session)}\`). Go on only when the human (or you, after judging) decides to: \`tabcap handoff continue${sessionFlag(h.session)}\`${h.site === null ? "" : ` (or \`tabcap guard resume --site ${h.site}\`)`}; until then do not act on this site (over MCP: ${MCP_CONTINUE}).`;
 
+/**
+ * docs/04 §54.4: input another program injects at OS level (a key or mouse script) is trusted in the page like a
+ * person's, so it reads as a take-over; the switch is the user's to flip, never the agent's.
+ */
+export const TAKEOVER_SCRIPT_NOTE =
+  'Keys or clicks another program on this machine sends to the browser (an OS-level input script) count as the user too: tabcap cannot tell them apart. If that is what happened, tell the user; they can turn the detection off with "handoff": {"detectTakeover": false} in config.json (read at `tabcap browser start`).';
+
 /** 0.7.1-A: what to do after tabcap saw the human operate one of the session's tabs. */
 export const TAKEOVER_NEXT = (session: string): string =>
-  `The user is operating this session's tab themselves; do not act on the page (read-only commands still work). When the user says they are done, run \`tabcap handoff continue${sessionFlag(session)}\`; or, if you know what they are doing (e.g. logging in), \`tabcap handoff wait --until-url <the URL after it>${sessionFlag(session)}\` ends it by itself (over MCP: ${MCP_CONTINUE}, ${MCP_WAIT}).`;
+  `The user is operating this session's tab themselves; do not act on the page (read-only commands still work). ${TAKEOVER_SCRIPT_NOTE} When the user says they are done, run \`tabcap handoff continue${sessionFlag(session)}\`; or, if you know what they are doing (e.g. logging in), \`tabcap handoff wait --until-url <the URL after it>${sessionFlag(session)}\` ends it by itself (over MCP: ${MCP_CONTINUE}, ${MCP_WAIT}).`;
+
 
 /** The take-over question on the handoff event; outside the default session it names it (review 10-21). */
 export const takeoverQuestion = (session: string): string => `You are using the AI's tab; when you are done, tell the AI to continue (\`tabcap handoff continue${sessionFlag(session)}\`).`;

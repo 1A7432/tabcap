@@ -115,7 +115,7 @@ export function helpRequest(argv: readonly string[]): { code: number; text: stri
   return null;
 }
 
-type OutputOptions = { filters: FilterOptions; full: boolean; given: string[] };
+type OutputOptions = { filters: FilterOptions; full: boolean; ascii: boolean; given: string[] };
 
 /**
  * Take the output flags (OUTPUT_FLAGS) out of argv, up to `--`: they act on
@@ -129,6 +129,7 @@ export function takeOutputFlags(argv: readonly string[]): { rest: string[]; out:
   const values: Record<string, string> = {};
   const given: string[] = [];
   let full = false;
+  let ascii = false;
   const rest: string[] = [];
   const words = head.filter((a) => !a.startsWith("-"));
   const command = matchCommand(words)?.path.join(" ") ?? "";
@@ -143,7 +144,8 @@ export function takeOutputFlags(argv: readonly string[]): { rest: string[]; out:
     }
     if (spec.kind === "bool") {
       if (eq > 0) throw new TabcapError("usage", `${name} takes no value`, "e.g. tabcap analyze deps <bundle> --full");
-      full = true;
+      if (spec.key === "ascii") ascii = true;
+      else full = true;
       given.push(spec.flag);
       continue;
     }
@@ -155,7 +157,7 @@ export function takeOutputFlags(argv: readonly string[]): { rest: string[]; out:
   }
   const pick = (k: string): string | undefined => (Object.hasOwn(values, k) ? values[k] : undefined);
   const filters = filterOptions({ select: pick("select"), grep: pick("grep"), context: pick("context"), maxMatches: pick("maxMatches"), fields: pick("fields") });
-  return { rest: [...rest, ...tail], out: { filters, full, given } };
+  return { rest: [...rest, ...tail], out: { filters, full, ascii, given } };
 }
 
 /** `--session <name>` / `--session=<name>` of a daemon command, else $TABCAP_SESSION, else `default`. */
@@ -213,13 +215,31 @@ export async function run(argv: readonly string[], opts: RunOptions = {}): Promi
     return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
   }
   const r = await runCommand(taken.rest, opts);
+  const mark = (o: Outcome): Outcome => (taken.out.ascii ? { ...o, ascii: true } : o);
   try {
-    return await shapeOutput(r, taken.rest, taken.out);
+    return mark(await shapeOutput(r, taken.rest, taken.out));
   } catch (e) {
     const env = toFail(e);
-    return { code: env.error.code === "usage" ? 2 : 1, envelope: env };
+    return mark({ code: env.error.code === "usage" ? 2 : 1, envelope: env });
   }
 }
+
+/**
+ * docs/04 §54.3: the envelope as one line of JSON. With `ascii` every UTF-16
+ * code unit above U+007F is written as a \uXXXX escape; outside strings JSON
+ * is ASCII already, so the text stays the same JSON value for any parser and
+ * survives a console that does not decode UTF-8 (Windows PowerShell 5.1).
+ */
+export function envelopeLine(envelope: Envelope<unknown>, ascii: boolean): string {
+  const s = JSON.stringify(envelope);
+  return ascii ? asciiJson(s) : s;
+}
+
+/** JSON text (one value, or one per line) with every non-ASCII code unit escaped. */
+export const asciiJson = (json: string): string => json.replace(/[\u0080-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
+/** `--ascii` on the command, or TABCAP_OUTPUT_ASCII=1. */
+export const asciiOutput = (flag: boolean, env: Record<string, string | undefined> = process.env): boolean => flag || envVar("OUTPUT_ASCII", env) === "1";
 
 /** One command without the output layer (filters, budget): help, version, unknown commands, then the registry and the handler table. */
 export async function runCommand(argv: readonly string[], opts: RunOptions = {}): Promise<Outcome> {
@@ -251,9 +271,10 @@ export async function runCommand(argv: readonly string[], opts: RunOptions = {})
 }
 
 if (import.meta.main) {
-  const { code, envelope, text } = await run(process.argv.slice(2));
+  const { code, envelope, text, ascii, jsonLines } = await run(process.argv.slice(2));
   if (code !== -1) {
-    process.stdout.write(text !== undefined ? text + "\n" : JSON.stringify(envelope) + "\n");
+    const asAscii = asciiOutput(ascii === true);
+    process.stdout.write((text !== undefined ? (asAscii && jsonLines === true ? asciiJson(text) : text) : envelopeLine(envelope, asAscii)) + "\n");
     process.exit(code);
   }
 }

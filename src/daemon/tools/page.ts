@@ -162,6 +162,23 @@ async function evaluateFunction(d: Daemon, a: Args, session: string, fn: string)
 }
 
 export type ShotFormat = "png" | "jpeg" | "webp";
+export const SHOT_SCALE_MIN = 0.1;
+
+/**
+ * The visible part of the page as a capture clip in page coordinates (CSS px),
+ * for a scaled viewport screenshot: Page.captureScreenshot scales only through
+ * `clip.scale`. Null when Chrome's metrics are not usable.
+ */
+export function viewportClip(metrics: Record<string, unknown>, scale: number): Record<string, number> | null {
+  const v = isRecord(metrics["cssVisualViewport"]) ? metrics["cssVisualViewport"] : null;
+  if (v === null) return null;
+  const x = num(v, "pageX");
+  const y = num(v, "pageY");
+  const width = num(v, "clientWidth");
+  const height = num(v, "clientHeight");
+  if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) return null;
+  return { x, y, width, height, scale };
+}
 
 /**
  * Screenshot arguments (chrome-devtools-mcp take_screenshot: format, quality,
@@ -178,10 +195,17 @@ export function shotOptions(a: Args): { format: ShotFormat; quality: number | nu
   return { format, quality: format === "png" ? null : q, ref, fullPage, filePath: optStr(a, "filePath") ?? optStr(a, "out") };
 }
 
+/** `--scale` (docs/04 §54.2): shrink only (an image larger than the page's pixels adds nothing); null for none or 1. */
+export function shotScale(a: Args): number | null {
+  const sc = optNum(a, "scale");
+  if (sc !== null && !(sc >= SHOT_SCALE_MIN && sc <= 1)) throw new TabcapError("usage", `--scale must be a number from ${SHOT_SCALE_MIN} to 1`, "e.g. --scale 0.5 for half the width and height.");
+  return sc === null || sc === 1 ? null : sc;
+}
+
 const SCROLL_OFFSET = "({ x: window.scrollX, y: window.scrollY })";
 
 export async function screenshot(d: Daemon, a: Args, session: string): Promise<unknown> {
-  const o = shotOptions(a);
+  const o = { ...shotOptions(a), scale: shotScale(a) };
   const { t, tabs } = d.need();
   const tab = await readTab(tabs, a, session);
   return tabs.run(
@@ -196,13 +220,18 @@ export async function screenshot(d: Daemon, a: Args, session: string): Promise<u
         if (w !== null && h !== null && w > 0 && h > 0) params["clip"] = { x: 0, y: 0, width: Math.ceil(w), height: Math.min(Math.ceil(h), 16384), scale: 1 };
       }
       if (o.ref !== null) params["clip"] = await elementClip(t, tab, o.ref);
+      if (o.scale !== null) {
+        const clip = isRecord(params["clip"]) ? params["clip"] : viewportClip(await t.send("Page.getLayoutMetrics", {}, tab.sessionId), o.scale);
+        if (clip === null) throw new TabcapError("cdp", "Page.getLayoutMetrics returned no visual viewport, so the screenshot cannot be scaled", "Retry without --scale; if it persists the tab may be on an error page — navigate again.");
+        params["clip"] = { ...clip, scale: o.scale };
+      }
       const { png: image, focusEmulation } = await captureTab(t, tab.sessionId, params, tab.id);
       const info = imageSize(image);
       const ext = o.format === "jpeg" ? "jpeg" : o.format;
       const path = o.filePath !== null ? resolve(o.filePath) : join(d.paths.shots, `${session}-${tab.id}-${compactStamp(nowMs())}-${randomBytes(3).toString("hex")}.${ext}`);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, image);
-      return { tab: tab.id, path, format: o.format, ...(o.ref === null ? {} : { ref: o.ref }), fullPage: o.fullPage, width: info?.width ?? null, height: info?.height ?? null, bytes: image.length, focusEmulation };
+      return { tab: tab.id, path, format: o.format, ...(o.ref === null ? {} : { ref: o.ref }), fullPage: o.fullPage, ...(o.scale === null ? {} : { scale: o.scale }), width: info?.width ?? null, height: info?.height ?? null, bytes: image.length, focusEmulation };
     },
     { timeoutMs: timeoutOf(a) },
   );

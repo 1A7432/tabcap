@@ -375,6 +375,10 @@ export function noDecodedView(id: string, raw: Uint8Array | null, recording: boo
   return new TabcapError("not-found", `request ${id} has no decoded view`, encrypted ? `${observe}. ${plugins}.` : `${plugins}.`);
 }
 
+/** docs/04 §54.4: said with a cut preview, so nobody goes looking for a flag that prints the whole body inline. */
+export const PREVIEW_HINT =
+  "the preview is the first 10000 chars; the whole body is the file at `path` (--out <file> copies it; --file writes the decoded text for rg / grep; --grep <regex> or --lines a-b read parts). --full does not lengthen the preview.";
+
 function bodyResult(o: { id: string; url: string; path: string; blob: string | null; mime: string | null; out: string | null; extra: Record<string, unknown> }, search: SearchCtx | null = null): unknown {
   const { id, path, out } = o;
   let outPath = path;
@@ -393,13 +397,13 @@ function bodyResult(o: { id: string; url: string; path: string; blob: string | n
       // --pretty alone: the 0.3-F preview (10000 chars), of the pretty text.
       const p = prettify(text, bytes.length, o.mime, search.resourceType);
       const pv = bodyPreview(new TextEncoder().encode(p.text), true);
-      return { ...base, bytes: bytes.length, mime: o.mime, pretty: p.pretty, lines: splitLines(p.text).length, textPreview: pv.text, previewTruncated: pv.truncated, ...(p.note === null ? {} : { note: p.note }) };
+      return { ...base, bytes: bytes.length, mime: o.mime, pretty: p.pretty, lines: splitLines(p.text).length, textPreview: pv.text, previewTruncated: pv.truncated, ...(pv.truncated ? { previewHint: PREVIEW_HINT } : {}), ...(p.note === null ? {} : { note: p.note }) };
     }
     return searchBody(base, text, bytes.length, o.mime, search.resourceType, search.s);
   }
   // chrome-devtools-mcp body conventions (formatters.ts): up to 10000 chars of text, <binary data>, <empty response>.
   const p = bodyPreview(bytes, isTextMime(o.mime));
-  return { id, url: o.url, ...o.extra, path: outPath, blob: o.blob, bytes: bytes.length, mime: o.mime, textPreview: p.binary ? null : p.text, previewTruncated: p.truncated, ...(p.binary ? { preview: p.text } : {}) };
+  return { id, url: o.url, ...o.extra, path: outPath, blob: o.blob, bytes: bytes.length, mime: o.mime, textPreview: p.binary ? null : p.text, previewTruncated: p.truncated, ...(p.truncated && !p.binary ? { previewHint: PREVIEW_HINT } : {}), ...(p.binary ? { preview: p.text } : {}) };
 }
 
 export async function netShow(d: Daemon, a: Args, session: string): Promise<unknown> {
@@ -429,8 +433,13 @@ export async function netShow(d: Daemon, a: Args, session: string): Promise<unkn
     resp !== null && isEventStream(typeof resp["mimeType"] === "string" ? resp["mimeType"] : null)
       ? { sse: { messages: sse.filter((m) => m.request === id).length, hint: "`tabcap net list --kind sse` lists them; `net show <id>:<seq>` shows one" } }
       : {};
-  return { session, bundle: dir, recording, ...detail, ...ws, ...sseInfo };
+  // docs/04 §54.4: say once how the redacted values can be seen (the human's call, as --reveal's help says).
+  const hint = c !== null && JSON.stringify(detail).includes("<redacted:") ? { redactedHint: REDACTED_HINT } : {};
+  return { session, bundle: dir, recording, ...detail, ...ws, ...sseInfo, ...hint };
 }
+
+export const REDACTED_HINT =
+  "values shown as <redacted:name> are whole in the recording; `--reveal` prints them as recorded (only when the human asks for them; store secrets stay <secret:…>)";
 
 /** `tabcap net grep <regex>`: raw-text search over every recorded response body (netsearch.ts). */
 export async function netGrepTool(d: Daemon, a: Args, session: string): Promise<unknown> {

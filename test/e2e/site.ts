@@ -3085,3 +3085,47 @@ window.s79close = () => { wrap.style.display = "none"; };
   });
   return { origin: `http://127.0.0.1:${server.port}`, hits, auth, stop: () => server.stop(true) };
 }
+
+// docs/05 s80 (docs/04 §54): one page for the 0.x gaps a day of real use found. A striped band on top
+// (never one colour) and a solid band below it, so a screenshot taken after scrolling into the solid band is
+// one colour only when its clip is the visible part of the page; a response larger than the body preview; a
+// form POST with a field whose name is sensitive. Oracle: `served` (sha256 of the big response's bytes) and
+// `loginBodies` (the POST bodies as they arrived).
+export const GAPS_TITLE = "缺口页 s80";
+export const GAPS_PWD = "9f3c1a77e2b04d55";
+export const GAPS_BOX = { width: 200, height: 100 };
+export const GAPS_SOLID_TOP = 1000;
+export type GapsSite = { origin: string; served: Map<string, string>; loginBodies: string[]; stop: () => void };
+
+export function startGapsSite(): GapsSite {
+  const served = new Map<string, string>();
+  const loginBodies: string[] = [];
+  const big = JSON.stringify({ inqAcctEntityList: Array.from({ length: 400 }, (_, i) => ({ acctNo: `6222${String(i).padStart(12, "0")}`, name: `账户 ${i}`, balance: i * 100.5 })) });
+  const page = `<!doctype html><meta charset=utf-8><title>${GAPS_TITLE}</title>
+<style>html,body{margin:0}html::-webkit-scrollbar{display:none}
+#stripes{height:${GAPS_SOLID_TOP}px;background:repeating-linear-gradient(90deg,#d00 0 40px,#fff 40px 80px);position:relative}
+#box{position:absolute;left:40px;top:40px;width:${GAPS_BOX.width}px;height:${GAPS_BOX.height}px;background:#0a0}
+#solid{height:3000px;background:#1d4ed8}</style>
+<div id=stripes><div id=box aria-label="绿框" role=img></div>
+<button id=load style="position:absolute;left:300px;top:40px" onclick="fetch('/s80/big').then(r=>r.json()).then(j=>{document.title='loaded '+j.inqAcctEntityList.length});fetch('/s80/login',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:'user=u80&ecLoginPwd=${GAPS_PWD}'})">加载</button></div>
+<div id=solid></div>`;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: async (req) => {
+      const p = new URL(req.url).pathname;
+      if (p === "/s80") return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      if (p === "/s80/big") {
+        const bytes = new TextEncoder().encode(big);
+        served.set(p, createHash("sha256").update(bytes).digest("hex"));
+        return new Response(bytes, { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+      }
+      if (p === "/s80/login" && req.method === "POST") {
+        loginBodies.push(await req.text());
+        return Response.json({ ok: true });
+      }
+      return new Response("nf", { status: p === "/favicon.ico" ? 204 : 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, served, loginBodies, stop: () => server.stop(true) };
+}

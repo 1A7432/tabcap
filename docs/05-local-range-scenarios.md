@@ -526,6 +526,21 @@
   8. **`fetch --like`**（§53.8）：`net start`，标签 A 点「S79 查询」得到 `r-A`；另开标签 B（`/s79?acct=B`）点一次查询。在 B 上 `fetch --like <r-A> --json '{"acct":"B"}' --tab <B>`：服务端收到 `Bearer tok-B`（靶场日志），回答 `auth.tab` 是 B、响应不是 290102；`--header-from-storage 'Authorization=Bearer {local:@session:s79key}'` 同样拿到 `tok-B`，输出与 `events.jsonl` 的 `cmd` 事件里都没有 `tok-B` 字样（请求事件照常记录实际发出的请求头，页面自己的请求也一样）；装了测试解码插件时回答是 JSON 明文、`decoded:"plugin:s79"`，`--raw` 给 base64 原文。
 - 不在靶场里的【待验】：门户上 `overlays none` 的真实原因（§53.2）；qiankun 微前端下的样式与弹窗挂载。
 
+## 20.4 真实使用报上来的小缺口（11-13，P1）
+
+### s80 gaps-small（P1；`04` §54）
+- 靶场（`test/e2e/site.ts` 的 `startGapsSite`）：`/s80` 一页，标题是中文「缺口页 s80」；顶部 1000 px 是红白竖条纹带（任何一块都不是单色），里面有一个 200×100 的绿框 `#box` 和「加载」按钮；下面 3000 px 是纯色带；隐藏滚动条。按钮发 `GET /s80/big`（约 30 KB 的 JSON，超过正文预览的 10000 字符）和 `POST /s80/login`（表单体 `user=u80&ecLoginPwd=<固定值>`）。oracle：页面自己（标题、条纹带 / 纯色带）、靶场记下的 `/s80/big` 响应字节的 sha256（`served`）、收到的登录请求体（`loginBodies`）、图片文件头里的宽高。
+- 走法与 expected（`test/e2e/v12a.e2e.test.ts`）：
+  1. **`evaluate --file`**（§54.1）：含中文注释与三种引号的 UTF-8 脚本文件，回答的值等于脚本最后一条表达式的值（含页面标题）；同一内容存成带 BOM 的 UTF-16 LE 再跑一次，值相同，且 `typeof t`（脚本里的顶层 `const`）是 `undefined`；用 `var` 与 `window.x` 留下的值之后读得到；第 2 行抛错的脚本，错误消息含抛出的文字与 `:2:<列>`。
+  2. 相对路径按调用者的工作目录；GBK 字节的文件 → `bad-input`；同时给表达式与 `--file` → `usage`（退出码 2）；之后页面标题没变。
+  3. **`screenshot --scale 0.5`**（§54.2）：页面滚进纯色带后，缩放图的宽高是不缩时的一半（±1 px），回答有 `scale: 0.5`（不缩的没有），图是单色；滚回顶部再截，图不是单色（说明 clip 是可见部分，不是固定的页面顶部）。
+  4. `--ref <绿框> --scale 0.5` 与 `--full-page --scale 0.5` 的宽高各是不缩时的一半；`--scale 2` → `usage`。
+  5. **预览截断提示**（§54.4）：`net body <big> --full` 的 `previewTruncated` 为 true、预览仍约 10000 字符、`previewHint` 含 `--out` 与「`--full` 不会加长」；`--out` 写出的文件 sha256 等于靶场的 `served`；登录响应（小）没有 `previewHint`。
+  6. **打码提示**：`net show <login>` 含 `<redacted:ecLoginPwd>`、不含真实值、有 `redactedHint`；`--reveal` 含靶场收到的真实值、没有 `redactedHint`。
+  7. **`--ascii`**（§54.3）：`evaluate 'document.title' --ascii` 的标准输出全是 ASCII，解析后值等于中文标题；`TABCAP_OUTPUT_ASCII=1` 同样；页面抛中文错误时的错误信封同样。
+  8. **`lastUrl`**：关掉会话唯一的标签后，`snapshot` → `no-tab`，`error.lastUrl` 是 `/s80` 的 URL，`tab list` 为空（没有被自动重开）；`navigate <lastUrl>` 后标题回来。
+- 不在靶场里的【待验】：Windows PowerShell 5.1 里 `--ascii` 的实际显示（本机没有 Windows）；接管提示的文字只有单测（接管本身是 s62 / v071a）。
+
 ## 21. 场景索引
 
 10-21 建。场景编号 → 实现它的 `test/e2e/site.ts` 站点函数与主要路由 → 跑它的 e2e 文件。e2e 与单测两列是 grep 出来的：在 `test/e2e/*.e2e.test.ts`、`test/unit/*.ts` 里搜编号（前后不接字母数字，如 `s07`、`/s22/`、`S40_`），列出提到它的文件（省略目录与 `.e2e.test.ts` / `.test.ts` 后缀）；没有文件写编号的三个场景按路由搜（标「按路由」）。单测 `test/unit/scenario-index.test.ts` 读这张表：每个 `### sNN` 都要有一行，状态不是「未落地」「仅对照靶场」的，编号必须能在 `site.ts` 或某个测试文件里搜到；「未落地」的在 `site.ts` 里搜不到（落地了就要回来改表）；「仅对照靶场」的在 `docs/compare/range.ts` 里搜得到。
@@ -590,9 +605,10 @@
 | s77 | tab-adopt | 已落地 | `startAdoptSite`：`/s77`、`/s77/before`、`/s77/api` | v10a | — |
 | s78 | tab-visibility | 已落地 | `startVisibilitySite`：`/s78/{a,b,self,c,poll,api,ping}` | v11a | tab-drift52 |
 | s79 | ui-library-patterns | 已落地 | `startPageOpsSite`：`/s79`、`/s79/api/{list,slow,longpoll}`；解码插件 `test/e2e/plugins/b64-decode` | v11b | page-ops53, fetch-like53 |
+| s80 | gaps-small | 已落地 | `startGapsSite`：`/s80`、`/s80/big`、`/s80/login` | v12a | gaps54 |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。
 - s57、s58：`09` §12 的规划编号（10-21 由 `09` 原来的 s41 chart-instance、s42 report-viewer 改号而来，那两个号与本文已落地的 s41、s42 撞了）。
 - s61：没有用过（docs、NOTES、代码里都搜不到）。
-- s78 起：未分配。
+- s81 起：未分配。

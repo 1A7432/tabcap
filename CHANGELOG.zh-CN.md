@@ -2,6 +2,16 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### 一天真实使用报上来的小缺口（docs/04 §54）
+
+- **新参数 `tabcap evaluate --file <path>`**：表达式从文件读，不用再和 shell 的引号、编码较劲。文件按一个块执行：值是最后一条表达式语句的值，顶层的 `let` / `const` / `class` 不留在页面上（同一个文件可以反复跑），`var` 与 `window.x` 照常留下。UTF-8（有无 BOM），或带 BOM 的 UTF-16（PowerShell 5.1 的 `>` 写的就是它）；其它编码回 `bad-input`，不猜。
+- **新参数 `tabcap screenshot --scale <0.1–1>`**：把图缩小（`0.5` 是宽高各一半），可与 `--full-page`、`--ref` 同用；回答带 `scale`。
+- **新输出标志 `--ascii`（或 `TABCAP_OUTPUT_ASCII=1`）**：信封里的非 ASCII 字符写成 `\uXXXX`，还是同一个 JSON；给不按 UTF-8 解码的控制台用（Windows PowerShell 5.1）。`--text` 输出不变。
+- **四处提示，把人引到已有功能上**：接管（`human-takeover`）的 `next` 说明别的程序发的 OS 级输入也算「用户」、开关在哪（由用户决定）；`net body` 预览被截断时带 `previewHint`（整份在 `path`，`--out` / `--file`；`--full` 不会加长预览）；`net show` 有打码值时带 `redactedHint`（`--reveal`，人要求时才用）；会话最后一个标签被关后的 `no-tab` 带 `lastUrl`（tabcap 不自己重开）。
+- 靶场场景 s80（`test/e2e/v12a.e2e.test.ts`）。
+
 ## 1.0.0（2026-11-13）
 
 ### 浏览器里的每个标签：谁改的、谁拿着、一个窗口（docs/04 §52）

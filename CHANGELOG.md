@@ -2,6 +2,16 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## Unreleased
+
+### Small gaps a day of real use found (docs/04 §54)
+
+- **New option `tabcap evaluate --file <path>`**: the expression comes from a file, so a long script needs no shell quoting. The file runs as one block: its value is the last expression statement's, its top-level `let` / `const` / `class` do not stay on the page (the same file can run again), `var` and `window.x` do. UTF-8 (with or without a byte order mark) or UTF-16 with one (what PowerShell 5.1's `>` writes); any other encoding is a `bad-input` error, never a guess.
+- **New option `tabcap screenshot --scale <0.1–1>`**: a smaller image (`0.5` is half the width and height); goes with `--full-page` and `--ref`; the answer carries `scale`.
+- **New output flag `--ascii` (or `TABCAP_OUTPUT_ASCII=1`)**: non-ASCII characters of the envelope are written as `\uXXXX`, the same JSON; for consoles that do not decode UTF-8 (Windows PowerShell 5.1). `--text` output is unchanged.
+- **Four hints that point at what already exists**: the `next` of a take-over (`human-takeover`) says OS-level input from another program counts as the user too and where the switch is (the user's call); a cut `net body` preview comes with `previewHint` (the whole body is at `path`; `--out` / `--file`; `--full` does not lengthen the preview); `net show` with redacted values comes with `redactedHint` (`--reveal`, only when the human asks); `no-tab` after the session's last tab was closed carries `lastUrl` (tabcap does not reopen it by itself).
+- Range scenario s80 (`test/e2e/v12a.e2e.test.ts`).
+
 ## 1.0.0 (2026-11-13)
 
 ### Every tab of the browser: who changed it, who holds it, one window (docs/04 §52)
