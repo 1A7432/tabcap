@@ -14,7 +14,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ### Operating-system input, `--os` (docs/16, docs/04 §56; Windows only)
 
-For controls that ignore CDP input (a bank's password control that reads keys below Chrome). Not verified on Windows yet: this was written on macOS, and the Windows end-to-end run (s82) is the first real check.
+For controls that ignore CDP input (a bank's password control that reads keys below Chrome). Written on macOS; what is verified on Windows is the end-to-end scenario s82 on a GitHub `windows-latest` runner. A desktop someone is using (where Windows may refuse the foreground) and a real security control are not verified.
 
 - **`tabcap type <text> --os [--delay ms]`** presses real keys through the operating system (`SendInput`, by scan code on the browser window's keyboard layout), 120 ms apart by default. **`--os-text`** sends the characters themselves instead (Chinese and other text in ordinary fields; a control that reads scan codes does not see them). **`tabcap press-key <key> --os`** presses one key or combination (Meta is not sent).
 - **`tabcap type --os --secret <site>.password`**: a password is only ever given this way, never on the command line; the output shows `<secret:…>`. It shares the one-password-per-session count with `fill --secret` (`guard.login-limit`, `--confirm`).

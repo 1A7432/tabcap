@@ -557,7 +557,7 @@
 
 ### s82 os-input（P1；`16`；Windows）
 - 靶场（`test/e2e/site.ts` 的 `startOsSite`）：`/s82` 一页，不滚动：文本框「用户」、密码框「密码」、按钮「提交」，一个固定在视口 (300,150)、60×40 的色块（`--at` 用），一个同源 iframe（`/s82/frame`）里的按钮「框内」。两个文档都把收到的 `keydown` / `keyup` / `pointerdown` / `mousedown` / `mouseup` / `click` 记进顶层的 `window.__s82`：`isTrusted`、在哪个文档、落在哪个元素、`code` / `key`（密码框里的不记）、Shift、客户区坐标。oracle：`__s82`、输入框的值、`browser status` 的 `inputs`（`cdp`：守护进程发出的 CDP `Input.*` 命令数；`os`：操作系统收下的输入记录数）。页面里有 trusted 事件而 `inputs.cdp` 没动 → 只能来自操作系统。
-- 走法与 expected（`test/e2e/v12c.e2e.test.ts`）。第 1、2 步所有平台都跑，其余只在 Windows 上：
+- 走法与 expected（`test/e2e/v12c.e2e.test.ts`）。第 1、10 步所有平台都跑，第 2 步只在非 Windows 上，第 3–9 步只在 Windows 上：
   1. **互斥的参数**：`click --at`（没有 `--os`）、`click <ref> --os --trusted`、`--os` 同时给 ref 和 `--at`、`--os --dbl-click`、`type --secret`（没有 `--os`）、`type <text> --os --secret`、`--os --insert`、`--os-text --trusted`、`--delay 99999` → 都是 `usage`；`click --os`、`type --os`（什么都没给）退出码 2。页面日志为空，`inputs` 不变。
   2. **非 Windows**：`click <ref> --os`、`click --os --at`、`type --os`、`type --os-text`、`type --os --secret`、`press-key --os` → 都是 `unsupported`，`error.platform` 是本平台，`next` 提到 `--trusted`；页面日志为空、两个框是空的、`inputs` 不变；随后 `fill --secret` 照常成功（被拒的那次没占登录次数）。
   3. **`click <ref> --os`**：回答 `input: "os"`、`eventShape: "os"`、`level: 3`、`delivered.pointerdown: true`、`pointer.moves ≥ 2`、`foreground.{taken,restored}` 是布尔值；日志里恰好一次 trusted `mousedown`、一次 trusted `click`，都落在「用户」上；`document.activeElement` 是它；`inputs.cdp` 不变、`inputs.os` 变大。
@@ -566,7 +566,8 @@
   6. **打不出的字符与 `--os-text`**：布局是 `0409` 时 `type "aü" --os` → `usage`，消息说第 2 个字符（U+00fc），`inputs.os` 不变，框里的字没动。`press-key Control+a --os` 后 `type "中文ü" --os-text` → `keyMode: "unicode"`、`keys: 3`，框里是 `中文ü`；再全选后 `type "😀" --os-text` → `keys: 2`（两个 UTF-16 码元），框里是 `😀`。
   7. **`click --os --at 330,170`**：`landedOn.tag` 是 `div`；日志里一次 trusted `mousedown` 落在色块上，坐标与 (330,170) 各差不超过 2。`--at 60,250`（在 iframe 里）→ `unsupported`；`--at 5000,5000` → `usage`；两次都没有新的 `mousedown`。
   8. **frame ref 与按钮**：`snapshot --frames` 取「框内」的 ref（带 frame 路径），`click <ref> --os` 的回答有 `frame`；再点「提交」。日志里的 `click` 恰好两条：frame 文档里的「框内」、顶层的「提交」，都是 trusted、`detail` 为 1。
-  9. **不算人、不留明文**：等 800 ms 后 `handoff status` 的 `state` 不是 `waiting`；`net stop` 后证据包的 `events.jsonl` 与 `raw/cdp.jsonl` 里没有密码明文，`type --os --secret` 那条 `cmd` 事件的 `input` 有 `os: true` 与 `secret` 引用。
+  9. **不算人**：等 800 ms 后 `handoff status` 的 `state` 不是 `waiting`。
+  10. **不留明文**（所有平台；被拒的命令也进证据包）：`net stop` 后证据包的 `events.jsonl` 与 `raw/cdp.jsonl` 里没有密码明文；只凭引用打字的那些 `cmd` 开始事件（`action: "type"`、`os: true`、没有 `text`）至少一条，`input` 都带 `secret: "s82.password"`。
 - 测试自己做的一件事：在 Windows 上开头记下真实鼠标指针的位置，结尾放回去（同一台 runner 上后面的文件不能发现指针停在页面上）。
 - 不在靶场里的【待验】：真实安全控件认不认 `--os`、要多大的键间隔（只能在作者那台 Windows 上）；命令中途把前台切走（端到端造不出来，只有单测 `osinput`）；输入法开着时的行为；页面缩放不是 100 % 时 `click --os` 的第一估计。
 

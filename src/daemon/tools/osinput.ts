@@ -184,18 +184,30 @@ export function osExclusive<T>(fn: () => Promise<T>): Promise<T> {
 
 export type ForegroundReport = { taken: boolean; restored: boolean };
 
+/** How long the system has to show the earlier window as the foreground window again. */
+export const RESTORE_WAIT_MS = 500;
+
 /**
  * After the command: hand the foreground back to the window that had it, but
  * only when tabcap took it, the setting allows it (`chrome.restoreFront`), and
  * Chrome still has it (someone who switched away meanwhile is left alone).
+ * `restored` is what the system shows afterwards, not what the call returned;
+ * the change arrives a moment after the call (measured on a Windows runner,
+ * CI run 43406046058: read at once it was still Chrome, 0.5 s later the
+ * earlier window).
  */
-export function giveBack(os: OsInput, front: FrontState | null, browserPid: number, wanted: boolean): ForegroundReport {
+export async function giveBack(os: OsInput, front: FrontState | null, browserPid: number, wanted: boolean, deps: Pick<OsDeps, "sleep" | "now"> = OS_DEPS): Promise<ForegroundReport> {
   if (front === null || !front.taken) return { taken: false, restored: false };
   const before = front.before;
   if (!wanted || before === null || before.pid === browserPid) return { taken: true, restored: false };
   if (os.foreground()?.pid !== browserPid) return { taken: true, restored: false };
-  os.activate(before.window);
-  return { taken: true, restored: os.foreground()?.window === before.window };
+  if (!os.activate(before.window)) return { taken: true, restored: false };
+  const until = deps.now() + RESTORE_WAIT_MS;
+  for (;;) {
+    if (os.foreground()?.window === before.window) return { taken: true, restored: true };
+    if (deps.now() >= until) return { taken: true, restored: false };
+    await deps.sleep(FOREGROUND_POLL_MS);
+  }
 }
 
 /** The system took none of a record: `not-delivered`, nothing more is sent. */

@@ -27,6 +27,7 @@ import {
   counting,
   HELD_RECHECK_MS,
   osExclusive,
+  RESTORE_WAIT_MS,
   estimates,
   frontCheck,
   giveBack,
@@ -342,25 +343,48 @@ describe("docs/16 §3 the foreground", () => {
     expect(os.sent).toEqual([]);
   });
 
-  test("handing back: only when taken, wanted, the earlier window was not Chrome's, and Chrome still has the foreground", () => {
+  test("handing back: only when taken, wanted, the earlier window was not Chrome's, and Chrome still has the foreground", async () => {
     const before = { window: "b2", pid: 900, thread: 9 };
     const os = fakeOs();
-    expect(giveBack(os, null, 500, true)).toEqual({ taken: false, restored: false });
-    expect(giveBack(os, { before, taken: false }, 500, true)).toEqual({ taken: false, restored: false });
-    expect(giveBack(os, { before, taken: true }, 500, false)).toEqual({ taken: true, restored: false });
-    expect(giveBack(os, { before: { window: "a0", pid: 500, thread: 7 }, taken: true }, 500, true)).toEqual({ taken: true, restored: false });
-    expect(giveBack(os, { before: null, taken: true }, 500, true)).toEqual({ taken: true, restored: false });
+    expect(await giveBack(os, null, 500, true, clock())).toEqual({ taken: false, restored: false });
+    expect(await giveBack(os, { before, taken: false }, 500, true, clock())).toEqual({ taken: false, restored: false });
+    expect(await giveBack(os, { before, taken: true }, 500, false, clock())).toEqual({ taken: true, restored: false });
+    expect(await giveBack(os, { before: { window: "a0", pid: 500, thread: 7 }, taken: true }, 500, true, clock())).toEqual({ taken: true, restored: false });
+    expect(await giveBack(os, { before: null, taken: true }, 500, true, clock())).toEqual({ taken: true, restored: false });
     expect(os.activated).toEqual([]);
-    expect(giveBack(os, { before, taken: true }, 500, true)).toEqual({ taken: true, restored: true });
+    expect(await giveBack(os, { before, taken: true }, 500, true, clock())).toEqual({ taken: true, restored: true });
     expect(os.activated).toEqual(["b2"]);
     // someone else took the foreground meanwhile: left alone
     const moved = fakeOs({ window: "c3", pid: 42, thread: 1 });
-    expect(giveBack(moved, { before, taken: true }, 500, true)).toEqual({ taken: true, restored: false });
+    expect(await giveBack(moved, { before, taken: true }, 500, true, clock())).toEqual({ taken: true, restored: false });
     expect(moved.activated).toEqual([]);
     // the system refuses: reported, not claimed
     const stuck = fakeOs();
     stuck.activate = () => false;
-    expect(giveBack(stuck, { before, taken: true }, 500, true)).toEqual({ taken: true, restored: false });
+    expect(await giveBack(stuck, { before, taken: true }, 500, true, clock())).toEqual({ taken: true, restored: false });
+  });
+
+  test("handing back: the system shows the earlier window a moment after the call (as on the Windows runner); one that never shows is not claimed", async () => {
+    const before = { window: "b2", pid: 900, thread: 9 };
+    const late = fakeOs();
+    const c = clock();
+    late.activate = (w) => {
+      late.activated.push(w);
+      return true;
+    };
+    const orig = c.sleep;
+    let polls = 0;
+    c.sleep = async (ms) => {
+      await orig(ms);
+      if (++polls === 3) late.fg = before;
+    };
+    expect(await giveBack(late, { before, taken: true }, 500, true, c)).toEqual({ taken: true, restored: true });
+    expect(polls).toBe(3);
+    const never = fakeOs();
+    never.activate = () => true;
+    const d = clock();
+    expect(await giveBack(never, { before, taken: true }, 500, true, d)).toEqual({ taken: true, restored: false });
+    expect(d.t).toBeGreaterThanOrEqual(RESTORE_WAIT_MS);
   });
 });
 

@@ -1430,15 +1430,13 @@ async function withOsNow<T extends Record<string, unknown>>(t: DirectTransport, 
   };
   try {
     const out = await fn(run);
-    const foreground = giveBack(os, state.front, t.pid, t.restoreFront);
+    const foreground = await giveBack(os, state.front, t.pid, t.restoreFront);
     logOs("done", { tab: tab.id, ...foreground });
     return { ...out, foreground };
   } catch (e) {
-    try {
-      giveBack(os, state.front, t.pid, t.restoreFront);
-    } catch (x) {
+    await giveBack(os, state.front, t.pid, t.restoreFront).catch((x: unknown) => {
       log.warn("os input: handing the foreground back failed", { error: String(x) });
-    }
+    });
     throw e;
   } finally {
     t.inputWindows.end(w);
