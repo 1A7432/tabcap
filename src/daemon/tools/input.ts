@@ -32,7 +32,7 @@ import { isAbsolute } from "node:path";
 import { coveredBy, coveredError } from "../adapters/runtime.ts";
 import { chainTo, placeChain, rawFrames } from "../browser/frames.ts";
 import { parseFramePath, type FrameBinding } from "../browser/refs.ts";
-import { rootDoc, type FrameDoc } from "../browser/worlds.ts";
+import { inWorld, rootDoc, type FrameDoc } from "../browser/worlds.ts";
 import { log } from "../../shared/log.ts";
 import { CdpTimeoutError } from "../transport/direct/cdp.ts";
 import { keyEventParams, planClick, planTyping, type ClickPlan, type Point, type Rng } from "./inputplan.ts";
@@ -45,11 +45,14 @@ import {
   calibrationStep,
   counting,
   estimates,
+  FOCUS_ANSWER_MS,
+  FOCUS_EXPR,
   frontCheck,
   giveBack,
   loadOsInput,
   logOs,
   OS_TYPE_DELAY_MS,
+  osExclusive,
   parseAt,
   placePointer,
   POINTER_OFF_FN,
@@ -59,6 +62,7 @@ import {
   sendChord,
   sendStrokes,
   stepInside,
+  stoppedError,
   strokesMs,
   takeForeground,
   VIEW_EXPR,
@@ -66,6 +70,7 @@ import {
   type ForegroundReport,
   type FrontCheck,
   type FrontState,
+  type PageFocus,
   type StopFlag,
 } from "./osinput.ts";
 
@@ -1379,36 +1384,49 @@ export async function press(d: Daemon, a: Args, session: string): Promise<unknow
 // ---------------------------------------------------------------- --os (docs/16)
 
 /** One `--os` command's hold on the operating system: `take` makes the tab the keyboard's target (once), `check` asks again. */
-type OsRun = { os: OsInput; pid: number; stop: StopFlag; take: () => Promise<void>; check: () => Promise<FrontCheck> };
+type OsRun = { os: OsInput; pid: number; stop: StopFlag; root: FrameDoc; take: () => Promise<void>; check: () => Promise<FrontCheck> };
 
 /** Past this share of the command's time limit the keys would outlive the command, so nothing is sent. */
 const OS_TIME_MARGIN_MS = 3000;
 /** Scan codes of the left Shift / Control / Alt keys (set 1), used when the layout names none. */
 const SCAN_FALLBACK = { shift: 0x2a, control: 0x1d, alt: 0x38 } as const;
 /** How long a press has to show up in the page. */
-const OS_PRESS_SEEN_MS = 600;
+const OS_PRESS_SEEN_MS = 2000;
 
 /**
- * Run one `--os` command on a tab (docs/16 §3). The whole command is one of
- * tabcap's own input windows, so the take-over listener does not read its
- * trusted events as the human's; every record the system took is counted
- * (`browser status` inputs.os); and when the command took the foreground it is
- * handed back at the end (`foreground` in the answer).
+ * Run one `--os` command on a tab (docs/16 §3). One at a time in the whole
+ * daemon (one keyboard, one pointer). The whole command is one of tabcap's own
+ * input windows, so the take-over listener does not read its trusted events as
+ * the human's; every record the system took is counted (`browser status`
+ * inputs.os); and when the command took the foreground it is handed back at
+ * the end (`foreground` in the answer). The page is asked about focus in
+ * tabcap's isolated world, with focus emulation switched off first (a
+ * `--trusted` command whose switch-off failed would make every tab say yes).
  */
-async function withOs<T extends Record<string, unknown>>(t: DirectTransport, tab: Tab, base: OsInput, stop: StopFlag, fn: (o: OsRun) => Promise<T>): Promise<T & { foreground: ForegroundReport }> {
+function withOs<T extends Record<string, unknown>>(t: DirectTransport, tab: Tab, base: OsInput, stop: StopFlag, fn: (o: OsRun) => Promise<T>): Promise<T & { foreground: ForegroundReport }> {
+  return osExclusive(() => withOsNow(t, tab, base, stop, fn));
+}
+
+async function withOsNow<T extends Record<string, unknown>>(t: DirectTransport, tab: Tab, base: OsInput, stop: StopFlag, fn: (o: OsRun) => Promise<T>): Promise<T & { foreground: ForegroundReport }> {
+  // The command gave up while it waited for another `--os` command to end.
+  if (stop.stopped) throw stoppedError(null);
   const os = counting(base, (n) => {
     t.osInputs += n;
   });
+  await t.send("Emulation.setFocusEmulationEnabled", { enabled: false }, tab.sessionId, 2000).catch(() => undefined);
+  const root = rootDoc(tab, await docIdentity(t, tab));
+  const focused: PageFocus = async () => callResult(await inWorld(t, tab, root, (ctx) => t.send("Runtime.evaluate", { expression: FOCUS_EXPR, contextId: ctx, returnByValue: true }, tab.sessionId, FOCUS_ANSWER_MS))) === true;
   const w = t.inputWindows.begin(tab.sessionId);
   const state: { front: FrontState | null } = { front: null };
   const run: OsRun = {
     os,
     pid: t.pid,
     stop,
+    root,
     take: async () => {
-      state.front ??= await takeForeground(os, t, tab.sessionId, t.pid);
+      state.front ??= await takeForeground(os, () => t.bringToFront(tab.sessionId), focused, t.pid);
     },
-    check: () => frontCheck(os, t, tab.sessionId, t.pid),
+    check: () => frontCheck(os, focused, t.pid),
   };
   try {
     const out = await fn(run);
@@ -1442,10 +1460,12 @@ export function osChordOf(k: { def: KeyDef; modifiers: number }, spec: string, l
   let vk = k.def.vk;
   let shift = (k.modifiers & 8) !== 0;
   // A single character without Control / Alt is the key that types it, Shift included ("A", "?").
-  if (k.def.key.length === 1 && (k.modifiers & 3) === 0) {
+  // With Control / Alt a letter or digit is its own key; punctuation has no key code of its own and is looked up too ("Control++").
+  if (k.def.key.length === 1 && ((k.modifiers & 3) === 0 || vk === 0)) {
     const found = lay.keyFor(k.def.key.charCodeAt(0));
     if (found === null) throw bad(`keyboard layout ${lay.name} has no key for it`);
     if (found.ctrl || found.alt) throw bad(`it needs AltGr on keyboard layout ${lay.name}`);
+    if (found.dead) throw bad(`it is a dead key on keyboard layout ${lay.name}`);
     vk = found.vk;
     shift = shift || found.shift;
   }
@@ -1459,13 +1479,21 @@ export function osChordOf(k: { def: KeyDef; modifiers: number }, spec: string, l
   return { mods, key: { kind: "scan", scan, extended: isExtendedVk(vk), shift: false } };
 }
 
+const capsLockError = () => new TabcapError("unsupported", "Caps Lock is on: keys sent by scan code would come out in the other case; nothing was sent", "Turn Caps Lock off (tabcap does not press it for you) and run the command again.");
+
 const OS_TYPE_USAGE = "tabcap type <text> --os [--delay ms] | tabcap type --os --secret <site>.password|username [--confirm] | tabcap type <text> --os-text";
 
 /** A text that cannot be typed whole is not typed at all. `hide`: the text is a secret or goes into a password field, so the character is named by position only. */
-export function untypableError(plan: { index: number; why: "no-key" | "needs-altgr" | "no-scan-code" }, text: string, layout: string, hide: boolean): TabcapError {
+export function untypableError(plan: { index: number; why: "no-key" | "needs-altgr" | "dead-key" | "no-scan-code" }, text: string, layout: string, hide: boolean): TabcapError {
   const which = hide ? `character ${plan.index + 1}` : `character ${plan.index + 1} (U+${text.charCodeAt(plan.index).toString(16).padStart(4, "0")})`;
   const why =
-    plan.why === "no-key" ? `has no key on keyboard layout ${layout}` : plan.why === "needs-altgr" ? `needs AltGr on keyboard layout ${layout}, which tabcap does not press` : `is on a key without a scan code on keyboard layout ${layout}`;
+    plan.why === "no-key"
+      ? `has no key on keyboard layout ${layout}`
+      : plan.why === "needs-altgr"
+        ? `needs AltGr on keyboard layout ${layout}, which tabcap does not press`
+        : plan.why === "dead-key"
+          ? `is a dead key on keyboard layout ${layout} (it would change the next character instead of being typed)`
+          : `is on a key without a scan code on keyboard layout ${layout}`;
   return new TabcapError(
     "usage",
     `${which} ${why}; nothing was sent`,
@@ -1512,6 +1540,7 @@ async function osType(d: Daemon, a: Args, session: string): Promise<unknown> {
               tab,
               optBool(a, "noWait"),
               async (): Promise<Record<string, unknown>> => {
+                if (!unicode && o.os.capsLock()) throw capsLockError();
                 await o.take();
                 const sensitive = await activeIsSensitive(t, tab);
                 const masked = used?.field === "password" || sensitive;
@@ -1519,13 +1548,10 @@ async function osType(d: Daemon, a: Args, session: string): Promise<unknown> {
                 const lay = layoutOf(o.os);
                 const plan = unicode ? planUnicode(text, lay) : planScanKeys(text, lay);
                 if (!plan.ok) throw untypableError(plan, text, lay.name, masked || used !== null);
-                if (!unicode && o.os.capsLock()) {
-                  throw new TabcapError("unsupported", "Caps Lock is on: keys sent by scan code would come out in the other case; nothing was sent", "Turn Caps Lock off (tabcap does not press it for you) and run the command again.");
-                }
                 const chord = submit === null || submitSpec === null ? null : osChordOf(submit, submitSpec, lay);
                 const needMs = strokesMs(plan.strokes, delayMs);
-                if (needMs + OS_TIME_MARGIN_MS > limit) {
-                  throw new TabcapError("usage", `${plan.strokes.length} keys ${delayMs} ms apart take about ${Math.ceil(needMs / 1000)} s, more than this command's time limit allows; nothing was sent`, `Raise --timeout (now ${limit} ms) or lower --delay.`);
+                if (needMs + OS_TIME_MARGIN_MS > limit - (Date.now() - cmdStarted)) {
+                  throw new TabcapError("usage", `${plan.strokes.length} keys ${delayMs} ms apart take about ${Math.ceil(needMs / 1000)} s, more than is left of this command's time limit; nothing was sent`, `Raise --timeout (now ${limit} ms) or lower --delay.`);
                 }
                 const keys = await sendStrokes(o.os, plan.strokes, { delayMs, shiftScan: lay.scanCode(VK.shift) || SCAN_FALLBACK.shift, check: o.check, browserPid: o.pid, stop });
                 used?.counted?.();
@@ -1579,6 +1605,7 @@ async function osPress(d: Daemon, a: Args, session: string, spec: string, k: { d
               tab,
               optBool(a, "noWait"),
               async (): Promise<Record<string, unknown>> => {
+                if (k.def.key.length === 1 && (k.modifiers & 3) === 0 && o.os.capsLock()) throw capsLockError();
                 await o.take();
                 const lay = layoutOf(o.os);
                 const chord = osChordOf(k, spec, lay);
@@ -1621,14 +1648,14 @@ type OsPress = { moves: number; corrections: number; pressGapMs: number; deliver
 
 /**
  * The pointer part of `click --os` (docs/16 §3): watch the document that owns
- * `objectId` for trusted pointer events, put the pointer on `local` (that
+ * `objectId` (a node or document as resolved in tabcap's isolated world) for trusted pointer events, put the pointer on `local` (that
  * document's client coordinates; `top` is the same point in the tab's viewport,
  * for the first guess), let `hit` veto the spot the page reported, press, and
  * read what arrived. A press that takes the document away counts as delivered
  * only with a recorded navigation, as for `click --trusted`.
  */
 async function osPointerPress(t: Transport, tab: Tab, o: OsRun, sid: string, objectId: string, top: Point, local: Point, hit: ((p: Point) => Promise<void>) | null, what: string): Promise<OsPress> {
-  const view = viewOf(callResult(await t.send("Runtime.evaluate", { expression: VIEW_EXPR, returnByValue: true }, tab.sessionId, 5000)));
+  const view = viewOf(callResult(await inWorld(t, tab, o.root, (ctx) => t.send("Runtime.evaluate", { expression: VIEW_EXPR, contextId: ctx, returnByValue: true }, tab.sessionId, 5000))));
   if (view === null) throw new TabcapError("page", "the page did not say where its window is on the screen", "Check the tab with `tabcap screenshot`; nothing was pressed.");
   const screen = o.os.screen();
   const made = await t.send("Runtime.callFunctionOn", { objectId, functionDeclaration: POINTER_WATCH_FN, arguments: [], returnByValue: false }, sid, 5000);
@@ -1668,6 +1695,18 @@ async function osPointerPress(t: Transport, tab: Tab, o: OsRun, sid: string, obj
 
 const xyOf = (p: Point) => ({ x: Math.round(p.x), y: Math.round(p.y) });
 
+/** The node as an object of tabcap's isolated world of its own document: functions called on it run no page code and the page cannot reach them. */
+async function isolatedOf(t: Transport, tab: Tab, node: InputNode, ref: string, root: FrameDoc): Promise<string> {
+  const f = frameOf(node);
+  const sid = sessionOf(tab, node);
+  const fdoc: FrameDoc = f === null ? root : { frameId: f.frameId, loaderId: f.loaderId, url: "", sessionId: f.sessionId };
+  const r = await inWorld(t, tab, fdoc, (ctx) => t.send("DOM.resolveNode", { backendNodeId: node.backendNodeId, executionContextId: ctx }, sid, 5000)).catch(() => null);
+  const obj = r !== null && isRecord(r["object"]) ? r["object"] : null;
+  const objectId = obj === null ? null : str(obj, "objectId");
+  if (objectId === null) throw new TabcapError("stale-ref", `ref ${ref} is no longer in the page`, "run snapshot again; the element was removed or re-rendered.");
+  return objectId;
+}
+
 /** `click <ref> --os`: the gates of a click, then the foreground, then the pointer on the element's centre in its own document. */
 async function osClickRef(d: Daemon, t: Transport, tab: Tab, o: OsRun, ref: string): Promise<Record<string, unknown>> {
   const node = await resolveRef(t, tab, ref);
@@ -1681,12 +1720,13 @@ async function osClickRef(d: Daemon, t: Transport, tab: Tab, o: OsRun, ref: stri
   liveOrStale(rec(callResult(await call(t, sid, aim.objectId, SCROLL_FN))), ref);
   const landed: { landed: LandedOn | null } = { landed: null };
   const place = await targetPlace(t, tab, aim, ref, landed);
+  const own = await isolatedOf(t, tab, aim, ref, o.root);
   const hit = async (p: Point): Promise<void> => {
-    const occ = rec(callResult(await call(t, sid, aim.objectId, OCCLUSION_FN, [p.x, p.y])));
+    const occ = rec(callResult(await call(t, sid, own, OCCLUSION_FN, [p.x, p.y])));
     if (occ["ok"] === true) return;
     throw new TabcapError("not-delivered", `the pointer is on ${str(occ, "hit") ?? "nothing"} at (${Math.round(p.x)}, ${Math.round(p.y)}), not on ref ${ref}; nothing was pressed`, "tabcap did not retry. Run `tabcap snapshot` and check what covers the element.");
   };
-  const r = await osPointerPress(t, tab, o, sid, aim.objectId, place.to, place.local, hit, `ref ${ref}`);
+  const r = await osPointerPress(t, tab, o, sid, own, place.to, place.local, hit, `ref ${ref}`);
   return {
     tab: tab.id,
     ref,
@@ -1708,8 +1748,7 @@ async function osClickRef(d: Daemon, t: Transport, tab: Tab, o: OsRun, ref: stri
 
 /** `click --os --at x,y`: a point of the tab's viewport in the root document (a point inside a frame cannot be read back there: use a ref). */
 async function osClickAt(t: Transport, tab: Tab, o: OsRun, at: Point): Promise<Record<string, unknown>> {
-  await o.take();
-  const got = await t.send("Runtime.evaluate", { expression: "document", returnByValue: false }, tab.sessionId, 5000);
+  const got = await inWorld(t, tab, o.root, (ctx) => t.send("Runtime.evaluate", { expression: "document", contextId: ctx, returnByValue: false }, tab.sessionId, 5000));
   callResult(got);
   const docId = isRecord(got["result"]) ? str(got["result"], "objectId") : null;
   if (docId === null) throw new TabcapError("page", "the page's document could not be reached", "run `tabcap snapshot` and retry; nothing was pressed.");
@@ -1720,6 +1759,7 @@ async function osClickAt(t: Transport, tab: Tab, o: OsRun, at: Point): Promise<R
   if (v["frame"] === true) {
     throw new TabcapError("unsupported", `--at ${at.x},${at.y} is inside a frame: tabcap cannot read the pointer back from the root document there, so nothing was pressed`, "Use the element's ref instead: `tabcap snapshot --frames`, then `tabcap click <ref> --os`.");
   }
+  await o.take();
   const r = await osPointerPress(t, tab, o, tab.sessionId, docId, at, at, null, `(${at.x}, ${at.y})`);
   return { tab: tab.id, input: "os", level: 3, trusted: true, eventShape: "os", at: xyOf(at), pointer: { moves: r.moves, corrections: r.corrections }, pressGapMs: r.pressGapMs, delivered: r.delivered, landedOn: landedOf(v["landed"]) };
 }

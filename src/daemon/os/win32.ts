@@ -10,7 +10,19 @@ import { dlopen, FFIType, ptr } from "bun:ffi";
 import { INPUT_SIZE, type Foreground, type KeyLookup, type OsInput, type ScreenRect } from "./input.ts";
 
 const MAPVK_VK_TO_VSC = 0;
+const MAPVK_VK_TO_CHAR = 2;
 const VK_CAPITAL = 0x14;
+const SM_SWAPBUTTON = 23;
+/** GetAsyncKeyState: the keys and buttons whose being down would change what tabcap's input means. */
+const HELD: ReadonlyArray<readonly [number, string]> = [
+  [0x10, "Shift"],
+  [0x11, "Control"],
+  [0x12, "Alt"],
+  [0x5b, "Windows"],
+  [0x5c, "Windows"],
+  [0x01, "a mouse button"],
+  [0x02, "a mouse button"],
+];
 const SM_XVIRTUALSCREEN = 76;
 const SM_YVIRTUALSCREEN = 77;
 const SM_CXVIRTUALSCREEN = 78;
@@ -29,6 +41,7 @@ export function openWin32(): OsInput {
     VkKeyScanExW: { args: [FFIType.u16, FFIType.u64], returns: FFIType.i16 },
     MapVirtualKeyExW: { args: [FFIType.u32, FFIType.u32, FFIType.u64], returns: FFIType.u32 },
     GetKeyState: { args: [FFIType.i32], returns: FFIType.i16 },
+    GetAsyncKeyState: { args: [FFIType.i32], returns: FFIType.i16 },
     GetSystemMetrics: { args: [FFIType.i32], returns: FFIType.i32 },
     SetForegroundWindow: { args: [FFIType.u64], returns: FFIType.i32 },
   });
@@ -47,10 +60,16 @@ export function openWin32(): OsInput {
       const r = int(u.VkKeyScanExW(codeUnit & 0xffff, layout));
       if (r === -1) return null;
       const state = (r >> 8) & 0xff;
-      return { vk: r & 0xff, shift: (state & 1) !== 0, ctrl: (state & 2) !== 0, alt: (state & 4) !== 0 };
+      const vk = r & 0xff;
+      // MAPVK_VK_TO_CHAR sets the top bit of its answer for a dead key (winuser.h, MapVirtualKeyExW).
+      const dead = int(u.MapVirtualKeyExW(vk, MAPVK_VK_TO_CHAR, layout)) >>> 31 === 1;
+      return { vk, shift: (state & 1) !== 0, ctrl: (state & 2) !== 0, alt: (state & 4) !== 0, dead };
     },
     scanCode: (vk, layout) => int(u.MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, layout)),
     capsLock: () => (int(u.GetKeyState(VK_CAPITAL)) & 1) !== 0,
+    // The most significant bit of GetAsyncKeyState's SHORT: the key is down now.
+    heldKeys: () => [...new Set(HELD.filter(([vk]) => (int(u.GetAsyncKeyState(vk)) & 0x8000) !== 0).map(([, name]) => name))],
+    buttonsSwapped: () => int(u.GetSystemMetrics(SM_SWAPBUTTON)) !== 0,
     send(records, count): number {
       if (count <= 0 || records.byteLength < count * INPUT_SIZE) return 0;
       return int(u.SendInput(count, ptr(records), INPUT_SIZE));
