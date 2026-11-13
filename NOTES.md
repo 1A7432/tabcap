@@ -819,3 +819,8 @@
 - 做了什么：PR #51（A + B 提案 + C）第一次推送的 CI：unit / native 三个系统全绿，e2e Linux 三片与 Windows 1/3、2/3 绿，Windows 3/3 红在 `v12c` 第 9 步一处。`v12c` 在 Windows 上的第 3–8 步（真实点击、逐键、`--secret`、打不出的字符、`--os-text` 含两个码元的字符、`--at`、frame ref）第一次执行全过【实测】。探针（shard 1）：命令前的前台是 runner 的 WindowsTerminal，`press-key a --os` 回 `ok`、`foreground.taken: true`、`layout: "0409"`，命令后前台又是 WindowsTerminal。
 - 卡在哪：两处都是我的错，已修。(1) 第 9 步的断言：在证据包里找「`type` 且带 `secret`」的 `cmd` 事件时先匹配到第 1 步那条被拒的、不带 `--os` 的命令；改成只看 `os: true` 且没有 `text` 的，并拆成所有平台都跑的第 10 步（本机 macOS 过）。(2) `foreground.restored` 在探针里是 `false`，但 0.5 s 后前台确实回去了：`SetForegroundWindow` 之后立刻读 `GetForegroundWindow` 读早了；`giveBack` 改成最多等 500 ms 再下结论（单测 36 条）。探针里 `type probe --os` 回 `stale-ref`（探针页没有聚焦的输入框），是预期的。runner 桌面没有人在用，所以「前台锁拦不拦」在真实桌面上仍【待验】。
 - 下一格从哪开始：推这次修正，等 CI 全绿 → 作者在那台 Windows 上对真实控件试 `--os`。格 B（§55）仍等作者的五个决定。
+
+## 2026-11-13 · 格 C：PR #51 第二轮 CI 全绿（run 43407401599，提交 332f791）
+- 做了什么：unit / native 三个系统、e2e Linux 与 Windows 各三片共 12 个作业全绿【实测】。Windows 探针里 `press-key a --os` 的 `foreground` 现在是 `{taken: true, restored: true}`，与随后读到的前台窗口（WindowsTerminal）一致。
+- 卡在哪：没有。仍【待验】的都要那台 Windows：有人在用的桌面上前台锁拦不拦、真实控件认不认 `--os` 与键间隔、还前台引起的 `blur`、输入法、Caps Lock 读数、编译成单文件 exe 后的 `bun:ffi`。
+- 下一格从哪开始：作者审并合并 PR #51 → 在那台 Windows 上试 `tabcap type --os --secret <site>.password`。格 B（§55）等作者的五个决定。
