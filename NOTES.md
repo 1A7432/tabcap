@@ -829,3 +829,8 @@
 - 做了什么：作者看过 PR #51 的报告（列了三处待确认：`click <ref>` / `type <text>` 在 schema 里变可省与 `--delay` 默认值去掉、`browser status` 的 `inputs`、`evaluate --file` 按一个块执行）后说「合吧。发版1.1.0小版本。」【人确认：合并与发版；三处我按随合并一并接受理解，作者没有逐条说】。版本号改为 1.1.0（package.json、npm 模板五个、packaging/npm/README.md、两份 README 状态行、样例证据包夹具），两份 CHANGELOG 的「未发布」定稿为 1.1.0（2026-11-13）。Scoop 清单不动，发布后由 homebrew.yml 渲染。本机 tsc 无错、单测全过后推送。
 - 卡在哪：没有。格 B（§55）仍只有提案，不在 1.1.0 里；`--os` 只有 Windows，真实控件上的表现【待验】。
 - 下一格从哪开始：rebase 合并 PR #51 → main 上 ci.yml 绿 → 推 `v1.1.0` 标签 → 看 release、npm、tap / Scoop → 发布 GitHub Release。
+
+## 2026-11-13 · 1.1.0 发布之后（主循环）
+- 做了什么：PR #51 合入（rebase，main 3ae287c）；发版提交推上去后没有等 PR 那一轮 CI，直接合并并取消了它（与 main 上那一轮内容相同），以 main 的 ci.yml run 43456445809 为准，12 个作业全绿【实测】。之后推 `v1.1.0`（轻量标签；1.0.0 是带注释的标签，仓库里没有东西用 `git describe`），release run 43457688558 全绿，npm 五个包都是 1.1.0【实测：npm view】。发布 GitHub Release（非预发布、Latest，说明取 CHANGELOG 1.1.0 一节）；homebrew.yml run 43461482239 绿，tap 的 formula 三个 sha256 与 Scoop 清单（main 00d11cc）的 hash 都与 `SHA256SUMS` 一致【实测】。按作者的话停了本机的 tabcap 守护进程（0.9.1，pid 16667）：停之前有 `qlb-direct`、`qlb-fast` 两个录制在开（各 0 个标签），`qlb-direct` 有一个等待中的交接；停后守护进程与它的 Chrome 都已退出【实测】。本机装的仍是 0.9.1，没有升级（作者没要求）。
+- 卡在哪：没有。`--os` 在真实控件上的表现、有人在用的桌面上的前台锁、编译后的 Windows exe 里的 `bun:ffi` 仍【待验】，要那台 Windows 升到 1.1.0 后试。
+- 下一格从哪开始：那台 Windows 升级后试 `tabcap type --os --secret <site>.password`；格 B（§55）等作者的五个决定。
