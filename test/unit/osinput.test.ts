@@ -25,6 +25,8 @@ import {
 import {
   calibrationStep,
   counting,
+  HELD_RECHECK_MS,
+  osExclusive,
   estimates,
   frontCheck,
   giveBack,
@@ -59,18 +61,20 @@ const dec = (b: Uint8Array): Rec => {
 const SCAN: Record<number, number> = { 0x41: 0x1e, 0x42: 0x30, 0x43: 0x2e, 0x58: 0x2d, 0x31: 0x02, 0x39: 0x0a, 0x0d: 0x1c, 0x09: 0x0f, 0x10: 0x2a, 0x11: 0x1d, 0x12: 0x38, 0xbf: 0x35, 0x25: 0x4b };
 const usKey = (unit: number): KeyLookup | null => {
   const c = String.fromCharCode(unit);
-  if (/[a-z]/.test(c)) return { vk: c.toUpperCase().charCodeAt(0), shift: false, ctrl: false, alt: false };
-  if (/[A-Z]/.test(c)) return { vk: unit, shift: true, ctrl: false, alt: false };
-  if (/[0-9]/.test(c)) return { vk: unit, shift: false, ctrl: false, alt: false };
-  if (c === "!") return { vk: 0x31, shift: true, ctrl: false, alt: false };
-  if (c === "/") return { vk: 0xbf, shift: false, ctrl: false, alt: false };
-  if (c === "?") return { vk: 0xbf, shift: true, ctrl: false, alt: false };
-  if (c === "€") return { vk: 0x45, shift: false, ctrl: true, alt: true };
+  if (/[a-z]/.test(c)) return { vk: c.toUpperCase().charCodeAt(0), shift: false, ctrl: false, alt: false, dead: false };
+  if (/[A-Z]/.test(c)) return { vk: unit, shift: true, ctrl: false, alt: false, dead: false };
+  if (/[0-9]/.test(c)) return { vk: unit, shift: false, ctrl: false, alt: false, dead: false };
+  if (c === "!") return { vk: 0x31, shift: true, ctrl: false, alt: false, dead: false };
+  if (c === "/") return { vk: 0xbf, shift: false, ctrl: false, alt: false, dead: false };
+  if (c === "?") return { vk: 0xbf, shift: true, ctrl: false, alt: false, dead: false };
+  if (c === "€") return { vk: 0x45, shift: false, ctrl: true, alt: true, dead: false };
+  if (c === "'") return { vk: 0xde, shift: false, ctrl: false, alt: false, dead: true };
+  if (c === "+") return { vk: 0x39, shift: true, ctrl: false, alt: false, dead: false };
   return null;
 };
 const LAYOUT = { name: "0409", keyFor: usKey, scanCode: (vk: number) => SCAN[vk] ?? 0 };
 
-type Fake = OsInput & { sent: Rec[]; fg: Foreground | null; activated: string[]; caps: boolean; take: number };
+type Fake = OsInput & { sent: Rec[]; fg: Foreground | null; activated: string[]; caps: boolean; take: number; held: string[][]; swapped: boolean };
 
 function fakeOs(fg: Foreground | null = { window: "a1", pid: 500, thread: 7 }): Fake {
   const f: Fake = {
@@ -85,6 +89,11 @@ function fakeOs(fg: Foreground | null = { window: "a1", pid: 500, thread: 7 }): 
     keyFor: (u) => usKey(u),
     scanCode: (vk) => SCAN[vk] ?? 0,
     capsLock: () => f.caps,
+    // each reading takes the next entry; the last one stays
+    held: [[]],
+    swapped: false,
+    heldKeys: () => (f.held.length > 1 ? (f.held.shift() ?? []) : (f.held[0] ?? [])),
+    buttonsSwapped: () => f.swapped,
     send: (records, n) => {
       if (f.take === 0) return 0;
       for (let i = 0; i < n; i++) f.sent.push(dec(records.subarray(i * INPUT_SIZE, (i + 1) * INPUT_SIZE)));
@@ -199,6 +208,9 @@ describe("docs/16 §4 text → key strokes", () => {
     // an astral character is two code units, neither has a key
     expect(planScanKeys("a😀", LAYOUT)).toEqual({ ok: false, index: 1, why: "no-key" });
     expect(planScanKeys("", LAYOUT)).toEqual({ ok: true, strokes: [] });
+    // a dead key would change the next character ('a → á), so the text is refused, not altered
+    expect(planScanKeys("a'b", LAYOUT)).toEqual({ ok: false, index: 1, why: "dead-key" });
+    expect(untypableError({ index: 1, why: "dead-key" }, "a'b", "0409", true).message).toContain("character 2 is a dead key");
   });
 
   test("--os-text: every code unit as itself (a surrogate pair is two), line ends and tabs still keys", () => {
@@ -239,41 +251,70 @@ describe("docs/16 §4 text → key strokes", () => {
 });
 
 describe("docs/16 §3 the foreground", () => {
-  const page = (focused: boolean | Error) => ({
-    calls: [] as string[],
-    brought: 0,
-    async send(method: string) {
-      this.calls.push(method);
-      if (focused instanceof Error) throw focused;
-      return { result: { type: "boolean", value: focused } };
-    },
-    async bringToFront() {
-      this.brought++;
-    },
-  });
+  const page = (focused: boolean | Error) => {
+    const p = {
+      asked: 0,
+      brought: 0,
+      focused: async (): Promise<boolean> => {
+        p.asked++;
+        if (focused instanceof Error) throw focused;
+        return focused;
+      },
+      bring: async (): Promise<void> => {
+        p.brought++;
+      },
+    };
+    return p;
+  };
+  const noSleep = async () => undefined;
 
   test("in front and focused: ok; another process, no window, an unfocused tab, a page that does not answer: not ok, each with its reason", async () => {
     const os = fakeOs();
-    expect((await frontCheck(os, page(true), "s1", 500)).ok).toBe(true);
-    const other = await frontCheck(os, page(true), "s1", 777);
-    expect(other).toMatchObject({ ok: false, foreground: { pid: 500 } });
+    expect((await frontCheck(os, page(true).focused, 500, noSleep)).ok).toBe(true);
+    const other = await frontCheck(os, page(true).focused, 777, noSleep);
+    expect(other).toMatchObject({ ok: false, kind: "foreground", foreground: { pid: 500 } });
     expect(other.ok ? "" : other.why).toContain("process 500");
-    const none = await frontCheck(fakeOs(null), page(true), "s1", 500);
-    expect(none).toMatchObject({ ok: false, foreground: null });
-    const tab = await frontCheck(os, page(false), "s1", 500);
+    const none = await frontCheck(fakeOs(null), page(true).focused, 500, noSleep);
+    expect(none).toMatchObject({ ok: false, kind: "foreground", foreground: null });
+    const tab = await frontCheck(os, page(false).focused, 500, noSleep);
     expect(tab.ok ? "" : tab.why).toContain("does not have focus");
-    const dead = await frontCheck(os, page(new Error("no answer")), "s1", 500);
+    const dead = await frontCheck(os, page(new Error("no answer")).focused, 500, noSleep);
     expect(dead.ok ? "" : dead.why).toContain("no answer");
     // the page is only asked when the window is Chrome's
     const p = page(true);
-    await frontCheck(os, p, "s1", 777);
-    expect(p.calls).toEqual([]);
+    await frontCheck(os, p.focused, 777, noSleep);
+    expect(p.asked).toBe(0);
+  });
+
+  test("a modifier key or mouse button held on the real keyboard: not ok (held), after one more reading; a reading that clears is tabcap's own key coming up", async () => {
+    const os = fakeOs();
+    os.held = [["Control"], ["Control"]];
+    const slept: number[] = [];
+    const c = await frontCheck(os, page(true).focused, 500, async (ms) => {
+      slept.push(ms);
+    });
+    expect(c).toMatchObject({ ok: false, kind: "held" });
+    expect(c.ok ? "" : c.why).toContain("Control is held down");
+    expect(slept).toEqual([HELD_RECHECK_MS]);
+    const own = fakeOs();
+    own.held = [["Shift"], []];
+    expect((await frontCheck(own, page(true).focused, 500, noSleep)).ok).toBe(true);
+    // the error tells the human to let go, not to click the window; nothing is brought to the front under their hands
+    const busy = fakeOs({ window: "b2", pid: 500, thread: 7 });
+    busy.held = [["Alt", "a mouse button"]];
+    const p = page(true);
+    const e = await caught(takeForeground(busy, p.bring, p.focused, 500, clock()));
+    expect(code(e)).toBe("not-foreground");
+    expect(extra(e)).toMatchObject({ reason: "held" });
+    expect(e instanceof TabcapError ? e.next : "").toContain("let go");
+    expect(e instanceof TabcapError ? e.message : "").toContain("Alt and a mouse button is held down");
+    expect(p.brought).toBe(0);
   });
 
   test("already in front: nothing is brought; otherwise Page.bringToFront once, then the check until it holds", async () => {
     const os = fakeOs();
     const p = page(true);
-    expect(await takeForeground(os, p, "s1", 500, clock())).toEqual({ before: { window: "a1", pid: 500, thread: 7 }, taken: false });
+    expect(await takeForeground(os, p.bring, p.focused, 500, clock())).toEqual({ before: { window: "a1", pid: 500, thread: 7 }, taken: false });
     expect(p.brought).toBe(0);
 
     const elsewhere = fakeOs({ window: "b2", pid: 900, thread: 9 });
@@ -285,17 +326,18 @@ describe("docs/16 §3 the foreground", () => {
       await orig(ms);
       if (++polls === 3) elsewhere.fg = { window: "a1", pid: 500, thread: 7 };
     };
-    expect(await takeForeground(elsewhere, q, "s1", 500, c)).toEqual({ before: { window: "b2", pid: 900, thread: 9 }, taken: true });
+    expect(await takeForeground(elsewhere, q.bring, q.focused, 500, c)).toEqual({ before: { window: "b2", pid: 900, thread: 9 }, taken: true });
     expect(q.brought).toBe(1);
   });
 
   test("Chrome never comes to the front: not-foreground, nothing sent, and the error says who has it", async () => {
     const os = fakeOs({ window: "b2", pid: 900, thread: 9 });
     const p = page(true);
-    const e = await caught(takeForeground(os, p, "s1", 500, clock()));
+    const e = await caught(takeForeground(os, p.bring, p.focused, 500, clock()));
     expect(code(e)).toBe("not-foreground");
-    expect(extra(e)).toEqual({ foreground: { pid: 900, window: "b2" }, browserPid: 500 });
+    expect(extra(e)).toEqual({ reason: "foreground", foreground: { pid: 900, window: "b2" }, browserPid: 500 });
     expect(e instanceof TabcapError ? e.message : "").toContain("nothing was sent");
+    expect(e instanceof TabcapError ? e.next : "").toContain("title bar");
     expect(p.brought).toBe(1);
     expect(os.sent).toEqual([]);
   });
@@ -348,7 +390,7 @@ describe("docs/16 §3 keys", () => {
   test("the foreground is asked before every key; lost after two: not-foreground with keys 2 of 4, and not one record more", async () => {
     const os = fakeOs();
     let asked = 0;
-    const check = async (): Promise<FrontCheck> => (++asked <= 2 ? okCheck() : { ok: false, why: "the foreground window belongs to process 900, tabcap's Chrome is process 500", foreground: { window: "b2", pid: 900, thread: 9 } });
+    const check = async (): Promise<FrontCheck> => (++asked <= 2 ? okCheck() : { ok: false, kind: "foreground", why: "the foreground window belongs to process 900, tabcap's Chrome is process 500", foreground: { window: "b2", pid: 900, thread: 9 } });
     const e = await caught(sendStrokes(os, plan("abca"), run(os, clock(), check)));
     expect(code(e)).toBe("not-foreground");
     expect(extra(e)).toMatchObject({ keys: 2, of: 4, browserPid: 500, foreground: { pid: 900, window: "b2" } });
@@ -407,7 +449,7 @@ describe("docs/16 §3 keys", () => {
       [0x1d, 0x0a],
     ]);
     const blocked = fakeOs();
-    const e = await caught(sendChord(blocked, [], chord.key, { check: async () => ({ ok: false, why: "x", foreground: null }), browserPid: 500, stop: { stopped: false }, deps: clock() }));
+    const e = await caught(sendChord(blocked, [], chord.key, { check: async () => ({ ok: false, kind: "foreground", why: "x", foreground: null }), browserPid: 500, stop: { stopped: false }, deps: clock() }));
     expect(code(e)).toBe("not-foreground");
     expect(blocked.sent).toEqual([]);
   });
@@ -423,6 +465,9 @@ describe("docs/16 §3 keys", () => {
     expect(of("A")).toEqual({ mods: [0x2a], key: { kind: "scan", scan: 0x1e, extended: false, shift: false } });
     expect(of("?")).toEqual({ mods: [0x2a], key: { kind: "scan", scan: 0x35, extended: false, shift: false } });
     expect(of("Alt+x")).toEqual({ mods: [0x38], key: { kind: "scan", scan: 0x2d, extended: false, shift: false } });
+    // punctuation under Control has no key code of its own: looked up, with the Shift it needs ("+" is Shift+9 on this fake layout)
+    expect(of("Control++")).toEqual({ mods: [0x1d, 0x2a], key: { kind: "scan", scan: 0x0a, extended: false, shift: false } });
+    expect(() => of("'")).toThrow(/dead key/);
     expect(() => of("Meta+a")).toThrow(/Meta/);
     expect(() => of("中")).toThrow(/no key/);
     // a named key the layout has no scan code for
@@ -547,8 +592,13 @@ describe("docs/16 §3 the pointer (closed loop)", () => {
     expect(gap).toBe(95);
     expect(os.sent.map((r) => r.mouseFlags)).toEqual([0x0002, 0x0004]);
     expect(c.slept).toEqual([95]);
+    // swapped buttons: the primary button is the physical right one
+    const sw = fakeOs();
+    sw.swapped = true;
+    await pressButton(sw, { check: okCheck, browserPid: 500, stop, deps: clock() });
+    expect(sw.sent.map((r) => r.mouseFlags)).toEqual([0x0008, 0x0010]);
     const no = fakeOs();
-    const e = await caught(pressButton(no, { check: async () => ({ ok: false, why: "x", foreground: null }), browserPid: 500, stop, deps: clock() }));
+    const e = await caught(pressButton(no, { check: async () => ({ ok: false, kind: "foreground", why: "x", foreground: null }), browserPid: 500, stop, deps: clock() }));
     expect(code(e)).toBe("not-foreground");
     expect(no.sent).toEqual([]);
   });
@@ -577,6 +627,32 @@ describe("docs/16 §3 the pointer (closed loop)", () => {
     } catch (e) {
       expect(e instanceof TabcapError ? e.message.length : 999).toBeLessThan(80);
     }
+  });
+});
+
+describe("docs/16 §3 one --os command at a time", () => {
+  test("the next command starts when the one before has really ended, also after a failure; results and errors pass through", async () => {
+    const order: string[] = [];
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const first = osExclusive(async () => {
+      order.push("a:start");
+      await gate;
+      order.push("a:end");
+      throw new Error("a failed");
+    });
+    const second = osExclusive(async () => {
+      order.push("b:start");
+      return 7;
+    });
+    await Bun.sleep(5);
+    expect(order).toEqual(["a:start"]);
+    release();
+    expect(String(await caught(first))).toContain("a failed");
+    expect(await second).toBe(7);
+    expect(order).toEqual(["a:start", "a:end", "b:start"]);
   });
 });
 

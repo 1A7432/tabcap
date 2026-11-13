@@ -3153,14 +3153,14 @@ const rec = (where) => (e) => { (window.top.__s82).push({ t: e.type, tr: e.isTru
 #row{position:fixed;left:20px;top:20px}
 input,button{font:16px sans-serif;height:32px}
 #spot{position:fixed;left:${OS_SPOT.left}px;top:${OS_SPOT.top}px;width:${OS_SPOT.width}px;height:${OS_SPOT.height}px;background:#0a0}
-#fr{position:fixed;left:20px;top:220px;width:300px;height:80px;border:0}</style>
+#fr{position:fixed;left:20px;top:220px;width:300px;height:160px;border:0}</style>
 <div id=row><input id=user aria-label="用户"> <input id=pwd type=password aria-label="密码"> <button id=go>提交</button></div>
 <div id=spot role=img aria-label="绿点"></div>
 <iframe id=fr src="/s82/frame" title="内框"></iframe>
 <script>${log}
 ${listen("top")}</script>`;
   const frame = `<!doctype html><meta charset=utf-8><title>s82 frame</title>
-<style>html,body{margin:0;overflow:hidden}button{position:fixed;left:40px;top:20px;font:16px sans-serif;height:32px}</style>
+<style>html,body{margin:0;overflow:hidden}button{position:fixed;left:100px;top:60px;font:16px sans-serif;height:32px}</style>
 <button id=inner>框内</button>
 <script>${log}
 ${listen("frame")}</script>`;

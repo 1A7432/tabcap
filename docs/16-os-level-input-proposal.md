@@ -41,9 +41,11 @@ tabcap press-key Enter --os             # 也可 Control+a、Shift+Tab；Meta �
 ## 3. 每次 `--os` 命令做什么
 
 1. **先过原有的关**（click：ref 解析、可见、覆盖层、落点；type：密码库与登录次数）。这些不过，不碰前台。
-2. **拿前台**：前台窗口已经是 tabcap 的 Chrome 且这个标签有焦点 → 不动（`taken: false`）。否则 `Page.bringToFront`（焦点阶梯第三级），再查，最多等 1.5 s；仍不是 → `not-foreground`，不发任何输入，`next` 请人点一下浏览器窗口的标题栏再重试（点在页面里会被算成人接管）。**不用任何绕过前台锁的手法。**
-   - 「是不是」的判定：操作系统说前台窗口属于 tabcap 启动的那个 Chrome 进程（`GetForegroundWindow` + `GetWindowThreadProcessId`），**并且**页面自己说 `document.hasFocus()` 且可见。后一条排除了「Chrome 在前但焦点在别的标签、地址栏或浏览器弹出的气泡上」。这条路不开焦点模拟，页面说的是真的。
-3. **点击（闭环）**：在目标所在的那个文档（frame 的 ref 就是 frame 自己的文档）装一个只读监听，记下 trusted 的 `mousemove` 位置。先按窗口位置估一个屏幕点，在它旁边（朝文档中间偏 16 个屏幕像素）和它上面各移一次指针，由两次读回量出「屏幕上多少单位是 1 个 CSS 像素」；再按差值修正，至多 3 次。页面读回的位置与目标差 2 px 以内、且那一点 `elementFromPoint` 确实落在目标上，才按下；否则 `not-delivered`，不按。这样不依赖对窗口边框、信息栏、缩放比例、多显示器、进程是否 DPI 感知的任何假设。按下后读页面的 `pointerdown` / `mousedown` 记录；没到 → `not-delivered`；页面被这次点击带走（有导航记录）→ `delivered.reason: "navigated"`，同 `click --trusted`。
+2. **拿前台**：前台窗口已经是 tabcap 的 Chrome 且这个标签有焦点 → 不动（`taken: false`）。否则 `Page.bringToFront`（焦点阶梯第三级），再查，最多等 3 s；仍不是 → `not-foreground`，不发任何输入，`next` 请人点一下浏览器窗口的标题栏再重试（点在页面里会被算成人接管）。**不用任何绕过前台锁的手法。**
+   - 「是不是」的判定：操作系统说前台窗口属于 tabcap 启动的那个 Chrome 进程（`GetForegroundWindow` + `GetWindowThreadProcessId`），**并且**页面自己说 `document.hasFocus()` 且可见。后一条排除了「Chrome 在前但焦点在别的标签、地址栏或浏览器弹出的气泡上」。这句话在 tabcap 自己的隔离世界里问（页面脚本改不了答案），问之前先把焦点模拟关掉（上一条 `--trusted` 没关成的话，每个标签都会说自己有焦点）。
+   - 还要**没有人按着键**：真实键盘上的 Shift / Control / Alt / Windows 键或鼠标键按着时不发（`SendInput` 不清键盘状态，人按着 Control 时 tabcap 的 `w` 就成了关标签）。读到按着会隔 40 ms 再读一次（可能是 tabcap 自己的 Shift 刚抬起）；仍按着 → `not-foreground`，`error.reason: "held"`，`next` 请人松手，不去抢前台。
+   - **全守护进程同一时刻只有一条 `--os` 命令**（键盘和鼠标只有一套，不分标签和会话）；后一条等前一条真正结束才开始。
+3. **点击（闭环）**：在目标所在的那个文档（frame 的 ref 就是 frame 自己的文档）装一个只读监听，记下 trusted 的 `mousemove` 位置；监听装在隔离世界里，页面脚本看不见也喂不了假数据。先按窗口位置估一个屏幕点，在它旁边（朝文档中间偏 16 个屏幕像素）和它上面各移一次指针，由两次读回量出「屏幕上多少单位是 1 个 CSS 像素」；再按差值修正，至多 3 次。页面读回的位置与目标差 2 px 以内、且那一点 `elementFromPoint` 确实落在目标上，才按下（系统里左右键互换时按的是物理右键，即主键）；否则 `not-delivered`，不按。这样不依赖对窗口边框、信息栏、缩放比例、多显示器、进程是否 DPI 感知的任何假设。按下后读页面的 `pointerdown` / `mousedown` 记录；没到 → `not-delivered`；页面被这次点击带走（有导航记录）→ `delivered.reason: "navigated"`，同 `click --trusted`。
 4. **打字**：整段先换算成按键计划并检查（有打不出的字符、Caps Lock 开着、打完要超过命令时限 → 一个键都不发）。然后逐键发；**每个键之前**重做第 2 步的判定，前台一变立刻停，回 `not-foreground`，`keys` / `of` 写明已发出几个。按下的键一定抬起，Shift 一定放开。绝不把后面的键打进别的程序。
 5. **不触发接管**：`--os` 发出的输入在页面里和真人的一样是 trusted。整条命令期间与结束后 500 ms 记为 tabcap 自己的输入窗口（沿用 `Input.*` 的 `InputWindows`），接管监听不把它算成人。
 6. **收尾**：这条命令抢过前台、`chrome.restoreFront` 没关、原来的前台窗口不是 Chrome、而且 Chrome 此刻仍在前台（人中途切走的不动）→ 把前台还给原来的窗口，`foreground.restored` 说成没成。等页面动作后的等待结束了才还。
@@ -53,8 +55,8 @@ tabcap press-key Enter --os             # 也可 Control+a、Shift+Tab；Meta �
 ## 4. 键怎么换算（Windows）
 
 - 默认按**扫描码**发（`KEYEVENTF_SCANCODE`）。字符 → 虚拟键 + 是否要 Shift 用 `VkKeyScanExW`，按前台窗口线程当前的键盘布局（`GetKeyboardLayout`）换算，再用 `MapVirtualKeyExW` 得扫描码。换行是 Enter（`\r\n` 算一个），Tab 是 Tab 键。
-- 这个布局打不出的字符、要 AltGr 的字符 → `usage` 错误，说第几个字符（不是密码时带码位），不发任何键。
-- Caps Lock 开着 → `unsupported`，`next` 让人关掉；tabcap 不代按。
+- 这个布局打不出的字符、要 AltGr 的字符、死键（`'a` 会变成 `á` 的那种）→ `usage` 错误，说第几个字符（不是密码时带码位），不发任何键。死键只认得出不带 Shift 就是死键的那些（`MapVirtualKeyExW` 的 `MAPVK_VK_TO_CHAR`）；Shift 之后才是死键的（美式国际布局的 `^`、`"`）认不出【已知缺口】。
+- Caps Lock 开着 → `unsupported`，`next` 让人关掉；tabcap 不代按。读的是 `GetKeyState`，守护进程没有消息循环，这个读数会不会过时【待验】。
 - 输入法：tabcap 发之前读不到输入法是否开着【待验：有没有可靠的跨进程读法】。回答里的 `layout` 是布局，不是输入法状态；文档写明先把输入法切到英文。
 - `--os-text`：用 `KEYEVENTF_UNICODE` 发字符本身（每个 UTF-16 码元一对按下 / 抬起），不看布局和输入法，适合普通输入框里的中文；读扫描码的控件不认它，所以不是默认。
 - `press-key --os`：具名键按虚拟键查扫描码（方向键、Home / End、PageUp / PageDown、Delete 带扩展键标志）；单个字符在没有 Control / Alt 时按「打出这个字符的键」算（`A`、`?` 自带 Shift）；Meta（Windows 键）不发，`usage`。
@@ -76,7 +78,7 @@ tabcap press-key Enter --os             # 也可 Control+a、Shift+Tab；Meta �
   - 提案里写的是「`raw/cdp.jsonl` 在命令窗口内没有 `Input.*`」。这条不成立：`raw/cdp.jsonl` 只记 CDP 事件，不记发出的命令【实测：读 `capture/recorder.ts`】。所以改用传输层唯一出口上的计数。
 - Windows 上的走法（9 步里的 7 步）：`click <ref> --os` 命中并拿到焦点；`type abcXYZ19 --os` 的 `code` 序列、Shift、记录数（22）正确；`press-key Tab --os` 移焦点；`type --os --secret` 后密码框的值就是库里的值、输出与证据包没有明文、第二次要 `--confirm`；布局打不出的字符整段拒绝；`--os-text` 打中文；`click --os --at` 落在色块上、偏差 ≤ 2 px，点在 iframe 里或视口外被拒；frame ref 与按钮各收到一次 trusted `click`；全程不进 `human-takeover`。
 - 所有平台都跑的两步：互斥的参数是 `usage`；非 Windows 上六种 `--os` 命令都回 `unsupported`，页面和两个计数都不动，被拒的 `--secret` 不占登录次数。【实测：本机 macOS，CfT 157】
-- 单测（离线，`test/unit/osinput.test.ts`，33 条）：`INPUT` 字节、屏幕坐标换算、按键计划、逐键发送与各种中止（前台丢失、系统拒收、命令结束）、Shift 一定放开、拿前台 / 还前台的各分支、指针闭环（估偏 40 px、第一个估计落空、读回永远对不上、无法标定）、`press-key` 的换算。
+- 单测（离线，`test/unit/osinput.test.ts`，35 条）：`INPUT` 字节、屏幕坐标换算、按键计划、逐键发送与各种中止（前台丢失、系统拒收、命令结束）、Shift 一定放开、拿前台 / 还前台的各分支、指针闭环（估偏 40 px、第一个估计落空、读回永远对不上、无法标定）、`press-key` 的换算。
 - 【待验】CI 的 `windows-latest`：runner 上 Chrome 能不能成为前台、`SendInput` 能不能用。不行的话这 7 步在 CI 上要标成「需 Windows 机器手动」。
 - 【待验，测不了】命令中途把前台切走 → `not-foreground`：端到端里没法可靠地造出来，只有单测。
 - 真实控件：`--os` 在那个银行控件上是否有效、要多大的键间隔【人确认，Windows 机器上】。本仓库的 AI 不对靶场以外的站点操作。
@@ -113,4 +115,5 @@ tabcap press-key Enter --os             # 也可 Control+a、Shift+Tab；Meta �
 - `click --os` 能点 frame 里的 ref（监听装在目标自己的文档里）；`--at` 只限根文档。
 - 多了三处「一个键都不发」的事前检查：Caps Lock、打完会超过命令时限、要 AltGr 的字符。
 - `click <ref>` / `type <text>` 的位置参数变成可省（`schema` 里 `required: false`），`type --delay` 的 `default` 不再写 0（两档默认不同）。
-- 没做：`click --os --dbl-click`；IME 状态检测；命令中途切前台的端到端。
+- 实现后请 Opus 子代理独立审了一遍（它也没有 Windows；它对照 Microsoft Learn 核了结构体布局、标志值、`VkKeyScanExW` 的返回值，在 macOS 上实测了 `bun:ffi` 的类型转换）。据此加了：全守护进程一次一条 `--os` 命令；人按着修饰键 / 鼠标键时不发；焦点与指针读回改在隔离世界里做；左右键互换；死键；`--at` 的越界与 frame 检查挪到抢前台之前；`Control++` 这类带标点的组合键；读回与等前台的时限放宽（700 ms → 2 s，1.5 s → 3 s）。
+- 没做：`click --os --dbl-click`；IME 状态检测；命令中途切前台的端到端；按下之前核对指针下面的窗口属于 Chrome（指针读回在隔离世界里，已经证明指针在页面上）。

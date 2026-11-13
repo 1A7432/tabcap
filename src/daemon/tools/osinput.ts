@@ -43,17 +43,19 @@ export const OS_KEY_HOLD_MS = 40;
 /** Between a modifier and the key it modifies, both ways. */
 export const OS_MODIFIER_GAP_MS = 20;
 /** How long Chrome has to become the foreground window after Page.bringToFront. */
-export const FOREGROUND_WAIT_MS = 1500;
+export const FOREGROUND_WAIT_MS = 3000;
 export const FOREGROUND_POLL_MS = 50;
 /** The page's answer to "do you have focus" must come within this. */
 export const FOCUS_ANSWER_MS = 2000;
 /** How long the page has to report a pointer move. */
-export const READBACK_MS = 700;
+export const READBACK_MS = 2000;
 export const READBACK_POLL_MS = 25;
 /** The pointer is where it should be when the page reports it within this many CSS px on each axis. */
 export const POINTER_TOLERANCE_PX = 2;
 /** Corrections after the first placement. */
 export const MAX_CORRECTIONS = 3;
+/** A key that reads as held is read once more after this long (tabcap's own Shift may only just have come up). */
+export const HELD_RECHECK_MS = 40;
 /** The first move stops this many of the daemon's screen pixels short, so the second is a real move and the two calibrate the scale. */
 export const CALIBRATION_STEP_PX = 16;
 
@@ -87,36 +89,46 @@ export function loadOsInput(platform: string = process.platform): OsInput {
   return loaded;
 }
 
-/** The part of the transport this file uses. */
-export type OsTransport = {
-  send(method: string, params?: Record<string, unknown>, sessionId?: string | null, timeoutMs?: number): Promise<Record<string, unknown>>;
-  bringToFront(sessionId: string): Promise<void>;
-};
+/**
+ * `kind`: `foreground` — another window, tab or browser surface has the
+ * keyboard; `held` — a modifier key or mouse button is physically down, so
+ * tabcap's keys would mean something else (Control + w closes the tab).
+ */
+export type FrontCheck = { ok: true; foreground: Foreground } | { ok: false; kind: "foreground" | "held"; why: string; foreground: Foreground | null };
 
-export type FrontCheck = { ok: true; foreground: Foreground } | { ok: false; why: string; foreground: Foreground | null };
+/** Evaluated in tabcap's own isolated world of the tab's root document: the page's scripts cannot answer for it. */
+export const FOCUS_EXPR = `document.hasFocus() && document.visibilityState === "visible"`;
 
-const FOCUS_EXPR = `document.hasFocus() && document.visibilityState === "visible"`;
+/** Does the tab's document have focus and is it visible? Asked in the isolated world; throws when the page does not answer. */
+export type PageFocus = () => Promise<boolean>;
 
 /**
- * Would a key pressed now reach this tab? The foreground window must belong to
- * tabcap's Chrome (the browser process owns every Chrome window), and the tab's
- * document must say it has focus and is visible: that is only true for the
- * selected tab of the active window, and false while a browser bubble or
- * another tab has it. Focus emulation is off on this path, so the page's
- * answer is the real one.
+ * Would a key pressed now reach this tab, as the key tabcap means? The
+ * foreground window must belong to tabcap's Chrome (the browser process owns
+ * every Chrome window); the tab's document must say it has focus and is
+ * visible, which is only true for the selected tab of the active window and
+ * false while a browser bubble or another tab has it (focus emulation is
+ * switched off on this path, so the answer is the real one); and no modifier
+ * key or mouse button may be down on the real keyboard and mouse (SendInput
+ * does not reset them: winuser.h, SendInput remarks).
  */
-export async function frontCheck(os: OsInput, t: Pick<OsTransport, "send">, sessionId: string, browserPid: number): Promise<FrontCheck> {
+export async function frontCheck(os: OsInput, focused: PageFocus, browserPid: number, sleep: (ms: number) => Promise<unknown> = (ms) => Bun.sleep(ms)): Promise<FrontCheck> {
   const fg = os.foreground();
-  if (fg === null) return { ok: false, why: "no window is in the foreground", foreground: null };
-  if (fg.pid !== browserPid) return { ok: false, why: `the foreground window belongs to process ${fg.pid}, tabcap's Chrome is process ${browserPid}`, foreground: fg };
-  let focused = false;
+  if (fg === null) return { ok: false, kind: "foreground", why: "no window is in the foreground", foreground: null };
+  if (fg.pid !== browserPid) return { ok: false, kind: "foreground", why: `the foreground window belongs to process ${fg.pid}, tabcap's Chrome is process ${browserPid}`, foreground: fg };
+  let has = false;
   try {
-    const r = await t.send("Runtime.evaluate", { expression: FOCUS_EXPR, returnByValue: true }, sessionId, FOCUS_ANSWER_MS);
-    focused = isRecord(r["result"]) && r["result"]["value"] === true;
+    has = await focused();
   } catch (e) {
-    return { ok: false, why: `the page did not say whether it has focus (${e instanceof Error ? e.message : String(e)})`, foreground: fg };
+    return { ok: false, kind: "foreground", why: `the page did not say whether it has focus (${e instanceof Error ? e.message : String(e)})`, foreground: fg };
   }
-  if (!focused) return { ok: false, why: "Chrome is in front, but this tab does not have focus (another tab, a browser dialog or the address bar has it)", foreground: fg };
+  if (!has) return { ok: false, kind: "foreground", why: "Chrome is in front, but this tab does not have focus (another tab, a browser dialog or the address bar has it)", foreground: fg };
+  let held = os.heldKeys();
+  if (held.length > 0) {
+    await sleep(HELD_RECHECK_MS);
+    held = os.heldKeys();
+  }
+  if (held.length > 0) return { ok: false, kind: "held", why: `${held.join(" and ")} is held down on the real keyboard or mouse`, foreground: fg };
   return { ok: true, foreground: fg };
 }
 
@@ -126,8 +138,10 @@ export function notForeground(c: Extract<FrontCheck, { ok: false }>, browserPid:
   return new TabcapError(
     "not-foreground",
     `the tabcap browser window is not what the keyboard and pointer go to (${c.why}); ${done}`,
-    "Operating-system input goes to whatever is in front, so tabcap only sends it to its own Chrome window. Ask the human to click that window's title bar (a click inside the page counts as them taking over), then run the command again; tabcap did not retry. `--trusted` needs no foreground.",
-    { foreground: c.foreground === null ? null : { pid: c.foreground.pid, window: c.foreground.window }, browserPid, ...(sent === null ? {} : sent) },
+    c.kind === "held"
+      ? "Operating-system input is combined with whatever is held down on the real keyboard and mouse, so tabcap sends nothing meanwhile. Ask the human to let go of the keyboard and mouse, then run the command again; tabcap did not retry."
+      : "Operating-system input goes to whatever is in front, so tabcap only sends it to its own Chrome window. Ask the human to click that window's title bar (a click inside the page counts as them taking over), then run the command again; tabcap did not retry. `--trusted` needs no foreground.",
+    { reason: c.kind, foreground: c.foreground === null ? null : { pid: c.foreground.pid, window: c.foreground.window }, browserPid, ...(sent === null ? {} : sent) },
   );
 }
 
@@ -139,18 +153,33 @@ export type FrontState = { before: Foreground | null; taken: boolean };
  * to agree. Windows may refuse a background program the foreground: then this
  * is `not-foreground` and the human clicks the window; no workaround.
  */
-export async function takeForeground(os: OsInput, t: OsTransport, sessionId: string, browserPid: number, deps: OsDeps = OS_DEPS): Promise<FrontState> {
+export async function takeForeground(os: OsInput, bring: () => Promise<void>, focused: PageFocus, browserPid: number, deps: OsDeps = OS_DEPS): Promise<FrontState> {
   const before = os.foreground();
-  let last = await frontCheck(os, t, sessionId, browserPid);
+  let last = await frontCheck(os, focused, browserPid, deps.sleep);
   if (last.ok) return { before, taken: false };
-  await t.bringToFront(sessionId);
+  // The human is on the keyboard or mouse: bringing a window to the front under their hands helps nobody.
+  if (last.kind === "held") throw notForeground(last, browserPid);
+  await bring();
   const until = deps.now() + FOREGROUND_WAIT_MS;
   for (;;) {
     await deps.sleep(FOREGROUND_POLL_MS);
-    last = await frontCheck(os, t, sessionId, browserPid);
+    last = await frontCheck(os, focused, browserPid, deps.sleep);
     if (last.ok) return { before, taken: true };
     if (deps.now() >= until) throw notForeground(last, browserPid);
   }
+}
+
+let osQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * One `--os` command at a time in the whole daemon: there is one keyboard and
+ * one pointer, whatever the tab or session. The next command starts when the
+ * one before has really ended, not when its caller stopped waiting for it.
+ */
+export function osExclusive<T>(fn: () => Promise<T>): Promise<T> {
+  const run = osQueue.then(fn, fn);
+  osQueue = run.catch(() => undefined);
+  return run;
 }
 
 export type ForegroundReport = { taken: boolean; restored: boolean };
@@ -174,7 +203,7 @@ function refused(what: string, extra: Record<string, unknown> = {}): TabcapError
   return new TabcapError(
     "not-delivered",
     `the operating system did not take ${what} (SendInput returned 0)`,
-    "Another program may be blocking input, or the foreground window belongs to a program that runs as administrator while tabcap does not. tabcap did not retry.",
+    "Another program is blocking input (SendInput fails while another thread blocks it). tabcap did not retry.",
     extra,
   );
 }
@@ -183,7 +212,7 @@ function put(os: OsInput, record: Uint8Array, what: string, extra: Record<string
   if (os.send(record, 1) !== 1) throw refused(what, extra);
 }
 
-const stoppedError = (sent: { keys: number; of: number } | null) =>
+export const stoppedError = (sent: { keys: number; of: number } | null) =>
   new TabcapError("timeout", `the command ended before its input was complete${sent === null ? "" : ` (${sent.keys} of ${sent.of} keys were sent)`}`, "Check the page (`tabcap snapshot`); raise --timeout for a long text.", sent ?? {});
 
 /** Longest a run of strokes takes, for the check against the command's time limit. */
@@ -275,14 +304,19 @@ export async function sendChord(os: OsInput, modifierScans: readonly number[], k
 
 // ---------------------------------------------------------------- pointer
 
-/** The page's record of trusted pointer events in the target's document (main world, capture phase; nothing is prevented). */
+/**
+ * The record of trusted pointer events in the target's document: capture phase,
+ * nothing prevented, primary button only. Called on the node (or document) as
+ * resolved in tabcap's isolated world, so the page's scripts can neither see
+ * the listeners nor feed them.
+ */
 export const POINTER_WATCH_FN = `function () {
   const doc = this.nodeType === 9 ? this : this.ownerDocument;
   const el = this.nodeType === 9 ? null : (this.nodeType === 1 ? this : this.parentElement);
   const view = doc.defaultView;
   const st = { n: 0, x: 0, y: 0, pd: false, md: false, w: view.innerWidth, h: view.innerHeight };
   const mv = (e) => { if (e.isTrusted) { st.n++; st.x = e.clientX; st.y = e.clientY; } };
-  const dn = (e) => { if (e.isTrusted && (el === null || el.contains(e.target))) { if (e.type === "pointerdown") st.pd = true; else st.md = true; } };
+  const dn = (e) => { if (e.isTrusted && e.button === 0 && (el === null || el.contains(e.target))) { if (e.type === "pointerdown") st.pd = true; else st.md = true; } };
   view.addEventListener("mousemove", mv, true);
   view.addEventListener("pointerdown", dn, true);
   view.addEventListener("mousedown", dn, true);
@@ -408,7 +442,7 @@ export function stepInside(step: Point, target: Point, size: { w: number; h: num
   return { x: target.x < size.w / 2 ? -Math.abs(step.x) : Math.abs(step.x), y: target.y < size.h / 2 ? -Math.abs(step.y) : Math.abs(step.y) };
 }
 
-/** Left button down, the gap, up, at the pointer's place; the foreground is checked first. Returns the gap. */
+/** Primary button down, the gap, up, at the pointer's place; the foreground is checked first. Returns the gap. */
 export async function pressButton(os: OsInput, o: { check: () => Promise<FrontCheck>; browserPid: number; stop: StopFlag; deps?: OsDeps }): Promise<number> {
   const deps = o.deps ?? OS_DEPS;
   if (o.stop.stopped) throw stoppedError(null);
@@ -417,11 +451,13 @@ export async function pressButton(os: OsInput, o: { check: () => Promise<FrontCh
   const v = deps.rng();
   const unit = typeof v === "number" && v >= 0 && v < 1 ? v : 0;
   const gap = Math.round(PRESS_GAP_MS.min + unit * (PRESS_GAP_MS.max - PRESS_GAP_MS.min));
-  put(os, mouseRecord({ dx: 0, dy: 0, flags: MOUSEEVENTF.leftDown }), "the button press");
+  // SendInput presses physical buttons: with the buttons swapped, the primary one is the right one.
+  const swapped = os.buttonsSwapped();
+  put(os, mouseRecord({ dx: 0, dy: 0, flags: swapped ? MOUSEEVENTF.rightDown : MOUSEEVENTF.leftDown }), "the button press");
   try {
     await deps.sleep(gap);
   } finally {
-    os.send(mouseRecord({ dx: 0, dy: 0, flags: MOUSEEVENTF.leftUp }), 1);
+    os.send(mouseRecord({ dx: 0, dy: 0, flags: swapped ? MOUSEEVENTF.rightUp : MOUSEEVENTF.leftUp }), 1);
   }
   return gap;
 }
@@ -442,6 +478,8 @@ export function counting(os: OsInput, count: (n: number) => void): OsInput {
     keyFor: (unit, layout) => os.keyFor(unit, layout),
     scanCode: (vk, layout) => os.scanCode(vk, layout),
     capsLock: () => os.capsLock(),
+    heldKeys: () => os.heldKeys(),
+    buttonsSwapped: () => os.buttonsSwapped(),
     send: (records, n) => {
       const took = os.send(records, n);
       if (took > 0) count(took);

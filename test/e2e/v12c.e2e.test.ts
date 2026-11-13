@@ -196,6 +196,10 @@ describe.skipIf(!enabled)("docs/16 --os input L2 (s82)", () => {
     const t = await ok("type", "中文ü", "--os-text", "--delay", "20", ...S);
     expect(t).toMatchObject({ input: "os", keyMode: "unicode", keys: 3 });
     expect(await evalValue("document.getElementById('user').value")).toBe("中文ü");
+    // a character outside the basic plane is two code units, sent one after the other
+    await ok("press-key", "Control+a", "--os", ...S);
+    expect(await ok("type", "😀", "--os-text", "--delay", "20", ...S)).toMatchObject({ keyMode: "unicode", keys: 2 });
+    expect(await evalValue("document.getElementById('user').value")).toBe("😀");
   });
 
   test.skipIf(!WINDOWS)("7. click --os --at: the press lands on the viewport point; a point inside a frame or outside the viewport is refused", async () => {

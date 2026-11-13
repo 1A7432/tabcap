@@ -16,7 +16,7 @@
 export type Foreground = { window: string; pid: number; thread: number };
 
 /** What VkKeyScanExW says about one UTF-16 code unit on a layout. */
-export type KeyLookup = { vk: number; shift: boolean; ctrl: boolean; alt: boolean };
+export type KeyLookup = { vk: number; shift: boolean; ctrl: boolean; alt: boolean; dead: boolean };
 
 /** The virtual screen in the daemon process's own units (GetSystemMetrics). */
 export type ScreenRect = { x: number; y: number; width: number; height: number };
@@ -32,6 +32,10 @@ export interface OsInput {
   /** The scan code of a virtual key on the layout; 0 when it has none. */
   scanCode(vk: number, layout: bigint): number;
   capsLock(): boolean;
+  /** Modifier keys and mouse buttons that are physically down right now (names for the error message); empty when none. */
+  heldKeys(): string[];
+  /** The user swapped the primary and secondary mouse buttons (the primary one is then the physical right button). */
+  buttonsSwapped(): boolean;
   /** Send `count` INPUT records (INPUT_SIZE bytes each); the number the system took. */
   send(records: Uint8Array, count: number): number;
   screen(): ScreenRect;
@@ -43,7 +47,7 @@ export const INPUT_SIZE = 40;
 export const INPUT_MOUSE = 0;
 export const INPUT_KEYBOARD = 1;
 export const KEYEVENTF = { extended: 0x0001, keyUp: 0x0002, unicode: 0x0004, scanCode: 0x0008 } as const;
-export const MOUSEEVENTF = { move: 0x0001, leftDown: 0x0002, leftUp: 0x0004, virtualDesk: 0x4000, absolute: 0x8000 } as const;
+export const MOUSEEVENTF = { move: 0x0001, leftDown: 0x0002, leftUp: 0x0004, rightDown: 0x0008, rightUp: 0x0010, virtualDesk: 0x4000, absolute: 0x8000 } as const;
 export const VK = { shift: 0x10, control: 0x11, alt: 0x12, enter: 0x0d, tab: 0x09 } as const;
 /** Absolute pointer coordinates run 0 … 65535 over the virtual screen on each axis. */
 export const ABSOLUTE_MAX = 65535;
@@ -88,7 +92,7 @@ export function toAbsolute(p: { x: number; y: number }, s: ScreenRect): { x: num
  */
 export type OsStroke = { kind: "scan"; scan: number; extended: boolean; shift: boolean } | { kind: "unit"; unit: number };
 
-export type OsPlan = { ok: true; strokes: OsStroke[] } | { ok: false; index: number; why: "no-key" | "needs-altgr" | "no-scan-code" };
+export type OsPlan = { ok: true; strokes: OsStroke[] } | { ok: false; index: number; why: "no-key" | "needs-altgr" | "dead-key" | "no-scan-code" };
 
 /** Virtual keys whose scan code carries the E0 prefix (the navigation cluster). */
 const EXTENDED_VK: ReadonlySet<number> = new Set([33, 34, 35, 36, 37, 38, 39, 40, 45, 46]);
@@ -99,7 +103,7 @@ type Layout = { keyFor: (codeUnit: number) => KeyLookup | null; scanCode: (vk: n
 /**
  * Text → key strokes by scan code on a layout. "\n" (and a lone "\r") is Enter,
  * "\r\n" one Enter, "\t" Tab. A character the layout cannot type with a plain
- * or a Shift stroke fails the whole plan (`index` is its position in UTF-16
+ * or a Shift stroke (no key, AltGr, a dead key) fails the whole plan (`index` is its position in UTF-16
  * code units): nothing is sent for a text that cannot be typed whole.
  */
 export function planScanKeys(text: string, layout: Layout): OsPlan {
@@ -108,9 +112,11 @@ export function planScanKeys(text: string, layout: Layout): OsPlan {
     const unit = text.charCodeAt(i);
     if (unit === 0x0d && text.charCodeAt(i + 1) === 0x0a) continue;
     const fixed = unit === 0x0a || unit === 0x0d ? VK.enter : unit === 0x09 ? VK.tab : null;
-    const k: KeyLookup | null = fixed === null ? layout.keyFor(unit) : { vk: fixed, shift: false, ctrl: false, alt: false };
+    const k: KeyLookup | null = fixed === null ? layout.keyFor(unit) : { vk: fixed, shift: false, ctrl: false, alt: false, dead: false };
     if (k === null) return { ok: false, index: i, why: "no-key" };
     if (k.ctrl || k.alt) return { ok: false, index: i, why: "needs-altgr" };
+    // A dead key types nothing by itself and changes the next character ('a → á): the text would come out different.
+    if (k.dead) return { ok: false, index: i, why: "dead-key" };
     const scan = layout.scanCode(k.vk);
     if (scan === 0) return { ok: false, index: i, why: "no-scan-code" };
     strokes.push({ kind: "scan", scan, extended: isExtendedVk(k.vk), shift: k.shift });
