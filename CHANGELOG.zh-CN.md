@@ -14,7 +14,7 @@
 
 ### OS 级输入 `--os`（docs/16、docs/04 §56；只有 Windows）
 
-给不认 CDP 输入的控件用（在 Chrome 之下读键的银行密码控件）。还没有在 Windows 上验证过：代码是在 macOS 上写的，Windows 的端到端（s82）是第一次真检查。
+给不认 CDP 输入的控件用（在 Chrome 之下读键的银行密码控件）。代码是在 macOS 上写的；Windows 上验证过的是 GitHub `windows-latest` runner 上的端到端场景 s82。有人在用的桌面（Windows 可能不给前台）和真实的安全控件没有验证过。
 
 - **`tabcap type <text> --os [--delay ms]`**：经操作系统按真实的键（`SendInput`，按浏览器窗口的键盘布局换算成扫描码），默认每两个字符间隔 120 ms。**`--os-text`** 改为发字符本身（普通输入框里的中文等；读扫描码的控件不认）。**`tabcap press-key <key> --os`** 按一个键或组合键（Meta 不发）。
 - **`tabcap type --os --secret <site>.password`**：密码只能这样给，不进命令行；输出里是 `<secret:…>`。和 `fill --secret` 共用「每会话一次密码」的计数（`guard.login-limit`、`--confirm`）。

@@ -1,6 +1,6 @@
 # OS 级输入：`--os`
 
-2026-11-13。作者同日审过提案并同意（§9 七条按提案定）；Windows 部分已实现（分支 `1.1-c-os-input`），下文按实现修订。标注同 `04`：【实测】【推断】【待验】【人确认】。本机是 macOS，**Windows 上的行为在 CI 的 Windows runner 跑过之前都是【待验】**；真实控件只能由作者在那台 Windows 上确认。
+2026-11-13。作者同日审过提案并同意（§9 七条按提案定）；Windows 部分已实现（分支 `1.1-c-os-input`），下文按实现修订。标注同 `04`：【实测】【推断】【待验】【人确认】。本机是 macOS；Windows 上的行为以 CI 的 `windows-latest` 为准：s82 的真实输入步骤在 run 43406046058 上第一次执行就通过【实测，见 §6】。真实桌面（有人在用的 Windows）和真实控件只能由作者在那台机器上确认。
 
 ## 0. 一屏要点
 
@@ -67,7 +67,7 @@ tabcap press-key Enter --os             # 也可 Control+a、Shift+Tab；Meta �
 - 不加原生组件：守护进程里用 `bun:ffi` 直接调 `user32.dll`（`SendInput`、`GetForegroundWindow`、`GetWindowThreadProcessId`、`GetKeyboardLayout`、`VkKeyScanExW`、`MapVirtualKeyExW`、`GetKeyState`、`GetSystemMetrics`、`SetForegroundWindow`）。
   - 代码：`src/daemon/os/input.ts`（接口、`INPUT` 记录的字节、按键计划，纯函数）、`src/daemon/os/win32.ts`（FFI 绑定）、`src/daemon/tools/osinput.ts`（前台、逐键、指针闭环）、`src/daemon/tools/input.ts`（三条命令的接线）。
   - 【实测】`bun:ffi` 在 `bun build --compile` 的单文件里能调系统库（macOS arm64，Bun 1.4.4：`getpid`、`AXIsProcessTrusted`、`CGMainDisplayID`，编译前后结果一致）；带 `bun:ffi` 的代码能交叉编译出 `bun-windows-x64` 的 exe【实测：编译成功；没在 Windows 上运行】。
-  - `INPUT` 记录在 64 位上 40 字节：`type` 在 0，联合体在 8（`ki.wVk` 8、`ki.wScan` 10、`ki.dwFlags` 12；`mi.dx` 8、`mi.dy` 12、`mi.dwFlags` 20）。oracle 是 `winuser.h` 的结构体定义；单测按字节比对手写的期望值。【待验】在 Windows 上 `dlopen("user32.dll")` 与这些调用实际可用。
+  - `INPUT` 记录在 64 位上 40 字节：`type` 在 0，联合体在 8（`ki.wVk` 8、`ki.wScan` 10、`ki.dwFlags` 12；`mi.dx` 8、`mi.dy` 12、`mi.dwFlags` 20）。oracle 是 `winuser.h` 的结构体定义；单测按字节比对手写的期望值。【实测：CI `windows-latest`，Bun 1.4.3 从源码跑】`dlopen("user32.dll")` 与这些调用可用（s82 通过）；编译成单文件 exe 后在 Windows 上的表现没单独跑过【待验】。
 - 平台不支持时 `--os` 回 `unsupported`（带 `platform`），不退回 `--trusted`（退回会让人以为发的是 OS 输入）。
 - macOS（下一步）：`CGEventPost` 需要给 tabcap 授「辅助功能」权限，这一步要作者在系统设置里点【人确认时再做】。
 
@@ -78,8 +78,9 @@ tabcap press-key Enter --os             # 也可 Control+a、Shift+Tab；Meta �
   - 提案里写的是「`raw/cdp.jsonl` 在命令窗口内没有 `Input.*`」。这条不成立：`raw/cdp.jsonl` 只记 CDP 事件，不记发出的命令【实测：读 `capture/recorder.ts`】。所以改用传输层唯一出口上的计数。
 - Windows 上的走法（9 步里的 7 步）：`click <ref> --os` 命中并拿到焦点；`type abcXYZ19 --os` 的 `code` 序列、Shift、记录数（22）正确；`press-key Tab --os` 移焦点；`type --os --secret` 后密码框的值就是库里的值、输出与证据包没有明文、第二次要 `--confirm`；布局打不出的字符整段拒绝；`--os-text` 打中文；`click --os --at` 落在色块上、偏差 ≤ 2 px，点在 iframe 里或视口外被拒；frame ref 与按钮各收到一次 trusted `click`；全程不进 `human-takeover`。
 - 所有平台都跑的两步：互斥的参数是 `usage`；非 Windows 上六种 `--os` 命令都回 `unsupported`，页面和两个计数都不动，被拒的 `--secret` 不占登录次数。【实测：本机 macOS，CfT 157】
-- 单测（离线，`test/unit/osinput.test.ts`，35 条）：`INPUT` 字节、屏幕坐标换算、按键计划、逐键发送与各种中止（前台丢失、系统拒收、命令结束）、Shift 一定放开、拿前台 / 还前台的各分支、指针闭环（估偏 40 px、第一个估计落空、读回永远对不上、无法标定）、`press-key` 的换算。
-- 【待验】CI 的 `windows-latest`：runner 上 Chrome 能不能成为前台、`SendInput` 能不能用。不行的话这 7 步在 CI 上要标成「需 Windows 机器手动」。
+- 单测（离线，`test/unit/osinput.test.ts`，36 条）：`INPUT` 字节、屏幕坐标换算、按键计划、逐键发送与各种中止（前台丢失、系统拒收、命令结束）、Shift 一定放开、拿前台 / 还前台的各分支、指针闭环（估偏 40 px、第一个估计落空、读回永远对不上、无法标定）、`press-key` 的换算。
+- 【实测】CI 的 `windows-latest`（run 43406046058，PR #51 第一次推送）：Windows 上的第 3–8 步第一次执行全部通过，包括两个码元的字符（😀）经 `--os-text` 到达页面是一个字符。探针显示命令前的前台窗口是 runner 自己的 WindowsTerminal，`Page.bringToFront` 之后 Chrome 成了前台（`foreground.taken: true`），命令结束后前台回到了 WindowsTerminal。那次唯一的失败是测试自己写错（第 9 步在证据包里找命令时先匹配到了第 1 步被拒的那条），以及 `foreground.restored` 报了 `false`：还前台的调用成功了，但系统要过一会儿才显示，读得太早。后者已改成最多等 500 ms 再下结论。
+- 这只说明 runner 上行。runner 的桌面没有人在用；有人在用的 Windows 上前台锁会不会拦 `Page.bringToFront`，仍是【待验】。
 - 【待验，测不了】命令中途把前台切走 → `not-foreground`：端到端里没法可靠地造出来，只有单测。
 - 真实控件：`--os` 在那个银行控件上是否有效、要多大的键间隔【人确认，Windows 机器上】。本仓库的 AI 不对靶场以外的站点操作。
 
@@ -94,7 +95,7 @@ tabcap press-key Enter --os             # 也可 Control+a、Shift+Tab；Meta �
 ## 8. 交付顺序
 
 1. ✅ Windows：`type --os` / `--os-text` / `press-key --os`（含 `--secret`、前台检查、中止），`click --os`（闭环坐标），s82，单测。
-2. CI 的 Windows runner 跑 s82（开 PR 后才有结果）。
+2. ✅ CI 的 Windows runner 跑 s82（PR #51）。
 3. 作者在 Windows 机器上对真实控件确认；按结果定默认键间隔、要不要处理前台锁。
 4. macOS（要授权）。Linux backlog。
 

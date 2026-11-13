@@ -237,16 +237,24 @@ describe.skipIf(!enabled)("docs/16 --os input L2 (s82)", () => {
     ]);
   });
 
-  test.skipIf(!WINDOWS)("9. none of it was taken for the human: the session still runs; the recording has the commands and not the password", async () => {
+  test.skipIf(!WINDOWS)("9. none of it was taken for the human: the session still runs", async () => {
     await Bun.sleep(800);
     expect((await ok("handoff", "status", ...S))["state"]).not.toBe("waiting");
+  });
+
+  test("10. the recording has the command with its reference and never the password (every platform: a refused command is recorded too)", async () => {
     await ok("net", "stop", ...S);
     const events = readFileSync(join(bundle, "events.jsonl"), "utf8");
     expect(events).not.toContain(OS_PASSWORD);
     const raw = join(bundle, "raw", "cdp.jsonl");
     if (existsSync(raw)) expect(readFileSync(raw, "utf8")).not.toContain(OS_PASSWORD);
     const cmds = recs(events.split("\n").filter((l) => l !== "").map((l) => JSON.parse(l) as unknown)).filter((e) => e["kind"] === "cmd" && e["phase"] === "start");
-    const secretType = cmds.find((e) => rec(e["input"])["action"] === "type" && rec(e["input"])["secret"] === `${SITE}.password`);
-    expect(rec(secretType?.["input"])).toMatchObject({ os: true, secret: `${SITE}.password` });
+    // the one typed by reference alone: step 1's refused commands had no --os, or a text as well
+    const secretType = cmds.filter((e) => {
+      const i = rec(e["input"]);
+      return i["action"] === "type" && i["os"] === true && !("text" in i);
+    });
+    expect(secretType.length).toBeGreaterThanOrEqual(1);
+    for (const e of secretType) expect(rec(e["input"])).toMatchObject({ os: true, secret: `${SITE}.password` });
   });
 });
