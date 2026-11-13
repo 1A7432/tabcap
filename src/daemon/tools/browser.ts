@@ -283,6 +283,7 @@ export function browserFacts(d: Daemon): Record<string, unknown> {
     sessions: b.tabs.sessions.size,
     tabs: [...b.tabs.tabs.values()].filter((x) => !x.closed).length,
     refusedFocusCalls: b.t.refusedFocusCalls,
+    inputs: { cdp: b.t.cdpInputs, os: b.t.osInputs },
     detectTakeover: b.takeover !== null,
     popupFocus: b.t.frontStats,
     recording: [...d.recorders.keys()],

@@ -12,6 +12,19 @@ English | [中文](CHANGELOG.zh-CN.md)
 - **Four hints that point at what already exists**: the `next` of a take-over (`human-takeover`) says OS-level input from another program counts as the user too and where the switch is (the user's call); a cut `net body` preview comes with `previewHint` (the whole body is at `path`; `--out` / `--file`; `--full` does not lengthen the preview); `net show` with redacted values comes with `redactedHint` (`--reveal`, only when the human asks); `no-tab` after the session's last tab was closed carries `lastUrl` (tabcap does not reopen it by itself).
 - Range scenario s80 (`test/e2e/v12a.e2e.test.ts`).
 
+### Operating-system input, `--os` (docs/16, docs/04 §56; Windows only)
+
+For controls that ignore CDP input (a bank's password control that reads keys below Chrome). Not verified on Windows yet: this was written on macOS, and the Windows end-to-end run (s82) is the first real check.
+
+- **`tabcap type <text> --os [--delay ms]`** presses real keys through the operating system (`SendInput`, by scan code on the browser window's keyboard layout), 120 ms apart by default. **`--os-text`** sends the characters themselves instead (Chinese and other text in ordinary fields; a control that reads scan codes does not see them). **`tabcap press-key <key> --os`** presses one key or combination (Meta is not sent).
+- **`tabcap type --os --secret <site>.password`**: a password is only ever given this way, never on the command line; the output shows `<secret:…>`. It shares the one-password-per-session count with `fill --secret` (`guard.login-limit`, `--confirm`).
+- **`tabcap click <ref> --os`** and **`click --os --at <x>,<y>`** press the real pointer. The pointer is moved until the page itself reports it on the target (trusted `mousemove` read back), and only then pressed; otherwise `not-delivered` and no press. Frame refs work; `--at` is a viewport point of the root document.
+- **The price**: `--os` brings the tabcap browser window to the foreground and uses the real keyboard and pointer, so you cannot use them meanwhile. tabcap sends nothing unless its own Chrome window is the foreground window and the tab has focus, checks again before every key, and stops the moment that changes: new error **`not-foreground`** (`keys` / `of` say how many keys went out). It never works around the system's foreground rules: when Windows refuses, click the browser window's title bar (a click inside the page counts as you taking over) and run the command again. The foreground is handed back afterwards unless `chrome.restoreFront` is `false`.
+- Answers carry `input: "os"`, `eventShape: "os"`, `foreground: {taken, restored}`; `type` also `keyMode`, `keys`, `layout`. `tabcap browser status` gains `inputs: {cdp, os}` (CDP `Input.*` commands sent, operating-system records taken).
+- A text that the keyboard layout cannot type, Caps Lock being on, or a text that would outlast the command's time limit is refused before the first key. On macOS and Linux every `--os` command answers `unsupported`; it never falls back to CDP input.
+- **Contract changes**: `click`'s `<ref>` and `type`'s `<text>` are optional in `tabcap schema --json` (`--at` / `--secret` stand in; giving neither is still a usage error, exit 2); `type --delay` no longer lists a default of 0 (0 with `--trusted`, 120 with `--os`).
+- Range scenario s82 (`test/e2e/v12c.e2e.test.ts`).
+
 ## 1.0.0 (2026-11-13)
 
 ### Every tab of the browser: who changed it, who holds it, one window (docs/04 §52)

@@ -463,6 +463,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["click"],
     pos: ["ref"],
+    optional: 1,
     flags: [
       ...TT,
       {
@@ -472,10 +473,17 @@ export const COMMANDS: CommandSpec[] = [
         help: "trusted input via focus emulation: mouse path to the target, press, 50–140 ms, release (all events isTrusted); a tab not confirmed painted falls back to the DOM click (degraded: not-painted); fails honestly if not delivered, never retries",
       },
       { flag: "--dbl-click", key: "dblClick", kind: "bool", help: "double click (DOM: two clicks and a dblclick event; --trusted: two presses, Chrome fires dblclick)" },
+      {
+        flag: "--os",
+        key: "os",
+        kind: "bool",
+        help: "operating-system input (Windows only; `unsupported` elsewhere): brings the tabcap browser window to the foreground and uses the real pointer; the pointer is moved until the page itself reports it on the target, then pressed (not-delivered and no press otherwise); not-foreground when the window is not in front; for controls that ignore CDP input",
+      },
+      { flag: "--at", key: "at", kind: "string", help: "with --os, instead of a ref: a point of the page's viewport in CSS pixels (root document only; a point inside a frame needs a ref)", metavar: "x,y" },
       ...INTERACT_W,
     ],
     summary:
-      "click an element by ref (default: DOM el.click(), eventShape incomplete), then wait for a navigation it starts and for the DOM to settle; fails with `covered` when an overlay is in front (its close-button refs are in the error; tabcap never closes it)",
+      "click an element by ref (default: DOM el.click(), eventShape incomplete), then wait for a navigation it starts and for the DOM to settle; fails with `covered` when an overlay is in front (its close-button refs are in the error; tabcap never closes it); --os presses the real pointer through the operating system",
     example: "tabcap click e12",
     action: "click",
   },
@@ -519,23 +527,38 @@ export const COMMANDS: CommandSpec[] = [
   {
     path: ["type"],
     pos: ["text..."],
+    optional: 1,
     flags: [
       ...TT,
       { flag: "--trusted", key: "trusted", kind: "bool", help: "one key event pair per character (keydown … keyup), insertText for characters without a US-layout key (eventShape keys)" },
-      { flag: "--delay", key: "delay", kind: "number", help: "with --trusted: ms between two characters", default: 0, metavar: "ms" },
+      { flag: "--delay", key: "delay", kind: "number", help: "ms between two characters: with --trusted (default 0) or --os / --os-text (default 120)", metavar: "ms" },
       { flag: "--insert", key: "insert", kind: "bool", help: "one Input.insertText for the whole text, no key events (the default; eventShape insert)" },
+      {
+        flag: "--os",
+        key: "os",
+        kind: "bool",
+        help: "operating-system input (Windows only; `unsupported` elsewhere): brings the tabcap browser window to the foreground and presses real keys by scan code on its keyboard layout, one by one; stops with not-foreground the moment another window is in front (`keys` says how many went out); the whole text must be typable on the layout (Caps Lock off, input method in English mode); for controls that ignore CDP input",
+      },
+      { flag: "--os-text", key: "osText", kind: "bool", help: "as --os, but sends the characters themselves (no layout, no input method; for Chinese and other text in ordinary fields); a control that reads scan codes does not see them" },
+      { flag: "--secret", key: "secret", kind: "string", help: "with --os / --os-text, instead of text: type a stored value, <site>.password or <site>.username (the daemon types it; output shows <secret:…>; counts as the session's password fill, guard.login-limit)", metavar: "site.field" },
+      { flag: "--confirm", key: "confirm", kind: "bool", help: "allow a second --secret password in this session (only after the human said so)" },
       { flag: "--submit-key", key: "submitKey", kind: "string", help: "press this key after typing, e.g. Enter or Tab", metavar: "key" },
       ...INTERACT_W,
     ],
-    summary: "type into the element that has focus now (focus it first with click or fill). Default / --insert: one insertText, no key events (eventShape insert); --trusted: per-key events",
+    summary:
+      "type into the element that has focus now (focus it first with click or fill). Default / --insert: one insertText, no key events (eventShape insert); --trusted: per-key events; --os: real keys through the operating system (a password only by --secret)",
     example: "tabcap type hello --submit-key Enter",
     action: "type",
   },
   {
     path: ["press-key"],
     pos: ["key"],
-    flags: [...TT, ...INTERACT_W],
-    summary: "press a key or a combination on the focused element: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a, Control+Shift+R … (modifiers: Control, Shift, Alt, Meta)",
+    flags: [
+      ...TT,
+      { flag: "--os", key: "os", kind: "bool", help: "operating-system input (Windows only; `unsupported` elsewhere): brings the tabcap browser window to the foreground and presses the real key by scan code (Meta is not sent)" },
+      ...INTERACT_W,
+    ],
+    summary: "press a key or a combination on the focused element: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a, Control+Shift+R … (modifiers: Control, Shift, Alt, Meta); --os presses it through the operating system",
     example: "tabcap press-key Enter",
     action: "press",
   },

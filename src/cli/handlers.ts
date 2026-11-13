@@ -11,7 +11,7 @@
 // daemon action has a run and every `--text` a rendering or a json-only reason.
 
 import { readFileSync } from "node:fs";
-import { ok, type Envelope, type FailEnvelope, type OkEnvelope } from "../shared/envelope.ts";
+import { ok, TabcapError, type Envelope, type FailEnvelope, type OkEnvelope } from "../shared/envelope.ts";
 import { isRecord } from "../shared/json.ts";
 import type { Paths } from "../shared/paths.ts";
 import { nowMs } from "../shared/time.ts";
@@ -32,7 +32,7 @@ import { analyzeChain, analyzeDeps, analyzeDiff, analyzeFind, analyzeRecon, anal
 import { bundleDecode, bundleExportFixtures, bundleExportHar, bundleImportHar, bundleInfo, bundleRedact } from "./bundle.ts";
 import { listBundles, openRecordings, pruneBundles, renderBundleListText } from "./bundles.ts";
 import { daemonStatus, startDaemon, stopDaemon } from "./client.ts";
-import { schema, type CommandSpec } from "./commands.ts";
+import { schema, usageOf, type CommandSpec } from "./commands.ts";
 import { evaluateArgs } from "./evalfile.ts";
 import { fetchArgs, fetchClientTimeout } from "./fetch.ts";
 import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
@@ -115,6 +115,13 @@ export function custom(run: (ctx: Ctx) => Outcome | Promise<Outcome>): Handler {
 }
 
 /** A daemon command's hooks (src/cli/main.ts sends it). */
+/** A command whose one positional became optional because a flag can stand in for it: one of the two must be there. */
+export function needOne(sent: Sent, spec: CommandSpec, positional: string, flag: string): Sent {
+  const has = (k: string) => typeof sent.args[k] === "string" && sent.args[k] !== "";
+  if (!has(positional) && !has(flag)) throw new TabcapError("usage", `missing <${positional}>`, `Usage: ${usageOf(spec)}`);
+  return sent;
+}
+
 export function daemon(h: Pick<Handler, "prepare" | "fallback" | "output" | "render" | "jsonOnly">): Handler {
   return h;
 }
@@ -178,6 +185,10 @@ export function handlerTable(host: Host): Readonly<Record<string, Handler>> {
     "account bind": local({ run: ({ paths, args }) => accountBind(paths, args) }),
     "account list": local({ run: ({ paths, args }) => accountList(paths, args) }),
     "account set-state": local({ run: ({ paths, args }) => accountSetState(paths, args) }),
+    // docs/16: with --os a click takes --at instead of a ref, and type takes --secret instead of text;
+    // giving neither stays a usage error here, before the daemon is asked.
+    click: daemon({ prepare: (sent, { spec }) => needOne(sent, spec, "ref", "at") }),
+    type: daemon({ prepare: (sent, { spec }) => needOne(sent, spec, "text", "secret") }),
     // docs/04 §54.1 `evaluate --file`: the script is read here, in the caller's working directory.
     evaluate: daemon({ prepare: (sent) => ({ ...sent, args: evaluateArgs(sent.args) }) }),
     // `html --text` is the daemon's textContent switch, not an output format.

@@ -57,8 +57,14 @@ export class DirectTransport implements Transport {
   readonly closed: Promise<string>;
   /** Focus-stealing calls refused so far (audit, docs/06 A1.1). */
   refusedFocusCalls = 0;
-  /** Explicit level-3 calls (`tab select --bring-to-front`) made so far. */
+  /** Explicit level-3 calls (`tab select --bring-to-front`, `--os` input) made so far. */
   allowedFocusCalls = 0;
+  /** CDP `Input.*` commands sent so far (audit, docs/16 §6: an `--os` command adds none). */
+  cdpInputs = 0;
+  /** Operating-system input records the system took so far (`--os`, docs/16). */
+  osInputs = 0;
+  /** `chrome.restoreFront` as read at `browser start`: `--os` hands the foreground back when it took it. */
+  restoreFront = true;
   /** Target.createTarget calls in flight: page targets appearing meanwhile are ours (background tabs, no focus change). */
   private ownCreates = 0;
   /** 0.7.1-A: one window per `Input.*` command sent through `send` (docs/04 §37). */
@@ -162,7 +168,9 @@ export class DirectTransport implements Transport {
       { read: frontmostAppAsync, activate: activateAppAsync, sleep: (ms) => Bun.sleep(ms), now: () => Date.now() },
       o.restoreFront && process.platform === "darwin",
     );
-    return new DirectTransport(cdp, attacher, launched.proc, launched.pid, launched.cdp, version, front, launched.args, launched.unmatchedDrops, guard);
+    const t = new DirectTransport(cdp, attacher, launched.proc, launched.pid, launched.cdp, version, front, launched.args, launched.unmatchedDrops, guard);
+    t.restoreFront = o.restoreFront;
+    return t;
   }
 
   send(method: string, params: CdpParams = {}, sessionId: string | null = null, timeoutMs?: number): Promise<CdpResult> {
@@ -182,6 +190,7 @@ export class DirectTransport implements Transport {
     if (method.startsWith("Input.")) {
       // 0.7.1-A: tabcap's own input is trusted in the page; the take-over listener skips this window.
       const w = this.inputWindows.begin(sessionId ?? "");
+      this.cdpInputs++;
       return this.cdp.send(method, params, sessionId, timeoutMs).finally(() => this.inputWindows.end(w));
     }
     return this.cdp.send(method, params, sessionId, timeoutMs);
@@ -189,8 +198,8 @@ export class DirectTransport implements Transport {
 
   /**
    * Focus ladder level 3 (docs/07 §1.1): Page.bringToFront, which takes the
-   * macOS foreground and activates the tab. The only way past FORBIDDEN_METHODS,
-   * used by `tab select --bring-to-front` alone, i.e. when asked for explicitly.
+   * foreground and activates the tab. The only way past FORBIDDEN_METHODS, used by
+   * `tab select --bring-to-front` and by `--os` input (docs/16), i.e. when asked for explicitly.
    */
   async bringToFront(sessionId: string): Promise<void> {
     this.allowedFocusCalls++;

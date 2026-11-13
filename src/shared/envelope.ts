@@ -20,6 +20,7 @@ export type ErrorCode =
   | "not-delivered" // trusted input did not reach the page
   | "move-timeout" // click --trusted: a mouse move got no answer in time; nothing was pressed, no retry
   | "not-painted" // hover: the tab is not confirmed painted, so no mouse move was sent
+  | "not-foreground" // docs/16: `--os` input only goes to tabcap's own Chrome window while it is the foreground window and the tab has focus; it is not, or stopped being so (`keys` already sent)
   | "covered" // an overlay (dialog, mask, layer, consent, timeout prompt) covers the target; `overlay` names it and its close-button refs
   | "ambiguous-target" // docs/04 §53.1 / §53.4: the target is a container whose centre is another clickable element, or several options match; nothing was clicked
   | "not-visible" // docs/04 §53.3: the target is not visible (no box, opacity 0, clipped away); nothing was done
