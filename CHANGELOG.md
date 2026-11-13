@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## Unreleased
+## 1.1.0 (2026-11-13)
 
 ### Small gaps a day of real use found (docs/04 §54)
 

@@ -824,3 +824,8 @@
 - 做了什么：unit / native 三个系统、e2e Linux 与 Windows 各三片共 12 个作业全绿【实测】。Windows 探针里 `press-key a --os` 的 `foreground` 现在是 `{taken: true, restored: true}`，与随后读到的前台窗口（WindowsTerminal）一致。
 - 卡在哪：没有。仍【待验】的都要那台 Windows：有人在用的桌面上前台锁拦不拦、真实控件认不认 `--os` 与键间隔、还前台引起的 `blur`、输入法、Caps Lock 读数、编译成单文件 exe 后的 `bun:ffi`。
 - 下一格从哪开始：作者审并合并 PR #51 → 在那台 Windows 上试 `tabcap type --os --secret <site>.password`。格 B（§55）等作者的五个决定。
+
+## 2026-11-13 · 发版 1.1.0（主循环）
+- 做了什么：作者看过 PR #51 的报告（列了三处待确认：`click <ref>` / `type <text>` 在 schema 里变可省与 `--delay` 默认值去掉、`browser status` 的 `inputs`、`evaluate --file` 按一个块执行）后说「合吧。发版1.1.0小版本。」【人确认：合并与发版；三处我按随合并一并接受理解，作者没有逐条说】。版本号改为 1.1.0（package.json、npm 模板五个、packaging/npm/README.md、两份 README 状态行、样例证据包夹具），两份 CHANGELOG 的「未发布」定稿为 1.1.0（2026-11-13）。Scoop 清单不动，发布后由 homebrew.yml 渲染。本机 tsc 无错、单测全过后推送。
+- 卡在哪：没有。格 B（§55）仍只有提案，不在 1.1.0 里；`--os` 只有 Windows，真实控件上的表现【待验】。
+- 下一格从哪开始：rebase 合并 PR #51 → main 上 ci.yml 绿 → 推 `v1.1.0` 标签 → 看 release、npm、tap / Scoop → 发布 GitHub Release。
