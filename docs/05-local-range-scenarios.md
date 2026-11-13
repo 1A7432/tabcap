@@ -555,6 +555,21 @@
   9. **没卡**：正常页面上 `recover` → `how: "none"`，靶场没有新请求。
 - 不在靶场里的【待验】：真实安全控件卡死属于哪一种；有界面时 Chrome 的「页面无响应」对话框与本流程的相互影响（需作者本机）。
 
+### s82 os-input（P1；`16`；Windows）
+- 靶场（`test/e2e/site.ts` 的 `startOsSite`）：`/s82` 一页，不滚动：文本框「用户」、密码框「密码」、按钮「提交」，一个固定在视口 (300,150)、60×40 的色块（`--at` 用），一个同源 iframe（`/s82/frame`）里的按钮「框内」。两个文档都把收到的 `keydown` / `keyup` / `pointerdown` / `mousedown` / `mouseup` / `click` 记进顶层的 `window.__s82`：`isTrusted`、在哪个文档、落在哪个元素、`code` / `key`（密码框里的不记）、Shift、客户区坐标。oracle：`__s82`、输入框的值、`browser status` 的 `inputs`（`cdp`：守护进程发出的 CDP `Input.*` 命令数；`os`：操作系统收下的输入记录数）。页面里有 trusted 事件而 `inputs.cdp` 没动 → 只能来自操作系统。
+- 走法与 expected（`test/e2e/v12c.e2e.test.ts`）。第 1、2 步所有平台都跑，其余只在 Windows 上：
+  1. **互斥的参数**：`click --at`（没有 `--os`）、`click <ref> --os --trusted`、`--os` 同时给 ref 和 `--at`、`--os --dbl-click`、`type --secret`（没有 `--os`）、`type <text> --os --secret`、`--os --insert`、`--os-text --trusted`、`--delay 99999` → 都是 `usage`；`click --os`、`type --os`（什么都没给）退出码 2。页面日志为空，`inputs` 不变。
+  2. **非 Windows**：`click <ref> --os`、`click --os --at`、`type --os`、`type --os-text`、`type --os --secret`、`press-key --os` → 都是 `unsupported`，`error.platform` 是本平台，`next` 提到 `--trusted`；页面日志为空、两个框是空的、`inputs` 不变；随后 `fill --secret` 照常成功（被拒的那次没占登录次数）。
+  3. **`click <ref> --os`**：回答 `input: "os"`、`eventShape: "os"`、`level: 3`、`delivered.pointerdown: true`、`pointer.moves ≥ 2`、`foreground.{taken,restored}` 是布尔值；日志里恰好一次 trusted `mousedown`、一次 trusted `click`，都落在「用户」上；`document.activeElement` 是它；`inputs.cdp` 不变、`inputs.os` 变大。
+  4. **`type abcXYZ19 --os --delay 30`**：`keys: 8`、`keyMode: "scan"`、`layout` 是 4 位十六进制；框里是 `abcXYZ19`；`keydown` 的 `code` 依次是 `KeyA KeyB KeyC ShiftLeft KeyX ShiftLeft KeyY ShiftLeft KeyZ Digit1 Digit9`，全是 trusted，字母键的 `shiftKey` 是前三个假、后三个真；`inputs.os` 增加 22（8 个键与 3 次 Shift，各一按一抬），`inputs.cdp` 不变。`press-key Tab --os` 后焦点在密码框。
+  5. **`type --os --secret s82.password`**：`masked: true`、`value: "<secret:s82.password>"`；`evaluate` 读密码框的值得到的也是 `<secret:s82.password>`（守护进程把等于库里那个值的输出换成引用，所以这就是相等的证明）；这一步的全部输出里没有明文；不带 `--confirm` 再来一次 → `guard.login-limit`，密码框长度不变。
+  6. **打不出的字符与 `--os-text`**：布局是 `0409` 时 `type "aü" --os` → `usage`，消息说第 2 个字符（U+00fc），`inputs.os` 不变，框里的字没动。`press-key Control+a --os` 后 `type "中文ü" --os-text` → `keyMode: "unicode"`、`keys: 3`，框里是 `中文ü`。
+  7. **`click --os --at 330,170`**：`landedOn.tag` 是 `div`；日志里一次 trusted `mousedown` 落在色块上，坐标与 (330,170) 各差不超过 2。`--at 60,250`（在 iframe 里）→ `unsupported`；`--at 5000,5000` → `usage`；两次都没有新的 `mousedown`。
+  8. **frame ref 与按钮**：`snapshot --frames` 取「框内」的 ref（带 frame 路径），`click <ref> --os` 的回答有 `frame`；再点「提交」。日志里的 `click` 恰好两条：frame 文档里的「框内」、顶层的「提交」，都是 trusted、`detail` 为 1。
+  9. **不算人、不留明文**：等 800 ms 后 `handoff status` 的 `state` 不是 `waiting`；`net stop` 后证据包的 `events.jsonl` 与 `raw/cdp.jsonl` 里没有密码明文，`type --os --secret` 那条 `cmd` 事件的 `input` 有 `os: true` 与 `secret` 引用。
+- 测试自己做的一件事：在 Windows 上开头记下真实鼠标指针的位置，结尾放回去（同一台 runner 上后面的文件不能发现指针停在页面上）。
+- 不在靶场里的【待验】：真实安全控件认不认 `--os`、要多大的键间隔（只能在作者那台 Windows 上）；命令中途把前台切走（端到端造不出来，只有单测 `osinput`）；输入法开着时的行为；页面缩放不是 100 % 时 `click --os` 的第一估计。
+
 ## 21. 场景索引
 
 10-21 建。场景编号 → 实现它的 `test/e2e/site.ts` 站点函数与主要路由 → 跑它的 e2e 文件。e2e 与单测两列是 grep 出来的：在 `test/e2e/*.e2e.test.ts`、`test/unit/*.ts` 里搜编号（前后不接字母数字，如 `s07`、`/s22/`、`S40_`），列出提到它的文件（省略目录与 `.e2e.test.ts` / `.test.ts` 后缀）；没有文件写编号的三个场景按路由搜（标「按路由」）。单测 `test/unit/scenario-index.test.ts` 读这张表：每个 `### sNN` 都要有一行，状态不是「未落地」「仅对照靶场」的，编号必须能在 `site.ts` 或某个测试文件里搜到；「未落地」的在 `site.ts` 里搜不到（落地了就要回来改表）；「仅对照靶场」的在 `docs/compare/range.ts` 里搜得到。
@@ -621,9 +636,10 @@
 | s79 | ui-library-patterns | 已落地 | `startPageOpsSite`：`/s79`、`/s79/api/{list,slow,longpoll}`；解码插件 `test/e2e/plugins/b64-decode` | v11b | page-ops53, fetch-like53 |
 | s80 | gaps-small | 已落地 | `startGapsSite`：`/s80`、`/s80/big`、`/s80/login` | v12a | gaps54 |
 | s81 | page-hung | 未落地 | —（提案，`04` §55 待作者审） | — | — |
+| s82 | os-input | 已落地 | `startOsSite`：`/s82`、`/s82/frame` | v12c | osinput |
 
 空号：
 - s23–s39、s43–s45：`09` §12 的规划编号，本文不用（0.6-D 起本文从 s47 编，见 §7）。其中 s24 / s36 / s45 的遮挡页在 `site.ts` 的 `startOverlaySite`（`/ov/*`，0.3-D）里，按 `09` 的编号写在注释里，不是本文的场景。
 - s57、s58：`09` §12 的规划编号（10-21 由 `09` 原来的 s41 chart-instance、s42 report-viewer 改号而来，那两个号与本文已落地的 s41、s42 撞了）。
 - s61：没有用过（docs、NOTES、代码里都搜不到）。
-- s82 起：未分配。
+- s83 起：未分配。

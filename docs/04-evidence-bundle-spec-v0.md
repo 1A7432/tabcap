@@ -1634,3 +1634,19 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 
 - 靶场 `05` s81（先成文）；e2e `v12b`；单测覆盖探测判定、`recover` 的阶梯选择（假 transport）。
 - 【待验】Windows / Linux 上 `Page.crash` 与 `Inspector.targetCrashed` 的时序（上表只在 macOS 测过；CI 的 e2e 会跑到）；真实安全控件卡死时属于哪一种（需作者本机）。
+
+## 56. OS 级输入 `--os`（11-13 作者审过 `16` 同意；Windows 部分已实现，分支 `1.1-c-os-input`；Windows 上的行为待 CI 验证）
+
+设计、理由与风险在 `16`；这里只列契约。
+
+- **命令**：`click <ref> --os`、`click --os --at <x>,<y>`、`type <text> --os [--delay ms]`、`type <text> --os-text`、`type --os|--os-text --secret <site>.password|username [--confirm]`、`press-key <key> --os`。只有 Windows；别的平台回 `unsupported`（`error.platform`），不退回 CDP 输入。
+- **共有的回答字段**：`input: "os"`、`level: 3`、`trusted: true`、`eventShape: "os"`、`foreground: {taken, restored}`（这条命令有没有把浏览器窗口带到前台、结束时有没有还回去；`chrome.restoreFront: false` 时不还）。其余字段见 `16` §2。
+- **新错误码 `not-foreground`**：前台窗口不是 tabcap 的 Chrome，或这个标签没有焦点。`error.foreground`（`{pid, window}` 或 `null`）、`error.browserPid`；打字中途丢了前台时另有 `error.keys` / `error.of`（已发出几个、共几个）。tabcap 不重试，不绕过系统的前台限制；`next` 请人点浏览器窗口的标题栏（点在页面里是接管，§37）。
+- **`not-delivered` 的新来源**：系统没收下输入；指针读回不到 / 对不上目标（`error.reason`：`no-readback` / `no-scale` / `off-target`），这时没有按下；按下了但页面没收到。
+- **`usage`**：互斥的参数；整段文字里有这个键盘布局打不出的字符（`error.index`、`error.layout`；密码不报字符本身）；打完会超过命令时限；`press-key` 的 Meta。**`unsupported`** 还用于：Caps Lock 开着（扫描码方式）；`--at` 落在 iframe 里。
+- **`tabcap browser status`** 新增 `inputs: {cdp, os}`：守护进程发出的 CDP `Input.*` 命令数、操作系统收下的输入记录数。s82 用它证明一条 `--os` 命令没有用 CDP 输入。
+- **契约上的改动（不只是加法）**：`click` 的 `<ref>` 与 `type` 的 `<text>` 变成可省（`schema --json` 里 `required: false`），两样都没给仍是 CLI 一侧的 `usage`、退出码 2；`type --delay` 的 `default` 从 `0` 变成没有（`--trusted` 默认 0，`--os` 默认 120）。
+- **证据包**：格式不变。`cmd` 事件的 `input` 带 `os: true`；`--secret` 记的是引用。`--os` 命令整段算 tabcap 自己的输入窗口（§37），接管监听不把它算成人。
+- **凭据**：密码只能经 `--secret` 给，和 `fill --secret` 共用同一个登录次数计数（`guard.login-limit`）。
+- 靶场 `05` s82，e2e `v12c`，单测 `osinput`。
+

@@ -61,6 +61,16 @@ function visibleWindows(): unknown {
   return { method: "none on this OS" };
 }
 
+/** Windows: which window has the foreground (docs/16: `--os` input needs tabcap's Chrome there). */
+function foregroundWindow(): unknown {
+  const script =
+    "Add-Type -Namespace W -Name U -MemberDefinition '[DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow(); [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);'; " +
+    "$h = [W.U]::GetForegroundWindow(); $p = 0; [void][W.U]::GetWindowThreadProcessId($h, [ref]$p); $n = Get-Process -Id $p -ErrorAction SilentlyContinue; " +
+    "[pscustomobject]@{ hwnd = $h.ToInt64(); pid = $p; name = $n.ProcessName; title = $n.MainWindowTitle } | ConvertTo-Json -Compress";
+  const r = Bun.spawnSync(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { stdout: "pipe", stderr: "pipe", timeout: 30_000 });
+  return { foreground: r.stdout.toString().trim() || null, stderr: r.stderr.toString().trim().slice(0, 400) };
+}
+
 function maskedDaemonInfo(file: string): unknown {
   if (!existsSync(file)) return { exists: false };
   const raw: unknown = JSON.parse(readFileSync(file, "utf8"));
@@ -113,6 +123,17 @@ try {
   for (const [w, h] of [["900", "700"], ["900", "500"]] as const) {
     await tabcap("resize", w, h);
     await tabcap("evaluate", metrics);
+  }
+  // docs/16: can this runner give tabcap's Chrome the foreground, and does the system take input records?
+  // Keyboard only (the pointer stays where it is for the tests that follow). A refusal here is a finding, not a failed step.
+  if (process.platform === "win32") {
+    show("foreground window before --os", foregroundWindow());
+    const before = failed;
+    await tabcap("press-key", "a", "--os");
+    show("foreground window after --os", foregroundWindow());
+    await tabcap("type", "probe", "--os", "--delay", "20");
+    failed = before;
+    await tabcap("browser", "status");
   }
   await tabcap("daemon", "status");
   await tabcap("daemon", "stop");

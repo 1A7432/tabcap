@@ -440,10 +440,10 @@ Example: `tabcap wait --text 'Order placed' --text 'Payment failed' --timeout 20
 
 ### `tabcap click`
 
-click an element by ref (default: DOM el.click(), eventShape incomplete), then wait for a navigation it starts and for the DOM to settle; fails with `covered` when an overlay is in front (its close-button refs are in the error; tabcap never closes it)
+click an element by ref (default: DOM el.click(), eventShape incomplete), then wait for a navigation it starts and for the DOM to settle; fails with `covered` when an overlay is in front (its close-button refs are in the error; tabcap never closes it); --os presses the real pointer through the operating system
 
 ```
-tabcap click <ref> [--session name] [--timeout ms] [--tab t2] [--trusted] [--dbl-click] [--no-wait] [--snapshot] [--wait dom|requests]
+tabcap click [<ref>] [--session name] [--timeout ms] [--tab t2] [--trusted] [--dbl-click] [--os] [--at x,y] [--no-wait] [--snapshot] [--wait dom|requests]
 ```
 
 Example: `tabcap click e12`
@@ -453,6 +453,8 @@ Example: `tabcap click e12`
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--trusted` |  | trusted input via focus emulation: mouse path to the target, press, 50–140 ms, release (all events isTrusted); a tab not confirmed painted falls back to the DOM click (degraded: not-painted); fails honestly if not delivered, never retries |
 | `--dbl-click` |  | double click (DOM: two clicks and a dblclick event; --trusted: two presses, Chrome fires dblclick) |
+| `--os` |  | operating-system input (Windows only; `unsupported` elsewhere): brings the tabcap browser window to the foreground and uses the real pointer; the pointer is moved until the page itself reports it on the target, then pressed (not-delivered and no press otherwise); not-foreground when the window is not in front; for controls that ignore CDP input |
+| `--at <x,y>` |  | with --os, instead of a ref: a point of the page's viewport in CSS pixels (root document only; a point inside a frame needs a ref) |
 | `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
 | `--snapshot` |  | also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait |
 | `--wait <dom\|requests>` |  | requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom |
@@ -495,10 +497,10 @@ Example: `tabcap fill e7 --secret example.password`
 
 ### `tabcap type`
 
-type into the element that has focus now (focus it first with click or fill). Default / --insert: one insertText, no key events (eventShape insert); --trusted: per-key events
+type into the element that has focus now (focus it first with click or fill). Default / --insert: one insertText, no key events (eventShape insert); --trusted: per-key events; --os: real keys through the operating system (a password only by --secret)
 
 ```
-tabcap type <text> [--session name] [--timeout ms] [--tab t2] [--trusted] [--delay ms] [--insert] [--submit-key key] [--no-wait] [--snapshot] [--wait dom|requests]
+tabcap type [<text>] [--session name] [--timeout ms] [--tab t2] [--trusted] [--delay ms] [--insert] [--os] [--os-text] [--secret site.field] [--confirm] [--submit-key key] [--no-wait] [--snapshot] [--wait dom|requests]
 ```
 
 Example: `tabcap type hello --submit-key Enter`
@@ -507,8 +509,12 @@ Example: `tabcap type hello --submit-key Enter`
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
 | `--trusted` |  | one key event pair per character (keydown … keyup), insertText for characters without a US-layout key (eventShape keys) |
-| `--delay <ms>` | `0` | with --trusted: ms between two characters |
+| `--delay <ms>` |  | ms between two characters: with --trusted (default 0) or --os / --os-text (default 120) |
 | `--insert` |  | one Input.insertText for the whole text, no key events (the default; eventShape insert) |
+| `--os` |  | operating-system input (Windows only; `unsupported` elsewhere): brings the tabcap browser window to the foreground and presses real keys by scan code on its keyboard layout, one by one; stops with not-foreground the moment another window is in front (`keys` says how many went out); the whole text must be typable on the layout (Caps Lock off, input method in English mode); for controls that ignore CDP input |
+| `--os-text` |  | as --os, but sends the characters themselves (no layout, no input method; for Chinese and other text in ordinary fields); a control that reads scan codes does not see them |
+| `--secret <site.field>` |  | with --os / --os-text, instead of text: type a stored value, <site>.password or <site>.username (the daemon types it; output shows <secret:…>; counts as the session's password fill, guard.login-limit) |
+| `--confirm` |  | allow a second --secret password in this session (only after the human said so) |
 | `--submit-key <key>` |  | press this key after typing, e.g. Enter or Tab |
 | `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
 | `--snapshot` |  | also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait |
@@ -516,10 +522,10 @@ Example: `tabcap type hello --submit-key Enter`
 
 ### `tabcap press-key`
 
-press a key or a combination on the focused element: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a, Control+Shift+R … (modifiers: Control, Shift, Alt, Meta)
+press a key or a combination on the focused element: Enter, Tab, Escape, ArrowDown, a, Shift+Tab, Control+a, Control+Shift+R … (modifiers: Control, Shift, Alt, Meta); --os presses it through the operating system
 
 ```
-tabcap press-key <key> [--session name] [--timeout ms] [--tab t2] [--no-wait] [--snapshot] [--wait dom|requests]
+tabcap press-key <key> [--session name] [--timeout ms] [--tab t2] [--os] [--no-wait] [--snapshot] [--wait dom|requests]
 ```
 
 Example: `tabcap press-key Enter`
@@ -527,6 +533,7 @@ Example: `tabcap press-key Enter`
 | Option | Default | Meaning |
 |---|---|---|
 | `--tab <t2>` |  | act on this tab of the session (e.g. a popup from `tabcap tab list`) instead of its current tab |
+| `--os` |  | operating-system input (Windows only; `unsupported` elsewhere): brings the tabcap browser window to the foreground and presses the real key by scan code (Meta is not sent) |
 | `--no-wait` |  | return right after the action: skip the post-action wait (a navigation it starts, then 100 ms without DOM changes; 3 s at most, longer under emulate throttling) |
 | `--snapshot` |  | also return a fresh snapshot (as `tabcap snapshot`) taken after the action and its wait |
 | `--wait <dom\|requests>` |  | requests: after the usual wait, also wait (up to --timeout, not an error) for the XHR / fetch requests the command started → wait.requests {finished, pending?, ids?}; dom: the usual wait only. Default: config.json actions.wait, else dom |

@@ -3129,3 +3129,51 @@ export function startGapsSite(): GapsSite {
   });
   return { origin: `http://127.0.0.1:${server.port}`, served, loginBodies, stop: () => server.stop(true) };
 }
+
+// ---------------------------------------------------------------- s82 os-input (docs/16, docs/05 s82)
+// One page that writes down every keyboard and pointer event it receives, with
+// isTrusted, so the test reads what really arrived: a text field, a password
+// field, a button, a fixed box at a known viewport position (`--at`), and a
+// same-origin frame with a button (a frame ref). Short and fixed: the page
+// never scrolls, so viewport coordinates stay where the test expects them.
+export const OS_TITLE = "系统输入 s82";
+/** Typable on a US keyboard layout: letters in both cases, digits, `-` and `!`. */
+export const OS_PASSWORD = "Os82-pa55!Wd";
+export const OS_USER = "u82";
+/** The fixed box of `--at`: its viewport rectangle and a point inside it. */
+export const OS_SPOT = { left: 300, top: 150, width: 60, height: 40, at: { x: 330, y: 170 } };
+export type OsSite = { origin: string; stop: () => void };
+
+export function startOsSite(): OsSite {
+  const log = `window.__s82 = window.__s82 || [];
+const rec = (where) => (e) => { (window.top.__s82).push({ t: e.type, tr: e.isTrusted, where, id: e.target && e.target.id || null, code: e.target && e.target.type === "password" ? null : (e.code || null), key: e.target && e.target.type === "password" ? null : (e.key || null), shift: !!e.shiftKey, ctrl: !!e.ctrlKey, x: typeof e.clientX === "number" ? Math.round(e.clientX) : null, y: typeof e.clientY === "number" ? Math.round(e.clientY) : null, detail: e.detail }); };`;
+  const listen = (where: string) => `for (const k of ["keydown", "keyup", "pointerdown", "mousedown", "mouseup", "click"]) addEventListener(k, rec(${JSON.stringify(where)}), true);`;
+  const page = `<!doctype html><meta charset=utf-8><title>${OS_TITLE}</title>
+<style>html,body{margin:0;overflow:hidden;font:14px sans-serif}
+#row{position:fixed;left:20px;top:20px}
+input,button{font:16px sans-serif;height:32px}
+#spot{position:fixed;left:${OS_SPOT.left}px;top:${OS_SPOT.top}px;width:${OS_SPOT.width}px;height:${OS_SPOT.height}px;background:#0a0}
+#fr{position:fixed;left:20px;top:220px;width:300px;height:80px;border:0}</style>
+<div id=row><input id=user aria-label="用户"> <input id=pwd type=password aria-label="密码"> <button id=go>提交</button></div>
+<div id=spot role=img aria-label="绿点"></div>
+<iframe id=fr src="/s82/frame" title="内框"></iframe>
+<script>${log}
+${listen("top")}</script>`;
+  const frame = `<!doctype html><meta charset=utf-8><title>s82 frame</title>
+<style>html,body{margin:0;overflow:hidden}button{position:fixed;left:40px;top:20px;font:16px sans-serif;height:32px}</style>
+<button id=inner>框内</button>
+<script>${log}
+${listen("frame")}</script>`;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (req) => {
+      const p = new URL(req.url).pathname;
+      const html = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" };
+      if (p === "/s82") return new Response(page, { headers: html });
+      if (p === "/s82/frame") return new Response(frame, { headers: html });
+      return new Response("nf", { status: p === "/favicon.ico" ? 204 : 404 });
+    },
+  });
+  return { origin: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
+}

@@ -12,6 +12,19 @@
 - **四处提示，把人引到已有功能上**：接管（`human-takeover`）的 `next` 说明别的程序发的 OS 级输入也算「用户」、开关在哪（由用户决定）；`net body` 预览被截断时带 `previewHint`（整份在 `path`，`--out` / `--file`；`--full` 不会加长预览）；`net show` 有打码值时带 `redactedHint`（`--reveal`，人要求时才用）；会话最后一个标签被关后的 `no-tab` 带 `lastUrl`（tabcap 不自己重开）。
 - 靶场场景 s80（`test/e2e/v12a.e2e.test.ts`）。
 
+### OS 级输入 `--os`（docs/16、docs/04 §56；只有 Windows）
+
+给不认 CDP 输入的控件用（在 Chrome 之下读键的银行密码控件）。还没有在 Windows 上验证过：代码是在 macOS 上写的，Windows 的端到端（s82）是第一次真检查。
+
+- **`tabcap type <text> --os [--delay ms]`**：经操作系统按真实的键（`SendInput`，按浏览器窗口的键盘布局换算成扫描码），默认每两个字符间隔 120 ms。**`--os-text`** 改为发字符本身（普通输入框里的中文等；读扫描码的控件不认）。**`tabcap press-key <key> --os`** 按一个键或组合键（Meta 不发）。
+- **`tabcap type --os --secret <site>.password`**：密码只能这样给，不进命令行；输出里是 `<secret:…>`。和 `fill --secret` 共用「每会话一次密码」的计数（`guard.login-limit`、`--confirm`）。
+- **`tabcap click <ref> --os`** 与 **`click --os --at <x>,<y>`**：按真实的鼠标。先移指针，直到页面自己报告指针在目标上（读回 trusted 的 `mousemove`），才按下；否则 `not-delivered`，不按。frame 里的 ref 可以；`--at` 是根文档视口里的一点。
+- **代价**：`--os` 会把 tabcap 的浏览器窗口带到前台，并占用真实的键盘和鼠标，这期间你不能同时用。只有当前台窗口是 tabcap 自己的 Chrome、且这个标签有焦点时才发输入；每个键之前再查一次，一变就停：新错误码 **`not-foreground`**（`keys` / `of` 说明已发出几个键）。不绕过系统的前台限制：Windows 不给前台时，点一下浏览器窗口的标题栏（点在页面里会被算成你接管）再重跑。结束后把前台还回去，`chrome.restoreFront: false` 时不还。
+- 回答带 `input: "os"`、`eventShape: "os"`、`foreground: {taken, restored}`；`type` 另有 `keyMode`、`keys`、`layout`。`tabcap browser status` 新增 `inputs: {cdp, os}`（发出的 CDP `Input.*` 命令数、操作系统收下的输入记录数）。
+- 键盘布局打不出的文字、Caps Lock 开着、打完会超过命令时限：第一个键之前就拒绝。macOS 与 Linux 上所有 `--os` 命令回 `unsupported`，不会退回 CDP 输入。
+- **契约改动**：`tabcap schema --json` 里 `click` 的 `<ref>`、`type` 的 `<text>` 变成可省（由 `--at` / `--secret` 顶替；两样都没给仍是 usage 错误，退出码 2）；`type --delay` 不再写默认值 0（`--trusted` 是 0，`--os` 是 120）。
+- 靶场场景 s82（`test/e2e/v12c.e2e.test.ts`）。
+
 ## 1.0.0（2026-11-13）
 
 ### 浏览器里的每个标签：谁改的、谁拿着、一个窗口（docs/04 §52）
