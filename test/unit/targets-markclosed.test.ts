@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { Tabs, type Tab } from "../../src/daemon/browser/targets.ts";
+import { TabcapError } from "../../src/shared/envelope.ts";
 import type { AttachHook, AttachedTarget, CdpEvent, Transport } from "../../src/daemon/transport/types.ts";
 
 function fakeTransport() {
@@ -149,4 +150,44 @@ describe("closing the current tab: the fallback (0.7.3, docs/04 §16)", () => {
       expect(current(tabs)).toBe("t1");
     });
   }
+});
+
+// docs/04 §54.4: the no-tab error of a session whose last tab was closed says where that tab was.
+describe("no-tab after the last tab closed: lastUrl (docs/04 §54.4)", () => {
+  const caught = (fn: () => unknown): TabcapError => {
+    try {
+      fn();
+    } catch (e) {
+      if (e instanceof TabcapError) return e;
+      throw e;
+    }
+    throw new Error("did not throw");
+  };
+
+  test("an http(s) page: the message and error.lastUrl carry its URL; tabcap does not reopen it", async () => {
+    const f = fakeTransport();
+    const tabs = new Tabs(f.t, false);
+    const t1 = await tabs.createTab("s");
+    t1.url = "https://bank.example/login?step=2#/pwd";
+    await tabs.closeTab(t1);
+    const e = caught(() => tabs.pick("s", null));
+    expect(e.code).toBe("no-tab");
+    expect(e.message).toBe('session "s" tab t1 was closed (it was at https://bank.example/login?step=2#/pwd)');
+    expect(e.extra).toEqual({ lastUrl: "https://bank.example/login?step=2#/pwd" });
+    expect(e.next).toContain("`tabcap navigate <url>`");
+    expect(e.next).toContain("does not reopen a closed tab by itself");
+    expect(current(tabs)).toBeNull();
+    expect(tabs.sessionTabs("s")).toEqual([]);
+  });
+
+  test("about:blank (or any non-http URL) is not offered", async () => {
+    const f = fakeTransport();
+    const tabs = new Tabs(f.t, false);
+    const t1 = await tabs.createTab("s");
+    await tabs.closeTab(t1);
+    const e = caught(() => tabs.pick("s", null));
+    expect(e.message).toBe('session "s" tab t1 was closed');
+    expect(e.extra).toEqual({});
+    expect(e.next).toBe("run navigate first: `tabcap navigate <url>` opens a background tab for this session.");
+  });
 });

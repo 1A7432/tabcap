@@ -28,7 +28,7 @@ Setup, once: `tabcap setup && tabcap daemon start && tabcap browser start` (`--p
 
 ## Output budget
 
-Large things come back as **file paths** (screenshots, bodies, `snapshot --file-path`). Any answer whose `data` is over `TABCAP_OUTPUT_LIMIT` (16384 bytes) comes back as `{summary, file, bytes, truncated: true}`: the summary keeps the counts, `file` holds the whole `data` as JSON. **Read `file` when you need the rest**, or ask for less on the command itself: `--select <path>` (`requests[*].url`), `--grep <regex>` (`--context n`), `--fields a,b`; `--full` prints everything.
+Large things come back as **file paths** (screenshots, bodies, `snapshot --file-path`). Any answer whose `data` is over `TABCAP_OUTPUT_LIMIT` (16384 bytes) comes back as `{summary, file, bytes, truncated: true}`: the summary keeps the counts, `file` holds the whole `data` as JSON. **Read `file` when you need the rest**, or ask for less on the command itself: `--select <path>` (`requests[*].url`), `--grep <regex>` (`--context n`), `--fields a,b`; `--full` prints everything. Garbled non-ASCII (PowerShell 5.1): `--ascii`.
 
 ## Tasks
 

@@ -789,3 +789,8 @@
 - 做了什么：PR #49 合入（rebase，main 94cb792），main 的 ci.yml 绿后推 `v1.0.0`；release run 43261223547 全绿，npm 五个包都是 1.0.0【实测：npm view】。作者让我代为发布 GitHub Release：去掉预发布、设为 Latest，说明取 CHANGELOG 1.0.0 一节。homebrew.yml run 43265256624 绿：tap 的 `Formula/tabcap.rb` 与 Scoop 清单（e6b4852）的哈希都与 release 的 SHA256SUMS 一致【实测】。
 - 卡在哪：PR #49 第一次 CI 里 `unit (macos-26)`、`native (macos-26)` 报「The job was not acquired by Runner of type hosted even after multiple attempts」，0 步，GitHub 的 macOS arm64 容量问题，只重跑这两个后通过——不是偶发失败，不改代码。§52 的有界面手动检查、v02d、门户上的 Bug A 仍【待验】。
 - 下一格从哪开始：回到作者项目里用 1.0.0 复测门户（Bug A 与 §53 各项），或作者指定的下一项。
+
+## 2026-11-13 · 格 A：一天真实使用报上来的小缺口（主循环，分支 `1.1-a-small-gaps`）
+- 做了什么：作者贴来一份 Windows 上（老版本）的使用反馈，逐条对照 1.0.0 后说「先做没有的吧，格 ABC 三个都做」【人确认】。格 A = docs/04 §54：`evaluate --file`（按块执行，UTF-8 / 带 BOM 的 UTF-16）、`screenshot --scale`、输出标志 `--ascii`（`TABCAP_OUTPUT_ASCII=1`）、四处提示（接管的 `next`、`net body` 的 `previewHint`、`net show` 的 `redactedHint`、`no-tab` 的 `lastUrl`）。靶场 s80、`test/e2e/v12a.e2e.test.ts` 8 步本机全过（CfT 157.0.8103.38，macOS arm64）【实测】；单测全过、tsc、validate:skill 过【实测】。
+- 卡在哪：`--file` 第一版照原样发脚本，同一页面第二次运行报 `Identifier 't' has already been declared`【实测】，改为包成一个块语句；这是我定的语义（顶层 `let` / `const` 不留在页面上），请作者确认。为新增的标志更新了两处契约断言：`aliases.test.ts` 的 schema 快照（只多了三个标志和两行 summary / usage）、`context-budget.test.ts` 的 sharedFlags 列表（多 `--ascii`），都是加法。`--ascii` 在 Windows PowerShell 5.1 里的实际显示【待验】（本机没有 Windows；CI 的 Windows 单测只验证输出是 ASCII）。SKILL.md 离 8192 字节上限只剩几十字节，细节放进了 references/recording.md。
+- 下一格从哪开始：格 B（页面卡死：超时后终止执行、`page-busy` 快速失败、`recover`）先做 spike 再写 §55 与 s81；格 C（OS 级输入）先写提案给作者审。

@@ -33,6 +33,7 @@ import { bundleDecode, bundleExportFixtures, bundleExportHar, bundleImportHar, b
 import { listBundles, openRecordings, pruneBundles, renderBundleListText } from "./bundles.ts";
 import { daemonStatus, startDaemon, stopDaemon } from "./client.ts";
 import { schema, type CommandSpec } from "./commands.ts";
+import { evaluateArgs } from "./evalfile.ts";
 import { fetchArgs, fetchClientTimeout } from "./fetch.ts";
 import { fingerprintDiff, fingerprintRefList, fingerprintRefRemove, fingerprintRefShow, fingerprintServe } from "./fingerprint.ts";
 import { guideList, guideOf, renderGuideListText, renderGuideText } from "./guides.ts";
@@ -43,8 +44,12 @@ import { pluginList, pluginSet, siteAdd, siteList, siteRemove } from "./site.ts"
 import { cmdUpdate } from "./update.ts";
 import { wireCaPath, wireServe, wireVersion } from "./wire.ts";
 
-/** One command's outcome: the envelope, its exit code (0 ok, 1 error, 2 usage; -1 keep running) and the text printed instead of it. */
-export type Outcome = { code: number; envelope: Envelope<unknown>; text?: string };
+/**
+ * One command's outcome: the envelope, its exit code (0 ok, 1 error, 2 usage; -1 keep running) and the text printed
+ * instead of it. `ascii`: the caller asked for ASCII-only JSON (`--ascii`, docs/04 §54.3); `jsonLines`: `text` is
+ * JSON, one value per line (`fetch --batch`), so `--ascii` applies to it too.
+ */
+export type Outcome = { code: number; envelope: Envelope<unknown>; text?: string; ascii?: boolean; jsonLines?: boolean };
 
 /**
  * What a handler gets: the command, its parsed arguments, whether `--text`
@@ -128,7 +133,7 @@ function batchOutput(env: OkEnvelope<unknown>): Outcome | null {
   const lines = isRecord(env.data) && Array.isArray(env.data["batch"]) ? env.data["batch"] : null;
   if (lines === null) return null;
   const failed = lines.some((l) => !isRecord(l) || l["ok"] !== true);
-  return { code: failed ? 1 : 0, envelope: env, text: lines.map((l) => JSON.stringify(l)).join("\n") };
+  return { code: failed ? 1 : 0, envelope: env, text: lines.map((l) => JSON.stringify(l)).join("\n"), jsonLines: true };
 }
 
 /** The table, keyed by command path (`net list`, `bundle export har`). Daemon commands without hooks are not listed. */
@@ -173,6 +178,8 @@ export function handlerTable(host: Host): Readonly<Record<string, Handler>> {
     "account bind": local({ run: ({ paths, args }) => accountBind(paths, args) }),
     "account list": local({ run: ({ paths, args }) => accountList(paths, args) }),
     "account set-state": local({ run: ({ paths, args }) => accountSetState(paths, args) }),
+    // docs/04 §54.1 `evaluate --file`: the script is read here, in the caller's working directory.
+    evaluate: daemon({ prepare: (sent) => ({ ...sent, args: evaluateArgs(sent.args) }) }),
     // `html --text` is the daemon's textContent switch, not an output format.
     html: daemon({ jsonOnly: "--text asks the daemon for textContent instead of markup; the answer stays JSON" }),
     // 0.6-A `fetch`: @files and --batch are read here; a batch waits for all its requests.

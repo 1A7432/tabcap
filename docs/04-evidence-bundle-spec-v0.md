@@ -1548,3 +1548,43 @@ suspect 与窗口（D3）：finished 响应、无 `decoded` 视图、body 过 `f
 - 靶场 `05` s79（手写页面，模仿上面实测到的结构，不引入 Element UI）。
 - 单测：可见性判据、行合并、浮层差分、回读比较、`--header-from-storage` 模板解析、`ambiguous-target` 判定、notices 过滤。
 - 实现顺序：先修两个 bug（53.1 → 53.2，连同 53.3 的可见性），再按报告者给的优先级：53.8 `fetch --like` → 53.4 `select` → 53.5 `notices` → 53.6 表格行 → 53.7 `--wait requests`。53.1 是安全问题，最先做。
+
+## 54. 一天真实使用（Windows，老版本）报上来的缺口：小项（11-13 作者定「先做没有的」；格 A 已实现，分支 `1.1-a-small-gaps`，待作者审）
+
+来源：11-13 一份使用反馈（另一台 Windows 机器上的 agent，用的是老版本）。逐条对照 1.0.0 后，约一半建议已有等价命令（`snapshot --css`、`find`、`net show --reveal`、`net body --out` / `--file`、`net grep`、`handoff.detectTakeover`、`bundle list`、`screenshot --ref`），不新增命令；本节只做 1.0.0 里确实没有的小项，并在四处回答里把人引到已有功能上。页面卡死（格 B）与 OS 级输入（格 C）各自成文，不在本节。
+
+### 54.1 `evaluate --file <path>`
+
+- 表达式从文件读，免去 shell 引号与编码问题。CLI 读文件（相对路径按调用者的工作目录），把文本发给守护进程；守护进程与证据包的 `cmd` 事件看到的 `input.expression` 就是实际执行的文本。
+- 文件按**一个块语句**执行（发出去的是 `{` + 文件内容 + 换行 + `}`）：值仍是最后一条表达式语句的值；顶层的 `let` / `const` / `class` 不留在页面上，所以同一个文件能在同一个文档上再跑一次（不包的话第二次是 `SyntaxError: Identifier … has already been declared`【实测：CfT 157，v12a 第 1 步的第一版】）；`var`、函数声明、`window.x = …` 照常留下。左花括号与文件第 1 行同行，报错里的行号就是文件的行号。
+- 编码：UTF-8（有无 BOM 都行），或带 BOM 的 UTF-16 LE / BE（Windows PowerShell 5.1 的 `>` 与 `Out-File` 写的就是它）。其它字节序列（如 GBK）回 `bad-input`，不猜。上限 8 MiB；空文件 `bad-input`；读不到 `not-found`。
+- 不与位置参数的表达式、`--function` 同用（`usage`）。`--await`、`--tab`、`--timeout` 照旧。
+- 不做：`--file -` 读标准输入；`--function` 从文件读。
+
+### 54.2 `screenshot --scale <0.1–1>`
+
+- 把图缩小：`0.5` 是宽高各一半。只缩不放（比页面像素更大的图不多任何信息）；`1` 等于不给。可与 `--full-page`、`--ref` 同用。回答多一个 `scale`（不缩时没有这个字段）。
+- 实现：`Page.captureScreenshot` 只能通过 `clip.scale` 缩放；视口截图因此要自己给 clip = `Page.getLayoutMetrics` 的 `cssVisualViewport`（`pageX`、`pageY`、`clientWidth`、`clientHeight`，页面坐标）【实测：页面滚到纯色带后 `--scale 0.5` 的图是单色，滚回顶部是条纹；宽高是不缩时的一半，v12a 第 3、4 步】。拿不到视口度量时回 `cdp` 错误，不退回不缩的图。
+
+### 54.3 输出只用 ASCII：`--ascii` / `TABCAP_OUTPUT_ASCII=1`
+
+- 新的输出标志（与 `--select` 等一样对所有命令有效，`schema` 的 `sharedFlags` 里列一次）：信封里 U+007F 以上的每个 UTF-16 码元写成 `\uXXXX`。JSON 的语法部分本来就是 ASCII，所以输出仍是同一个 JSON 值，任何解析器读出来的字符串不变；代理对是两个转义。错误信封同样处理。`fetch --batch` 的每行 JSON 同样处理。
+- 为什么：Windows PowerShell 5.1 按控制台代码页（中文系统是 936）解释原生程序的输出，UTF-8 的中文显示成乱码、管道里也被错误解码【推断：反馈所述现象 + PowerShell 文档；本机没有 Windows，未实测】。ASCII 转义不依赖控制台设置。
+- 不改的：默认输出（仍是 UTF-8 原文）；`--text` 的输出与 `--help`（不是 JSON，无法转义）；落盘的文件（一直是 UTF-8）。不去改控制台代码页（会影响同一个终端里的其它程序）。
+
+### 54.4 四处提示（回答字段，不改行为）
+
+| 位置 | 新增 | 说什么 |
+|---|---|---|
+| `waiting`（`human-takeover`）的 `next` | 一句话 | 本机别的程序发的 OS 级按键 / 点击在页面里与真人一样是 trusted，tabcap 分不出来；如果是这种情况，告诉用户，由用户决定是否在 `config.json` 里关 `handoff.detectTakeover`。开关仍只在 `browser start` 时读；agent 不自己改 |
+| `net body` 预览被截断时 | `previewHint` | 预览是前 10000 字符；整份在 `path`；`--out` 复制、`--file` 写解码后的文本、`--grep` / `--lines` 读局部；`--full` 不会加长预览（它只管信封的 16 KB 预算） |
+| `net show` 回答里有 `<redacted:…>` 时 | `redactedHint` | 值在录制里是完整的；`--reveal` 照录制打印（只在人要求时）。`--reveal` 时没有这个字段 |
+| 会话最后一个标签被关后的 `no-tab` | `error.lastUrl`，消息里 `(it was at <url>)` | 被关标签最后的 http(s) URL；`next` 说明 tabcap 不会自己重开（可能是人故意关的），要重开就 `navigate` 过去。`about:blank` 等不给 |
+
+- 不做（作者 11-13 未选，或与设计相悖）：`--ignore-synthetic-input`（页面层分不出注入输入与真人输入）；接管后 N 秒自动恢复（同理，可能在真人打字中途恢复）；标签被关后自动重开；`net find` / `net export` / `query` / `--no-redact`（已有 `net grep`、`bundle export har`、`snapshot --css` / `find`、`--reveal`）。
+- `lastUrl` 与 `tab-taken` 的 `url` 一样照原样给出（守护进程对所有输出做已知秘密值替换，§8.1）。
+
+### 54.5 契约变化（一览）与验证
+
+- 新参数：`evaluate --file`、`screenshot --scale`、输出标志 `--ascii`。新环境变量：`TABCAP_OUTPUT_ASCII`。新回答字段：`screenshot` 的 `scale`、`net body` 的 `previewHint`、`net show` 的 `redactedHint`、`no-tab` 的 `lastUrl`。没有新错误码，没有删改已有字段。
+- 靶场 `05` s80；e2e `test/e2e/v12a.e2e.test.ts`；单测 `test/unit/gaps54.test.ts`、`targets-markclosed.test.ts`（`lastUrl`）。

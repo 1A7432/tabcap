@@ -268,8 +268,18 @@ export class Tabs {
     const tab = s.current === null ? undefined : this.tabs.get(s.current);
     if (tab === undefined || tab.closed) {
       if (s.lastClosed !== null) this.throwTaken(name, s.lastClosed);
-      const why = s.lastClosed !== null ? `session "${name}" tab ${s.lastClosed} was closed` : `session "${name}" has no tab`;
-      throw new TabcapError("no-tab", why, "run navigate first: `tabcap navigate <url>` opens a background tab for this session.");
+      // docs/04 §54.4: the closed tab's last URL, so the caller can open it again; tabcap never reopens a tab by itself.
+      const was = s.lastClosed === null ? undefined : this.tabs.get(s.lastClosed);
+      const at = was !== undefined && /^https?:/i.test(was.url) ? was.url : null;
+      const why = s.lastClosed !== null ? `session "${name}" tab ${s.lastClosed} was closed${at === null ? "" : ` (it was at ${at})`}` : `session "${name}" has no tab`;
+      throw new TabcapError(
+        "no-tab",
+        why,
+        at === null
+          ? "run navigate first: `tabcap navigate <url>` opens a background tab for this session."
+          : "run navigate first: `tabcap navigate <url>` opens a background tab for this session; `lastUrl` is where the closed tab was (tabcap does not reopen a closed tab by itself: the user may have closed it on purpose).",
+        at === null ? {} : { lastUrl: at },
+      );
     }
     return tab;
   }

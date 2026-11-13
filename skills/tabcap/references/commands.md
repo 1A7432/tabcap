@@ -16,6 +16,7 @@ The CLI applies these to the envelope's `data` after the command ran, in this or
 | `--max-matches <n>` | `50` | with --grep: keep at most this many matches (max 1000) (not on snapshot, net body, net grep) |
 | `--fields <a,b,c>` |  | project each array element to these keys |
 | `--full` |  | print data whole even above TABCAP_OUTPUT_LIMIT (default 16384 bytes; above it data becomes {summary, file, bytes, truncated}) (not on screenshot) |
+| `--ascii` |  | print the JSON envelope in ASCII only: every other character as a \uXXXX escape (the same JSON; for consoles that do not decode UTF-8, e.g. Windows PowerShell 5.1); also TABCAP_OUTPUT_ASCII=1; --text output is not changed |
 
 ## Start here
 
@@ -564,10 +565,10 @@ Example: `tabcap dialog accept`
 
 ### `tabcap evaluate`
 
-run JavaScript in the page (an expression, or --function with --args) and return a JSON value (truncated at 60000 chars)
+run JavaScript in the page (an expression, --file with a script, or --function with --args) and return a JSON value (truncated at 60000 chars)
 
 ```
-tabcap evaluate [<expression>] [--session name] [--timeout ms] [--tab t2] [--await] [--function js] [--args json]
+tabcap evaluate [<expression>] [--session name] [--timeout ms] [--tab t2] [--await] [--function js] [--args json] [--file path]
 ```
 
 Example: `tabcap evaluate 'document.title'`
@@ -578,13 +579,14 @@ Example: `tabcap evaluate 'document.title'`
 | `--await` |  | await a returned promise |
 | `--function <js>` |  | a function declaration to call instead of an expression, e.g. '(a, b) => a + b' or 'el => el.innerText' (promises are awaited) |
 | `--args <json>` |  | with --function: JSON array of arguments; {"ref":"e12"} passes that element |
+| `--file <path>` |  | read the expression from this file instead of the command line (no shell quoting): a script whose value is its last expression statement's, run as one block (its top-level let / const / class do not stay on the page, so it can run again; use var or window.x to keep something); UTF-8, or UTF-16 with a byte order mark; at most 8 MiB; not with an expression or --function |
 
 ### `tabcap screenshot`
 
 save an image of the tab, the full page or one element (works on background tabs) → path, width, height (never the image itself)
 
 ```
-tabcap screenshot [--session name] [--timeout ms] [--tab t2] [--target target] [--file-path path] [--full-page] [--format png|jpeg|webp] [--quality 0-100] [--ref e12]
+tabcap screenshot [--session name] [--timeout ms] [--tab t2] [--target target] [--file-path path] [--full-page] [--format png|jpeg|webp] [--quality 0-100] [--ref e12] [--scale 0.1-1]
 ```
 
 Example: `tabcap screenshot --full-page`
@@ -598,6 +600,7 @@ Example: `tabcap screenshot --full-page`
 | `--format <png\|jpeg\|webp>` | `png` | png \| jpeg \| webp |
 | `--quality <0-100>` |  | jpeg / webp quality 0–100 (ignored for png) |
 | `--ref <e12>` |  | only this element (a ref from snapshot) |
+| `--scale <0.1-1>` |  | shrink the image by this factor, 0.1–1 (0.5: half the width and height, a quarter of the pixels); goes with --full-page and --ref |
 
 ### `tabcap resize`
 
